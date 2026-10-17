@@ -311,11 +311,11 @@ async fn a_write_with_an_unknown_field_is_refused_against_live_stack() {
     assert_eq!(
         answer["error"]["message"],
         "The body has the field \"board_level\". This route does not accept that field. The \
-         fields of the body are: name, slug, team_id."
+         fields of the body are: name, slug, team_id, parent_gate, owner_gate."
     );
     assert_eq!(
         answer["error"]["details"],
-        json!({"field": "board_level", "allowed": ["name", "slug", "team_id"]})
+        json!({"field": "board_level", "allowed": ["name", "slug", "team_id", "parent_gate", "owner_gate"]})
     );
     stack
         .refused(

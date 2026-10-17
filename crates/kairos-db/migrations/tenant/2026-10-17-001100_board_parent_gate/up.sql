@@ -1,0 +1,11 @@
+-- KAIROS-T-0641: a board policy. On a delivery board with the policy on, a
+-- task moves into a claims column (Active) only when its parent initiative
+-- is active: in a column named Active or Monitoring, or a bucket.
+--
+-- WHAT THIS DOES TO THE DATA OF A TENANT
+--
+-- 1 new column on boards, true for each board. Only a delivery board reads
+-- it. No other row is changed. A task in Active stays there.
+--
+-- Re-runnable.
+ALTER TABLE boards ADD COLUMN IF NOT EXISTS parent_gate BOOLEAN NOT NULL DEFAULT true;

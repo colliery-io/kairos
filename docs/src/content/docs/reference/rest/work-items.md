@@ -149,7 +149,7 @@ Request body (required): `application/json`, [`CreateInitiativeRequest`](../sche
 |---|---|---|
 | `201` | [`Initiative`](../schemas/#initiative) | Created |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability |
-| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board/column or bad enum value |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board/column, a column that is not the entry column of the board, or bad enum value |
 
 ### `GET /api/initiatives/{short_code}`
 

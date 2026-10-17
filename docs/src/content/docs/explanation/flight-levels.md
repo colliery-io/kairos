@@ -133,6 +133,26 @@ correctness. Separate tables per entity type cost more tables and a UUID space
 shared across them; what they buy is a schema that describes itself and a
 database that can refuse bad data on its own.
 
+The board shows the work in flight only when the levels agree. A task in
+Active under an initiative in Discovery says that work runs, and the initiative
+board says that nothing runs. So a delivery board has the policy `parent_gate`
+(KAIROS-T-0641). With it on, a task moves into a claims column only while its
+parent initiative is in Active or Monitoring. A bucket initiative is always
+active, so intake under it moves freely. A task with no parent initiative also
+moves freely. Kairos refuses the move with `PARENT_NOT_ACTIVE` and names the
+initiative. Kairos does not move the initiative itself: a person decides that
+the initiative starts. The rule checks moves only. A task in Active stays there
+when its initiative leaves Active. An admin can turn the policy off for a board.
+
+The same reasoning goes one level up. An initiative in Active says that
+somebody answers for it, so an initiative board has the policy `owner_gate`
+(KAIROS-T-0643). With it on, an initiative moves into Active only with an
+[owner](../../reference/glossary/#owner), and the owner cannot release it while
+it is in Active or Monitoring. A hand-off to a member of the board changes the
+owner; the work never runs with nobody. An initiative also starts in Discovery,
+the entry column of its board: it reaches Active by moves, so the rule meets
+each initiative that runs.
+
 Rolling *up* through that graph is where one subtlety lives. An item's
 relationship list and its progress rollup answer different questions, and they
 disagree about archived work on purpose: containment is a fact about the

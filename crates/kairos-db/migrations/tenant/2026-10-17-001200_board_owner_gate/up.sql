@@ -1,0 +1,12 @@
+-- KAIROS-T-0643: a board policy. On an initiative board with the policy on,
+-- an initiative moves into its Active column only when it has an owner, and
+-- the owner of an initiative in Active or Monitoring cannot release it.
+--
+-- WHAT THIS DOES TO THE DATA OF A TENANT
+--
+-- 1 new column on boards, true for each board. Only an initiative board
+-- reads it. No other row is changed. An initiative in Active with no owner
+-- stays there.
+--
+-- Re-runnable.
+ALTER TABLE boards ADD COLUMN IF NOT EXISTS owner_gate BOOLEAN NOT NULL DEFAULT true;

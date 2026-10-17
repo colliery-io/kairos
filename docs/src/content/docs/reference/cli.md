@@ -336,7 +336,7 @@ Board placement per noun:
 | `strategies` | `--board <BOARD>` | slug or UUID | required | Board to create the strategy on. |
 | `strategies` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
 | `initiatives` | `--board <BOARD>` | slug or UUID | required | Board to create the initiative on. |
-| `initiatives` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
+| `initiatives` | `--column <COLUMN_ID>` | UUID | the board's first column | Only the entry column (Discovery). An initiative starts there, and a different column is refused with `VALIDATION` (KAIROS-T-0643). |
 | `tasks` | `--board <BOARD>` | slug or UUID | required unless `--team` is given | Delivery board to create the task on. The board decides the team of the task. With `--team` and no `--board`, the task goes to the delivery board of that team. |
 | `tasks` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
 | `documents` | `--board <BOARD>` | slug or UUID | required | The owner board of the document. It gives the right to edit the document, and the code of the document gets the prefix of this board. The document is not a card of the board. |
@@ -880,6 +880,28 @@ Shows the flow metrics of the board for the range:
 
 A cancelled task counts apart from the done items. A range has 366 days at
 most. The definitions are in [`board_flow`](../mcp-tools/#board_flow).
+
+### `kairos boards policy`
+
+```
+kairos boards policy <BOARD> [--parent-gate on|off] [--owner-gate on|off] [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<BOARD>` | slug or UUID | required | The board. |
+| `--parent-gate` | `on` or `off` | unchanged | The policy `parent_gate` of a delivery board. |
+| `--owner-gate` | `on` or `off` | unchanged | The policy `owner_gate` of an initiative board. |
+
+Shows the policies of a board, and sets them. To set a policy, you need
+`configure_boards` on the board. With `parent_gate` on, a task moves to a
+claims column only while its parent initiative is active. Kairos refuses a
+different move with `PARENT_NOT_ACTIVE`.
+
+With `owner_gate` on, an initiative
+moves to Active only with an owner. Kairos refuses a different move with
+`OWNER_REQUIRED`. See
+[`set_board_policy`](../mcp-tools/#set_board_policy).
 
 ### `kairos boards wip-limit`
 

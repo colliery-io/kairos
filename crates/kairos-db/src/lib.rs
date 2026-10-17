@@ -11,6 +11,7 @@ pub mod agent_mark;
 pub mod api_keys;
 pub mod auth_failures;
 pub mod board_items;
+pub mod board_policy;
 pub mod boards;
 pub mod code_index_breakers;
 pub mod code_index_builds;

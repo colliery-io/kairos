@@ -531,6 +531,7 @@ async fn the_team_of_a_board_does_not_change_against_live_stack() {
         name: Some("Platform Delivery".into()),
         slug: None,
         team_id: None,
+        ..Default::default()
     };
     assert_eq!(
         serde_json::to_value(&request).expect("json").get("team_id"),
@@ -550,6 +551,7 @@ async fn the_team_of_a_board_does_not_change_against_live_stack() {
                 name: Some("Moved".into()),
                 slug: None,
                 team_id: Some(Some(data.id.clone())),
+                ..Default::default()
             },
         )
         .await

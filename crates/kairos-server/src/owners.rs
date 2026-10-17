@@ -319,6 +319,23 @@ pub fn release(
              clear the owner."
         )));
     }
+    // KAIROS-T-0643: an initiative in Active or Monitoring keeps an owner
+    // while the board policy owner_gate is on. A hand-off changes it.
+    if owner.is_some()
+        && let Some(column) =
+            kairos_db::board_policy::release_blocked(conn, item_id).map_err(ApiError::internal)?
+    {
+        return Err(ApiError::unprocessable(
+            "OWNER_REQUIRED",
+            format!(
+                "{short_code} is in {column}, and an initiative in Active or Monitoring keeps \
+                 an owner. Hand it to a member of the board: hand_off_item."
+            ),
+        )
+        .with_details(
+            json!({ "column": column, "policy": "owner_gate", "fix": "hand_off_item" }),
+        ));
+    }
     item_owners::clear(conn, item_id, user).map_err(map_owner_error)
 }
 

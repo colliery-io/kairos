@@ -229,6 +229,8 @@ A board (`/api/boards` list element).
 | `created_at` | `string` | yes | RFC 3339. |
 | `id` | `string` | yes | Board id (UUID). |
 | `name` | `string` | yes |  |
+| `owner_gate` | `boolean`, nullable | yes | The board policy `owner_gate` of an initiative board (KAIROS-T-0643): when true, an initiative moves into its Active column only with an owner, and the owner of an initiative in Active or Monitoring cannot release it (a hand-off can change it). A refused move or release is a 422 `OWNER_REQUIRED`. True by default. `null` on each other level. |
+| `parent_gate` | `boolean`, nullable | yes | The board policy `parent_gate` of a delivery board (KAIROS-T-0641): when true, a task moves into a claims column (Active) only while its parent initiative is active (in Active or Monitoring, or a bucket). A move under an initiative that is not active is a 422 `PARENT_NOT_ACTIVE`. True by default. `null` on each other level. |
 | `slug` | `string` | yes |  |
 | `team_id` | `string`, nullable | no | Owning team (UUID). A delivery board has one (COLLIERY-T-0230). An ADR board can have one: the ADR board of the team (COLLIERY-T-3102). A strategy or initiative board has one too (KAIROS-T-0440): the one in the create, or its own team. The ADR board of the organization has none. |
 | `updated_at` | `string` | yes | RFC 3339. |
@@ -661,7 +663,7 @@ Body of `POST /api/initiatives`.
 |---|---|---|---|
 | `board_id` | `string` | yes | Board to create the initiative on — SLUG or UUID (KAIROS-T-0150). |
 | `bucket_type` | `string`, nullable | no | Marks the initiative as a bucket of this kind (`tech_debt|bug|ad_hoc`); `is_bucket` is derived. |
-| `column_id` | `string`, nullable | no | Column to place it in (UUID); defaults to the board's first column. |
+| `column_id` | `string`, nullable | no | The entry column of the board (UUID), the default. An initiative starts in Discovery (KAIROS-T-0643): a different column is a 422 `VALIDATION` on `column_id`. A move takes it on. |
 | `complexity` | `string`, nullable | no | T-shirt sizing (`xs|s|m|l|xl`). |
 | `content` | `string` | no | Markdown content; defaults to empty. |
 | `title` | `string` | yes |  |
@@ -2921,6 +2923,8 @@ Body of `PATCH /api/boards/{id}` (board settings).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | `string`, nullable | no |  |
+| `owner_gate` | `boolean`, nullable | no | The board policy `owner_gate` (KAIROS-T-0643), for an initiative board only: true turns it on, false turns it off. On each other level the field is a 422 `VALIDATION`. |
+| `parent_gate` | `boolean`, nullable | no | The board policy `parent_gate` (KAIROS-T-0641), for a delivery board only: true turns it on, false turns it off. On each other level the field is a 422 `VALIDATION`. |
 | `slug` | `string`, nullable | no |  |
 | `team_id` | `string`, nullable | no | The team of the board (UUID, or null for a board of the organization). The team of a board does not change (COLLIERY-T-0243): a value that is not the team of the board is refused with 422 `BOARD_TEAM_IS_FIXED`. Leave it out, or send the value that the board has. |
 

@@ -85,8 +85,8 @@ const TENANT: &str = "acme";
 
 /// How many tools `tools/list` returns, and the word the reference pages
 /// use for that number (COLLIERY-T-0220, COLLIERY-T-0266).
-const TOOL_COUNT: usize = 70;
-const TOOL_COUNT_WORD: &str = "seventy";
+const TOOL_COUNT: usize = 71;
+const TOOL_COUNT_WORD: &str = "seventy-one";
 
 /// Every request carries a real `Host` header and the tenant resolves from
 /// its subdomain against the configured base domain — the S-0006 REQ-1.2
@@ -691,6 +691,8 @@ async fn mcp_endpoint_against_live_stack() {
         "remove_org_read_token",
         // KAIROS-T-0428: who decides the triage of intake on a board.
         "set_agent_triage",
+        // KAIROS-T-0641: the policies of a board.
+        "set_board_policy",
         // KAIROS-T-0443: team and board administration, as REST.
         "update_team",
         "remove_team_member",

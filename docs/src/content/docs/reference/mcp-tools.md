@@ -3,8 +3,8 @@ title: "MCP tools"
 ---
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-seventy tools. A drift gate in the test suite
-asserts that `tools/list` returns these seventy and no others. The same
+seventy-one tools. A drift gate in the test suite
+asserts that `tools/list` returns these seventy-one and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -23,7 +23,7 @@ organization.
 | URL | Profile | Tools |
 |---|---|---|
 | `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory, claims, notifications, the scales and templates, team pages to read: 40 tools. |
-| `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, dispatch rules and agent triage, the writes of team pages, org read tokens, delete and rebuild of repositories, board flow, purge: the other 30 tools. |
+| `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, dispatch rules and agent triage, the writes of team pages, org read tokens, delete and rebuild of repositories, board flow, purge: the other 31 tools. |
 | `/mcp?profile=all` | all | Each tool. |
 
 You can call each tool under each profile: the profile changes the list,
@@ -154,6 +154,11 @@ here, not from a refused `transition_item`.
 ```text
   moves: Backlog [entry] → Todo | Todo → Active, Blocked | Active [claims, WIP 3] → Completed, Blocked | Blocked → Todo, Active | Completed [done]
 ```
+
+Each delivery board and each initiative board has a `policy:` line with its
+[board policies](#set_board_policy), for example
+`policy: parent_gate on (a task moves to a claims column only while its
+initiative is active)`.
 
 Each ADR board names its team
 (`ADR board of the team <slug>`), or the organization. A team ADR board holds
@@ -915,6 +920,14 @@ it.
 The same applies to each `parent`: the caller who creates an item can link it
 to that parent.
 
+An initiative goes to the entry column of its board (Discovery). It reaches
+each other column by a move (KAIROS-T-0643).
+
+A task goes to the entry column of its board. When that column holds claims,
+the create is a move into a claims column. Then the policy `parent_gate` of
+the board applies to the `parent`. An initiative that is not active gives
+`PARENT_NOT_ACTIVE`, and Kairos creates nothing.
+
 A document must have an owner board. The call must have `board`, with
 `parent` or with no `parent`. The owner board can be a live board of each
 level. The caller needs `manage_documents` on that board.
@@ -1293,6 +1306,13 @@ target outside the board's transition graph, enumerating the allowed targets;
 entry column) while the board lets a person decide the triage. A task a
 person triaged out of the entry column moves as any other.
 
+Kairos also refuses `PARENT_NOT_ACTIVE` for a task that goes into a claims
+column under an inactive initiative. The board policy `parent_gate` sets this
+rule. See [`set_board_policy`](#set_board_policy).
+
+Kairos refuses `OWNER_REQUIRED` for an initiative that goes into Active with
+no owner. The board policy `owner_gate` sets this rule.
+
 ### `move_item`
 
 Moves a task to another delivery board. It lands in that board's entry column
@@ -1311,6 +1331,9 @@ Requires `manage_tasks` on both the task's current board and the target. A
 move is not an edit. The creator of the task gets no right to move it.
 
 The task keeps its repository. The move does not look at the repository.
+
+The entry column of the target board can hold claims. Then the policy
+`parent_gate` of the target board applies, as for `transition_item`.
 
 Column-to-column moves on an item's own board are `transition_item`, not this
 tool.
@@ -1497,6 +1520,8 @@ Refuses:
 - `NOT_CLAIMABLE` for a task that is not in Active.
 - `NO_CLAIM` for a task that has no claim.
 - `NO_OWNER` for a strategy or an initiative that has no owner.
+- `OWNER_REQUIRED` for an initiative in Active or Monitoring, on a board with
+  the policy `owner_gate` on. Hand it off with `hand_off_item`.
 
 ### `cancel_item`
 
@@ -2448,6 +2473,38 @@ With the setting on, the agent's move works, and the activity log gets a line
 
 Requires `configure_boards` on the board. REST:
 `GET` and `PUT /api/boards/{id}/agent-triage`.
+
+### `set_board_policy`
+
+Sets the policies of a board (KAIROS-T-0641, KAIROS-T-0643). Each policy is
+on or off per board.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `board` | string | yes | — | Slug or UUID. |
+| `parent_gate` | boolean | no | — | A delivery board only. `true`: a task moves into a claims column only while its parent initiative is active. `false`: no check. |
+| `owner_gate` | boolean | no | — | An initiative board only. `true`: an initiative moves into Active only with an owner, and the owner of an initiative in Active or Monitoring cannot release it. `false`: no check. |
+
+`parent_gate` is on by default. With it on, a task moves into a claims column
+only while its parent initiative is in Active or Monitoring. A bucket
+initiative is always active. A task with no parent initiative moves freely.
+
+The check runs on a transition, a move to the board and a create. A refused
+move is `PARENT_NOT_ACTIVE`. A task that is in Active already stays there.
+
+`owner_gate` is on by default. With it on, an initiative moves into its Active
+column only with an owner. A move from Active to Monitoring needs no check:
+the initiative has an owner already.
+
+In Active and in Monitoring, Kairos refuses a release of the owner, also for
+an organization admin. A hand-off to a member
+of the board changes the owner. The refusal is `OWNER_REQUIRED`. An
+initiative in Active with no owner stays there.
+
+Send at least one policy. A policy of a different level of board is
+`VALIDATION`. `my_boards` shows the policies of each board.
+
+Requires `configure_boards` on the board. REST: `PATCH /api/boards/{id}`.
 
 ### `list_dispatch_rules`
 

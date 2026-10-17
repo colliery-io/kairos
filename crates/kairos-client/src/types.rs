@@ -462,7 +462,9 @@ pub struct CreateStrategyRequest {
 pub struct CreateInitiativeRequest {
     /// Board to create the initiative on — SLUG or UUID (KAIROS-T-0150).
     pub board_id: String,
-    /// Column to place it in (UUID); defaults to the board's first column.
+    /// The entry column of the board (UUID), the default. An initiative
+    /// starts in Discovery (KAIROS-T-0643): a different column is a 422
+    /// `VALIDATION` on `column_id`. A move takes it on.
     #[serde(default)]
     pub column_id: Option<String>,
     pub title: String,

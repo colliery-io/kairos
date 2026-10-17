@@ -176,7 +176,13 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     // Move some other seeded task (never PLATFORM-T-0001 — the edit step below
     // needs it stationary in Active — and never the created card whose
     // DOM node we are watching). Dynamic pick keeps this retry-safe.
-    const move = await pickMovableTask(GUI, token, ['PLATFORM-T-0001', createdCode]);
+    // Never PLATFORM-T-0003 either: its initiative is in Design, so a move
+    // to Active is PARENT_NOT_ACTIVE (KAIROS-T-0641).
+    const move = await pickMovableTask(GUI, token, [
+      'PLATFORM-T-0001',
+      'PLATFORM-T-0003',
+      createdCode,
+    ]);
     await transitionTask(GUI, token, move.code, move.toColumnId);
 
     // WS-driven: expect-polling, no sleeps.

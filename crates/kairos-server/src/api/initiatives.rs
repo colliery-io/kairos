@@ -166,7 +166,7 @@ pub(crate) async fn get_initiative(
     responses(
         (status = 201, description = "Created", body = dto::Initiative),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
-        (status = 422, description = "Unknown board/column or bad enum value", body = dto::ErrorEnvelope),
+        (status = 422, description = "Unknown board/column, a column that is not the entry column of the board, or bad enum value", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_initiative(
@@ -194,6 +194,21 @@ pub(crate) async fn create_initiative(
         .run(&tenant.slug, move |conn| {
             let board_id = board_id_by_ref(conn, &body.board_id)?;
             require_capability(conn, &slug, Some(board_id), user, MANAGE)?;
+            // KAIROS-T-0643 (Dylan, 2026-10-17): an initiative starts in the
+            // entry column of its board (Discovery). It reaches each other
+            // column by a move, so the board rules apply.
+            if let Some(column_id) = column_id {
+                let entry =
+                    kairos_db::boards::entry_column(conn, board_id).map_err(ApiError::internal)?;
+                if entry != Some(column_id) {
+                    return Err(ApiError::validation(
+                        "An initiative starts in the entry column of its board (Discovery). \
+                         Leave out column_id, or send the entry column. Then move the \
+                         initiative with a transition.",
+                    )
+                    .with_details(json!({ "field": "column_id" })));
+                }
+            }
             let created = items::create_initiative(
                 conn,
                 items::CreateInitiative {

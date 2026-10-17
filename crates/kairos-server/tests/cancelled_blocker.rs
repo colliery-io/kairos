@@ -288,6 +288,9 @@ async fn a_cancelled_blocker_still_blocks() {
             .expect("team member");
     }
     let board = web.delivery_board_id.clone().expect("web board");
+    // KAIROS-T-0641: the tasks walk to Active under an initiative that
+    // stays in Discovery.
+    common::parent_gate_off(&admin, &board).await;
     let detail = admin.get_board(&board).await.expect("board");
     let slug = detail.board.slug.clone();
     let columns: HashMap<String, String> = detail

@@ -187,6 +187,34 @@ pub enum BoardError {
     /// A board configuration rule was violated.
     #[error(transparent)]
     Rule(#[from] rules::ColumnRuleError),
+    /// The board policy `parent_gate` (KAIROS-T-0641,
+    /// [`crate::board_policy`]): the task goes into a claims column, and its
+    /// parent initiative is not active.
+    #[error(
+        "{task} cannot move to {to_column}. Its initiative {initiative} is in \
+         {initiative_column}. A task moves to {to_column} only while its initiative is in \
+         Active or Monitoring. Move {initiative} to Active first: transition_item. Then move \
+         the task."
+    )]
+    ParentNotActive {
+        task: String,
+        to_column: String,
+        initiative: String,
+        initiative_column: String,
+        board_id: Uuid,
+    },
+    /// The board policy `owner_gate` (KAIROS-T-0643,
+    /// [`crate::board_policy`]): the initiative goes into its Active column,
+    /// and it has no owner.
+    #[error(
+        "{initiative} has no owner. An initiative moves to {to_column} only with an owner. \
+         Claim it first: claim_item. Or hand it to a member of the board: hand_off_item."
+    )]
+    OwnerRequired {
+        initiative: String,
+        to_column: String,
+        board_id: Uuid,
+    },
     /// Any other database error.
     #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
@@ -1094,6 +1122,14 @@ macro_rules! transition_item_fn {
 
                 let (from_name, to_name) =
                     validate_transition(conn, board_id, from_column_id, to_column_id)?;
+                // KAIROS-T-0641: the board policy parent_gate.
+                if $entity_type == "task" {
+                    crate::board_policy::check_active_parent(conn, item_id, to_column_id)?;
+                }
+                // KAIROS-T-0643: the board policy owner_gate.
+                if $entity_type == "initiative" {
+                    crate::board_policy::check_owner(conn, item_id, to_column_id)?;
+                }
 
                 let updated = diesel::update(
                     dsl::$table
@@ -1276,6 +1312,9 @@ pub fn move_task_with(
         }
         let to_column_id =
             entry_column(conn, to_board_id)?.ok_or(BoardError::NoEntryColumn(to_board_id))?;
+        // KAIROS-T-0641: the entry column can hold claims; the policy of the
+        // target board decides.
+        crate::board_policy::check_active_parent(conn, task_id, to_column_id)?;
 
         diesel::update(dsl::tasks.filter(dsl::id.eq(task_id)))
             .set((

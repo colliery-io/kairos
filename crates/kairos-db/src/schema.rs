@@ -108,6 +108,8 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         code_prefix -> Text,
+        parent_gate -> Bool,
+        owner_gate -> Bool,
     }
 }
 

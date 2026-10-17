@@ -438,3 +438,21 @@ impl TestServer {
         KairosClient::with_static_token(&self.base_url, token)
     }
 }
+
+/// Turn the board policy `parent_gate` off for the board (KAIROS-T-0641),
+/// for a fixture that walks a task to Active under an initiative that it
+/// does not walk to Active. The client needs `configure_boards` on the
+/// board. `board` is the slug or the id of the board.
+pub async fn parent_gate_off(client: &KairosClient, board: &str) {
+    let detail = client.get_board(board).await.expect("the board");
+    client
+        .update_board(
+            &detail.board.id,
+            &kairos_client::types_org::UpdateBoardRequest {
+                parent_gate: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("parent_gate off");
+}

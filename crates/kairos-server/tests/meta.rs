@@ -489,7 +489,8 @@ async fn meta_endpoints_against_live_stack() {
             .clone()
     };
     // svc is the org admin — transition_items is not among alice's grants
-    // in this fixture.
+    // in this fixture. KAIROS-T-0641: the initiative stays in Discovery.
+    common::parent_gate_off(&svc, &delivery_board.to_string()).await;
     for column in ["Todo", "Active", "Completed"] {
         svc.transition_task(&t1_code, &column_id_of(column))
             .await

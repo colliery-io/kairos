@@ -571,9 +571,19 @@ pub(crate) fn create(
 /// update writes nothing (COLLIERY-T-0255). The refusal names the slug and
 /// the board that has it. A board can keep its slug in an update.
 ///
-/// The body has the fields `name`, `slug` and `team_id` only. A different
-/// field of the board (`id`, `board_level`) is a 422 `VALIDATION` that
-/// names the field (COLLIERY-T-0249).
+/// The body has the fields `name`, `slug`, `team_id`, `parent_gate` and
+/// `owner_gate` only. A different field of the board (`id`, `board_level`) is a 422
+/// `VALIDATION` that names the field (COLLIERY-T-0249).
+///
+/// `parent_gate` sets a board policy of a delivery board (KAIROS-T-0641).
+/// With the policy on, a task moves into a claims column only while its
+/// parent initiative is active. On a board of a different level, the field
+/// is a 422 `VALIDATION`.
+///
+/// `owner_gate` sets a board policy of an initiative board (KAIROS-T-0643).
+/// With the policy on, an initiative moves into its Active column only with
+/// an owner. On a board of a different level, the field is a 422
+/// `VALIDATION`.
 ///
 /// The short-code prefix of a board does not change (COLLIERY-T-3099). A
 /// body with `code_prefix` is a 422 `CODE_PREFIX_IS_FIXED` that says so
@@ -612,10 +622,16 @@ pub(crate) async fn update_board(
         .transpose()?;
     let nothing_to_update = || {
         ApiError::validation(
-            "The request has no field to change. Send one or more of name, slug and team_id.",
+            "The request has no field to change. Send one or more of name, slug, team_id, \
+             parent_gate and owner_gate.",
         )
     };
-    if body.name.is_none() && body.slug.is_none() && sent_team.is_none() {
+    if body.name.is_none()
+        && body.slug.is_none()
+        && sent_team.is_none()
+        && body.parent_gate.is_none()
+        && body.owner_gate.is_none()
+    {
         return Err(nothing_to_update());
     }
     let user = auth.user_id;
@@ -630,9 +646,18 @@ pub(crate) async fn update_board(
             // a body with only a different team gets the refusal that
             // tells the caller what to do.
             boards::check_board_team(&board, sent_team).map_err(map_config_error)?;
-            if body.name.is_none() && body.slug.is_none() {
+            if body.name.is_none()
+                && body.slug.is_none()
+                && body.parent_gate.is_none()
+                && body.owner_gate.is_none()
+            {
                 return Err(nothing_to_update());
             }
+            let policies = PolicyChange {
+                parent_gate: body.parent_gate,
+                owner_gate: body.owner_gate,
+            };
+            check_policies(&board, policies)?;
             // COLLIERY-T-0258: the form of a slug that the caller sent. A
             // board keeps a slug from before the rule, so a request that
             // sends the slug that the board has is not a change.
@@ -649,36 +674,142 @@ pub(crate) async fn update_board(
                 slug: body.slug.clone().filter(|new| *new != board.slug),
                 ..Default::default()
             };
-            if changes.name.is_none() && changes.slug.is_none() {
-                return Ok(board.into_dto());
+            let mut updated = board.clone();
+            if changes.name.is_some() || changes.slug.is_some() {
+                // COLLIERY-T-0255: two live boards cannot have the same slug.
+                if let Some(new_slug) = changes.slug.as_deref() {
+                    boards::check_board_slug(conn, new_slug, Some(board_id))
+                        .map_err(map_config_error)?;
+                }
+                let written = diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
+                    .set((changes, dsl::updated_at.eq(diesel::dsl::now)))
+                    .returning(Board::as_returning())
+                    .get_result::<Board>(conn);
+                // An update at the same time got the slug first: the index
+                // refused this one. The refusal has the same form.
+                updated = written.map_err(|e| {
+                    let slug = body.slug.as_deref().unwrap_or(&board.slug);
+                    map_config_error(boards::slug_violation(conn, slug, Some(board_id), e))
+                })?;
+                log_activity(
+                    conn,
+                    user,
+                    ActivityAction::BoardConfig,
+                    board_id,
+                    "board",
+                    format!("board_settings:{}", updated.slug),
+                )?;
             }
-            // COLLIERY-T-0255: two live boards cannot have the same slug.
-            if let Some(new_slug) = changes.slug.as_deref() {
-                boards::check_board_slug(conn, new_slug, Some(board_id))
-                    .map_err(map_config_error)?;
+            if apply_policies(conn, user, &board, policies)? {
+                updated = load_board(conn, board_id)?;
             }
-            let updated = diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
-                .set((changes, dsl::updated_at.eq(diesel::dsl::now)))
-                .returning(Board::as_returning())
-                .get_result::<Board>(conn);
-            // An update at the same time got the slug first: the index
-            // refused this one. The refusal has the same form.
-            let updated = updated.map_err(|e| {
-                let slug = body.slug.as_deref().unwrap_or(&board.slug);
-                map_config_error(boards::slug_violation(conn, slug, Some(board_id), e))
-            })?;
-            log_activity(
-                conn,
-                user,
-                ActivityAction::BoardConfig,
-                board_id,
-                "board",
-                format!("board_settings:{}", updated.slug),
-            )?;
             Ok(updated.into_dto())
         })
         .await?;
     Ok(Json(updated))
+}
+
+/// The board policies that a request sends (KAIROS-T-0641). `None`: the
+/// request leaves the policy as it is.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct PolicyChange {
+    /// `parent_gate`, a policy of a delivery board.
+    pub parent_gate: Option<bool>,
+    /// `owner_gate`, a policy of an initiative board (KAIROS-T-0643).
+    pub owner_gate: Option<bool>,
+}
+
+impl PolicyChange {
+    /// True when the request sends no policy.
+    pub(crate) fn is_empty(self) -> bool {
+        self.parent_gate.is_none() && self.owner_gate.is_none()
+    }
+}
+
+/// Refuse a policy that the level of the board does not read: 422
+/// `VALIDATION` that names the field.
+pub(crate) fn check_policies(board: &Board, change: PolicyChange) -> Result<(), ApiError> {
+    if change.parent_gate.is_some() && board.board_level != BoardLevel::Delivery {
+        return Err(ApiError::validation(format!(
+            "The board {} is a {} board. parent_gate is a policy of a delivery board only. \
+             Leave out parent_gate.",
+            board.slug, board.board_level
+        ))
+        .with_details(json!({ "field": "parent_gate" })));
+    }
+    if change.owner_gate.is_some() && board.board_level != BoardLevel::Initiative {
+        return Err(ApiError::validation(format!(
+            "The board {} is a {} board. owner_gate is a policy of an initiative board only. \
+             Leave out owner_gate.",
+            board.slug, board.board_level
+        ))
+        .with_details(json!({ "field": "owner_gate" })));
+    }
+    Ok(())
+}
+
+/// Write each policy that changes, with one activity entry each
+/// (`parent_gate:true`). The caller checked `configure_boards` and
+/// [`check_policies`]. True when a policy changed.
+pub(crate) fn apply_policies(
+    conn: &mut PgConnection,
+    user: Uuid,
+    board: &Board,
+    change: PolicyChange,
+) -> Result<bool, ApiError> {
+    let mut changed = false;
+    if let Some(on) = change.parent_gate
+        && kairos_db::board_policy::set_parent_gate(conn, board.id, on)
+            .map_err(ApiError::internal)?
+    {
+        log_activity(
+            conn,
+            user,
+            ActivityAction::BoardConfig,
+            board.id,
+            "board",
+            format!("parent_gate:{on}"),
+        )?;
+        changed = true;
+    }
+    if let Some(on) = change.owner_gate
+        && kairos_db::board_policy::set_owner_gate(conn, board.id, on)
+            .map_err(ApiError::internal)?
+    {
+        log_activity(
+            conn,
+            user,
+            ActivityAction::BoardConfig,
+            board.id,
+            "board",
+            format!("owner_gate:{on}"),
+        )?;
+        changed = true;
+    }
+    Ok(changed)
+}
+
+/// Set the policies of a board, by slug or id (the MCP tool
+/// `set_board_policy`). Needs `configure_boards`. Returns the board.
+pub(crate) fn set_board_policy_as(
+    conn: &mut PgConnection,
+    slug: &str,
+    user: Uuid,
+    board_ref: &str,
+    change: PolicyChange,
+) -> Result<Board, ApiError> {
+    let board = load_board_by_ref(conn, board_ref)?;
+    require_capability(conn, slug, Some(board.id), user, CONFIGURE)?;
+    if change.is_empty() {
+        return Err(ApiError::validation(
+            "The request has no policy to set. Send parent_gate or owner_gate.",
+        ));
+    }
+    check_policies(&board, change)?;
+    if apply_policies(conn, user, &board, change)? {
+        return load_board(conn, board.id);
+    }
+    Ok(board)
 }
 
 /// Soft-delete a board. Only allowed when NO workflow item references it

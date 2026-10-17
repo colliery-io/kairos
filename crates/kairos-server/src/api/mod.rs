@@ -1030,6 +1030,33 @@ pub fn map_board_error(e: BoardError) -> ApiError {
                 .collect::<Vec<_>>(),
         })),
         BoardError::Transition(e) => ApiError::unprocessable("INVALID_TRANSITION", e.to_string()),
+        // KAIROS-T-0641: the board policy parent_gate.
+        BoardError::ParentNotActive {
+            ref initiative,
+            ref initiative_column,
+            ref to_column,
+            board_id,
+            ..
+        } => ApiError::unprocessable("PARENT_NOT_ACTIVE", e.to_string()).with_details(json!({
+            "initiative": initiative,
+            "initiative_column": initiative_column,
+            "to_column": to_column,
+            "board_id": board_id,
+            "policy": "parent_gate",
+            "fix": format!("transition_item {initiative} Active"),
+        })),
+        // KAIROS-T-0643: the board policy owner_gate.
+        BoardError::OwnerRequired {
+            ref initiative,
+            ref to_column,
+            board_id,
+        } => ApiError::unprocessable("OWNER_REQUIRED", e.to_string()).with_details(json!({
+            "initiative": initiative,
+            "to_column": to_column,
+            "board_id": board_id,
+            "policy": "owner_gate",
+            "fix": format!("claim_item {initiative}"),
+        })),
         BoardError::ColumnNotFound(id) => {
             ApiError::validation(format!("The column {id} does not exist."))
         }

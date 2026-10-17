@@ -263,6 +263,7 @@ async fn a_board_always_has_a_team_against_live_stack() {
                 name: None,
                 slug: Some("platform-work".into()),
                 team_id: None,
+                ..Default::default()
             },
         )
         .await

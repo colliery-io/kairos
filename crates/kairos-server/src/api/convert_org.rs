@@ -24,6 +24,12 @@ impl IntoDto<dto::Board> for Board {
             board_level: self.board_level.to_string(),
             team_id: self.team_id.map(|id| id.to_string()),
             code_prefix: self.code_prefix,
+            // KAIROS-T-0641: only a delivery board reads parent_gate.
+            parent_gate: (self.board_level == kairos_db::models::enums::BoardLevel::Delivery)
+                .then_some(self.parent_gate),
+            // KAIROS-T-0643: only an initiative board reads owner_gate.
+            owner_gate: (self.board_level == kairos_db::models::enums::BoardLevel::Initiative)
+                .then_some(self.owner_gate),
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
         }

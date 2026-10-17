@@ -20,7 +20,8 @@ agent to call `my_boards` / `board_items` over the already-authenticated
 kairos MCP connection for live items. Offline degrades to a note, never a
 failure.
 
-Not configured (no kairos.local.md) -> silent exit 0. Python stdlib only.
+In a worktree the wiring is the file of its clone (KAIROS-T-0520,
+`wiring_path`). Not configured (no kairos.local.md) -> silent exit 0. Python stdlib only.
 """
 
 import json
@@ -40,6 +41,164 @@ FRONTMATTER_KEYS = (
     "initiative_board",
     "adr_board",
 )
+
+
+WIRING_FILE = os.path.join(".claude", "kairos.local.md")
+
+
+def wiring_path(project_dir=None):
+    """The path of the wiring of a session, or None (KAIROS-T-0520).
+
+    First `<project>/.claude/kairos.local.md`. The file is git-excluded, so
+    a worktree has none: then the file of the main clone, the folder above
+    `git rev-parse --git-common-dir`. Each hook reads the wiring with this."""
+    project = project_dir or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    path = os.path.join(project, WIRING_FILE)
+    if os.path.isfile(path):
+        return path
+    if not os.path.exists(os.path.join(project, ".git")):
+        return None  # not a checkout: no git call, no clone to look in
+    try:
+        out = subprocess.run(
+            ["git", "-C", project, "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    common = out.stdout.strip()
+    if out.returncode != 0 or not common:
+        return None
+    clone = os.path.dirname(os.path.realpath(os.path.join(project, common)))
+    path = os.path.join(clone, WIRING_FILE)
+    return path if os.path.isfile(path) else None
+
+
+def git_out(folder, *args, timeout=1.0):
+    """The stripped stdout of `git -C folder args`, or None on an error."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", folder, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def normalized_remote(url):
+    """A remote URL as `host/path`, in lower case, with no scheme, user,
+    `.git` or `/` at the end (the rule of `normalized_remote` in the CLI):
+    `git@github.com:a/b.git` and `https://github.com/a/b` give
+    `github.com/a/b`. A user or a token in the URL is never printed."""
+    url = url.strip()
+    if "://" in url:
+        rest = url.split("://", 1)[1]
+    else:
+        rest = url.replace(":", "/", 1)  # scp form: user@host:path
+    rest = rest.rsplit("@", 1)[-1]
+    rest = rest.rstrip("/")
+    if rest.endswith(".git"):
+        rest = rest[: -len(".git")]
+    return rest.lower()
+
+
+def default_branch(folder):
+    """The default branch of origin from the local refs: `origin/HEAD`, else
+    `main`, else `master`. None when origin has no such ref."""
+    head = git_out(folder, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    if head and head.startswith("origin/"):
+        return head[len("origin/"):]
+    for name in ("main", "master"):
+        if git_out(folder, "rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{name}"):
+            return name
+    return None
+
+
+MAX_CHECKOUTS = 40
+
+
+def board_checkouts(folder, seconds=2.0, clock=time.monotonic):
+    """The git checkouts in the immediate subfolders of a board folder
+    (KAIROS-T-0521), sorted by name. Each is a dict: `name`, `worktree`
+    (True when `.git` is a file), `clone` (the folder name of the clone of a
+    worktree), `branch`, `remote` (normalized, or None), `default` and
+    `behind` (commits behind `origin/<default>`, from the local refs: the
+    hook runs no fetch). Empty when the folder is itself a checkout. The
+    scan stops after MAX_CHECKOUTS checkouts or `seconds`: then the last
+    entry is `{"stopped": True}`."""
+    deadline = clock() + seconds
+    if os.path.exists(os.path.join(folder, ".git")):
+        return []
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return []
+    checkouts = []
+    for name in names:
+        path = os.path.join(folder, name)
+        dot_git = os.path.join(path, ".git")
+        if name.startswith(".") or not os.path.exists(dot_git):
+            continue
+        if len(checkouts) == MAX_CHECKOUTS or clock() > deadline:
+            checkouts.append({"stopped": True})
+            break
+        entry = {"name": name, "worktree": os.path.isfile(dot_git), "clone": None}
+        if entry["worktree"]:
+            common = git_out(path, "rev-parse", "--git-common-dir")
+            if common:
+                clone = os.path.dirname(os.path.realpath(os.path.join(path, common)))
+                entry["clone"] = os.path.basename(clone)
+        branch = git_out(path, "rev-parse", "--abbrev-ref", "HEAD")
+        entry["branch"] = "(detached HEAD)" if branch == "HEAD" else branch
+        url = git_out(path, "config", "--get", "remote.origin.url")
+        entry["remote"] = normalized_remote(url) if url else None
+        entry["default"] = default_branch(path) if url else None
+        entry["behind"] = None
+        if entry["default"]:
+            count = git_out(path, "rev-list", "--count", f"HEAD..origin/{entry['default']}")
+            if count and count.isdigit():
+                entry["behind"] = int(count)
+        checkouts.append(entry)
+    return checkouts
+
+
+def checkouts_text(checkouts):
+    """The lines of the board folder for the context (pure; testable)."""
+    if not checkouts:
+        return None
+    lines = [
+        "Clones here (this is a board folder; the counts are from the local "
+        "refs, as of the last fetch):"
+    ]
+    for entry in checkouts:
+        if entry.get("stopped"):
+            lines.append("- (the list stops here: more checkouts are not listed)")
+            continue
+        parts = []
+        if entry["worktree"]:
+            parts.append(
+                f"worktree of {entry['clone']}/" if entry["clone"] else "worktree"
+            )
+        parts.append(
+            f"remote {entry['remote']}" if entry["remote"] else "no origin remote"
+        )
+        if entry["branch"]:
+            parts.append(f"branch {entry['branch']}")
+        if entry["default"] is not None and entry["behind"] is not None:
+            parts.append(f"{entry['behind']} behind origin/{entry['default']}")
+        elif entry["remote"]:
+            parts.append("no origin default branch in the local refs")
+        lines.append(f"- {entry['name']}/: " + ", ".join(parts))
+    lines.append(
+        "Match each remote with the full name of a repository in "
+        "`list_repositories` to find the clone of the repository of a task. "
+        "Work in a worktree of that clone, not in the clone (/kairos:implement)."
+    )
+    return "\n".join(lines)
 
 
 def read_frontmatter(path):
@@ -90,10 +249,11 @@ def probe(url, timeout=3):
         )
 
 
-def live_state_hint(values):
+def live_state_hint(values, board_folder=False):
     """The instruction that points the agent at live state over MCP. With a
     `repository` the session is repo-scoped (KAIROS-A-0019); without one it
-    is board-scoped, exactly as before T-0108."""
+    is board-scoped, exactly as before T-0108. In a board folder (clones,
+    no checkout of its own: KAIROS-T-0521) there is no bootstrap advice."""
     repository = values.get("repository")
     # `team_board` is a board SLUG (what `board_items` resolves), per the
     # bootstrap contract.
@@ -126,13 +286,22 @@ def live_state_hint(values):
             "MCP client holds the authenticated session; this hook "
             "intentionally carries no credentials."
         )
+    if board_folder:
+        scope = (
+            "No `repository` is wired: this is a board folder. Pick the task, "
+            "then open the clone of its repository (the list above)."
+        )
+    else:
+        scope = (
+            "No `repository` is wired: re-run /kairos:bootstrap to detect it "
+            "from the git remote and get a repo-scoped queue."
+        )
     return (
         "For live board state, call the kairos MCP tools now: `my_boards`, "
         f"then `board_items` for the team board ({team_board}) to see "
-        "active/todo items and standing buckets. No `repository` is wired: "
-        "re-run /kairos:bootstrap to detect it from the git remote and get a "
-        "repo-scoped queue. The MCP client holds the authenticated session; "
-        "this hook intentionally carries no credentials."
+        f"active/todo items and standing buckets. {scope} The MCP client "
+        "holds the authenticated session; this hook intentionally carries no "
+        "credentials."
     )
 
 
@@ -205,8 +374,9 @@ def cli_note(cli, server, plugin=None):
     )
 
 
-def build_context(values, status, note=None):
-    """The full additionalContext text (pure; testable)."""
+def build_context(values, status, note=None, checkouts=None):
+    """The full additionalContext text (pure; testable). `checkouts`: the
+    list of `board_checkouts` in a board folder."""
     lines = [
         "Kairos wiring for this repo (.claude/kairos.local.md; "
         "re-run /kairos:bootstrap to change):",
@@ -216,8 +386,11 @@ def build_context(values, status, note=None):
     lines.append(f"- status: {status}")
     if note:
         lines.append(note)
+    clones = checkouts_text(checkouts or [])
+    if clones:
+        lines.append(clones)
     if "NOT reachable" not in status and values.get("deployment_url"):
-        lines.append(live_state_hint(values))
+        lines.append(live_state_hint(values, board_folder=bool(clones)))
     return "\n".join(lines)
 
 
@@ -238,9 +411,8 @@ def main():
     except ValueError:
         payload = None
     session = payload.get("session_id") if isinstance(payload, dict) else None
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    config_path = os.path.join(project_dir, ".claude", "kairos.local.md")
-    if not os.path.isfile(config_path):
+    config_path = wiring_path()
+    if not config_path:
         return  # not a Kairos-bootstrapped repo: stay silent
 
     values = read_frontmatter(config_path)
@@ -252,7 +424,8 @@ def main():
         server = server_version(deployment, budget.left())
     note = cli_note(cli_version(budget.left()), server, plugin_version())
 
-    context = build_context(values, status, note)
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    context = build_context(values, status, note, board_checkouts(project_dir))
     rules = rules_at_start(values, session)
     if rules:
         context = context + "\n\n" + rules

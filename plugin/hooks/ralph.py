@@ -287,15 +287,17 @@ def begin(session, state):
 PROCEDURE = """Each task goes through the steps of /kairos:implement (the `implement` skill). Do them in this sequence, and do not skip one:
 
 1. `get_item` the task. If the task is in the Completed column, go to the next task.
-2. Do the repository check: the repository of the task must be the repository of this checkout.
+2. Do the repository check: find a clone that has the repository of the task as its origin. It is this checkout, its clone, or a clone in this board folder.
 3. Make sure that the task is workable: it has acceptance criteria that you can check, and no open blocker.
 4. `transition_item` the task to Todo if necessary, then to Active, before the first change.
-5. Do the work. Every few steps, write a short progress note on the task with `append_note`. End each note with a `Next step:` line.
-6. Do the completion gate. Run the formatter check, the linter with warnings denied, and the full test suite.
-7. For each acceptance criterion, write the command and its output on the task as evidence.
-8. Review the diff (the `kairos:code-review` skill). Commit to the current branch.
-9. Follow the commit rules of the repository and of the user. An example: a rule that forbids a session line in a commit.
-10. `transition_item` the task to Completed. Then go to the next task.
+5. Open the work in a worktree, as the "Open the work" step of /kairos:implement says. Run `git -C <clone> fetch origin <default>`. Then run `git -C <clone> worktree add ../wt-<code> -b <code> origin/<default>`, with the code in lower case. Make sure that the origin of the worktree is the repository of the task. Call `fetch_index` with the worktree as `root`. Write the branch with `set_state`.
+6. Do the work in the worktree. Use `git -C <worktree>` and absolute paths. Every few steps, write a short progress note on the task with `append_note`. End each note with a `Next step:` line.
+7. Do the completion gate. Run the formatter check, the linter with warnings denied, and the full test suite.
+8. For each acceptance criterion, write the command and its output on the task as evidence.
+9. Review the diff (the `kairos:code-review` skill). Commit in the worktree, on the branch of the task.
+10. Follow the commit rules of the repository and of the user. An example: a rule that forbids a session line in a commit.
+11. Close the work, as /kairos:implement says. When the branch is pushed and the PR is open, remove the worktree. Else keep the worktree and write its path in the closing note.
+12. `transition_item` the task to Completed. Then go to the next task.
 
 Stop the loop, and do not guess, when one of these conditions occurs:
 - a task is in the Blocked column;

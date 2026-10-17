@@ -465,9 +465,8 @@ def cmd_compact(payload):
     session = payload.get("session_id")
     if not isinstance(session, str) or not SESSION_ID.match(session):
         return
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    config_path = os.path.join(project_dir, ".claude", "kairos.local.md")
-    if not os.path.isfile(config_path):
+    config_path = session_start.wiring_path()
+    if not config_path:
         return
     values = session_start.read_frontmatter(config_path)
     context = build_context(values, read_record(session), session)

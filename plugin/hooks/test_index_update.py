@@ -91,6 +91,9 @@ class Harness(unittest.TestCase):
             "CLAUDE_PROJECT_DIR": self.project,
             "KAIROS_INDEX_STATE_DIR": self.state,
             "FAKE_KAIROS_CALLS": self.calls,
+            # HOME is the temporary folder: with no bytecode cache, the
+            # detached worker writes nothing there while tearDown removes it.
+            "PYTHONDONTWRITEBYTECODE": "1",
         }
         env.update(extra)
         return env
@@ -212,9 +215,50 @@ class SessionStart(Harness):
         self.assertIn("not a git checkout", text)
         self.assertIn("`fetch_index`", text)
         self.assertIn("`root`", text)
+        self.assertIn("lists the clones of this folder", text)  # KAIROS-T-0521
         self.assertNotIn("kairos index --full", text)
         time.sleep(0.3)
         self.assertEqual(self.calls_text(), "", "no update ran")
+
+    def test_a_worktree_of_a_wired_clone_runs_the_update(self):
+        # KAIROS-T-0520: the wiring is git-excluded, so the worktree has
+        # none; the hook reads the file of its clone.
+        base = os.path.dirname(self.project)
+        clone = os.path.join(base, "clone")
+        worktree = os.path.join(base, "wt-acme-t-0001")
+        git_env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        def git(*args):
+            subprocess.run(
+                ["git", "-c", "user.name=Robin", "-c", "user.email=robin@example.com", *args],
+                cwd=clone, check=True, capture_output=True, env=git_env,
+            )
+        os.makedirs(os.path.join(clone, ".claude"))
+        git("init", "-q", "-b", "main")
+        git("commit", "-q", "--allow-empty", "-m", "first")
+        with open(os.path.join(clone, ".claude", "kairos.local.md"), "w") as handle:
+            handle.write(WIRING)
+        git("worktree", "add", "-q", "-b", "acme-t-0001", worktree)
+        self.assertFalse(os.path.exists(os.path.join(worktree, ".claude")))
+        result = self.run_hook(
+            "start",
+            {"session_id": "s1", "source": "startup"},
+            env=self.env(CLAUDE_PROJECT_DIR=worktree),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("kairos-code", text)
+        self.assertTrue(
+            self.wait_for(lambda: f"cwd: {worktree}" in self.calls_text()),
+            "the background worker did not run in the worktree",
+        )
+        def finished():
+            for name in os.listdir(self.state):
+                log = os.path.join(self.state, name, "update.log")
+                if os.path.exists(log) and "exit code" in open(log).read():
+                    return True
+            return False
+
+        self.assertTrue(self.wait_for(finished, 15))
 
     def test_a_checkout_with_no_wiring_is_a_silent_no_op(self):
         os.remove(os.path.join(self.project, ".claude", "kairos.local.md"))

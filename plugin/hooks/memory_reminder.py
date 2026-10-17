@@ -115,9 +115,8 @@ def is_memory_path(file_path, memory_dir):
 
 
 def adr_board():
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    path = os.path.join(project_dir, ".claude", "kairos.local.md")
-    if not os.path.isfile(path):
+    path = session_start.wiring_path()
+    if not path:
         return ""
     return session_start.read_frontmatter(path).get("adr_board", "")
 

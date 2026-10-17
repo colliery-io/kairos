@@ -149,9 +149,8 @@ def is_kairos_call(tool_name, tool_input):
 
 
 def deployment_url():
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    path = os.path.join(project_dir, ".claude", "kairos.local.md")
-    if not os.path.isfile(path):
+    path = session_start.wiring_path()
+    if not path:
         return ""
     return session_start.read_frontmatter(path).get("deployment_url", "")
 

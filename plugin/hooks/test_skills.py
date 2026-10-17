@@ -364,12 +364,82 @@ class TheStateInTheSkills(unittest.TestCase):
         self.assertIn("`set_state`", text)
         for field in ("branch", "commit", "pushed", "pr_url", "next_step"):
             self.assertIn(f"`{field}`", text)
-        self.assertIn("before", text.split("`set_state`", 1)[1][:600])
+        # The paragraph of the live state (the first `set_state` is in "Open
+        # the work", KAIROS-T-0522).
+        self.assertIn("before", text.split("Write it with `set_state`", 1)[1][:600])
 
     def test_handoff_reads_and_writes_the_state(self):
         text = read(os.path.join(SKILLS, "meta", "handoff", "SKILL.md"))
         self.assertIn("`set_state`", text)
         self.assertIn("state", text.split("`get_item`", 1)[0])
+
+
+class TheWorkIsInAWorktree(unittest.TestCase):
+    """KAIROS-T-0522: implement opens the work in a worktree of the clone
+    after the claim, does each later step there, and removes the worktree at
+    Completed when the branch is pushed and the PR is open. Ralph says the
+    same."""
+
+    def setUp(self):
+        self.text = read(os.path.join(SKILLS, "workflow", "implement", "SKILL.md"))
+
+    def section(self, title):
+        match = re.search(rf"^## {re.escape(title)}\n(.*?)(?=^## )", self.text, re.S | re.M)
+        self.assertIsNotNone(match, f"no section {title}")
+        return match.group(1)
+
+    def test_open_the_work_comes_after_the_claim_and_before_the_work(self):
+        headings = re.findall(r"^## (.+)$", self.text, re.M)
+        self.assertLess(headings.index("Pick up"), headings.index("Open the work"))
+        self.assertLess(headings.index("Open the work"), headings.index("Work"))
+        self.assertIn("after the claim", self.section("Open the work"))
+
+    def test_open_the_work_gives_the_commands(self):
+        text = self.section("Open the work")
+        for command in (
+            "git -C <clone> fetch origin <default>",
+            "git -C <clone> worktree add ../wt-<code> -b <code> origin/<default>",
+            "git -C <worktree> remote get-url origin",
+            "`fetch_index` with `root=<worktree>`",
+            "`set_state` with `branch=<code>`",
+        ):
+            self.assertIn(command, text)
+        self.assertIn("lower case", text)
+        self.assertIn("the list of clones of the session context", text)
+        self.assertIn("Use `git -C <worktree>` and absolute paths", text)
+
+    def test_the_repository_check_compares_the_origin(self):
+        self.assertNotIn("differs from this checkout", self.text)
+        self.assertIn("compare with the origin remote", self.text)
+
+    def test_the_commit_is_in_the_worktree_not_on_the_current_branch(self):
+        self.assertNotIn("commit to the current branch", self.text)
+        self.assertIn("Commit in the worktree, on the branch of the task", self.text)
+        self.assertIn('Do "Close the work", then `transition_item` to **Completed**', self.text)
+
+    def test_close_the_work_removes_a_pushed_worktree_and_keeps_the_branch(self):
+        text = self.section("Close the work")
+        self.assertIn("When the branch is pushed and the PR is open, remove the worktree", text)
+        self.assertIn("git -C <clone> worktree remove ../wt-<code>", text)
+        self.assertIn("Keep the branch", text)
+        self.assertIn("Do not use `--force`", text)
+        self.assertIn("in the closing note", text)
+
+    def test_ralph_says_the_same(self):
+        spec = __import__("importlib.util").util.spec_from_file_location(
+            "ralph_for_skills", os.path.join(HERE, "ralph.py")
+        )
+        ralph = __import__("importlib.util").util.module_from_spec(spec)
+        spec.loader.exec_module(ralph)
+        procedure = ralph.PROCEDURE
+        self.assertNotIn("Commit to the current branch", procedure)
+        self.assertIn("git -C <clone> worktree add ../wt-<code> -b <code> origin/<default>", procedure)
+        self.assertIn("`fetch_index` with the worktree as `root`", procedure)
+        self.assertIn("Commit in the worktree, on the branch of the task", procedure)
+        self.assertIn("remove the worktree", procedure)
+        skill = read(os.path.join(SKILLS, "workflow", "ralph", "SKILL.md"))
+        self.assertIn("open the work in a worktree (`../wt-<code>`", skill)
+        self.assertIn("close the work", skill)
 
 
 class BootstrapWritesNoRepositoryConnection(unittest.TestCase):

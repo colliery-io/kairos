@@ -60,6 +60,11 @@ pull live state over the **authenticated MCP connection**: with a `repository` w
 repository — the session's queue; without one, `my_boards`/`board_items` as before. The hint
 also says to name a board at create and how to send a request (COLLIERY-A-0023). Its pure parts are unit
 tested (`hooks/test_session_start.py`, part of `angreal test unit`).
+In a worktree, which has no `.claude/kairos.local.md` (the file is git-excluded), each hook
+reads the file of the clone, the folder above `git rev-parse --git-common-dir` (KAIROS-T-0520).
+In a board folder (`~/Boards/<board>/`: clones and worktrees, no `.git` of its own) the hook
+lists each checkout with its origin remote, its branch and the count of commits behind the
+origin default branch, from the local refs with no fetch (KAIROS-T-0521).
 Hooks cannot drive the client's OAuth flow (KAIROS-A-0011) and tokens live with the MCP client
 (KAIROS-A-0014), so the hook deliberately never authenticates; offline degrades to a note.
 That holds on the agent-key path too: the MCP client sends the agent key, and the hook

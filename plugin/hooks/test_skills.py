@@ -789,5 +789,41 @@ class AgentKeyHowToMatchesTheManifest(unittest.TestCase):
         self.assertNotIn("writes this entry", text)
 
 
+class PullRequestBody(unittest.TestCase):
+    """The `pr` skill shapes the PR body; `implement` names it, and Ralph
+    reaches it through `implement`."""
+
+    def setUp(self):
+        self.path = os.path.join(SKILLS, "engineering", "pr", "SKILL.md")
+        self.body = read(self.path)
+
+    def test_the_skill_is_model_invoked(self):
+        self.assertFalse(is_user_invoked(frontmatter(self.path)))
+
+    def test_the_template_links_the_task_and_has_the_three_sections(self):
+        template = self.body.split("```markdown", 1)[1].split("```", 1)[0]
+        self.assertIn("Task: <SHORT-CODE>", template)
+        for heading in ("## Summary", "## Evidence", "## Merge Danger"):
+            self.assertIn(heading, template)
+
+    def test_evidence_comes_from_the_task_and_is_never_invented(self):
+        evidence = self.body.split("### Evidence", 1)[1].split("### Merge Danger", 1)[0]
+        self.assertIn("kairos:implement", evidence)
+        self.assertIn("`none`", evidence)
+
+    def test_the_text_addresses_the_reviewer_not_a_conversation(self):
+        self.assertNotIn("the user", self.body)
+        self.assertNotIn("GLOSSARY.md", self.body)
+
+    def test_implement_opens_the_pr_with_the_skill(self):
+        implement = read(os.path.join(SKILLS, "workflow", "implement", "SKILL.md"))
+        section = implement.split("## Push and open the PR", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("`kairos:pr`", section)
+
+    def test_ralph_opens_the_pr_through_implement(self):
+        ralph = read(os.path.join(HERE, "ralph.py"))
+        self.assertIn("Push and open the PR, as /kairos:implement says", ralph)
+
+
 if __name__ == "__main__":
     unittest.main()

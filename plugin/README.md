@@ -7,7 +7,7 @@ repo root in `.claude-plugin/plugin.json`; layout per KAIROS-A-0014).
 plugin/
 ├── skills/
 │   ├── workflow/     # grill-initiative, to-initiative, decompose, grill-decomposition, triage, onboard-team, implement, ralph, ralph-initiative, cancel-ralph
-│   ├── engineering/  # tdd, diagnosing-bugs, prototype, research, code-review, ...
+│   ├── engineering/  # tdd, diagnosing-bugs, prototype, research, code-review, pr, ...
 │   ├── review/       # architecture-review, diataxis-review
 │   └── meta/         # kairos (router), kairos-vocabulary, grill-me, grilling, handoff, writing-great-skills, bootstrap
 ├── references/       # rendered review specs (see below)
@@ -42,7 +42,7 @@ stdio). Each is described below.
   `ralph`, `ralph-initiative`, `cancel-ralph` (user-invoked), `implement` (model-invoked per
   KAIROS-A-0014)
 - `engineering/` — `grill-with-docs` (user-invoked); `tdd`, `diagnosing-bugs`, `prototype`,
-  `research`, `domain-modeling`, `codebase-design`, `code-review` (model-invoked)
+  `research`, `domain-modeling`, `codebase-design`, `code-review`, `pr` (model-invoked)
 - `review/` — `architecture-review`, `diataxis-review` (user-invoked, driven by the
   rendered references below)
 

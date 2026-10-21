@@ -30,6 +30,7 @@
     "./plugin/skills/engineering/diagnosing-bugs",
     "./plugin/skills/engineering/domain-modeling",
     "./plugin/skills/engineering/grill-with-docs",
+    "./plugin/skills/engineering/pr",
     "./plugin/skills/engineering/prototype",
     "./plugin/skills/engineering/research",
     "./plugin/skills/engineering/tdd",

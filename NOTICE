@@ -8,3 +8,12 @@ This product includes Mermaid 12.1.0 (https://github.com/mermaid-js/mermaid),
 vendored in crates/kairos-web/vendor/mermaid.
 Copyright (c) 2014 - 2022 Knut Sveidqvist. Licensed under the MIT License;
 see crates/kairos-web/vendor/mermaid/LICENSE.
+
+The skills in plugin/skills are adapted from mattpocock/skills
+(https://github.com/mattpocock/skills). Copyright (c) 2026 Matt Pocock.
+Licensed under the MIT License; see plugin/LICENSE-THIRD-PARTY-SKILLS.
+
+The Summary section of plugin/skills/engineering/pr is adapted from the
+show-me skill of humanlayer/skills (https://github.com/humanlayer/skills),
+through mattpocock/skills. Copyright (c) 2026 HumanLayer. Licensed under the
+MIT License; see plugin/LICENSE-THIRD-PARTY-SKILLS.

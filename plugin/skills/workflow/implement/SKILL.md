@@ -88,7 +88,7 @@ Then review the diff (the `kairos:code-review` skill; the built-in `/code-review
 This is the push policy (KAIROS-A-0046). You push the branch of the task and open a draft PR. Then you stop. The user merges.
 
 1. Push the branch of the task: `git -C <worktree> push -u origin <code>`. The git guard lets this push through.
-2. Open a draft PR: `gh pr create --draft --base <default> --head <code>`. Run it in the worktree. The body links the task.
+2. Open a draft PR: `gh pr create --draft --base <default> --head <code>`. Run it in the worktree. Write the body with the `kairos:pr` skill. The body links the task.
 3. Write the PR on the task: `set_state` with each field. Send `branch`, `commit`, `pushed: true`, `pr_url` and `next_step`.
 4. Stop at the PR. Do not merge, release, tag or deploy.
 

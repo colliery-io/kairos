@@ -2624,6 +2624,16 @@ Body of `PUT /api/boards/{id}/code-sequences/{item_type}` (COLLIERY-T-3104): the
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
+## SetComplexityRequest
+
+Body of `PUT /api/initiatives/{short_code}/complexity`: set the complexity of an initiative. `null` or an empty string clears it. Not content: no version bump (the A-0004 contract covers title/content only).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `complexity` | `string`, nullable | no | `xs|s|m|l|xl`; `null` or `""` clears. |
+
+The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
+
 ## SetDocumentBoardRequest
 
 Body of `PATCH /api/documents/{short_code}/board` (COLLIERY-T-0269): change the owner board of a document. `board` is required. Its value is the slug or the id of a live board. Each document has an owner board (COLLIERY-T-3109), and you cannot remove it. The server refuses an absent, null or empty `board`: 422 `VALIDATION`, and `details.field` is `board`. The board that the document has changes nothing: the response is 200, and the server writes nothing.

@@ -394,6 +394,9 @@ pub fn describe(action: ActivityAction, details: &str, names: &Names) -> String 
         ActivityAction::Lifecycle => details
             .strip_prefix("lifecycle:")
             .map(|rest| format!("lifecycle: {}", change(rest))),
+        ActivityAction::Complexity => details
+            .strip_prefix("complexity:")
+            .map(|rest| format!("complexity: {}", change(rest))),
         ActivityAction::Repository => details
             .strip_prefix("repository:")
             .map(|rest| format!("repository: {}", named_change(&names.repositories, rest))),
@@ -555,6 +558,11 @@ mod tests {
                 ActivityAction::WorkClass,
                 "work_class:planned->support".to_string(),
                 "lane: planned -> support",
+            ),
+            (
+                ActivityAction::Complexity,
+                "complexity:none->l".to_string(),
+                "complexity: none -> l",
             ),
             (
                 ActivityAction::BoardMove,

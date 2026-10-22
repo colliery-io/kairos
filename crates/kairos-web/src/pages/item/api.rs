@@ -641,6 +641,23 @@ pub async fn set_lifecycle(auth: Auth, code: &str, lifecycle: &str) -> Result<()
     Ok(())
 }
 
+/// `PUT /api/initiatives/{short_code}/complexity` — set the complexity of
+/// an initiative; `None` clears it. The response body is discarded; the
+/// page refetches wholesale.
+pub async fn set_complexity(
+    auth: Auth,
+    code: &str,
+    complexity: Option<&str>,
+) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Body<'a> {
+        complexity: Option<&'a str>,
+    }
+    let path = format!("/api/initiatives/{code}/complexity");
+    let _: serde_json::Value = crate::api::put_json(auth, &path, &Body { complexity }).await?;
+    Ok(())
+}
+
 /// `GET /api/{family}/{short_code}/metadata` → the item's current values.
 pub async fn fetch_metadata(
     auth: Auth,

@@ -3,7 +3,7 @@
 
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
@@ -44,6 +44,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/initiatives/{short_code}/transition",
             post(transition_initiative),
+        )
+        .route(
+            "/api/initiatives/{short_code}/complexity",
+            put(set_complexity),
         )
 }
 
@@ -427,4 +431,70 @@ pub(crate) async fn transition_initiative(
         })
         .await?;
     Ok(Json(transitioned))
+}
+
+/// Set the complexity of an initiative, or clear it with `null` or `""`.
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// initiative, or is a member of its board. Or the caller holds
+/// `manage_initiatives` on its board, or is an organization admin. The
+/// complexity is not content: the change makes no new version and no
+/// history row. It writes one activity row and sends `item_updated`.
+#[utoipa::path(
+    put,
+    path = "/api/initiatives/{short_code}/complexity",
+    tag = "initiatives",
+    params(("short_code" = String, Path, description = "Initiative short code")),
+    request_body = dto::SetComplexityRequest,
+    responses(
+        (status = 200, description = "Complexity set or cleared", body = dto::Initiative),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 422, description = "Bad complexity value", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn set_complexity(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+    ApiJson(body): ApiJson<dto::SetComplexityRequest>,
+) -> Result<Json<dto::Initiative>, ApiError> {
+    let user = auth.user_id;
+    let role = tenant.role;
+    let updated = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let (_, updated) =
+                change_complexity(conn, role, user, &short_code, body.complexity.as_deref())?;
+            crate::owners::attach_owner(conn, updated.into_dto())
+        })
+        .await?;
+    Ok(Json(updated))
+}
+
+/// Set or clear the complexity of the live initiative `short_code`: the
+/// ONE write path of `PUT .../complexity` and of MCP `set_complexity`, so
+/// the two cannot give different results (the COLLIERY-T-0231 lesson).
+/// `None` clears, and so does a value that is empty or only whitespace.
+/// The answer is the complexity before the call, and the initiative after
+/// it. The same value changes nothing.
+pub(crate) fn change_complexity(
+    conn: &mut PgConnection,
+    role: kairos_db::models::OrgRole,
+    user: uuid::Uuid,
+    short_code: &str,
+    complexity: Option<&str>,
+) -> Result<(Option<Complexity>, Initiative), ApiError> {
+    let complexity = complexity
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| parse_enum(value, "complexity", Complexity::ALL))
+        .transpose()?;
+    let initiative = load(conn, short_code, Liveness::LiveOnly)?;
+    require_item_edit(conn, role, user, initiative.id, ItemType::Initiative)?;
+    let before = initiative.complexity;
+    let updated = items::set_initiative_complexity(conn, initiative.id, complexity, user)
+        .map_err(map_item_error)?;
+    Ok((before, updated))
 }

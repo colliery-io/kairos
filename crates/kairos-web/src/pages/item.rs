@@ -338,6 +338,7 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
     let board_id = Memo::new(move |_| current.with(|item| item.board_id.clone()));
     let column_id = Memo::new(move |_| current.with(|item| item.column_id.clone()));
     let work_class = Memo::new(move |_| current.with(|item| item.work_class.clone()));
+    let complexity = Memo::new(move |_| current.with(|item| item.complexity.clone()));
     let repository =
         Memo::new(move |_| current.with(|item| item.repository.as_ref().map(|r| r.slug.clone())));
     let claim = Memo::new(move |_| current.with(|item| item.claim.clone()));
@@ -675,7 +676,8 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                 } else {
                     view! {
                         <BoardPanel family code=code.get_value() board column_id work_class
-                            repository created_by=created_by.clone() archived on_moved/>
+                            repository complexity edit_read_only created_by=created_by.clone()
+                            archived on_moved/>
                     }.into_any()
                 }}
                 // KAIROS-T-0369: the claim of a task, with Hand off and
@@ -1295,6 +1297,13 @@ fn BoardPanel(
     /// The task's bound repository slug (KAIROS-T-0109), if any.
     #[prop(into)]
     repository: Signal<Option<String>>,
+    /// The complexity of an initiative, if any.
+    #[prop(into)]
+    complexity: Signal<Option<String>>,
+    /// The page's edit rule (with the archive): it opens the complexity
+    /// control, which is an edit, as the editor and the metadata panel.
+    #[prop(into)]
+    edit_read_only: Signal<bool>,
     /// The user id of the creator of the item. It opens the repository
     /// control, which is an edit, and NO move control (COLLIERY-T-0228).
     created_by: String,
@@ -1373,6 +1382,9 @@ fn BoardPanel(
                                     created_by=created_by.get_value()
                                     on_moved
                                 />
+                            })}
+                            {move || (!edit_read_only.get() && matches!(family, Family::Initiative)).then(|| view! {
+                                <ComplexityControl code=code.get_value() current=complexity on_moved/>
                             })}
                             // The two controls below MOVE the item. The
                             // creator of an item gets no right to move it
@@ -1607,6 +1619,74 @@ fn RepositoryControl(
             })}
         </div>
         })}
+    }
+}
+
+/// The value of the complexity picker that clears the complexity.
+const NO_COMPLEXITY: &str = "none";
+
+/// The complexity of an initiative: pick a size, or none. The page shows
+/// it only to a person who passes the edit rule; the server enforces it.
+#[component]
+fn ComplexityControl(
+    code: String,
+    /// The current complexity. A signal: the control stays mounted after a
+    /// set.
+    current: Signal<Option<String>>,
+    on_moved: Callback<String>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let code = StoredValue::new(code);
+    let value = RwSignal::new(
+        current
+            .get_untracked()
+            .unwrap_or_else(|| NO_COMPLEXITY.to_string()),
+    );
+    let busy = RwSignal::new(false);
+    let error: RwSignal<Option<ApiError>> = RwSignal::new(None);
+    let submit: Callback<()> = Callback::new(move |()| {
+        let chosen = value.get_untracked();
+        let complexity = (chosen != NO_COMPLEXITY).then_some(chosen);
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            let result = api::set_complexity(auth, &code.get_value(), complexity.as_deref()).await;
+            busy.set(false);
+            match result {
+                Ok(()) => on_moved.run(match complexity {
+                    Some(size) => format!("Complexity set to {size}."),
+                    None => "Complexity cleared.".to_string(),
+                }),
+                Err(e) => error.set(Some(e)),
+            }
+        });
+    });
+    view! {
+        <div class="kairos-item__complexity" data-testid="complexity-control">
+            <Group align="end" gap="sm">
+                <Select label="Complexity" value=value
+                    options=[NO_COMPLEXITY, "xs", "s", "m", "l", "xl"]
+                        .map(str::to_string)
+                        .to_vec()/>
+                <Button
+                    size="xs"
+                    disabled=move || {
+                        let set = current.get().unwrap_or_else(|| NO_COMPLEXITY.to_string());
+                        value.get() == set
+                    }
+                    loading=busy
+                    loading_label="Setting…"
+                    on_click=submit
+                >
+                    "Set complexity"
+                </Button>
+            </Group>
+            {move || error.get().map(|e| view! {
+                <Alert title="Could not set complexity" color=token::BAD>
+                    <Text size="sm">{api::error_text(&e)}</Text>
+                </Alert>
+            })}
+        </div>
     }
 }
 

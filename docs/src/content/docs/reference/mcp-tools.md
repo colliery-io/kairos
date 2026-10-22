@@ -3,8 +3,8 @@ title: "MCP tools"
 ---
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-seventy-eight tools. A drift gate in the test suite
-asserts that `tools/list` returns these seventy-eight and no others. The same
+seventy-nine tools. A drift gate in the test suite
+asserts that `tools/list` returns these seventy-nine and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -22,7 +22,7 @@ organization.
 
 | URL | Profile | Tools |
 |---|---|---|
-| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read: 47 tools. |
+| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read: 48 tools. |
 | `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge: the other 31 tools. |
 | `/mcp?profile=all` | all | Each tool. |
 
@@ -39,7 +39,8 @@ The work tools:
   `transition_item`, `move_item`, `append_note`, `promote_note`,
   `set_lifecycle`, `set_state`, `set_metadata`;
 - links and fields: `link_items`, `unlink_items`, `propose_edge`,
-  `set_repository`, `set_parent`, `set_work_class`, `set_team`, `clear_team`;
+  `set_repository`, `set_parent`, `set_work_class`, `set_complexity`,
+  `set_team`, `clear_team`;
 - the end of an item: `cancel_item`, `reopen_item`, `delete_item`,
   `restore_item`, `archive_completed`;
 - repositories: `list_repositories`, `get_repository`, `add_repository`,
@@ -1091,7 +1092,7 @@ Creates a work item and returns its new short code.
 | `work_class` | string | no | see below | Tasks only. `planned`, `support`. |
 | `from_team` | string | no | — | Tasks only. The team that sends the task. Slug or UUID. When it is not the team of the board, the task is a request: entry column, support lane, also for a manager of the board or an org admin. An agent in a board session sends its own team. Kairos does not keep it on the task: name the sending team in the body. |
 | `hypothesis` | string | no | — | Strategies only. |
-| `complexity` | string | no | — | Initiatives only. `xs`, `s`, `m`, `l`, `xl`. |
+| `complexity` | string | no | — | Initiatives only. `xs`, `s`, `m`, `l`, `xl`. `set_complexity` changes it later. |
 | `bucket_type` | string | no | — | Initiatives only. `tech_debt`, `bug`, `ad_hoc`. Makes the initiative a bucket rather than a dated one; `is_bucket` is derived from it. |
 | `decision_maker` | string | no | — | ADRs only. |
 | `decision_date` | string | no | — | ADRs only. `YYYY-MM-DD`. |
@@ -1450,6 +1451,48 @@ Refuses: `NOT_FOUND` for an unknown short code or an archived task.
 `VALIDATION` when the item is not a task, and for an unknown `work_class`.
 `FORBIDDEN` without `transition_items`. `AGENT_TRIAGE_OFF` for an agent's
 move of intake to planned while the board lets a person decide the triage.
+
+### `set_complexity`
+
+Sets the complexity of an initiative, or clears it. The complexity is not
+content: the change does not need a version, and it does not make a new
+version.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The short code of the initiative. |
+| `complexity` | string | no | — | `xs`, `s`, `m`, `l` or `xl`. Null or an empty string clears the complexity. |
+
+The result is one line:
+
+```text
+Set the complexity of ACME-I-0004 to l (was m).
+```
+
+```text
+Cleared the complexity of ACME-I-0004 (was l).
+```
+
+A value that the initiative already has changes nothing:
+
+```text
+ACME-I-0004 already has the complexity l: nothing changed.
+```
+
+The edit rule applies. You can change the complexity when:
+
+- you created the initiative,
+- you are a member of its board,
+- you hold `manage_initiatives` on its board, or
+- you are an organization admin.
+
+The rule is that of `PUT /api/initiatives/{short_code}/complexity`, and the
+change writes the same activity line.
+
+Refuses: `NOT_FOUND` for an unknown short code or an archived initiative.
+`VALIDATION` for an item that is not an initiative. `VALIDATION` for an
+unknown value; the refusal names the value and lists the five values.
+`FORBIDDEN` by the edit rule.
 
 ### `set_state`
 

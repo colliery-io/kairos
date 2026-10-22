@@ -3,7 +3,7 @@
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
 //! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
 //! (COLLIERY-T-0220), and `add_repository` and `update_repository`
-//! (COLLIERY-T-0266); later tasks added more (78 in all, in the profiles
+//! (COLLIERY-T-0266); later tasks added more (79 in all, in the profiles
 //! of `profiles.rs`, KAIROS-T-0454) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
@@ -529,6 +529,7 @@ pub struct CreateItemParams {
     /// Strategies only: the strategy's hypothesis.
     pub hypothesis: Option<String>,
     /// Initiatives only: t-shirt complexity xs | s | m | l | xl.
+    /// `set_complexity` changes it later.
     pub complexity: Option<String>,
     /// Initiatives only: tech_debt | bug | ad_hoc makes a bucket, not a
     /// dated initiative.
@@ -699,6 +700,18 @@ pub struct SetWorkClassParams {
     pub short_code: String,
     /// The lane: planned | support.
     pub work_class: String,
+}
+
+/// Parameters for `set_complexity`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct SetComplexityParams {
+    /// The short code of the initiative (e.g. "ACME-I-0012").
+    pub short_code: String,
+    /// The complexity: xs | s | m | l | xl. To clear it, send null or an
+    /// empty string.
+    pub complexity: Option<String>,
 }
 
 /// Parameters for `set_lifecycle` (KAIROS-T-0555).
@@ -1400,7 +1413,7 @@ pub struct SaveTemplateParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (78; the list of each profile is asserted in tests/mcp.rs)
+// The tools (79; the list of each profile is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -3116,7 +3129,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy, initiative, task, document or ADR. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks: the board decides the team; `repository` is an optional link and chooses no board. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives: `bucket_type` makes a bucket. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code."
+        description = "Create a work item: strategy, initiative, task, document or ADR. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks: the board decides the team; `repository` is an optional link and chooses no board. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives: `bucket_type` makes a bucket; `set_complexity` changes the complexity later. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -3517,6 +3530,60 @@ impl KairosMcp {
                     "Moved {} to the {} lane (was {}).",
                     updated.short_code, updated.work_class, before
                 )
+            })
+        })
+        .await
+    }
+
+    // The complexity of an initiative could only be set at creation. A
+    // tool of its own, as `set_lifecycle`: complexity is not content, and
+    // it must not fail on a stale version. REST and this tool call one
+    // function (`crate::api::initiatives::change_complexity`).
+    #[tool(
+        description = "Set the complexity of an INITIATIVE: `complexity` is xs, s, m, l or xl; null or an empty string clears it. A value that the initiative already has changes nothing. The edit rule applies: the creator of the initiative, a member of its board, `manage_initiatives` on its board, or an organization admin. `create_item` sets the complexity of a new initiative."
+    )]
+    pub async fn set_complexity(
+        &self,
+        Parameters(params): Parameters<SetComplexityParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let role = tenant.role;
+        self.run_tool(&tenant, move |conn| {
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
+            if item.item_type != ItemType::Initiative {
+                return Err(ApiError::validation(format!(
+                    "The {} {} is not an initiative. set_complexity applies to initiatives only.",
+                    item.item_type, item.short_code
+                )));
+            }
+            let (before, updated) = crate::api::initiatives::change_complexity(
+                conn,
+                role,
+                user,
+                &item.short_code,
+                params.complexity.as_deref(),
+            )?;
+            let name = |c: Option<Complexity>| c.map_or("none".to_string(), |c| c.to_string());
+            Ok(match (before == updated.complexity, updated.complexity) {
+                (true, Some(now)) => format!(
+                    "{} already has the complexity {now}: nothing changed.",
+                    updated.short_code
+                ),
+                (true, None) => {
+                    format!("{} has no complexity: nothing changed.", updated.short_code)
+                }
+                (false, Some(now)) => format!(
+                    "Set the complexity of {} to {now} (was {}).",
+                    updated.short_code,
+                    name(before)
+                ),
+                (false, None) => format!(
+                    "Cleared the complexity of {} (was {}).",
+                    updated.short_code,
+                    name(before)
+                ),
             })
         })
         .await

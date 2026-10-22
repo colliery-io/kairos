@@ -320,6 +320,7 @@ differ.
 | `reopen` | no | no | yes | no | no |
 | `lane` | no | no | yes | no | no |
 | `set-parent` | no | yes | yes | no | no |
+| `complexity` | no | yes | no | no | no |
 | `lifecycle` | no | no | no | yes | no |
 | `metadata` | yes | yes | yes | yes | yes |
 | `archive` (alias `delete`) | yes | yes | yes | yes | yes |
@@ -548,7 +549,7 @@ Options specific to one noun:
 | Noun | Option | Type | Default | Description |
 |---|---|---|---|---|
 | `strategies` | `--hypothesis <HYPOTHESIS>` | string | none | The strategy's hypothesis. |
-| `initiatives` | `--complexity <COMPLEXITY>` | `xs` \| `s` \| `m` \| `l` \| `xl` | none | T-shirt sizing. |
+| `initiatives` | `--complexity <COMPLEXITY>` | `xs` \| `s` \| `m` \| `l` \| `xl` | none | T-shirt sizing. [`initiatives complexity`](#initiatives-complexity) changes it later. |
 | `initiatives` | `--bucket-type <KIND>` | `tech_debt` \| `bug` \| `ad_hoc` | none | Marks the initiative as a bucket of this kind. |
 | `initiatives` | `--parent <STRATEGY>` | short code | none | The parent strategy. Kairos writes the initiative and the `parent` edge in one transaction: a refused parent leaves no initiative (KAIROS-T-0572). |
 | `tasks` | `--kind <KIND>` | `task` \| `bug` \| `tech_debt` \| `support` | `task` | The kind of the task. The old name `--type` still works. |
@@ -800,6 +801,38 @@ after the call:
 
 ```text
 ACME-T-0001 is in the planned lane.
+```
+
+### `initiatives complexity`
+
+```
+kairos initiatives complexity <SHORT_CODE> <COMPLEXITY> [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The initiative's short code. |
+| `<COMPLEXITY>` | string | required | `xs`, `s`, `m`, `l` or `xl`. `none` clears the complexity. |
+
+Sets the complexity of an initiative, or clears it. The complexity is not
+content: the command needs no version, and it does not make a new version.
+A complexity the initiative already has changes nothing.
+
+The edit rule applies. You can change the complexity when:
+
+- you created the initiative,
+- you are a member of its board,
+- you hold `manage_initiatives` on its board, or
+- you are an organization admin.
+
+The command prints the complexity after the call:
+
+```text
+ACME-I-0001 has the complexity l.
+```
+
+```text
+ACME-I-0001 has no complexity.
 ```
 
 ### `initiatives set-parent`, `tasks set-parent`

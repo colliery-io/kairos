@@ -3021,6 +3021,12 @@ kairos index mcp [--root <ROOT>]
 Serves the code tools of the index to an agent: MCP over standard input and
 output. The Claude Code plugin starts this command.
 
+When the root is not a git checkout, the server opens no index. Its
+instructions and the `NO_CHECKOUT` error of each tool name the clones and
+worktrees directly below the root. For each one they give the
+path, the `origin` remote and whether it has a local index. The agent opens one
+of them with `fetch_index`.
+
 ### The JSON of `kairos index`
 
 With `--json`, an `index` command prints one JSON object on stdout, and no

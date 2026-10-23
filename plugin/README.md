@@ -139,7 +139,9 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   SCIP. For the other languages it gives the calls (KAIROS-T-0419). A session that starts
   outside a checkout (a board folder) has no index open: the agent calls `fetch_index` with the
   path of the checkout, and the server takes the nearest index of the repository from Kairos
-  (KAIROS-T-0348). If `kairos` is not on PATH, `bin/kairos-code` is an MCP server with no
+  (KAIROS-T-0348). The instructions of the server, and the error of a tool with no open
+  checkout, name each clone and worktree below the start folder, with its `origin` remote and
+  whether it has a local index (#272). If `kairos` is not on PATH, `bin/kairos-code` is an MCP server with no
   tools (COLLIERY-T-2529). Its instructions tell the agent that `kairos` is not on PATH, and
   Claude Code shows no connection error. If `kairos` is older than the plugin
   (`.claude-plugin/plugin.json`), it is the same server with no tools: an old CLI reads an
@@ -154,7 +156,9 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   runs. Set `KAIROS_INDEX_SUMMARIZE=1` in the environment of Claude Code to make the background
   update run the model (a `kairos` built with `llama` can then summarize for some minutes with
   about 4 GB of memory). It also tells the agent
-  to use the code tools before it reads files. Else it does nothing and gives no output. The
+  to use the code tools before it reads files. In a board folder with the wiring, it starts
+  the same update in each clone and worktree below the folder (#272). Else it does nothing and
+  gives no output. The
   update reads the deployment, the repository and the key (`KAIROS_KEY` or `KAIROS_MCP_KEY`)
   itself (COLLIERY-T-1854). The hook holds no credentials.
 - **The list of changed files.** `hooks/index_update.py record` is a `PostToolUse` hook on

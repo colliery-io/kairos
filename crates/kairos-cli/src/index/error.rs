@@ -140,6 +140,26 @@ pub enum StillOpen {
     Nothing,
 }
 
+/// The checkouts below the start folder of the server, when that folder is
+/// not a checkout (#272): one line each, as [`super::mcp`] describes them.
+/// The text of [`ToolError::NoCheckout`] ends with them, so the agent does
+/// not have to find the paths for `fetch_index` itself.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Below(pub Vec<String>);
+
+impl std::fmt::Display for Below {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0.is_empty() {
+            return Ok(());
+        }
+        write!(
+            f,
+            " The checkouts below the start folder of the server: {}.",
+            self.0.join("; ")
+        )
+    }
+}
+
 impl IndexCommandError {
     /// The code of the error for `--json` (KAIROS-T-0654). A symbol that is
     /// not found, or is not one symbol, has the code of the code tools.
@@ -223,9 +243,9 @@ pub enum ToolError {
     )]
     NoIndex(PathBuf),
     #[error(
-        "The server has no open checkout. Call `fetch_index` with `root`, the path of a git checkout. Give `repository`, the slug in Kairos, when the `origin` remote of the checkout is not a repository of Kairos."
+        "The server has no open checkout. Call `fetch_index` with `root`, the path of a git checkout. Give `repository`, the slug in Kairos, when the `origin` remote of the checkout is not a repository of Kairos.{0}"
     )]
-    NoCheckout,
+    NoCheckout(Below),
     #[error("The folder {0} is not in a git checkout.")]
     NotACheckout(PathBuf),
     #[error(
@@ -356,7 +376,7 @@ impl ToolError {
     pub fn code(&self) -> &'static str {
         match self {
             ToolError::NoIndex(_) => "NO_INDEX",
-            ToolError::NoCheckout => "NO_CHECKOUT",
+            ToolError::NoCheckout(_) => "NO_CHECKOUT",
             ToolError::NotACheckout(_) => "NOT_A_CHECKOUT",
             ToolError::NoBaseIndex { .. } => "NO_BASE_INDEX",
             ToolError::Download { .. } => "DOWNLOAD",

@@ -1637,26 +1637,30 @@ fn ComplexityControl(
 ) -> impl IntoView {
     let auth = use_auth();
     let code = StoredValue::new(code);
+    let shown = move || current.get().unwrap_or_else(|| NO_COMPLEXITY.to_string());
     let value = RwSignal::new(
         current
             .get_untracked()
             .unwrap_or_else(|| NO_COMPLEXITY.to_string()),
     );
+    // The picker follows the initiative: a refetch after a change made
+    // elsewhere (another tab, an agent) shows the new complexity, not the
+    // one the page loaded with.
+    Effect::new(move |_| value.set(shown()));
     let busy = RwSignal::new(false);
     let error: RwSignal<Option<ApiError>> = RwSignal::new(None);
     let submit: Callback<()> = Callback::new(move |()| {
         let chosen = value.get_untracked();
-        let complexity = (chosen != NO_COMPLEXITY).then_some(chosen);
         busy.set(true);
         error.set(None);
         leptos::task::spawn_local(async move {
-            let result = api::set_complexity(auth, &code.get_value(), complexity.as_deref()).await;
+            let result = api::set_complexity(auth, &code.get_value(), &chosen).await;
             busy.set(false);
             match result {
-                Ok(()) => on_moved.run(match complexity {
-                    Some(size) => format!("Complexity set to {size}."),
-                    None => "Complexity cleared.".to_string(),
-                }),
+                Ok(()) if chosen == NO_COMPLEXITY => {
+                    on_moved.run("Complexity cleared.".to_string())
+                }
+                Ok(()) => on_moved.run(format!("Complexity set to {chosen}.")),
                 Err(e) => error.set(Some(e)),
             }
         });
@@ -1670,10 +1674,7 @@ fn ComplexityControl(
                         .to_vec()/>
                 <Button
                     size="xs"
-                    disabled=move || {
-                        let set = current.get().unwrap_or_else(|| NO_COMPLEXITY.to_string());
-                        value.get() == set
-                    }
+                    disabled=move || value.get() == shown()
                     loading=busy
                     loading_label="Setting…"
                     on_click=submit

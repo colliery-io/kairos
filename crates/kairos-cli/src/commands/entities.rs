@@ -2331,10 +2331,8 @@ macro_rules! entity_family_cli {
                     $(
                     Self::$complexity_variant(args) => {
                         let client = client(&args.common)?;
-                        let complexity =
-                            Some(args.complexity.as_str()).filter(|value| *value != "none");
                         let initiative =
-                            client.$complexity_fn(&args.short_code, complexity).await?;
+                            client.$complexity_fn(&args.short_code, &args.complexity).await?;
                         emit_complexity(&args.common, &initiative)
                     }
                     )?

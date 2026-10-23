@@ -709,9 +709,9 @@ pub struct SetWorkClassParams {
 pub struct SetComplexityParams {
     /// The short code of the initiative (e.g. "ACME-I-0012").
     pub short_code: String,
-    /// The complexity: xs | s | m | l | xl. To clear it, send null or an
-    /// empty string.
-    pub complexity: Option<String>,
+    /// The complexity: xs | s | m | l | xl, or none to clear it. Required:
+    /// a call that leaves it out clears nothing.
+    pub complexity: String,
 }
 
 /// Parameters for `set_lifecycle` (KAIROS-T-0555).
@@ -3540,7 +3540,7 @@ impl KairosMcp {
     // it must not fail on a stale version. REST and this tool call one
     // function (`crate::api::initiatives::change_complexity`).
     #[tool(
-        description = "Set the complexity of an INITIATIVE: `complexity` is xs, s, m, l or xl; null or an empty string clears it. A value that the initiative already has changes nothing. The edit rule applies: the creator of the initiative, a member of its board, `manage_initiatives` on its board, or an organization admin. `create_item` sets the complexity of a new initiative."
+        description = "Set the complexity of an INITIATIVE: `complexity` is xs, s, m, l or xl, or none to clear it; it is required. A value that the initiative already has changes nothing. The edit rule applies: the creator of the initiative, a member of its board, `manage_initiatives` on its board, or an organization admin. `create_item` sets the complexity of a new initiative."
     )]
     pub async fn set_complexity(
         &self,
@@ -3563,7 +3563,7 @@ impl KairosMcp {
                 role,
                 user,
                 &item.short_code,
-                params.complexity.as_deref(),
+                &params.complexity,
             )?;
             let name = |c: Option<Complexity>| c.map_or("none".to_string(), |c| c.to_string());
             Ok(match (before == updated.complexity, updated.complexity) {

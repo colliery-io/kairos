@@ -433,7 +433,7 @@ pub(crate) async fn transition_initiative(
     Ok(Json(transitioned))
 }
 
-/// Set the complexity of an initiative, or clear it with `null` or `""`.
+/// Set the complexity of an initiative, or clear it with `none`.
 ///
 /// The edit rule applies (COLLIERY-T-0228). The caller created the
 /// initiative, or is a member of its board. Or the caller holds
@@ -450,7 +450,7 @@ pub(crate) async fn transition_initiative(
         (status = 200, description = "Complexity set or cleared", body = dto::Initiative),
         (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
-        (status = 422, description = "Bad complexity value", body = dto::ErrorEnvelope),
+        (status = 422, description = "No complexity sent, or a bad value", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn set_complexity(
@@ -465,36 +465,74 @@ pub(crate) async fn set_complexity(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (_, updated) =
-                change_complexity(conn, role, user, &short_code, body.complexity.as_deref())?;
+            let (_, updated) = change_complexity(conn, role, user, &short_code, &body.complexity)?;
             crate::owners::attach_owner(conn, updated.into_dto())
         })
         .await?;
     Ok(Json(updated))
 }
 
+/// The value of `complexity` that clears it, the same on every surface:
+/// REST, MCP, the CLI and the web.
+pub(crate) const NO_COMPLEXITY: &str = "none";
+
 /// Set or clear the complexity of the live initiative `short_code`: the
 /// ONE write path of `PUT .../complexity` and of MCP `set_complexity`, so
 /// the two cannot give different results (the COLLIERY-T-0231 lesson).
-/// `None` clears, and so does a value that is empty or only whitespace.
-/// The answer is the complexity before the call, and the initiative after
-/// it. The same value changes nothing.
+/// `none` clears. An empty value is refused: a clear is always asked for by
+/// name, never by a value that is missing. The answer is the complexity
+/// before the call, and the initiative after it. The same value changes
+/// nothing.
 pub(crate) fn change_complexity(
     conn: &mut PgConnection,
     role: kairos_db::models::OrgRole,
     user: uuid::Uuid,
     short_code: &str,
-    complexity: Option<&str>,
+    complexity: &str,
 ) -> Result<(Option<Complexity>, Initiative), ApiError> {
-    let complexity = complexity
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| parse_enum(value, "complexity", Complexity::ALL))
-        .transpose()?;
+    let complexity = parse_complexity(complexity)?;
     let initiative = load(conn, short_code, Liveness::LiveOnly)?;
     require_item_edit(conn, role, user, initiative.id, ItemType::Initiative)?;
     let before = initiative.complexity;
     let updated = items::set_initiative_complexity(conn, initiative.id, complexity, user)
         .map_err(map_item_error)?;
     Ok((before, updated))
+}
+
+/// A size, or `None` for [`NO_COMPLEXITY`]. Anything else is a 422 that
+/// names the values.
+fn parse_complexity(value: &str) -> Result<Option<Complexity>, ApiError> {
+    let value = value.trim();
+    if value == NO_COMPLEXITY {
+        return Ok(None);
+    }
+    value.parse::<Complexity>().map(Some).map_err(|_| {
+        let sizes: Vec<&str> = Complexity::ALL.iter().map(|c| c.as_str()).collect();
+        ApiError::validation(format!(
+            "The value {value:?} is not a value of complexity. The values are: {}, \
+             or {NO_COMPLEXITY} to clear it.",
+            sizes.join(", ")
+        ))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_complexity_is_a_size_or_none() {
+        assert_eq!(parse_complexity("l").unwrap(), Some(Complexity::L));
+        assert_eq!(parse_complexity(" xs ").unwrap(), Some(Complexity::Xs));
+        assert_eq!(parse_complexity("none").unwrap(), None);
+        for refused in ["", "  ", "xxl", "null"] {
+            let err = parse_complexity(refused).expect_err(refused);
+            assert_eq!(err.status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+            assert!(
+                err.message.contains("xl") && err.message.contains("none"),
+                "{}",
+                err.message
+            );
+        }
+    }
 }

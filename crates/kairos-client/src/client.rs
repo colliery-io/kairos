@@ -599,16 +599,16 @@ impl KairosClient {
     entity_transition!("initiatives", Initiative, transition_initiative);
 
     /// `PUT /api/initiatives/{short_code}/complexity` — set the complexity
-    /// of an initiative; `None` or `""` clears it. The edit rule applies.
+    /// of an initiative; `none` clears it. The edit rule applies.
     pub async fn set_initiative_complexity(
         &self,
         short_code: &str,
-        complexity: Option<&str>,
+        complexity: &str,
     ) -> Result<Initiative, Error> {
         self.put_ok(
             &format!("/api/initiatives/{short_code}/complexity"),
             &SetComplexityRequest {
-                complexity: complexity.map(str::to_string),
+                complexity: complexity.to_string(),
             },
         )
         .await

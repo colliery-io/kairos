@@ -1461,7 +1461,10 @@ version.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The short code of the initiative. |
-| `complexity` | string | no | — | `xs`, `s`, `m`, `l` or `xl`. Null or an empty string clears the complexity. |
+| `complexity` | string | yes | — | `xs`, `s`, `m`, `l` or `xl`. `none` clears the complexity. |
+
+The tool refuses a call without `complexity`, and a null or empty value. A
+call that leaves out the argument does not clear the complexity.
 
 The result is one line:
 

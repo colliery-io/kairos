@@ -3,7 +3,9 @@
 //! which call one function (`api::initiatives::change_complexity`).
 //!
 //! Complexity is not content: a change writes one activity row and does not
-//! bump the version. `null` and `""` clear it. The edit rule applies.
+//! bump the version. `none` clears it, and the value is required: a
+//! missing or empty value is refused, never read as a clear. The edit rule
+//! applies.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_initiative_complexity_test`.
@@ -125,7 +127,8 @@ impl McpSession {
         session
     }
 
-    /// Call a tool; returns `(is_error, text)`.
+    /// Call a tool; returns `(is_error, text)`. A JSON-RPC error (bad
+    /// arguments) is an error too, with its message as the text.
     async fn call(&mut self, tool: &str, arguments: Value) -> (bool, String) {
         self.next_id += 1;
         let response = self
@@ -153,6 +156,12 @@ impl McpSession {
                     .find(|v| v.get("jsonrpc").is_some())
             })
             .unwrap_or_else(|| panic!("no JSON-RPC message in response body: {body:?}"));
+        if let Some(error) = message.get("error") {
+            return (
+                true,
+                error["message"].as_str().unwrap_or_default().to_string(),
+            );
+        }
         let result = &message["result"];
         let is_error = result["isError"].as_bool().unwrap_or(false);
         let text = result["content"][0]["text"]
@@ -224,7 +233,7 @@ async fn the_complexity_of_an_initiative_changes_against_live_stack() {
 
     // --- set: m -> l, one activity row, no version bump ------------------------
     let set = svc
-        .set_initiative_complexity(&code, Some("l"))
+        .set_initiative_complexity(&code, "l")
         .await
         .expect("setting l");
     assert_eq!(set.complexity.as_deref(), Some("l"));
@@ -233,25 +242,50 @@ async fn the_complexity_of_an_initiative_changes_against_live_stack() {
 
     // --- the same value: nothing changes, no row --------------------------------
     let same = svc
-        .set_initiative_complexity(&code, Some("l"))
+        .set_initiative_complexity(&code, "l")
         .await
         .expect("setting l again");
     assert_eq!(same.complexity.as_deref(), Some("l"));
     assert_eq!(complexity_rows(&mut conn, &created.id).len(), 1);
 
-    // --- clear: null, then "" ---------------------------------------------------
+    // --- clear: none -------------------------------------------------------------
     let cleared = svc
-        .set_initiative_complexity(&code, None)
+        .set_initiative_complexity(&code, "none")
         .await
-        .expect("clearing with null");
+        .expect("clearing with none");
     assert_eq!(cleared.complexity, None);
-    svc.set_initiative_complexity(&code, Some("xs"))
+    svc.set_initiative_complexity(&code, "xs")
         .await
         .expect("setting xs");
-    let cleared = svc
-        .set_initiative_complexity(&code, Some(""))
+
+    // --- a missing value never clears: "", {} and null are 422 --------------------
+    let err = svc
+        .set_initiative_complexity(&code, "")
         .await
-        .expect("clearing with an empty string");
+        .expect_err("an empty value is refused");
+    assert!(matches!(err, Error::Validation { .. }), "{err}");
+    let url = format!("{}/api/initiatives/{code}/complexity", server.base_url);
+    for body in [json!({}), json!({"complexity": null})] {
+        let response = http
+            .put(&url)
+            .bearer_auth(&svc_token)
+            .header("X-Tenant", "acme")
+            .json(&body)
+            .send()
+            .await
+            .expect("PUT complexity");
+        assert_eq!(response.status(), 422, "{body} is refused");
+    }
+    let still = svc.get_initiative(&code).await.expect("reading");
+    assert_eq!(
+        still.complexity.as_deref(),
+        Some("xs"),
+        "a refused write keeps xs"
+    );
+    let cleared = svc
+        .set_initiative_complexity(&code, "none")
+        .await
+        .expect("clearing with none");
     assert_eq!(cleared.complexity, None);
     assert_eq!(
         complexity_rows(&mut conn, &created.id),
@@ -265,7 +299,7 @@ async fn the_complexity_of_an_initiative_changes_against_live_stack() {
 
     // --- a bad value: 422 that lists the sizes ----------------------------------
     let err = svc
-        .set_initiative_complexity(&code, Some("xxl"))
+        .set_initiative_complexity(&code, "xxl")
         .await
         .expect_err("xxl is not a size");
     match &err {
@@ -280,7 +314,7 @@ async fn the_complexity_of_an_initiative_changes_against_live_stack() {
 
     // --- the edit rule: carol is refused, and nothing changes -------------------
     let err = carol
-        .set_initiative_complexity(&code, Some("s"))
+        .set_initiative_complexity(&code, "s")
         .await
         .expect_err("carol may not edit the initiative");
     assert!(matches!(err, Error::Forbidden { .. }), "{err}");
@@ -311,10 +345,25 @@ async fn the_complexity_of_an_initiative_changes_against_live_stack() {
         text,
         format!("{code} already has the complexity s: nothing changed.")
     );
+    // A call that leaves out the complexity, or sends null, is refused and
+    // keeps s.
+    for arguments in [
+        json!({"short_code": code}),
+        json!({"short_code": code, "complexity": null}),
+    ] {
+        let (is_error, text) = mcp.call("set_complexity", arguments.clone()).await;
+        assert!(is_error, "{arguments} is refused: {text}");
+    }
+    let still = svc.get_initiative(&code).await.expect("reading");
+    assert_eq!(
+        still.complexity.as_deref(),
+        Some("s"),
+        "a refused call keeps s"
+    );
     let (is_error, text) = mcp
         .call(
             "set_complexity",
-            json!({"short_code": code, "complexity": null}),
+            json!({"short_code": code, "complexity": "none"}),
         )
         .await;
     assert!(!is_error, "{text}");
@@ -359,7 +408,7 @@ async fn the_complexity_of_an_initiative_changes_against_live_stack() {
     // --- archived: a write is refused with 404 -----------------------------------
     svc.delete_initiative(&code).await.expect("archiving");
     let err = svc
-        .set_initiative_complexity(&code, Some("m"))
+        .set_initiative_complexity(&code, "m")
         .await
         .expect_err("an archived initiative is refused");
     assert!(matches!(err, Error::NotFound { .. }), "{err}");

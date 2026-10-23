@@ -594,14 +594,14 @@ pub struct SetWorkClassRequest {
 }
 
 /// Body of `PUT /api/initiatives/{short_code}/complexity`: set the
-/// complexity of an initiative. `null` or an empty string clears it. Not
+/// complexity of an initiative. `none` clears it. The field is required, so
+/// a body that leaves it out cannot clear the complexity by mistake. Not
 /// content: no version bump (the A-0004 contract covers title/content only).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SetComplexityRequest {
-    /// `xs|s|m|l|xl`; `null` or `""` clears.
-    #[serde(default)]
-    pub complexity: Option<String>,
+    /// `xs|s|m|l|xl`, or `none` to clear.
+    pub complexity: String,
 }
 
 /// Body of `POST /api/documents`. A document has an owner board from its

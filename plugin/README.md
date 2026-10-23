@@ -53,7 +53,9 @@ router maps the whole user-invoked surface; changing the skill set without re-sy
 ## The SessionStart hook holds no credentials
 
 `hooks/hooks.json` registers `hooks/session_start.py` (python3, stdlib only) for SessionStart.
-It reads `.claude/kairos.local.md` (absent → silent no-op), probes `<deployment_url>/healthz`
+It reads the wiring (absent → silent no-op): `kairos config show --json` gives the
+`[[project]]` of the config of the person, else `.claude/kairos.local.md`, with `KAIROS_URL`
+first (#270; with no CLI that has the verb, the hook reads the file). It probes `<deployment_url>/healthz`
 unauthenticated, and injects the wiring summary as `additionalContext` with an instruction to
 pull live state over the **authenticated MCP connection**: with a `repository` wired
 (KAIROS-A-0019) that is `get_repository` + `board_items` on the team board narrowed to the
@@ -232,7 +234,7 @@ rules are links too.
 - The marker is `~/.claude/kairos-rules/<session_id>-<RULES_VERSION>` (`KAIROS_RULES_STATE_DIR`
   overrides the folder). A marker means silence. Bump `RULES_VERSION` when the text changes:
   each session then gets the new text once. Markers older than 30 days are removed.
-- It reads `deployment_url` from `.claude/kairos.local.md` with `session_start.read_frontmatter`.
+- It reads `deployment_url` from the wiring with `session_start.wiring` (#270).
   No credentials, no network.
 - Tests: `hooks/test_kairos_rules.py`, part of `angreal test unit`.
 
@@ -295,24 +297,29 @@ flags a change whose task links to a different repository. Work for a different 
 
 ## The plugin has its own `kairos` server
 
-`.claude-plugin/plugin.json` declares a `kairos` HTTP server at `${KAIROS_URL}/mcp` with the
-header `Authorization: Bearer ${KAIROS_MCP_KEY}`. A person who puts both variables in the
-`env` section of their Claude Code user settings is connected in each repository, with no
-`.mcp.json` and no `claude mcp add`; `/kairos:bootstrap` then writes only
-`.claude/kairos.local.md`. The server is for the agent-key path (KAIROS-A-0024). Its
-`Authorization` header turns off the OAuth flow of the client, so on an OAuth deployment
-leave `KAIROS_URL` unset and add a user-scope entry with no header
-(`claude mcp add --scope user`). With `KAIROS_URL` unset, `/mcp` shows the server as failed
-("Missing environment variables"); disable it there.
+`.claude-plugin/plugin.json` declares a `kairos` stdio server, `bin/kairos-mcp`. It runs
+`kairos mcp-proxy` (#270), which forwards MCP over stdio to `/mcp` of the deployment of the
+project. The deployment is the first of: `KAIROS_URL`, the `[[project]]` of the origin remote
+of the session folder in `~/.config/kairos/config.toml`, `.claude/kairos.local.md`, `[default]`
+of that file, and the deployment of `kairos login`. So two repositories can use two
+deployments in one Claude Code, with no `.mcp.json` and no direnv. The credential is
+`KAIROS_KEY` or `KAIROS_MCP_KEY` (the agent-key path, KAIROS-A-0024), else the token of
+`kairos login`, which the proxy refreshes. An OAuth deployment therefore works through the plugin
+server after `kairos login`; a user-scope entry (`claude mcp add --scope user`) still works,
+but then disable one of the two servers so the session does not have the tools twice.
+With an older `kairos`, or none on PATH, `bin/kairos-mcp` is an MCP server with no tools whose
+instructions say why, as `bin/kairos-code` does. Before #270 the server was HTTP at
+`${KAIROS_URL}/mcp`, and `/mcp` showed it as failed when `KAIROS_URL` was not set.
 The hooks match the tools of both names (`mcp__kairos__*` and `mcp__plugin_kairos_kairos__*`).
 
 ## The connection belongs to the user
 
 `/kairos:bootstrap` writes no MCP config in the repository by default. The connection is the
-plugin server (agent key) or a user-scope entry (OAuth), and each repository of the user uses
-it. The skill writes a project `.mcp.json` only when the user asks for a connection in one
-repository only, for example a second deployment. In the repository it writes only
-`.claude/kairos.local.md`.
+plugin server (an agent key or `kairos login`) or a user-scope entry (OAuth), and each
+repository of the user uses it. By default the skill writes the wiring as a `[[project]]` of
+`~/.config/kairos/config.toml` (`kairos config project`), so the repository gets no file; it
+writes `.claude/kairos.local.md` only when the user asks for it or the CLI cannot. A second
+deployment is a `[[project]]` with its own `deployment`, not a project `.mcp.json`.
 
 ## `references/` are rendered artifacts
 

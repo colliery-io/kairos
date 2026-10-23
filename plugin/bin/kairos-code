@@ -116,7 +116,7 @@ def answer(message_id, result=None, error=None):
     sys.stdout.flush()
 
 
-def handle(message, instructions):
+def handle(message, instructions, name="kairos-code"):
     if not isinstance(message, dict) or "method" not in message:
         if isinstance(message, dict) and "id" in message:
             answer(message["id"], error={"code": -32600, "message": "Invalid request"})
@@ -131,7 +131,7 @@ def handle(message, instructions):
             {
                 "protocolVersion": params.get("protocolVersion") or DEFAULT_PROTOCOL,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "kairos-code", "version": "0"},
+                "serverInfo": {"name": name, "version": "0"},
                 "instructions": instructions,
             },
         )
@@ -146,7 +146,7 @@ def handle(message, instructions):
         )
 
 
-def serve_no_tools(instructions):
+def serve_no_tools(instructions, name="kairos-code"):
     for line in sys.stdin:
         if not line.strip():
             continue
@@ -155,7 +155,7 @@ def serve_no_tools(instructions):
         except ValueError:
             answer(None, error={"code": -32700, "message": "Parse error"})
             continue
-        handle(message, instructions)
+        handle(message, instructions, name)
 
 
 def main():

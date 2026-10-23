@@ -1118,6 +1118,53 @@ cache. A second process that must refresh waits for the lock. Then it reads
 the cache again and uses the new token. Thus two processes do not send the
 same refresh token, which an issuer that rotates refresh tokens accepts once.
 
+### `config.toml`
+
+`config.toml` in the config directory binds a repository to a deployment and
+to the boards of a team. The repository then needs no Kairos file. You edit the
+file. `kairos config project` adds an entry and keeps the rest of the file.
+
+```toml
+[default]
+deployment = "https://kairos.example.com"
+tenant     = "example"
+team_board = "team-delivery"
+
+[[project]]
+remote     = "github.com/example-org/example-repo"
+team_board = "other-delivery"
+# deployment and tenant come from [default]
+```
+
+| Key | Description |
+|---|---|
+| `remote` | `[[project]]` only. The `origin` remote of the repository. Each form that git takes is correct. The CLI compares it as `host/path` in lower case, so each clone and each worktree finds the entry. |
+| `path` | `[[project]]` only, in place of `remote`. A folder of a checkout with no remote. The entry applies to the folder and to each folder below it. `~/` is the home folder. |
+| `deployment` | The deployment URL. |
+| `tenant` | The tenant of a login. A key carries its tenant, so the CLI does not send this value with a key. |
+| `repository` | The slug of the repository in Kairos. |
+| `team_board`, `initiative_board`, `adr_board` | The slugs of the boards. |
+| `delivery_stream` | The delivery stream of the team. |
+
+The CLI, the plugin hooks and the plugin MCP server (`kairos mcp-proxy`) use
+one order for each value:
+
+1. A flag, for example `--url` or `--tenant`.
+2. The environment: `KAIROS_URL`.
+3. The `[[project]]` of the checkout.
+4. `.claude/kairos.local.md` of the checkout, or of its clone in a worktree.
+5. `[default]`.
+6. The deployment and the tenant of `kairos login`.
+
+`[default]` alone does not wire a repository. The hooks of the plugin give
+the Kairos context only when a `[[project]]` or `.claude/kairos.local.md`
+binds the folder. `kairos config show` gives each value of a folder and where
+it comes from.
+
+The CLI refuses a `config.toml` with an unknown key, or with a `[[project]]`
+that has no `remote` and no `path`. A typo must not send work to the wrong
+deployment.
+
 ### `credentials.json`
 
 ```json
@@ -1191,7 +1238,7 @@ index. The output says so. The tool `fetch_index` of the code tools does the sam
 
 | Setting | Description |
 |---|---|
-| `--url`, then `KAIROS_URL`, then `deployment_url` in `.claude/kairos.local.md` | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |
+| `--url`, then `KAIROS_URL`, then the binding of the checkout (the `[[project]]` of [`config.toml`](#configtoml), `.claude/kairos.local.md`, `[default]`) | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |
 | `KAIROS_KEY`, then `KAIROS_MCP_KEY` | An agent key or a service-account key, sent as the bearer, as for each other command ([CLI → Authentication](../cli/#authentication)). With neither, the CLI uses the credentials of `kairos login`. |
 | `--tenant`, then `tenant` in `.claude/kairos.local.md` | The tenant, for the credentials of `kairos login`. With neither, the CLI uses the tenant of the login. A key carries its tenant. |
 | `--repository`, then `repository` in `.claude/kairos.local.md` | The repository in Kairos. With neither, the CLI uses the repository whose `repo_url` is the `origin` remote of the checkout. |

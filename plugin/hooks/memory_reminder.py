@@ -115,10 +115,7 @@ def is_memory_path(file_path, memory_dir):
 
 
 def adr_board():
-    path = session_start.wiring_path()
-    if not path:
-        return ""
-    return session_start.read_frontmatter(path).get("adr_board", "")
+    return (session_start.wiring() or {}).get("adr_board", "")
 
 
 def build_context(path, board):

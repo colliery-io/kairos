@@ -96,8 +96,8 @@ the per-command tables below.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--url <URL>` | string | `KAIROS_URL`, then the only cached deployment | Deployment base URL. Required when more than one deployment is cached and `KAIROS_URL` is not set. |
-| `--tenant <TENANT>` | string | the tenant cached at login (none with a key) | Tenant slug, sent as the `X-Tenant` header. Used by deployments that resolve tenants by header rather than by host subdomain. |
+| `--url <URL>` | string | `KAIROS_URL`, then the binding of the current folder (see [`config.toml`](../configuration/#configtoml)), then the only cached deployment | Deployment base URL. Required when more than one deployment is cached and nothing else names one. |
+| `--tenant <TENANT>` | string | the binding of the current folder, then the tenant cached at login (none with a key) | Tenant slug, sent as the `X-Tenant` header. Used by deployments that resolve tenants by header rather than by host subdomain. |
 | `--json` | flag | off | Print JSON instead of the human-readable table. A list prints one envelope: see [the JSON of a list](#the-json-of-a-list). |
 
 `--url` values are normalized by trimming whitespace and trailing slashes, so
@@ -2289,7 +2289,7 @@ gives only that checkout. The command skips hidden folders.
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<FOLDER>` | path | the current folder | The board folder, or a checkout. |
-| `--url <URL>` | string | `KAIROS_URL`, else `deployment_url` in `.claude/kairos.local.md` of the folder, else the only deployment of `kairos login` | The deployment. |
+| `--url <URL>` | string | `KAIROS_URL`, else the binding of the folder (see [`config.toml`](../configuration/#configtoml)), else the only deployment of `kairos login` | The deployment. |
 
 | Column | Meaning |
 |---|---|
@@ -2933,7 +2933,7 @@ kairos index update [--root <ROOT>] [--rust-edges] [--link-only] [--max-changed 
 | `--link-only` | flag | off | Run no model. Link the summaries of the pool, and make no new summaries. |
 | `--max-changed <MAX_CHANGED>` | integer | 200 when a model runs, else no limit | The most files that can change since the base index. Above it, the CLI builds nothing. With `--link-only` or on a hosted repository, no model runs. |
 | `--repo <REPOSITORY>` | slug or UUID | `repository` in `.claude/kairos.local.md`, else the repository of the `origin` remote | The repository in Kairos. The old name `--repository` still works. |
-| `--url <URL>` | string | `KAIROS_URL`, else `deployment_url` in `.claude/kairos.local.md`, else the only deployment of `kairos login` | The deployment. |
+| `--url <URL>` | string | `KAIROS_URL`, else the binding of the checkout (see [`config.toml`](../configuration/#configtoml)), else the only deployment of `kairos login` | The deployment. |
 | `--tenant <TENANT>` | string | `tenant` in `.claude/kairos.local.md`, else the tenant of the login | The tenant, for a token from `kairos login`. A key carries its tenant. |
 
 Updates the index for the changes in the checkout, also the changes that are
@@ -3090,6 +3090,53 @@ A refusal of `index` has one of these codes in the error envelope:
 | `CLI_ERROR` | Any other failure. |
 
 ## The CLI itself
+
+### `kairos config`
+
+```
+kairos config show [FOLDER] [--json]
+kairos config project [FOLDER] [--remote <REMOTE>] [--deployment <URL>] [--tenant <TENANT>]
+    [--repository <SLUG>] [--team-board <SLUG>] [--initiative-board <SLUG>]
+    [--adr-board <SLUG>] [--delivery-stream <SLUG>] [--json]
+kairos config path
+```
+
+These commands read and write the config of the person, `config.toml` in the
+config directory (see [`config.toml`](../configuration/#configtoml)).
+
+`config show` gives the binding of the folder: the deployment, the tenant,
+the repository and the boards. For each value it gives where the value comes
+from: the `[[project]]` of the folder, `.claude/kairos.local.md`, or
+`[default]`. When `KAIROS_URL` is set, the output says that commands use it.
+The hooks of the plugin read `config show --json`. The JSON has `bound`, which
+is `true` when a `[[project]]` or `.claude/kairos.local.md` binds the folder.
+
+`config project` adds a `[[project]]` for the `origin` remote of the folder, or
+for `--remote`. The command adds the text to the end of the file and does not
+change the other lines. When the file has an entry for the remote with the
+same values, the command changes nothing. When the entry has other values, the
+command refuses. Then you edit the entry in the file.
+
+`config path` prints the path of `config.toml`.
+
+### `kairos mcp-proxy`
+
+```
+kairos mcp-proxy [--url <URL>] [--tenant <TENANT>]
+```
+
+Serves the MCP tools of Kairos over standard input and output. The command
+sends each message to `/mcp` of the deployment, over HTTP. The Claude Code
+plugin starts this command as its `kairos` MCP server.
+
+The command finds the deployment and the tenant in the order of the
+[common options](#common-options). The folder of the binding is
+`CLAUDE_PROJECT_DIR`, else the current folder. The credential is
+`KAIROS_KEY` or `KAIROS_MCP_KEY`, else the token of `kairos login`. The
+command refreshes the token when it expires.
+
+When the deployment refuses a request or does not answer, the client gets a
+JSON-RPC error with the reason.
 
 ### `kairos self-update`
 

@@ -9,9 +9,9 @@
   "hooks": "./plugin/hooks/hooks.json",
   "mcpServers": {
     "kairos": {
-      "type": "http",
-      "url": "${KAIROS_URL}/mcp",
-      "headers": { "Authorization": "Bearer ${KAIROS_MCP_KEY}" }
+      "type": "stdio",
+      "command": "${CLAUDE_PLUGIN_ROOT}/plugin/bin/kairos-mcp",
+      "args": []
     },
     "kairos-code": {
       "type": "stdio",

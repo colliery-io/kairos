@@ -47,6 +47,9 @@ sha2 = { workspace = true }
 # `<noun> diff` (KAIROS-T-0592): the unified diff of two versions, with the
 # crate that the web history page uses.
 similar = { workspace = true }
+# The config of the person, `config.toml` (#270). kairos-index has toml 0.9
+# in the tree already.
+toml = "0.9"
 
 [features]
 default = ["vectors"]

@@ -64,7 +64,7 @@ pub use error::IndexCommandError;
 
 // KAIROS-T-0646: `kairos repos local` reads the settings and the remotes as
 // `kairos index` does.
-pub(crate) use base::{normalized_remote, settings};
+pub(crate) use base::{normalized_remote, settings, settings_path};
 
 use crate::context::print_json;
 use crate::error::CliError;

@@ -22,10 +22,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::auth;
-use crate::context::{Common, client};
+use crate::context::{Common, client_for};
 use crate::error::CliError;
-use crate::index::{git_output, normalized_remote, settings};
+use crate::index::{git_output, normalized_remote};
 use crate::listing::{Paging, fetch, print_whole};
 use crate::table::Table;
 
@@ -214,14 +213,10 @@ pub async fn run(folder: Option<PathBuf>, common: Common) -> Result<(), CliError
         })?,
     };
     let found = checkouts_in(&folder)?;
-    let env = auth::Env::from_process();
-    let url = common
-        .url
-        .clone()
-        .or(env.url)
-        .or_else(|| settings(&folder).remove("deployment_url"));
-    let common = Common { url, ..common };
-    let client = client(&common)?;
+    // #270: the deployment and the tenant of the folder, not of the current
+    // folder of the command.
+    let binding = crate::project_config::binding(&folder)?;
+    let (client, _) = client_for(&common, &binding)?;
     let paging = Paging {
         all: true,
         ..Paging::default()

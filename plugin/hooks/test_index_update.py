@@ -39,6 +39,11 @@ WIRING = "---\ndeployment_url: http://127.0.0.1:1\nrepository: kairos\n---\n"
 # FAKE_KAIROS_ERROR as an `error: ` line to stderr (as the CLI does), and
 # exits with the code in FAKE_KAIROS_EXIT.
 FAKE_KAIROS = """#!/bin/sh
+# An older kairos with no `config` verb (#270): the hooks read the wiring
+# file themselves, and the call is not an update.
+if [ "$1" = "config" ]; then
+  exit 64
+fi
 {
   echo "args: $*"
   echo "cwd: $(pwd)"

@@ -110,10 +110,7 @@ def wiring():
     try:
         import session_start
 
-        path = session_start.wiring_path(session_folder())
-        if not path:
-            return None
-        return session_start.read_frontmatter(path)
+        return session_start.wiring(session_folder())
     except Exception:  # an unreadable wiring: as if not wired
         return None
     finally:

@@ -149,10 +149,7 @@ def is_kairos_call(tool_name, tool_input):
 
 
 def deployment_url():
-    path = session_start.wiring_path()
-    if not path:
-        return ""
-    return session_start.read_frontmatter(path).get("deployment_url", "")
+    return (session_start.wiring() or {}).get("deployment_url", "")
 
 
 def mark(session):

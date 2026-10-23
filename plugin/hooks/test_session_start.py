@@ -734,3 +734,72 @@ class BoardFolderWithTheCli(unittest.TestCase):
         )
         self.assertNotIn("repository payments", context)
         self.assertIn("`list_repositories`", context)
+
+
+class ProjectConfig(unittest.TestCase):
+    """#270: the binding of `kairos config show --json` (a [[project]] of
+    the config of the person), else the file."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.folder = os.path.realpath(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def binding(self, data):
+        return unittest.mock.patch.object(session_start, "config_binding", return_value=data)
+
+    def test_a_project_of_the_config_wires_a_folder_with_no_file(self):
+        data = {
+            "bound": True,
+            "values": {
+                "deployment": {"value": "https://kairos.example.com", "from": "default"},
+                "team_board": {"value": "other-delivery", "from": "project"},
+                "unknown": {"value": "dropped", "from": "project"},
+            },
+            "env_url": None,
+        }
+        with self.binding(data):
+            values = session_start.wiring(self.folder)
+        self.assertEqual(
+            values,
+            {"deployment_url": "https://kairos.example.com", "team_board": "other-delivery"},
+        )
+
+    def test_kairos_url_comes_before_the_binding(self):
+        data = {
+            "bound": True,
+            "values": {"deployment": {"value": "https://bound", "from": "project"}},
+            "env_url": "https://from-env",
+        }
+        with self.binding(data):
+            self.assertEqual(session_start.wiring(self.folder)["deployment_url"], "https://from-env")
+
+    def test_a_default_alone_wires_nothing(self):
+        data = {
+            "bound": False,
+            "values": {"deployment": {"value": "https://kairos.example.com", "from": "default"}},
+        }
+        with self.binding(data):
+            self.assertIsNone(session_start.wiring(self.folder))
+
+    def test_with_no_cli_the_file_is_read(self):
+        os.makedirs(os.path.join(self.folder, ".claude"))
+        with open(os.path.join(self.folder, ".claude", "kairos.local.md"), "w") as f:
+            f.write("---\nteam_board: from-file\n---\n")
+        with self.binding(None):
+            self.assertEqual(session_start.wiring(self.folder), {"team_board": "from-file"})
+        os.remove(os.path.join(self.folder, ".claude", "kairos.local.md"))
+        with self.binding(None):
+            self.assertIsNone(session_start.wiring(self.folder))
+
+    def test_an_older_cli_with_no_config_verb_gives_none(self):
+        bin_dir = os.path.join(self.folder, "bin")
+        os.makedirs(bin_dir)
+        fake = os.path.join(bin_dir, "kairos")
+        with open(fake, "w") as f:
+            f.write("#!/bin/sh\necho \"error: unrecognized subcommand 'config'\" >&2\nexit 64\n")
+        os.chmod(fake, 0o755)
+        with unittest.mock.patch.dict(os.environ, {"PATH": bin_dir}):
+            self.assertIsNone(session_start.config_binding(self.folder))

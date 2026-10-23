@@ -73,30 +73,28 @@ of your user settings, `~/.claude/settings.json`:
 `KAIROS_URL` has no `/mcp` and no slash at the end. Do not put the key in a
 repository. Do not put the key in a chat.
 
-The `kairos` plugin has its own `kairos` MCP server. It reads the two
-variables and connects in each repository of yours. You write no `.mcp.json`
-and you run no `claude mcp add`. The key holds its tenant, so the connection
-needs no `X-Tenant` header. In a repository, `/kairos:bootstrap` writes only
-`.claude/kairos.local.md`: the deployment, the board of your team and the
-repository.
+The `kairos` plugin has its own `kairos` MCP server, `kairos mcp-proxy`. It
+reads the two variables and connects in each repository of yours. You write
+no `.mcp.json` and you run no `claude mcp add`. The key holds its tenant, so
+the connection needs no `X-Tenant` header.
 
-Write a project `.mcp.json` only when one repository must use a different
-deployment. Then the entry holds the name of the variable, not the key:
+In a repository, `/kairos:bootstrap` writes only a project entry in
+`~/.config/kairos/config.toml`. The entry has the deployment, your team board and
+the repository. It writes `.claude/kairos.local.md` only when you ask for it.
 
-```json
-{
-  "mcpServers": {
-    "kairos": {
-      "type": "http",
-      "url": "https://other.example.com/mcp",
-      "headers": { "Authorization": "Bearer ${KAIROS_MCP_KEY}" }
-    }
-  }
-}
+When one repository must use a different deployment, give its project entry
+its own `deployment`, and leave `KAIROS_URL` unset. `KAIROS_URL` comes before
+the project entry. The server then connects each session to the deployment of
+its repository:
+
+```toml
+[[project]]
+remote     = "github.com/acme/other-app"
+deployment = "https://other.example.com"
 ```
 
-Some deployments use OpenID Connect and no agent key. There, leave
-`KAIROS_URL` unset and add a user-scope server with no header. See
+Some deployments use OpenID Connect and no agent key. There, run
+`kairos login`: the plugin server then uses the token of the login. See
 [Connect over MCP](../connect-over-mcp/).
 
 ## 4. Make sure that it works

@@ -125,7 +125,9 @@ def is_wired(project):
         sys.path.insert(0, here)
     import session_start
 
-    return session_start.wiring_path(project) is not None
+    # The file first, with no process; else a [[project]] of the config of
+    # the person (#270).
+    return session_start.wiring_path(project) is not None or session_start.wiring(project) is not None
 
 
 def is_checkout(project):

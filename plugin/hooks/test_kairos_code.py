@@ -144,3 +144,44 @@ class EndToEnd(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+MCP_SCRIPT = os.path.join(HERE, "..", "bin", "kairos-mcp")
+
+
+class KairosMcp(unittest.TestCase):
+    """#270: the `kairos` server of the plugin runs `kairos mcp-proxy`, with
+    the fallback of `kairos-code` for an older CLI or none."""
+
+    setUp = EndToEnd.setUp
+    fake_kairos = EndToEnd.fake_kairos
+
+    def run_wrapper(self):
+        proc = subprocess.run([sys.executable, MCP_SCRIPT, "--extra"], input=INITIALIZE,
+                              capture_output=True, text=True, env=self.env, timeout=30)
+        self.assertEqual(proc.stderr, "")
+        return proc.stdout
+
+    def test_a_current_cli_runs_the_proxy(self):
+        self.fake_kairos("0.15.0")
+        self.assertEqual(self.run_wrapper().strip(), "ran: mcp-proxy --extra")
+
+    def test_an_older_cli_gets_the_server_with_no_tools_and_the_reason(self):
+        self.fake_kairos("0.13.0")
+        reply = json.loads(self.run_wrapper().splitlines()[0])
+        self.assertEqual(reply["result"]["serverInfo"]["name"], "kairos")
+        instructions = reply["result"]["instructions"]
+        self.assertIn("kairos CLI is 0.13.0 and the plugin is 0.15.0", instructions)
+        self.assertIn("`kairos mcp-proxy`", instructions)
+        self.assertIn("kairos self-update", instructions)
+
+    def test_no_cli_gets_the_server_with_no_tools(self):
+        reply = json.loads(self.run_wrapper().splitlines()[0])
+        self.assertEqual(reply["result"]["serverInfo"]["name"], "kairos")
+        self.assertIn("`kairos` is not on PATH", reply["result"]["instructions"])
+
+    def test_the_manifest_starts_the_launcher(self):
+        with open(os.path.join(HERE, "..", "..", ".claude-plugin", "plugin.json")) as f:
+            server = json.load(f)["mcpServers"]["kairos"]
+        self.assertEqual(server["type"], "stdio")
+        self.assertEqual(server["command"], "${CLAUDE_PLUGIN_ROOT}/plugin/bin/kairos-mcp")

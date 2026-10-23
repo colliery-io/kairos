@@ -45,6 +45,7 @@ mod index;
 mod listing;
 mod oidc;
 mod password;
+mod project_config;
 mod provider;
 mod self_update;
 mod table;
@@ -230,6 +231,13 @@ enum Command {
     Unlink(commands::links::UnlinkArgs),
     /// The code index of a checkout, and its code tools for an agent (COLLIERY-T-1852)
     Index(IndexArgs),
+    /// The config of the person (config.toml): the deployment and the boards of each
+    /// project, by its origin remote
+    #[command(subcommand)]
+    Config(commands::config::ConfigCommand),
+    /// The MCP server of Kairos over stdio, for the Claude Code plugin: it forwards to /mcp of
+    /// the deployment of the project
+    McpProxy(commands::mcp_proxy::McpProxyArgs),
     /// Install the version of the server (or --latest, or --version) in place of this binary
     SelfUpdate(self_update::SelfUpdateArgs),
 }
@@ -280,7 +288,11 @@ fn json_requested(args: impl IntoIterator<Item = String>) -> bool {
 /// start. The other `index` commands make the check.
 fn makes_daily_check(command: &Command) -> bool {
     match command {
-        Command::Login { .. } | Command::Logout { .. } | Command::SelfUpdate(_) => false,
+        Command::Login { .. }
+        | Command::Logout { .. }
+        | Command::SelfUpdate(_)
+        | Command::Config(_)
+        | Command::McpProxy(_) => false,
         Command::Index(args) => !args.serves_mcp(),
         _ => true,
     }
@@ -349,6 +361,8 @@ async fn dispatch(command: Command) -> Result<(), CliError> {
         Command::Unlink(args) => args.run().await,
         Command::Metadata(command) => command.run().await,
         Command::Templates(command) => command.run().await,
+        Command::Config(command) => command.run().await,
+        Command::McpProxy(args) => args.run().await,
         Command::SelfUpdate(args) => args.run().await.map(|_| ()),
     }
 }

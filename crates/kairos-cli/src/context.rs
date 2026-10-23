@@ -10,16 +10,17 @@ use serde::Serialize;
 use crate::auth::{self, Source};
 use crate::credentials;
 use crate::error::CliError;
+use crate::project_config;
 use crate::provider::CachedTokenProvider;
 use kairos_client::KairosClient;
 
 /// Flags shared by every command that talks to the API.
 #[derive(clap::Args, Debug, Default)]
 pub struct Common {
-    /// Deployment base URL (defaults to KAIROS_URL, then the only cached deployment)
+    /// Deployment base URL (defaults to KAIROS_URL, then the project config, then the only cached deployment)
     #[arg(long)]
     pub url: Option<String>,
-    /// Tenant slug override (defaults to the tenant cached at login)
+    /// Tenant slug override (defaults to the project config, then the tenant cached at login)
     #[arg(long)]
     pub tenant: Option<String>,
     /// Print JSON instead of the human-readable rendering. A list prints
@@ -42,10 +43,28 @@ pub fn client(common: &Common) -> Result<KairosClient, CliError> {
 /// (KAIROS-T-0594). A key that hides a login for the same deployment gives
 /// one warning line on stderr, unless `KAIROS_QUIET=1`.
 pub fn client_with_credential(common: &Common) -> Result<(KairosClient, String), CliError> {
+    client_for(common, &project_config::binding_here())
+}
+
+/// [`client_with_credential`] for the binding of a folder (#270). The
+/// deployment: `--url`, then `KAIROS_URL`, then the binding (`[[project]]`,
+/// `.claude/kairos.local.md`, `[default]`), then the only deployment of a
+/// login. The tenant of a login: `--tenant`, then the binding, then the
+/// tenant of the login. A key carries its tenant: only `--tenant` changes it.
+pub fn client_for(
+    common: &Common,
+    binding: &project_config::Binding,
+) -> Result<(KairosClient, String), CliError> {
     let timeout = kairos_client::timeout_from_env()?;
     let path = credentials::credentials_path()?;
     let env = auth::Env::from_process();
-    let source = auth::resolve(common.url.as_deref(), &env, || credentials::load(&path))?;
+    let url = common.url.clone().or_else(|| {
+        env.url
+            .is_none()
+            .then(|| binding.get("deployment").map(str::to_string))
+            .flatten()
+    });
+    let source = auth::resolve(url.as_deref(), &env, || credentials::load(&path))?;
     if let Some(warning) = auth::override_warning(&source, &env, || credentials::load(&path)) {
         eprintln!("{warning}");
     }
@@ -63,7 +82,14 @@ pub fn client_with_credential(common: &Common) -> Result<(KairosClient, String),
             let entry = credentials::entry_for(&store, &deployment)?;
             auth::note_deployment(&deployment);
             let provider = Arc::new(CachedTokenProvider::new(path, deployment.clone()));
-            (KairosClient::new(&deployment, provider), entry.tenant)
+            // The tenant of the binding is for its own deployment: not for
+            // a `--url` or a KAIROS_URL of another one.
+            let same = binding.get("deployment").is_none_or(|bound| {
+                credentials::normalize_url(bound) == credentials::normalize_url(&deployment)
+            });
+            let bound = binding.get("tenant").filter(|_| same).map(str::to_string);
+            let tenant = bound.or(entry.tenant);
+            (KairosClient::new(&deployment, provider), tenant)
         }
     };
     if let Some(tenant) = common.tenant.clone().or(cached_tenant) {

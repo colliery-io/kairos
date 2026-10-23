@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""The `kairos` MCP server of the plugin (#270).
+
+- With `kairos` on PATH at the version of the plugin or newer: run
+  `kairos mcp-proxy` in place of this process (exec). The proxy finds the
+  deployment of the project of the session (`--url`, `KAIROS_URL`, the
+  `[[project]]` of `~/.config/kairos/config.toml`, `.claude/kairos.local.md`,
+  `[default]`, a login), and forwards MCP over stdio to its `/mcp`.
+- With an older `kairos`, or none: serve MCP over stdio with no tools, as
+  `kairos-code` does; the instructions say why and what to do.
+
+The plugin declared `${KAIROS_URL}/mcp` before: one URL for each session,
+and a connection error when KAIROS_URL was not set. Python stdlib only.
+"""
+
+import importlib.machinery
+import importlib.util
+import os
+import shutil
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+LOADER = importlib.machinery.SourceFileLoader("kairos_code", os.path.join(HERE, "kairos-code"))
+SPEC = importlib.util.spec_from_loader("kairos_code", LOADER)
+code = importlib.util.module_from_spec(SPEC)
+LOADER.exec_module(code)
+
+NAME = "kairos"
+
+NO_CLI = (
+    "The Kairos tools are off: `kairos` is not on PATH. The plugin starts "
+    "`kairos mcp-proxy` to reach the deployment of the project. Put the "
+    "`kairos` CLI on PATH and start the session again."
+)
+
+
+def old_cli(cli, plugin):
+    """The instructions when the CLI is older than the plugin."""
+    return (
+        f"The Kairos tools are off: the kairos CLI is {cli} and the plugin is "
+        f"{plugin}. The plugin starts `kairos mcp-proxy`, which an older CLI "
+        "does not have. Run `kairos self-update`, then start the session again."
+    )
+
+
+def main():
+    kairos = shutil.which("kairos")
+    instructions = NO_CLI
+    if kairos is not None:
+        cli, plugin = code.cli_version(kairos), code.plugin_version()
+        if not code.is_older(cli, plugin):
+            os.execv(kairos, ["kairos", "mcp-proxy", *sys.argv[1:]])
+        instructions = old_cli(cli, plugin)
+    try:
+        code.serve_no_tools(instructions, NAME)
+    except (BrokenPipeError, KeyboardInterrupt):
+        pass
+
+
+if __name__ == "__main__":
+    main()

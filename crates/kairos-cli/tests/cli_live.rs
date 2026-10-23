@@ -639,6 +639,13 @@ async fn cli_login_whoami_refresh_logout_live() {
         "{stderr}"
     );
     assert!(!stderr.contains(&key), "{stderr}");
+
+    // --- phase B2b: a [[project]] of config.toml names the deployment ------
+    // #270: no KAIROS_URL and no file in the folder. The project of the
+    // folder in the config of the person gives the deployment, to a command
+    // and to `kairos mcp-proxy`, the `kairos` MCP server of the plugin.
+    project_config_and_mcp_proxy(&base_url, &key).await;
+
     let (code, _, stderr) = run_cli_with_key_env(
         config_dir.path(),
         &base_url,
@@ -759,4 +766,116 @@ async fn cli_login_whoami_refresh_logout_live() {
     sql_query(format!("DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)"))
         .execute(&mut admin_conn)
         .expect("dropping scratch db after test");
+}
+
+/// #270: a folder bound to the deployment by a `[[project]]` of
+/// `config.toml`, with a key and no KAIROS_URL. `kairos whoami` in the
+/// folder finds the deployment; `kairos mcp-proxy` forwards MCP over stdio
+/// to `/mcp` of it: initialize, the initialized notification, tools/list
+/// and a call of `whoami`.
+async fn project_config_and_mcp_proxy(base_url: &str, key: &str) {
+    let config = tempfile::tempdir().expect("a config dir");
+    let project = tempfile::tempdir().expect("a project folder");
+    let project = project.path().canonicalize().expect("the project folder");
+    std::fs::write(
+        config.path().join("config.toml"),
+        format!(
+            "[default]\ndeployment = \"http://127.0.0.1:9\"\n\n\
+             [[project]]\npath = {:?}\ndeployment = {base_url:?}\n",
+            project.display().to_string()
+        ),
+    )
+    .expect("write config.toml");
+    let kairos = |args: &[&str]| {
+        let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_kairos"));
+        command
+            .args(args)
+            .current_dir(&project)
+            .env("KAIROS_CONFIG_DIR", config.path())
+            .env_remove("KAIROS_URL")
+            .env_remove("KAIROS_KEY")
+            .env_remove("CLAUDE_PROJECT_DIR")
+            .env("KAIROS_QUIET", "1")
+            .env("KAIROS_UPDATE_CHECK", "0")
+            .env("KAIROS_MCP_KEY", key);
+        command
+    };
+
+    let shown = kairos(&["config", "show", "--json"])
+        .output()
+        .await
+        .expect("kairos config show");
+    let shown: serde_json::Value = serde_json::from_slice(&shown.stdout).expect("config JSON");
+    assert_eq!(shown["bound"], true, "{shown}");
+    assert_eq!(shown["values"]["deployment"]["value"], base_url, "{shown}");
+    assert_eq!(shown["values"]["deployment"]["from"], "project", "{shown}");
+
+    let whoami = kairos(&["whoami", "--json"])
+        .output()
+        .await
+        .expect("kairos whoami");
+    assert!(
+        whoami.status.success(),
+        "whoami with the project config failed: {}",
+        String::from_utf8_lossy(&whoami.stderr)
+    );
+    let identity: serde_json::Value = serde_json::from_slice(&whoami.stdout).expect("whoami JSON");
+    assert_eq!(identity["user"]["email"], "alice@kairos.test");
+
+    let mut proxy = kairos(&["mcp-proxy"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("start kairos mcp-proxy");
+    let mut stdin = proxy.stdin.take().expect("stdin");
+    let mut lines = BufReader::new(proxy.stdout.take().expect("stdout")).lines();
+    let mut send = async |message: serde_json::Value| {
+        use tokio::io::AsyncWriteExt;
+        stdin
+            .write_all(format!("{message}\n").as_bytes())
+            .await
+            .expect("write to the proxy");
+    };
+    let mut next = async || -> serde_json::Value {
+        let line = tokio::time::timeout(Duration::from_secs(30), lines.next_line())
+            .await
+            .expect("an answer of the proxy in time")
+            .expect("read the proxy")
+            .expect("a line");
+        serde_json::from_str(&line).expect("one JSON-RPC message per line")
+    };
+
+    send(serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                   "clientInfo": {"name": "cli-live", "version": "0"}},
+    }))
+    .await;
+    let init = next().await;
+    assert_eq!(init["id"], 1, "{init}");
+    assert!(init["result"]["serverInfo"].is_object(), "{init}");
+    send(serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"})).await;
+    send(serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).await;
+    let tools = next().await;
+    assert_eq!(tools["id"], 2, "{tools}");
+    let names: Vec<&str> = tools["result"]["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    assert!(names.contains(&"whoami"), "{names:?}");
+    send(serde_json::json!({
+        "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+        "params": {"name": "whoami", "arguments": {}},
+    }))
+    .await;
+    let called = next().await;
+    assert_eq!(called["id"], 3, "{called}");
+    let text = called["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(text.contains("alice@kairos.test"), "{called}");
 }

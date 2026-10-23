@@ -270,6 +270,58 @@ def checkouts_text(checkouts):
     return "\n".join(lines)
 
 
+CONFIG_SHOW_SECONDS = 3.0
+
+
+def config_binding(project, timeout=CONFIG_SHOW_SECONDS):
+    """The binding of the folder from `kairos config show --json` (#270):
+    the `[[project]]` of its origin remote in the config of the person,
+    then `.claude/kairos.local.md`, then `[default]`, in the order of the
+    CLI. None when `kairos` is not on PATH, when it has no such verb (an
+    older CLI), or when it fails: then the hook reads the file itself."""
+    binary = shutil.which("kairos")
+    if not binary:
+        return None
+    env = dict(os.environ, KAIROS_UPDATE_CHECK="0", KAIROS_QUIET="1")
+    try:
+        out = subprocess.run(
+            [binary, "config", "show", "--json", project],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+        data = json.loads(out.stdout) if out.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def wiring(project_dir=None):
+    """The wiring of the project, with the keys of the front matter, or None
+    when nothing binds it to Kairos (#270). The CLI gives the binding: a
+    `[[project]]` of the config of the person, else the file. KAIROS_URL
+    comes first for `deployment_url`, as in the CLI. With no CLI that has
+    `kairos config`, the hook reads `.claude/kairos.local.md` itself."""
+    project = project_dir or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    data = config_binding(project)
+    if data is None:
+        path = wiring_path(project_dir)
+        return read_frontmatter(path) if path else None
+    if not data.get("bound"):
+        return None
+    values = {}
+    for key, item in (data.get("values") or {}).items():
+        name = "deployment_url" if key == "deployment" else key
+        value = item.get("value") if isinstance(item, dict) else None
+        if name in FRONTMATTER_KEYS and isinstance(value, str) and value:
+            values[name] = value
+    env_url = data.get("env_url")
+    if isinstance(env_url, str) and env_url:
+        values["deployment_url"] = env_url
+    return values
+
+
 def read_frontmatter(path):
     """Parse the YAML frontmatter's simple `key: value` pairs (no external
     YAML dependency; the /bootstrap contract writes flat scalar keys)."""
@@ -480,11 +532,10 @@ def main():
     except ValueError:
         payload = None
     session = payload.get("session_id") if isinstance(payload, dict) else None
-    config_path = wiring_path()
-    if not config_path:
+    values = wiring()
+    if values is None:
         return  # not a Kairos-bootstrapped repo: stay silent
 
-    values = read_frontmatter(config_path)
     deployment = values.get("deployment_url", "")
     budget = Budget()
     status = probe(deployment, budget.left()) if deployment else "no deployment_url configured"

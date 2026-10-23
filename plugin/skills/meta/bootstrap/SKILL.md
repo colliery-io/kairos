@@ -1,6 +1,6 @@
 ---
 name: bootstrap
-description: Wire this repo and engineer to a Kairos deployment — MCP endpoint config, auth check, repository detection from the git remote, board discovery, and .claude/kairos.local.md.
+description: Wire this repo and engineer to a Kairos deployment — MCP endpoint config, auth check, repository detection from the git remote, board discovery, and the wiring (a project entry in ~/.config/kairos/config.toml, or .claude/kairos.local.md).
 argument-hint: "[deployment URL]"
 disable-model-invocation: true
 ---
@@ -13,7 +13,7 @@ Connect the current repo to a Kairos deployment so every other kairos skill (and
 
 **The MCP connection belongs to the user, not to the repository.** The default is the server of the plugin (agent-key path) or a user-scope entry (OAuth path). Write a project `.mcp.json`, or run `claude mcp add` with the `local` or `project` scope, only when the user asks for a connection in this repository only, for example for a second deployment. Do not write one to fix a connection that does not answer: find the cause (step 1, at the end).
 
-On a re-run, recover what is already known before asking: `KAIROS_URL`, the `kairos` entries of `claude mcp list`, and the frontmatter of `.claude/kairos.local.md`. Ask the user only for what is missing or being changed (or take it from the arguments):
+On a re-run, recover what is already known before asking: `KAIROS_URL`, the `kairos` entries of `claude mcp list`, `kairos config show` (the project entry, the file and `[default]`), and the frontmatter of `.claude/kairos.local.md`. Ask the user only for what is missing or being changed (or take it from the arguments):
 
 - **Deployment URL** — e.g. `https://acme.kairos.example` or `http://localhost:41080`. Strip any trailing slash. The MCP endpoint is `<deployment-url>/mcp`.
 - **Tenant slug (optional, dev setups only)** — production deployments resolve the tenant from the URL's subdomain, so most users skip this. When the URL has no tenant subdomain (localhost, IP, plain host), ask for the tenant slug; it is sent as an `X-Tenant` header on every request.
@@ -159,9 +159,19 @@ From the results pick, confirming with the user whenever there is more than one 
 
 If auth is declined or fails, or there are no boards yet (fresh tenant, no memberships): keep the step 2 config, proceed to step 4 regardless, and record in the prose section what is missing and what unblocks it (authenticate via `/mcp`; on the agent-key path, set `KAIROS_MCP_KEY`; ask an org admin for team/board membership). Do not fail the bootstrap.
 
-## 4. Write `.claude/kairos.local.md`
+## 4. Write the wiring
 
-Per-repo wiring read by the SessionStart hook and skills (KAIROS-A-0014). Create or update `.claude/kairos.local.md` — substitute the real discovered values everywhere in this example:
+The wiring binds the repository to a deployment and to the boards of a team (KAIROS-A-0014). The SessionStart hook, the skills, the CLI and the `kairos` MCP server read it.
+
+**By default, write a `[[project]]` to the config of the user** (#270). It is in `~/.config/kairos/config.toml`, keyed by the `origin` remote, so every clone and worktree of the repository has it, and the repository gets no file and no ignore rule. Run this in the checkout, with the discovered values (leave out a flag whose value is unknown):
+
+```bash
+kairos config project --deployment https://acme.kairos.example --tenant acme --repository payments-api --delivery-stream platform --team-board platform-delivery --initiative-board initiatives --adr-board platform-adrs
+```
+
+The command adds the entry and keeps the rest of the file. If the file has an entry for the remote with other values, the command refuses: show the user `kairos config show` and the path that `kairos config path` gives, and let the user edit the entry. When the `kairos` CLI is not on PATH, or it is older and has no `config` verb, write the file below instead. Check the result with `kairos config show`: each value says where it comes from.
+
+**Write `.claude/kairos.local.md` only when the user asks for it**, or when the CLI cannot write the project entry. The file is still read, after the project entry. Create or update `.claude/kairos.local.md` — substitute the real discovered values everywhere in this example:
 
 ```markdown
 ---
@@ -192,17 +202,17 @@ Connected as the service account claude-code (org: Acme Inc, team: platform),
 set up by alice@acme.example.
 ```
 
-Then keep it out of git — it is org-specific wiring, not for the repo's history (tokens live with the MCP client and the API key lives in the user's settings, never in this file). Do not touch the tracked `.gitignore`: that is an edit on the current branch of a shared clone, and a shared clone may be on `main` (KAIROS-T-0527). Write the local exclude of the clone instead, which git never commits. The path is `$(git rev-parse --git-common-dir)/info/exclude`, the same file for every worktree of the clone. If it does not already hold the line, append:
+When you write the file, keep it out of git — it is org-specific wiring, not for the repo's history (tokens live with the MCP client and the API key lives in the user's settings, never in this file). Do not touch the tracked `.gitignore`: that is an edit on the current branch of a shared clone, and a shared clone may be on `main` (KAIROS-T-0527). Write the local exclude of the clone instead, which git never commits. The path is `$(git rev-parse --git-common-dir)/info/exclude`, the same file for every worktree of the clone. If it does not already hold the line, append:
 
 ```
 .claude/kairos.local.md
 ```
 
-In a folder that is not a git checkout (a board folder that holds clones), stop before step 4: there is no remote to match and no exclude to write. Say: "This folder is not a repository. Run /kairos:bootstrap inside the clone of the repository you work on, or write the board wiring by hand (deployment, tenant, team board, no repository)."
+In a folder that is not a git checkout (a board folder that holds clones), stop before step 4: there is no remote to match and no exclude to write. Say: "This folder is not a repository. Run /kairos:bootstrap inside the clone of the repository you work on, or put the board wiring in `[default]` of `~/.config/kairos/config.toml` (deployment, tenant, team board, no repository)."
 
 ## 5. Report
 
-Tell the user: config path(s) written, deployment/tenant, who they are connected as, the repository matched (or why not), the boards chosen, and — if anything was skipped (offline, unauthenticated, a repository that is not in the directory, boardless) — exactly what to do to finish. Mention that from the next session on, the SessionStart hook injects this wiring and pulls this repository's queue automatically.
+Tell the user: where the wiring is (the project entry in `config.toml`, or `.claude/kairos.local.md`), deployment/tenant, who they are connected as, the repository matched (or why not), the boards chosen, and — if anything was skipped (offline, unauthenticated, a repository that is not in the directory, boardless) — exactly what to do to finish. Mention that from the next session on, the SessionStart hook injects this wiring and pulls this repository's queue automatically.
 
 On the agent-key path, tell the user these three facts also:
 

@@ -480,10 +480,9 @@ def cmd_compact(payload):
     session = payload.get("session_id")
     if not isinstance(session, str) or not SESSION_ID.match(session):
         return
-    config_path = session_start.wiring_path()
-    if not config_path:
+    values = session_start.wiring()
+    if values is None:
         return
-    values = session_start.read_frontmatter(config_path)
     context = build_context(values, read_record(session), session)
     failure = index_failure_line()
     if failure:

@@ -213,7 +213,7 @@ Request body (required): `application/json`, [`UpdateContentRequest`](../schemas
 
 ### `PUT /api/initiatives/{short_code}/complexity`
 
-Set the complexity of an initiative, or clear it with `null` or `""`.
+Set the complexity of an initiative, or clear it with `none`.
 
 The edit rule applies (COLLIERY-T-0228). The caller created the
 initiative, or is a member of its board. Or the caller holds
@@ -232,7 +232,7 @@ Request body (required): `application/json`, [`SetComplexityRequest`](../schemas
 | `200` | [`Initiative`](../schemas/#initiative) | Complexity set or cleared |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
-| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Bad complexity value |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No complexity sent, or a bad value |
 
 ### `POST /api/initiatives/{short_code}/transition`
 

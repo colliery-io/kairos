@@ -2626,11 +2626,11 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 
 ## SetComplexityRequest
 
-Body of `PUT /api/initiatives/{short_code}/complexity`: set the complexity of an initiative. `null` or an empty string clears it. Not content: no version bump (the A-0004 contract covers title/content only).
+Body of `PUT /api/initiatives/{short_code}/complexity`: set the complexity of an initiative. `none` clears it. The field is required, so a body that leaves it out cannot clear the complexity by mistake. Not content: no version bump (the A-0004 contract covers title/content only).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `complexity` | `string`, nullable | no | `xs|s|m|l|xl`; `null` or `""` clears. |
+| `complexity` | `string` | yes | `xs|s|m|l|xl`, or `none` to clear. |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 

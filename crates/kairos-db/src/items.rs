@@ -1197,6 +1197,65 @@ pub fn set_document_lifecycle(
     })
 }
 
+/// Set the complexity of an initiative, or clear it with `None`. Like
+/// [`set_document_lifecycle`] this is not content: activity-logged
+/// (`complexity:{from}->{to}`, `none` for no complexity) and announced via
+/// `item_updated`, with NO version bump and NO `item_history` row. Setting
+/// the current value is a no-op.
+pub fn set_initiative_complexity(
+    conn: &mut PgConnection,
+    initiative_id: Uuid,
+    complexity: Option<Complexity>,
+    actor: Uuid,
+) -> Result<Initiative, ItemError> {
+    conn.transaction::<_, ItemError, _>(|conn| {
+        use crate::schema::initiatives::dsl;
+        let current: Initiative = dsl::initiatives
+            .filter(dsl::id.eq(initiative_id))
+            .filter(dsl::deleted_at.is_null())
+            .select(Initiative::as_select())
+            .first(conn)
+            .optional()?
+            .ok_or(ItemError::ItemNotFound {
+                entity_type: "initiative",
+                id: initiative_id,
+            })?;
+        if current.complexity == complexity {
+            return Ok(current);
+        }
+        let updated: Initiative =
+            diesel::update(dsl::initiatives.filter(dsl::id.eq(initiative_id)))
+                .set((
+                    dsl::complexity.eq(complexity),
+                    dsl::updated_by.eq(actor),
+                    dsl::updated_at.eq(diesel::dsl::now),
+                ))
+                .returning(Initiative::as_returning())
+                .get_result(conn)?;
+        let name = |c: Option<Complexity>| c.map_or("none", |c| c.as_str());
+        log_activity(
+            conn,
+            actor,
+            ActivityAction::Complexity,
+            initiative_id,
+            "initiative",
+            format!(
+                "complexity:{}->{}",
+                name(current.complexity),
+                name(complexity)
+            ),
+        )?;
+        events::emit_item_event_by_id(
+            conn,
+            EventKind::ItemUpdated,
+            "initiative",
+            initiative_id,
+            actor,
+        )?;
+        Ok(updated)
+    })
+}
+
 /// A live board with this id exists, or [`ItemError::BoardNotFound`].
 fn require_live_board(conn: &mut PgConnection, board_id: Uuid) -> Result<(), ItemError> {
     use crate::schema::boards::dsl;

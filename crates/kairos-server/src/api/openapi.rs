@@ -74,6 +74,7 @@ use crate::app::AppState;
         crate::api::initiatives::update_initiative,
         crate::api::initiatives::delete_initiative,
         crate::api::initiatives::transition_initiative,
+        crate::api::initiatives::set_complexity,
         crate::api::tasks::list_tasks,
         crate::api::tasks::get_task,
         crate::api::tasks::create_task,

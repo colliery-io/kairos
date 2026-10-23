@@ -396,6 +396,18 @@ pub struct LaneArgs {
     pub common: Common,
 }
 
+/// Arguments of `kairos initiatives complexity`.
+#[derive(Args, Debug)]
+pub struct ComplexityArgs {
+    /// The initiative's short code (e.g. ACME-I-0001)
+    pub short_code: String,
+    /// The complexity: xs, s, m, l or xl; none clears it
+    #[arg(value_name = "COMPLEXITY", value_parser = ["xs", "s", "m", "l", "xl", "none"])]
+    pub complexity: String,
+    #[command(flatten)]
+    pub common: Common,
+}
+
 /// Arguments of `kairos initiatives|tasks set-parent` (KAIROS-T-0572).
 /// Give the new parent, or `--remove`.
 #[derive(Args, Debug)]
@@ -1495,6 +1507,28 @@ pub fn emit_lifecycle(common: &Common, document: &Document) -> Result<(), CliErr
     Ok(())
 }
 
+/// `initiatives complexity` output: the complexity after the call, from the
+/// answer of the server, as [`emit_lane`]. A call that changes nothing is a
+/// normal 200.
+pub fn emit_complexity(common: &Common, initiative: &Initiative) -> Result<(), CliError> {
+    if common.json {
+        return print_json(initiative);
+    }
+    println!(
+        "{}",
+        complexity_line(&initiative.short_code, initiative.complexity.as_deref())
+    );
+    Ok(())
+}
+
+/// The line of [`emit_complexity`].
+fn complexity_line(short_code: &str, complexity: Option<&str>) -> String {
+    match complexity {
+        Some(complexity) => format!("{short_code} has the complexity {complexity}."),
+        None => format!("{short_code} has no complexity."),
+    }
+}
+
 /// The line of [`emit_lifecycle`]: the lifecycle of the document after the
 /// call, from the answer of the server. The CLI does not read the document
 /// first, so it does not say whether the lifecycle changed.
@@ -1976,6 +2010,7 @@ macro_rules! entity_family_cli {
         $(, lane($lane_variant:ident = $lane_fn:ident))?
         $(, parent($parent_variant:ident))?
         $(, lifecycle($lifecycle_variant:ident = $lifecycle_fn:ident))?
+        $(, complexity($complexity_variant:ident = $complexity_fn:ident))?
     ) => {
         #[doc = concat!("Operations on ", $noun, "s.")]
         #[derive(clap::Subcommand, Debug)]
@@ -2070,6 +2105,12 @@ macro_rules! entity_family_cli {
                                       ": draft, review, published or archived ",
                                       "(the edit rule applies)"))]
             $lifecycle_variant(LifecycleArgs),
+            )?
+            $(
+            #[command(about = concat!("Set the complexity of an ", $noun,
+                                      ": xs, s, m, l or xl, or none to clear it ",
+                                      "(the edit rule applies)"))]
+            $complexity_variant(ComplexityArgs),
             )?
             #[command(about = concat!("Set or remove the metadata values of a ", $noun),
                       subcommand)]
@@ -2287,6 +2328,14 @@ macro_rules! entity_family_cli {
                         emit_lifecycle(&args.common, &document)
                     }
                     )?
+                    $(
+                    Self::$complexity_variant(args) => {
+                        let client = client(&args.common)?;
+                        let initiative =
+                            client.$complexity_fn(&args.short_code, &args.complexity).await?;
+                        emit_complexity(&args.common, &initiative)
+                    }
+                    )?
                     Self::Metadata(command) => command.run($kind).await,
                     Self::Archive(args) if args.preview => {
                         let client = client(&args.common)?;
@@ -2338,7 +2387,8 @@ entity_family_cli!(
     restore = restore_initiative,
     kind = EntityKind::Initiative,
     transition(Transition) = transition_initiative,
-    parent(SetParent)
+    parent(SetParent),
+    complexity(Complexity = set_initiative_complexity)
 );
 
 entity_family_cli!(
@@ -2573,6 +2623,41 @@ mod tests {
             text.contains("final") && text.contains("published"),
             "{text}"
         );
+    }
+
+    /// `initiatives complexity` takes a size or `none`, and clap refuses
+    /// any other value.
+    #[test]
+    fn the_complexity_of_an_initiative_names_the_result() {
+        use clap::Parser;
+        #[derive(Parser, Debug)]
+        struct Cli {
+            #[command(subcommand)]
+            command: InitiativesCommand,
+        }
+        assert_eq!(
+            complexity_line("ACME-I-0001", Some("l")),
+            "ACME-I-0001 has the complexity l."
+        );
+        assert_eq!(
+            complexity_line("ACME-I-0001", None),
+            "ACME-I-0001 has no complexity."
+        );
+        for value in ["l", "none"] {
+            let parsed = Cli::try_parse_from(["initiatives", "complexity", "ACME-I-0001", value])
+                .expect("parses");
+            match parsed.command {
+                InitiativesCommand::Complexity(args) => {
+                    assert_eq!(args.short_code, "ACME-I-0001");
+                    assert_eq!(args.complexity, value);
+                }
+                other => panic!("not the complexity verb: {other:?}"),
+            }
+        }
+        let refused = Cli::try_parse_from(["initiatives", "complexity", "ACME-I-0001", "xxl"])
+            .expect_err("an unknown size is refused");
+        let text = refused.to_string();
+        assert!(text.contains("xxl") && text.contains("none"), "{text}");
     }
 
     /// KAIROS-T-0589: `transition` names the column, not its id.

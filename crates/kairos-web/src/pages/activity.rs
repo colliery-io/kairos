@@ -198,6 +198,7 @@ const ACTIONS: &[&str] = &[
     "work_class",
     "lifecycle",
     "repository",
+    "complexity",
     "board_move",
     "restore",
     "update",
@@ -1672,12 +1673,13 @@ mod tests {
     /// server (`kairos_db::models::enums::ActivityAction`).
     #[test]
     fn the_filter_has_each_action() {
-        assert_eq!(ACTIONS.len(), 20);
+        assert_eq!(ACTIONS.len(), 21);
         for action in [
             "update",
             "restore",
             "board_move",
             "repository",
+            "complexity",
             "rename",
             "claim",
             "hand_off",

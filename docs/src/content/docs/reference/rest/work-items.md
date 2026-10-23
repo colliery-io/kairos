@@ -211,6 +211,29 @@ Request body (required): `application/json`, [`UpdateContentRequest`](../schemas
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Stale version; details.current carries the current entity |
 
+### `PUT /api/initiatives/{short_code}/complexity`
+
+Set the complexity of an initiative, or clear it with `none`.
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+initiative, or is a member of its board. Or the caller holds
+`manage_initiatives` on its board, or is an organization admin. The
+complexity is not content: the change makes no new version and no
+history row. It writes one activity row and sends `item_updated`.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Initiative short code |
+
+Request body (required): `application/json`, [`SetComplexityRequest`](../schemas/#setcomplexityrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`Initiative`](../schemas/#initiative) | Complexity set or cleared |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No complexity sent, or a bad value |
+
 ### `POST /api/initiatives/{short_code}/transition`
 
 Move an initiative to another column (requires `transition_items` on

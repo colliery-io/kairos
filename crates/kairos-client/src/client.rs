@@ -30,9 +30,9 @@ use crate::types::{
     Adr, AppendNoteRequest, AppendNoteResponse, CascadePreviewResponse, CreateAdrRequest,
     CreateDocumentRequest, CreateInitiativeRequest, CreateStrategyRequest, CreateTaskRequest,
     DeleteResponse, Document, ErrorEnvelope, ImpactListQuery, Initiative, ListEnvelope, ListQuery,
-    Pagination, PromoteNoteRequest, PromoteNoteResponse, RestoreResponse, SetDocumentBoardRequest,
-    SetLifecycleRequest, SetTaskStateRequest, SetWorkClassRequest, Strategy, Task,
-    TransitionRequest, UpdateContentRequest,
+    Pagination, PromoteNoteRequest, PromoteNoteResponse, RestoreResponse, SetComplexityRequest,
+    SetDocumentBoardRequest, SetLifecycleRequest, SetTaskStateRequest, SetWorkClassRequest,
+    Strategy, Task, TransitionRequest, UpdateContentRequest,
 };
 use crate::types_auth::{DeploymentConfig, LoginRequest, LoginResponse};
 use crate::types_meta::{
@@ -597,6 +597,22 @@ impl KairosClient {
         restore_initiative
     );
     entity_transition!("initiatives", Initiative, transition_initiative);
+
+    /// `PUT /api/initiatives/{short_code}/complexity` — set the complexity
+    /// of an initiative; `none` clears it. The edit rule applies.
+    pub async fn set_initiative_complexity(
+        &self,
+        short_code: &str,
+        complexity: &str,
+    ) -> Result<Initiative, Error> {
+        self.put_ok(
+            &format!("/api/initiatives/{short_code}/complexity"),
+            &SetComplexityRequest {
+                complexity: complexity.to_string(),
+            },
+        )
+        .await
+    }
 
     entity_family!(
         "tasks",

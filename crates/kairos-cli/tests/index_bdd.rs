@@ -270,6 +270,9 @@ struct CliWorld {
     texts: Vec<String>,
     /// The scenarios of the base index.
     base: base::BaseWorld,
+    /// The folder above the checkouts of a scenario with more than one
+    /// (#272), and the folder of its config.
+    board: Option<(TempDir, TempDir)>,
 }
 
 impl CliWorld {
@@ -295,8 +298,15 @@ impl CliWorld {
 
     /// Build and summarize the index of the copy with the library.
     fn build_index(&mut self) {
-        let root = self.root().to_path_buf();
-        let db = self.db();
+        build_index_at(self.root());
+    }
+}
+
+/// Build and summarize the index of the checkout at `root` with the library.
+fn build_index_at(root: &Path) {
+    {
+        let root = root.to_path_buf();
+        let db = root.join(INDEX_DB);
         fs::create_dir_all(db.parent().expect("a folder")).expect("make .kairos");
         let options = BuildOptions {
             rust_analyzer: None,
@@ -315,7 +325,9 @@ impl CliWorld {
         )
         .unwrap_or_else(|e| panic!("{e}"));
     }
+}
 
+impl CliWorld {
     fn agent(&mut self) -> &mut Agent {
         if self.agent.is_none() {
             if self.copy.is_none() {
@@ -462,6 +474,148 @@ fn an_index_with_two_callers(world: &mut CliWorld) {
     text.push_str(LOAD_FIRST_PY);
     fs::write(&csv, text).expect("write csv_loader.py");
     world.build_index();
+}
+
+// --- More than one open checkout (#272) ---------------------------------------
+
+/// The 2 checkouts of the scenario, under the board folder.
+fn board_checkout(world: &CliWorld, name: &str) -> PathBuf {
+    let (board, _) = world.board.as_ref().expect("no board folder");
+    board
+        .path()
+        .canonicalize()
+        .expect("the board folder")
+        .join(name)
+}
+
+#[given("a folder with 2 indexed checkouts, service and engine, where only engine has engine_only")]
+fn two_indexed_checkouts(world: &mut CliWorld) {
+    let board = TempDir::new().expect("a board folder");
+    let config = TempDir::new().expect("a config folder");
+    for name in ["service", "engine"] {
+        let root = board.path().join(name);
+        fs::create_dir_all(&root).expect("the checkout");
+        copy_tree(&fixture_root(), &root);
+        if name == "engine" {
+            fs::write(
+                root.join("src/engine_only.rs"),
+                "/// Only engine has this.\npub fn engine_only() -> u32 {\n    7\n}\n",
+            )
+            .expect("write src/engine_only.rs");
+        }
+        git(&root, &["init", "-q"]);
+        build_index_at(&root);
+    }
+    world.board = Some((board, config));
+}
+
+#[when("an agent started in that folder calls fetch_index for service, then for engine")]
+fn fetch_both(world: &mut CliWorld) {
+    let (board, config) = world.board.as_ref().expect("no board folder");
+    // No Kairos: `fetch_index` opens the local index of each checkout.
+    let agent = Agent::start_with_env(
+        board.path(),
+        &[
+            ("KAIROS_CONFIG_DIR", config.path().to_str().expect("utf-8")),
+            ("KAIROS_URL", "http://127.0.0.1:9"),
+            ("KAIROS_KEY", ""),
+            ("KAIROS_MCP_KEY", ""),
+        ],
+    );
+    world.agent = Some(agent);
+    for name in ["service", "engine"] {
+        let root = board_checkout(world, name);
+        world.call("fetch_index", json!({"root": root}));
+        let text = world.text().to_string();
+        assert!(
+            text.starts_with(&format!(
+                "The server opened the index of {}.",
+                root.display()
+            )),
+            "{text}"
+        );
+        world.texts.push(text);
+    }
+}
+
+#[then("the second fetch_index says that 2 checkouts are open: service, engine")]
+fn two_are_open(world: &mut CliWorld) {
+    let first = &world.texts[0];
+    assert!(!first.contains("checkouts are open"), "{first}");
+    let second = &world.texts[1];
+    assert!(
+        second.contains(
+            "2 checkouts are open: service, engine. Give `checkout` to read another one."
+        ),
+        "{second}"
+    );
+}
+
+#[when(expr = "the agent calls code_search for {string}")]
+fn code_search_for(world: &mut CliWorld, query: String) {
+    world.call("code_search", json!({"query": query, "limit": 50}));
+}
+
+#[then("the results come from both checkouts, each marked with its name")]
+fn results_from_both(world: &mut CliWorld) {
+    let text = world.text();
+    assert!(text.starts_with("service: The search used "), "{text}");
+    assert!(text.contains("\nengine: The search used "), "{text}");
+    let results = numbered(text);
+    assert!(!results.is_empty(), "{text}");
+    for line in &results {
+        assert!(
+            line.contains(". [service] ") || line.contains(". [engine] "),
+            "{line}"
+        );
+    }
+    assert!(results.iter().any(|l| l.contains("[service]")), "{text}");
+    assert!(results.iter().any(|l| l.contains("[engine]")), "{text}");
+}
+
+#[when("the agent calls symbol for \"engine_only\" with no checkout")]
+fn engine_only_default(world: &mut CliWorld) {
+    world.call("symbol", json!({"symbol": "engine_only"}));
+}
+
+#[then("the result is the function of engine")]
+fn is_engine_only(world: &mut CliWorld) {
+    let text = world.text();
+    assert!(text.starts_with("engine_only (function, rust)"), "{text}");
+    assert!(text.contains("File: src/engine_only.rs:2-4"), "{text}");
+}
+
+#[when(expr = "the agent calls symbol for \"engine_only\" in the checkout {string}")]
+fn engine_only_in(world: &mut CliWorld, checkout: String) {
+    world.call(
+        "symbol",
+        json!({"symbol": "engine_only", "checkout": checkout}),
+    );
+}
+
+#[then("the server says that no symbol has that name")]
+fn no_engine_only(world: &mut CliWorld) {
+    let r = world.result();
+    assert!(r.is_error, "{}", r.text);
+    assert_eq!(r.text, "NOT_FOUND: No symbol has the name \"engine_only\".");
+}
+
+#[then("the call is refused, and the error names the 2 open checkouts")]
+fn refused_unknown_checkout(world: &mut CliWorld) {
+    let r = world.result();
+    assert!(r.is_error, "{}", r.text);
+    let service = board_checkout(world, "service");
+    let engine = board_checkout(world, "engine");
+    assert!(
+        r.text.starts_with(&format!(
+            "VALIDATION: No open checkout is \"nowhere\". The open checkouts are: {}, {}.",
+            service.display(),
+            engine.display()
+        )),
+        "{}",
+        r.text
+    );
+    assert!(r.text.contains("\"field\":\"checkout\""), "{}", r.text);
 }
 
 // --- When ---------------------------------------------------------------------

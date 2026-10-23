@@ -112,3 +112,19 @@ Feature: The CLI and the code tools
     Given the polyglot fixture, where main reaches target by 2 different routes
     When an agent calls path from main to target
     Then the result has the 2 routes, shortest first
+
+  # #272: a session in a folder above several checkouts opens more than one
+  # index. code_search searches each of them; the other tools read the last
+  # one opened, or the one that `checkout` names.
+  Scenario: An agent searches 2 open checkouts and reads one of them by name
+    Given a folder with 2 indexed checkouts, service and engine, where only engine has engine_only
+    When an agent started in that folder calls fetch_index for service, then for engine
+    Then the second fetch_index says that 2 checkouts are open: service, engine
+    When the agent calls code_search for "the mean of the values"
+    Then the results come from both checkouts, each marked with its name
+    When the agent calls symbol for "engine_only" with no checkout
+    Then the result is the function of engine
+    When the agent calls symbol for "engine_only" in the checkout "service"
+    Then the server says that no symbol has that name
+    When the agent calls symbol for "engine_only" in the checkout "nowhere"
+    Then the call is refused, and the error names the 2 open checkouts

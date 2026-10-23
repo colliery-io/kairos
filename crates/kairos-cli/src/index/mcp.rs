@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use kairos_embed::EmbeddingProvider;
 use kairos_index::{
     CallEdge, Coverage, DEFAULT_MIN_LINES, DuplicateKind, DuplicateOptions, FileInfo, Index,
-    IndexError, Lookup, Reference, SearchMode, SymbolInfo, SymbolSource, UpdateOptions,
+    IndexError, Lookup, Reference, SearchHit, SearchMode, SymbolInfo, SymbolSource, UpdateOptions,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
@@ -124,13 +124,15 @@ fn checkouts_below(folder: &Path) -> Vec<Found> {
 
 #[derive(Clone)]
 pub struct CodeTools {
-    /// The open checkout: the one the server started in, or the last one
-    /// that `fetch_index` opened. `None` until a checkout is open.
-    root: Arc<Mutex<Option<PathBuf>>>,
+    /// The open checkouts (#272): the one the server started in, then each
+    /// one that `fetch_index` opened, oldest first. The last one is the
+    /// default of the tools. Empty until a checkout is open.
+    open: Arc<Mutex<Vec<PathBuf>>>,
     /// The checkouts below the start folder when it is not a checkout
     /// (#272). The instructions and the error "no open checkout" name them.
     below: Arc<Vec<Found>>,
-    embedder: Arc<Mutex<Option<QueryEmbedder>>>,
+    /// The source of the query vectors, one for each checkout and model.
+    embedder: Arc<Mutex<Vec<QueryEmbedder>>>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -158,6 +160,9 @@ pub struct SearchParams {
     pub query: String,
     /// The most results to give, from 1 to 50. Default 10.
     pub limit: Option<usize>,
+    /// The open checkout to search: its folder name, or its path. Default:
+    /// each open checkout.
+    pub checkout: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -177,6 +182,9 @@ pub struct SymbolParams {
     /// Also give the source text of the symbol, from the file in the
     /// checkout, at most 16384 bytes. Default false.
     pub source: Option<bool>,
+    /// The open checkout to read: its folder name, or its path. Default: the
+    /// last checkout that `fetch_index` opened.
+    pub checkout: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -195,6 +203,9 @@ pub struct EdgeParams {
     /// Also give the possible calls: calls by a name that more than one
     /// function has. Default false.
     pub possible: Option<bool>,
+    /// The open checkout to read: its folder name, or its path. Default: the
+    /// last checkout that `fetch_index` opened.
+    pub checkout: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -215,6 +226,9 @@ pub struct ReferencesParams {
     pub possible: Option<bool>,
     /// The most uses to give, from 1 to 1000. Default 100.
     pub limit: Option<usize>,
+    /// The open checkout to read: its folder name, or its path. Default: the
+    /// last checkout that `fetch_index` opened.
+    pub checkout: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -233,6 +247,9 @@ pub struct PathParams {
     pub from_line: Option<u32>,
     /// A line of `to`, when more than one symbol of one file has the name.
     pub to_line: Option<u32>,
+    /// The open checkout to read: its folder name, or its path. Default: the
+    /// last checkout that `fetch_index` opened.
+    pub checkout: Option<String>,
 }
 
 /// A kind of repeated code, as an argument.
@@ -272,6 +289,9 @@ pub struct DuplicatesParams {
     pub under: Option<String>,
     /// The most groups to give, from 1 to 200. Default 20.
     pub limit: Option<usize>,
+    /// The open checkout to read: its folder name, or its path. Default: the
+    /// last checkout that `fetch_index` opened.
+    pub checkout: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -280,6 +300,9 @@ pub struct DuplicatesParams {
 pub struct ModuleMapParams {
     /// Only the folders under this path, from the root of the checkout.
     pub under: Option<String>,
+    /// The open checkout to read: its folder name, or its path. Default: the
+    /// last checkout that `fetch_index` opened.
+    pub checkout: Option<String>,
 }
 
 impl CodeTools {
@@ -294,16 +317,31 @@ impl CodeTools {
             checkouts_below(&root)
         };
         CodeTools {
-            root: Arc::new(Mutex::new(open.then_some(root))),
+            open: Arc::new(Mutex::new(if open { vec![root] } else { Vec::new() })),
             below: Arc::new(below),
-            embedder: Arc::new(Mutex::new(None)),
+            embedder: Arc::new(Mutex::new(Vec::new())),
             tool_router: Self::tool_router(),
         }
     }
 
-    /// The open checkout, or `None`.
+    /// The default checkout of the tools: the last one opened, or `None`.
     fn root(&self) -> Option<PathBuf> {
-        self.root.lock().expect("the lock of the root").clone()
+        self.opened().pop()
+    }
+
+    /// The open checkouts, oldest first.
+    fn opened(&self) -> Vec<PathBuf> {
+        self.open
+            .lock()
+            .expect("the lock of the open checkouts")
+            .clone()
+    }
+
+    /// Open `root`, or make it the default again when it is open already.
+    fn add_open(&self, root: PathBuf) {
+        let mut open = self.open.lock().expect("the lock of the open checkouts");
+        open.retain(|p| *p != root);
+        open.push(root);
     }
 
     /// The error for a call with no open checkout: it names the checkouts
@@ -312,8 +350,41 @@ impl CodeTools {
         ToolError::NoCheckout(Below(self.below.iter().map(Found::line).collect()))
     }
 
-    fn open(&self) -> Result<Index, ToolError> {
-        let root = self.root().ok_or_else(|| self.no_checkout())?;
+    /// The checkout that a call reads (#272): the one that `checkout` names,
+    /// by its folder name or its path, or else the default.
+    fn pick(&self, checkout: Option<&str>) -> Result<PathBuf, ToolError> {
+        let open = self.opened();
+        let Some(given) = checkout.map(str::trim).filter(|c| !c.is_empty()) else {
+            return open.last().cloned().ok_or_else(|| self.no_checkout());
+        };
+        if open.is_empty() {
+            return Err(self.no_checkout());
+        }
+        let as_path = Path::new(given).canonicalize().ok();
+        let matches: Vec<&PathBuf> = open
+            .iter()
+            .filter(|p| {
+                as_path.as_ref() == Some(*p) || p.file_name().is_some_and(|name| name == given)
+            })
+            .collect();
+        match matches.as_slice() {
+            [one] => Ok((*one).clone()),
+            many => Err(ToolError::UnknownCheckout {
+                given: given.to_string(),
+                more_than_one: !many.is_empty(),
+                open: open.iter().map(|p| display(p)).collect(),
+            }),
+        }
+    }
+
+    /// The index of the checkout that a call reads.
+    fn open_index(&self, checkout: Option<&str>) -> Result<(PathBuf, Index), ToolError> {
+        let root = self.pick(checkout)?;
+        let index = Self::index_at(&root)?;
+        Ok((root, index))
+    }
+
+    fn index_at(root: &Path) -> Result<Index, ToolError> {
         let db = root.join(kairos_index::INDEX_FILE);
         if !db.is_file() {
             return Err(ToolError::NoIndex(db));
@@ -478,7 +549,7 @@ impl CodeTools {
         let linked = summary.symbols.reused + summary.files.reused + summary.modules.reused;
         let left = summary.symbols.left + summary.files.left + summary.modules.left;
 
-        *self.root.lock().expect("the lock of the root") = Some(root.clone());
+        self.add_open(root.clone());
         lines.insert(
             0,
             format!("The server opened the index of {}.", display(&root)),
@@ -490,30 +561,27 @@ impl CodeTools {
             plural(linked, "summary", "summaries"),
             left
         ));
+        if let Some(line) = open_line(&self.opened()) {
+            lines.push(line);
+        }
         if let Some(line) = behind {
             lines.push(line);
         }
         Ok(lines.join(" "))
     }
 
-    /// The model of the vectors of the index of the open checkout.
-    fn vector_model(&self) -> Result<Option<String>, ToolError> {
-        Ok(self.open()?.vector_model()?)
-    }
-
     /// The source of the query vectors for the model of the pool, kept for
     /// the checkout and the model.
-    fn query_source(&self, model: &str) -> QuerySource {
-        let root = self.root();
+    fn query_source(&self, root: &Path, model: &str) -> QuerySource {
         let mut cached = self.embedder.lock().expect("the lock of the embedder");
-        if let Some((cached_root, cached_model, source)) = cached.as_ref()
-            && cached_model == model
-            && *cached_root == root
+        if let Some((_, _, source)) = cached
+            .iter()
+            .find(|(r, m, _)| r.as_deref() == Some(root) && m == model)
         {
             return source.clone();
         }
-        let source = super::query::query_source(model, root.as_deref());
-        *cached = Some((root, model.to_string(), source.clone()));
+        let source = super::query::query_source(model, Some(root));
+        cached.push((Some(root.to_path_buf()), model.to_string(), source.clone()));
         source
     }
 
@@ -522,10 +590,11 @@ impl CodeTools {
     /// the reason, so the next search does not ask again.
     async fn query_provider(
         &self,
+        root: &Path,
         model: &str,
         query: &str,
     ) -> Result<(Arc<dyn EmbeddingProvider>, bool), String> {
-        let source = self.query_source(model);
+        let source = self.query_source(root, model);
         let from_kairos = matches!(source, QuerySource::Kairos(_));
         match super::query::query_provider(&source, model, query, ROUTE_TIMEOUT).await {
             Ok(provider) => Ok((provider, from_kairos)),
@@ -533,8 +602,9 @@ impl CodeTools {
             Err(RouteFailure::Lasting(why)) => {
                 if from_kairos {
                     let mut cached = self.embedder.lock().expect("the lock of the embedder");
-                    if let Some((_, cached_model, source)) = cached.as_mut()
-                        && cached_model == model
+                    if let Some((_, _, source)) = cached
+                        .iter_mut()
+                        .find(|(r, m, _)| r.as_deref() == Some(root) && m == model)
                     {
                         *source = QuerySource::Text(why.clone());
                     }
@@ -543,6 +613,69 @@ impl CodeTools {
             }
         }
     }
+
+    /// One search of one checkout: its hits, and the line that says how the
+    /// search ran.
+    async fn search_one(
+        &self,
+        root: &Path,
+        query: &str,
+        limit: usize,
+    ) -> Result<(Vec<SearchHit>, SearchMode, String), ToolError> {
+        // The vector of the query first: Kairos can make it (KAIROS-T-0360),
+        // and the index is not held over the request.
+        let mut why_no_vectors = None;
+        let mut from_kairos = false;
+        let embedder = match Self::index_at(root)?.vector_model()? {
+            None => None,
+            Some(model) => match self.query_provider(root, &model, query).await {
+                Ok((provider, kairos)) => {
+                    from_kairos = kairos;
+                    Some(provider)
+                }
+                Err(why) => {
+                    why_no_vectors = Some(why);
+                    None
+                }
+            },
+        };
+        let found = Self::index_at(root)?.search(query, embedder.as_deref(), limit)?;
+        let how = match found.mode {
+            SearchMode::Vectors if from_kairos => "The search used the summaries and their \
+                 vectors. Kairos made the vector of the query."
+                .to_string(),
+            SearchMode::Vectors => "The search used the summaries and their vectors.".to_string(),
+            SearchMode::SummaryText => format!(
+                "The search used the text of the summaries only. {}",
+                why_no_vectors.unwrap_or_else(|| "The summaries have no vectors.".into())
+            ),
+            SearchMode::Names => "The index has no summaries. So the search used the names, \
+                 the signatures and the paths only. A build with the summarizer adds them."
+                .to_string(),
+        };
+        Ok((found.hits, found.mode, how))
+    }
+}
+
+/// The line of `fetch_index` with more than one open checkout (#272): the
+/// tools read the default, and `checkout` chooses another one.
+fn open_line(open: &[PathBuf]) -> Option<String> {
+    (open.len() > 1).then(|| {
+        let names: Vec<String> = open.iter().map(|p| checkout_name(p)).collect();
+        format!(
+            "{} are open: {}. Give `checkout` to read another one. `code_search` with no \
+             `checkout` searches each of them.",
+            plural(open.len(), "checkout", "checkouts"),
+            names.join(", ")
+        )
+    })
+}
+
+/// The folder name of a checkout, as `checkout` takes it.
+fn checkout_name(root: &Path) -> String {
+    root.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| display(root))
 }
 
 /// The arguments that choose a symbol in `symbol`, `callers`, `callees`
@@ -876,7 +1009,7 @@ pub(super) fn plural(count: usize, one: &str, many: &str) -> String {
 #[tool_router]
 impl CodeTools {
     #[tool(
-        description = "Open the index of a checkout. Give `root`, the path of the checkout. The server takes the nearest index of its repository from Kairos, updates it for the files that differ, and the other tools answer for this checkout. Give `repository`, the slug in Kairos, when the origin remote of the checkout is not a repository of Kairos. It runs no model, so it has no limit of changed files. Give `max_changed` for a limit. A call that fails does not change the open checkout. Call it first when the session did not start inside a checkout."
+        description = "Open the index of a checkout. Give `root`, the path of the checkout. The server takes the nearest index of its repository from Kairos, updates it for the files that differ, and the other tools answer for this checkout by default. The checkouts opened before stay open: give `checkout` to a tool to read one of them. Give `repository`, the slug in Kairos, when the origin remote of the checkout is not a repository of Kairos. It runs no model, so it has no limit of changed files. Give `max_changed` for a limit. A call that fails does not change the open checkout. Call it first when the session did not start inside a checkout."
     )]
     async fn fetch_index(
         &self,
@@ -895,7 +1028,7 @@ impl CodeTools {
     }
 
     #[tool(
-        description = "Search the code of this checkout by what it does. Give a description in plain words. The result is the best functions and types, with their files, lines and summaries. If the index has no summaries, the search reads the names, the signatures and the paths, and the result says so. Test code ranks below the other code. To find tests, put a word such as \"test\" or \"tested\" in the description."
+        description = "Search the code by what it does. Give a description in plain words. The result is the best functions and types, with their files, lines and summaries. With more than one open checkout, the search reads each of them and each result names its checkout; give `checkout` to search one only. If an index has no summaries, the search reads the names, the signatures and the paths, and the result says so. Test code ranks below the other code. To find tests, put a word such as \"test\" or \"tested\" in the description."
     )]
     async fn code_search(
         &self,
@@ -905,68 +1038,72 @@ impl CodeTools {
         if !(1..=MAX_LIMIT).contains(&limit) {
             return result(Err(ToolError::Limit(MAX_LIMIT)));
         }
-        // The vector of the query first: Kairos can make it (KAIROS-T-0360),
-        // and the index is not held over the request.
-        let mut why_no_vectors = None;
-        let mut from_kairos = false;
-        let embedder = match self.vector_model() {
-            Err(e) => return result(Err(e)),
-            Ok(None) => None,
-            Ok(Some(model)) => match self.query_provider(&model, &params.query).await {
-                Ok((provider, kairos)) => {
-                    from_kairos = kairos;
-                    Some(provider)
-                }
-                Err(why) => {
-                    why_no_vectors = Some(why);
-                    None
-                }
+        // One checkout when the call names it; else each open one (#272).
+        let roots = match params.checkout.as_deref() {
+            Some(checkout) => match self.pick(Some(checkout)) {
+                Ok(root) => vec![root],
+                Err(e) => return result(Err(e)),
             },
+            None => self.opened(),
         };
-        result((|| {
-            let index = self.open()?;
-            let found = index.search(&params.query, embedder.as_deref(), limit)?;
-            let mut out = match found.mode {
-                SearchMode::Vectors if from_kairos => "The search used the summaries and their \
-                     vectors. Kairos made the vector of the query."
-                    .to_string(),
-                SearchMode::Vectors => {
-                    "The search used the summaries and their vectors.".to_string()
+        if roots.is_empty() {
+            return result(Err(self.no_checkout()));
+        }
+        let many = roots.len() > 1;
+        let mut hows = Vec::new();
+        let mut hits: Vec<(String, SearchMode, SearchHit)> = Vec::new();
+        for root in &roots {
+            let name = checkout_name(root);
+            match self.search_one(root, &params.query, limit).await {
+                Ok((found, mode, how)) => {
+                    hows.push(if many { format!("{name}: {how}") } else { how });
+                    hits.extend(found.into_iter().map(|hit| (name.clone(), mode, hit)));
                 }
-                SearchMode::SummaryText => format!(
-                    "The search used the text of the summaries only. {}",
-                    why_no_vectors.unwrap_or_else(|| "The summaries have no vectors.".into())
-                ),
-                SearchMode::Names => "The index has no summaries. So the search used the names, \
-                     the signatures and the paths only. A build with the summarizer adds them."
-                    .to_string(),
+                // One checkout that cannot be read does not stop the others.
+                Err(e) if many => hows.push(format!("{name}: no search. {}", e.text())),
+                Err(e) => return result(Err(e)),
+            }
+        }
+        // The best hits of all the checkouts. The scores of two checkouts
+        // compare only when both searches used the same mode.
+        hits.sort_by(|a, b| b.2.score.total_cmp(&a.2.score));
+        hits.truncate(limit);
+        let mut out = hows.join("\n");
+        if hits.is_empty() {
+            out.push_str(&format!("\nNo result for {:?}.", params.query));
+            return result(Ok(out));
+        }
+        out.push_str(&format!(
+            "\n{} for {:?}:",
+            plural(hits.len(), "result", "results"),
+            params.query
+        ));
+        for (i, (name, mode, hit)) in hits.iter().enumerate() {
+            let s = &hit.symbol;
+            let checkout = if many {
+                format!("[{name}] ")
+            } else {
+                String::new()
             };
-            if found.hits.is_empty() {
-                out.push_str(&format!("\nNo result for {:?}.", params.query));
-                return Ok(out);
-            }
             out.push_str(&format!(
-                "\n{} for {:?}:",
-                plural(found.hits.len(), "result", "results"),
-                params.query
+                "\n{}. {checkout}{}, {}",
+                i + 1,
+                described(s),
+                s.kind
             ));
-            for (i, hit) in found.hits.iter().enumerate() {
-                let s = &hit.symbol;
-                out.push_str(&format!("\n{}. {}, {}", i + 1, described(s), s.kind));
-                if s.is_test {
-                    out.push_str(", test code");
-                }
-                match (&s.summary, &s.signature) {
-                    (Some(summary), _) => out.push_str(&format!(": {summary}")),
-                    (None, Some(signature)) => out.push_str(&format!(": `{signature}`")),
-                    (None, None) => {}
-                }
-                if s.summary.is_none() && found.mode != SearchMode::Names {
-                    out.push_str(" (no summary yet: found by its name and path)");
-                }
+            if s.is_test {
+                out.push_str(", test code");
             }
-            Ok(out)
-        })())
+            match (&s.summary, &s.signature) {
+                (Some(summary), _) => out.push_str(&format!(": {summary}")),
+                (None, Some(signature)) => out.push_str(&format!(": `{signature}`")),
+                (None, None) => {}
+            }
+            if s.summary.is_none() && *mode != SearchMode::Names {
+                out.push_str(" (no summary yet: found by its name and path)");
+            }
+        }
+        result(Ok(out))
     }
 
     #[tool(
@@ -977,7 +1114,7 @@ impl CodeTools {
         Parameters(params): Parameters<SymbolParams>,
     ) -> Result<CallToolResult, ErrorData> {
         result((|| {
-            let index = self.open()?;
+            let (root, index) = self.open_index(params.checkout.as_deref())?;
             let s = find(
                 &index,
                 &params.symbol,
@@ -1005,7 +1142,6 @@ impl CodeTools {
                 out.push_str("\nThis is test code.");
             }
             if params.source.unwrap_or(false) {
-                let root = self.root().ok_or_else(|| self.no_checkout())?;
                 out.push_str(&source_text(&s, index.source(&root, &s, SOURCE_LIMIT)?));
             }
             Ok(out)
@@ -1020,7 +1156,7 @@ impl CodeTools {
         Parameters(params): Parameters<EdgeParams>,
     ) -> Result<CallToolResult, ErrorData> {
         result((|| {
-            let index = self.open()?;
+            let (_, index) = self.open_index(params.checkout.as_deref())?;
             let s = find(
                 &index,
                 &params.symbol,
@@ -1070,7 +1206,7 @@ impl CodeTools {
         Parameters(params): Parameters<EdgeParams>,
     ) -> Result<CallToolResult, ErrorData> {
         result((|| {
-            let index = self.open()?;
+            let (_, index) = self.open_index(params.checkout.as_deref())?;
             let s = find(
                 &index,
                 &params.symbol,
@@ -1162,7 +1298,7 @@ impl CodeTools {
             if !(1..=MAX_USES).contains(&limit) {
                 return Err(ToolError::Limit(MAX_USES));
             }
-            let index = self.open()?;
+            let (_, index) = self.open_index(params.checkout.as_deref())?;
             let s = find(
                 &index,
                 &params.symbol,
@@ -1187,7 +1323,7 @@ impl CodeTools {
         Parameters(params): Parameters<PathParams>,
     ) -> Result<CallToolResult, ErrorData> {
         result((|| {
-            let index = self.open()?;
+            let (_, index) = self.open_index(params.checkout.as_deref())?;
             let from = find(
                 &index,
                 &params.from,
@@ -1267,7 +1403,7 @@ impl CodeTools {
                 under: params.under,
                 ..DuplicateOptions::default()
             };
-            let index = self.open()?;
+            let (_, index) = self.open_index(params.checkout.as_deref())?;
             Ok(duplicates_text(&index, &options, limit)?)
         })())
     }
@@ -1280,7 +1416,7 @@ impl CodeTools {
         Parameters(params): Parameters<ModuleMapParams>,
     ) -> Result<CallToolResult, ErrorData> {
         result((|| {
-            let index = self.open()?;
+            let (_, index) = self.open_index(params.checkout.as_deref())?;
             let modules = index.module_map(params.under.as_deref())?;
             let files: usize = modules.iter().map(|m| m.files.len()).sum();
             let mut out = format!(
@@ -1361,7 +1497,10 @@ impl ServerHandler for CodeTools {
                  `references` for each use of a symbol (types, fields, imports and calls), \
                  `path` for how one symbol reaches another, and `duplicates` for repeated \
                  code. `fetch_index` opens a checkout: it takes the nearest index of the \
-                 repository from Kairos. Run `kairos index update` after you change code.",
+                 repository from Kairos. More than one checkout can be open: each tool \
+                 takes `checkout`, the folder name or the path of an open one, and reads \
+                 the last one opened by default. Run `kairos index update` after you change \
+                 code.",
                 match self.root() {
                     Some(root) => format!("The code index of the checkout {}.", display(&root)),
                     None => no_checkout_instructions(&self.below),
@@ -1388,8 +1527,9 @@ fn no_checkout_instructions(below: &[Found]) -> String {
         out.push_str(&format!("\n- {}", found.line()));
     }
     out.push_str(
-        "\n`fetch_index` finds the repository in Kairos from the origin remote. The tools \
-         read one checkout at a time: call `fetch_index` again to change to another.\n",
+        "\n`fetch_index` finds the repository in Kairos from the origin remote. Call it for \
+         each checkout you work on: they stay open, and `code_search` searches each of \
+         them.\n",
     );
     out
 }
@@ -1473,6 +1613,56 @@ mod tests {
             )),
             "{error}"
         );
+    }
+
+    /// #272: `checkout` names an open checkout by its folder name or its
+    /// path; no `checkout` is the last one opened.
+    #[test]
+    fn checkout_picks_an_open_checkout_by_name_or_path() {
+        let work = tempfile::tempdir().expect("a temporary folder");
+        let work = work.path().canonicalize().expect("the folder");
+        let tools = CodeTools::new(work.clone());
+        assert!(matches!(tools.pick(None), Err(ToolError::NoCheckout(_))));
+        let (service, engine, other) = (
+            work.join("service"),
+            work.join("engine"),
+            work.join("other").join("service"),
+        );
+        for root in [&service, &engine, &other] {
+            std::fs::create_dir_all(root).expect("a checkout");
+        }
+        tools.add_open(service.clone());
+        tools.add_open(engine.clone());
+        assert_eq!(tools.pick(None).unwrap(), engine, "the last one opened");
+        assert_eq!(tools.pick(Some("service")).unwrap(), service);
+        assert_eq!(tools.pick(Some(&display(&engine))).unwrap(), engine);
+        assert_eq!(
+            open_line(&tools.opened()).as_deref(),
+            Some(
+                "2 checkouts are open: service, engine. Give `checkout` to read another one. \
+                 `code_search` with no `checkout` searches each of them."
+            )
+        );
+        // Opened again: it is the default again, and it is open one time.
+        tools.add_open(service.clone());
+        assert_eq!(tools.opened(), [engine.clone(), service.clone()]);
+
+        let unknown = tools.pick(Some("nowhere")).unwrap_err().text();
+        assert!(
+            unknown.starts_with("VALIDATION: No open checkout is \"nowhere\"."),
+            "{unknown}"
+        );
+        // 2 open checkouts with one folder name: the path chooses.
+        tools.add_open(other.clone());
+        let twice = tools.pick(Some("service")).unwrap_err().text();
+        assert!(
+            twice.starts_with(
+                "VALIDATION: More than one open checkout has the folder name \"service\". \
+                 Give its path."
+            ),
+            "{twice}"
+        );
+        assert_eq!(tools.pick(Some(&display(&other))).unwrap(), other);
     }
 
     /// A folder with no checkout below it: the text of before #272.

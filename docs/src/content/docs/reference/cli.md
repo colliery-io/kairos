@@ -2994,6 +2994,12 @@ worktrees directly below the root. For each one they give the
 path, the `origin` remote and whether it has a local index. The agent opens one
 of them with `fetch_index`.
 
+The server keeps more than one checkout open. Each call of `fetch_index` adds a
+checkout, and the last one opened is the default of the tools. Each tool takes
+`checkout`, the folder name or the path of an open checkout, to read another
+one. `code_search` with no `checkout` searches each open checkout, and each
+result names its checkout.
+
 ### The JSON of `kairos index`
 
 With `--json`, an `index` command prints one JSON object on stdout, and no

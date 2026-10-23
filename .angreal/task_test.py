@@ -429,10 +429,16 @@ def _ensure_playwright(package_dir=E2E_DIR):
         code = subprocess.run(["npm", "install"], cwd=str(package_dir)).returncode
         if code != 0:
             return code
-    # KAIROS-T-0409: the sandbox spec runs in Firefox and WebKit too. On CI
-    # the system libraries of the browsers come with them (--with-deps).
-    print("Ensuring the Playwright browsers (chromium, firefox, webkit)...", flush=True)
-    command = ["npx", "playwright", "install", "chromium", "firefox", "webkit"]
+    # KAIROS-T-0409: the sandbox spec runs in Firefox and WebKit too, but only
+    # with KAIROS_E2E_ENGINES=all (e2e/playwright.config.ts): their browsers
+    # and system libraries are a large install, and a slow apt mirror once
+    # spent the whole time of a queue shard on them (#276). On CI the system
+    # libraries of the browsers come with them (--with-deps).
+    browsers = ["chromium"]
+    if os.environ.get("KAIROS_E2E_ENGINES") == "all":
+        browsers += ["firefox", "webkit"]
+    print(f"Ensuring the Playwright browsers ({', '.join(browsers)})...", flush=True)
+    command = ["npx", "playwright", "install", *browsers]
     if os.environ.get("CI"):
         command.append("--with-deps")
     return subprocess.run(command, cwd=str(package_dir)).returncode

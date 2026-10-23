@@ -6,6 +6,16 @@ import { defineConfig, devices } from '@playwright/test';
 // override for a hand-run dev server via E2E_GUI_BASE_URL.
 const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 
+// KAIROS-T-0409: the sandbox of the uploaded sites is proved in each engine,
+// so site-sandbox.spec.ts also runs in Firefox and WebKit. Those two browsers
+// and their system libraries are a large install (#276: a slow apt mirror
+// spent the whole 30 minutes of a queue shard on them), so they run only
+// with KAIROS_E2E_ENGINES=all: the release-tag run of e2e.yml, or by hand.
+// The merge queue runs chromium only. `angreal test e2e` installs the same
+// set of browsers.
+const ALL_ENGINES = process.env.KAIROS_E2E_ENGINES === 'all';
+const sandboxOnly = /site-sandbox\.spec\.ts/;
+
 export default defineConfig({
   testDir: './tests',
   // The smoke flow is inherently serial (login → mutate → observe a live WS
@@ -34,17 +44,11 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    // KAIROS-T-0409: the sandbox of the uploaded sites is proved in each
-    // engine. Only that spec runs in Firefox and WebKit.
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-      testMatch: /site-sandbox\.spec\.ts/,
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-      testMatch: /site-sandbox\.spec\.ts/,
-    },
+    ...(ALL_ENGINES
+      ? [
+          { name: 'firefox', use: { ...devices['Desktop Firefox'] }, testMatch: sandboxOnly },
+          { name: 'webkit', use: { ...devices['Desktop Safari'] }, testMatch: sandboxOnly },
+        ]
+      : []),
   ],
 });

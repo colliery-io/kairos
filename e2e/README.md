@@ -98,3 +98,18 @@ runner and compose stack. The e2e tier runs:
 - in the merge queue, before a change reaches main;
 - in CI via `.github/workflows/e2e.yml` — **manually** (`workflow_dispatch`)
   and on **release tags** (`push: tags: v*`).
+
+## Browsers
+
+The suite runs in chromium. `site-sandbox.spec.ts` also runs in Firefox and
+WebKit (KAIROS-T-0409), but only when `KAIROS_E2E_ENGINES` is `all`:
+
+```sh
+KAIROS_E2E_ENGINES=all angreal test e2e
+```
+
+`angreal test e2e` installs the same browsers. Firefox, WebKit and their
+system libraries are a large install: on 2026-10-23 a slow apt mirror spent
+the 30 minutes of a queue shard on them (#276). So the merge queue runs
+chromium only, and `e2e.yml` sets `KAIROS_E2E_ENGINES=all` for a release tag
+and a manual run.

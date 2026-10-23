@@ -82,5 +82,9 @@ jobs:
       # `angreal test e2e` drives compose up/down, builds the server + wasm
       # bundle, seeds, boots the servers, runs the API golden path, then the
       # Playwright GUI smoke leg. Exit code propagates.
+      # KAIROS-T-0409: a release tag also proves the sandbox of the uploaded
+      # sites in Firefox and WebKit. The merge queue runs chromium only (#276).
       - name: angreal test e2e
         run: angreal test e2e --down
+        env:
+          KAIROS_E2E_ENGINES: all

@@ -14,7 +14,8 @@
 #                the queue and on main, debug on a PR)
 #   e2e          tier 4 (`angreal test e2e --down`): the API and MCP golden
 #                path and the Playwright GUI suite, in the queue only, split
-#                over 2 shards, each with its own compose stack (KAIROS-T-0662)
+#                over 2 shards, each with its own compose stack (KAIROS-T-0662),
+#                in chromium only; e2e.yml adds Firefox and WebKit on a tag
 #   ci           the one required check: it fails when a gate failed
 #
 # A change to the docs only runs lint. On a pull request a new push cancels

@@ -246,6 +246,16 @@ pub enum ToolError {
         "The server has no open checkout. Call `fetch_index` with `root`, the path of a git checkout. Give `repository`, the slug in Kairos, when the `origin` remote of the checkout is not a repository of Kairos.{0}"
     )]
     NoCheckout(Below),
+    #[error(
+        "{} The open checkouts are: {}. Give `checkout` as one of them, by its folder name or its path, or call `fetch_index` to open another one.",
+        if *more_than_one { format!("More than one open checkout has the folder name {given:?}. Give its path.") } else { format!("No open checkout is {given:?}.") },
+        open.join(", ")
+    )]
+    UnknownCheckout {
+        given: String,
+        more_than_one: bool,
+        open: Vec<String>,
+    },
     #[error("The folder {0} is not in a git checkout.")]
     NotACheckout(PathBuf),
     #[error(
@@ -384,6 +394,7 @@ impl ToolError {
             ToolError::NoSymbol { .. } => "NOT_FOUND",
             ToolError::Ambiguous { .. } => "AMBIGUOUS",
             ToolError::UnknownArgument { .. }
+            | ToolError::UnknownCheckout { .. }
             | ToolError::MissingArgument { .. }
             | ToolError::BadArguments(_)
             | ToolError::Limit(_)
@@ -394,6 +405,9 @@ impl ToolError {
 
     pub(super) fn details(&self) -> Option<Value> {
         match self {
+            ToolError::UnknownCheckout { open, .. } => {
+                Some(json!({ "field": "checkout", "open": open }))
+            }
             ToolError::Ambiguous { candidates, .. } => Some(json!({ "candidates": candidates })),
             ToolError::UnknownArgument {
                 argument, allowed, ..

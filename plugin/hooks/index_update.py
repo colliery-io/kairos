@@ -8,7 +8,8 @@ Four modes:
   process and give the agent the text about the code tools of the local
   `kairos-code` MCP server. The hook does not wait for the update, so the
   start of the session is not slower. With no `kairos` or no wiring: no
-  output, no process.
+  output, no process. In a wired board folder, start `worker` in each
+  clone and worktree below it (#272).
 - `worker` (the background job): take a lock, take the list of changed
   files, write it to the log, run `kairos index update --link-only` in the
   checkout, and clear the list only when the update succeeds. A failed update puts the
@@ -87,6 +88,9 @@ DEBOUNCE_ENV = "KAIROS_INDEX_DEBOUNCE_SECONDS"
 DEBOUNCE_SECONDS = 30.0
 EDIT_STAMP = "last-edit"
 DEBOUNCE_LOCK = "debounce.lock"
+# The most checkouts of a board folder that a session start updates, as
+# session_start.MAX_CHECKOUTS lists (#272).
+MAX_BOARD_CHECKOUTS = 40
 
 
 def update_command():
@@ -388,12 +392,58 @@ def context(text):
     }
 
 
+def board_checkouts(board):
+    """The checkouts in the immediate subfolders of a board folder, sorted
+    by name: each subfolder that is not hidden and has `.git` (a clone, or
+    a worktree). At most MAX_BOARD_CHECKOUTS. Empty when the folder cannot
+    be read (#272)."""
+    try:
+        names = sorted(os.listdir(board))
+    except OSError:
+        return []
+    found = [
+        os.path.join(board, name)
+        for name in names
+        if not name.startswith(".") and is_checkout(os.path.join(board, name))
+    ]
+    return found[:MAX_BOARD_CHECKOUTS]
+
+
+def board_text(started):
+    """The start text of a board folder: open a checkout with `fetch_index`,
+    and the checkouts whose update runs now, each with its log and the
+    failure of its last update."""
+    lines = [NOT_A_CHECKOUT_TEXT]
+    if started:
+        names = ", ".join(os.path.basename(checkout) for checkout, _ in started)
+        lines.append(
+            "`kairos index update --link-only` runs in the background now in each "
+            f"checkout of this folder: {names}. So `fetch_index` opens an index "
+            "that is some seconds old or newer. Each log is in the state folder "
+            "of its checkout, under ~/.claude/kairos-index/."
+        )
+        for checkout, failure in started:
+            if failure:
+                lines.append(f"{os.path.basename(checkout)}: {failure}")
+    lines.append(after_edit_text())
+    return "\n".join(lines)
+
+
 def start(payload):
     project = project_dir()
     if shutil.which("kairos") is None or not is_wired(project):
         return
     if not is_checkout(project):
-        json.dump(context(NOT_A_CHECKOUT_TEXT + "\n" + after_edit_text()), sys.stdout)
+        # A board folder (#272): the update of each clone and worktree below
+        # it, with the wiring of the board folder, as after an edit
+        # (KAIROS-T-0524).
+        started = []
+        for checkout in board_checkouts(project):
+            folder = state_dir(checkout)
+            os.makedirs(folder, exist_ok=True)
+            started.append((checkout, failure_line(folder)))
+            spawn(["worker", checkout], checkout)
+        json.dump(context(board_text(started)), sys.stdout)
         return
     folder = state_dir(project)
     os.makedirs(folder, exist_ok=True)

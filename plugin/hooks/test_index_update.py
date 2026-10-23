@@ -20,6 +20,7 @@ import json
 import select
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -553,6 +554,60 @@ class DebouncedUpdate(Harness):
         self.assertIn("- src/a.rs\n- src/c.rs", self.log_of(self.one))
         self.assertIn("- b.py\n- d.py", self.log_of(self.two))
         self.assertNotIn("b.py", self.log_of(self.one))
+
+    def start_in_board(self):
+        result = self.run_hook(
+            "start",
+            {"session_id": "s1", "source": "startup"},
+            env=self.env(CLAUDE_PROJECT_DIR=self.board),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+
+    def test_the_start_in_a_board_folder_updates_each_checkout(self):
+        # #272: before, a session that started in a board folder updated no
+        # index; the agent used grep instead of the code tools.
+        hidden = self.checkout(os.path.join(self.board, ".hidden"))
+        os.makedirs(os.path.join(self.board, "scripts"))  # no repository
+        text = self.start_in_board()
+        self.assertIn("`fetch_index`", text)
+        self.assertIn("each checkout of this folder: one, two.", text)
+        self.assertTrue(self.wait_for(lambda: self.finished(self.one) and self.finished(self.two)))
+        self.assertEqual(self.runs(self.one), 1)
+        self.assertEqual(self.runs(self.two), 1)
+        self.assertEqual(self.runs(hidden), 0)
+        self.assertEqual(self.runs(), 2, "no update in the board folder or scripts/")
+        self.assertIn("Started by: the start of a session", self.log_of(self.one))
+
+    def test_the_start_in_a_board_folder_gives_the_last_failure_of_a_checkout(self):
+        folder = self.folder_of(self.two)
+        os.makedirs(folder)
+        with open(os.path.join(folder, "last-update.json"), "w") as handle:
+            json.dump(
+                {
+                    "format": 1,
+                    "exit_code": 3,
+                    "finished": "2026-10-23T09:00:00+00:00",
+                    "finished_epoch": time.time(),
+                    "command": "kairos index update --link-only",
+                    "refusal": "error: the deployment refused the key",
+                },
+                handle,
+            )
+        text = self.start_in_board()
+        self.assertIn("two: The last background update of the index failed", text)
+        self.assertIn("the deployment refused the key", text)
+        self.assertNotIn("one: The last", text)
+        self.assertTrue(self.wait_for(lambda: self.finished(self.one) and self.finished(self.two)))
+
+    def test_the_start_in_a_board_folder_with_no_checkout_runs_no_update(self):
+        for checkout in (self.one, self.two):
+            shutil.rmtree(checkout)
+        text = self.start_in_board()
+        self.assertIn("not a git checkout", text)
+        self.assertNotIn("runs in the background now", text)
+        time.sleep(0.3)
+        self.assertEqual(self.calls_text(), "")
 
     def test_a_worktree_inside_a_clone_is_its_own_checkout(self):
         worktree = self.checkout(

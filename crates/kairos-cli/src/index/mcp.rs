@@ -32,7 +32,9 @@ use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt, tool, tool_handler,
 use serde::Deserialize;
 
 use super::arguments::{Parameters, tool_error_of};
-use super::error::{Choose, IndexCommandError, Place, StillOpen, SymbolArguments, ToolError};
+use super::error::{
+    Below, Choose, IndexCommandError, Place, StillOpen, SymbolArguments, ToolError,
+};
 use super::query::{QuerySource, ROUTE_TIMEOUT, RouteFailure};
 
 /// The results of `code_search` when the call gives no `limit`.
@@ -70,11 +72,64 @@ pub async fn serve(root: PathBuf) -> Result<(), IndexCommandError> {
 /// (KAIROS-T-0360).
 type QueryEmbedder = (Option<PathBuf>, String, QuerySource);
 
+/// The most checkouts below the start folder that the server names (#272),
+/// as the session hook of the plugin lists.
+const MAX_BELOW: usize = 40;
+
+/// A checkout below the start folder of the server, when that folder is
+/// not a checkout (#272): a board folder, or a folder of work that holds
+/// clones and worktrees of more than one repository.
+#[derive(Debug, Clone, PartialEq)]
+struct Found {
+    name: String,
+    path: PathBuf,
+    /// The `origin` remote as `host/path`, or `None` with no `origin`.
+    remote: Option<String>,
+    /// The checkout has a local index.
+    indexed: bool,
+}
+
+impl Found {
+    /// `engine (/work/engine, origin github.com/acme/engine, a local index)`.
+    fn line(&self) -> String {
+        let remote = match &self.remote {
+            Some(remote) => format!("origin {remote}"),
+            None => "no origin remote".to_string(),
+        };
+        let index = if self.indexed {
+            "a local index"
+        } else {
+            "no local index"
+        };
+        format!("{} ({}, {remote}, {index})", self.name, display(&self.path))
+    }
+}
+
+/// The checkouts in the immediate subfolders of `folder`, as `kairos repos
+/// local` finds them, at most [`MAX_BELOW`]. No git command fails the
+/// start of the server: a folder that cannot be read gives none.
+fn checkouts_below(folder: &Path) -> Vec<Found> {
+    let all = crate::commands::repos_local::checkouts_in(folder).unwrap_or_default();
+    all.into_iter()
+        .take(MAX_BELOW)
+        .map(|(name, path)| Found {
+            remote: super::git_output(&path, &["config", "--get", "remote.origin.url"])
+                .map(|url| super::base::normalized_remote(&url)),
+            indexed: path.join(kairos_index::INDEX_FILE).is_file(),
+            name,
+            path,
+        })
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct CodeTools {
     /// The open checkout: the one the server started in, or the last one
     /// that `fetch_index` opened. `None` until a checkout is open.
     root: Arc<Mutex<Option<PathBuf>>>,
+    /// The checkouts below the start folder when it is not a checkout
+    /// (#272). The instructions and the error "no open checkout" name them.
+    below: Arc<Vec<Found>>,
     embedder: Arc<Mutex<Option<QueryEmbedder>>>,
     tool_router: ToolRouter<Self>,
 }
@@ -229,11 +284,18 @@ pub struct ModuleMapParams {
 
 impl CodeTools {
     /// The tools of `root`. A folder that is not a git checkout and has no
-    /// index opens nothing: the agent opens a checkout with `fetch_index`.
+    /// index opens nothing: the agent opens a checkout with `fetch_index`,
+    /// and the server names the checkouts below the folder (#272).
     pub fn new(root: PathBuf) -> Self {
         let open = root.join(kairos_index::INDEX_FILE).is_file() || root.join(".git").exists();
+        let below = if open {
+            Vec::new()
+        } else {
+            checkouts_below(&root)
+        };
         CodeTools {
             root: Arc::new(Mutex::new(open.then_some(root))),
+            below: Arc::new(below),
             embedder: Arc::new(Mutex::new(None)),
             tool_router: Self::tool_router(),
         }
@@ -244,8 +306,14 @@ impl CodeTools {
         self.root.lock().expect("the lock of the root").clone()
     }
 
+    /// The error for a call with no open checkout: it names the checkouts
+    /// below the start folder.
+    fn no_checkout(&self) -> ToolError {
+        ToolError::NoCheckout(Below(self.below.iter().map(Found::line).collect()))
+    }
+
     fn open(&self) -> Result<Index, ToolError> {
-        let root = self.root().ok_or(ToolError::NoCheckout)?;
+        let root = self.root().ok_or_else(|| self.no_checkout())?;
         let db = root.join(kairos_index::INDEX_FILE);
         if !db.is_file() {
             return Err(ToolError::NoIndex(db));
@@ -937,7 +1005,7 @@ impl CodeTools {
                 out.push_str("\nThis is test code.");
             }
             if params.source.unwrap_or(false) {
-                let root = self.root().ok_or(ToolError::NoCheckout)?;
+                let root = self.root().ok_or_else(|| self.no_checkout())?;
                 out.push_str(&source_text(&s, index.source(&root, &s, SOURCE_LIMIT)?));
             }
             Ok(out)
@@ -1296,12 +1364,34 @@ impl ServerHandler for CodeTools {
                  repository from Kairos. Run `kairos index update` after you change code.",
                 match self.root() {
                     Some(root) => format!("The code index of the checkout {}.", display(&root)),
-                    None => "The server has no open checkout: call `fetch_index` with the \
-                             path of the checkout you work on."
-                        .to_string(),
+                    None => no_checkout_instructions(&self.below),
                 }
             ))
     }
+}
+
+/// The first part of the instructions with no open checkout. The server
+/// names the checkouts below its start folder (#272): the agent opens the
+/// one it works on, and does not have to find the paths first.
+fn no_checkout_instructions(below: &[Found]) -> String {
+    let mut out = "The server has no open checkout: call `fetch_index` with the path of the \
+                   checkout you work on."
+        .to_string();
+    if below.is_empty() {
+        return out;
+    }
+    out.push_str(&format!(
+        " The start folder is not a checkout. It has {} below it:",
+        plural(below.len(), "checkout", "checkouts")
+    ));
+    for found in below {
+        out.push_str(&format!("\n- {}", found.line()));
+    }
+    out.push_str(
+        "\n`fetch_index` finds the repository in Kairos from the origin remote. The tools \
+         read one checkout at a time: call `fetch_index` again to change to another.\n",
+    );
+    out
 }
 
 /// The most chains that `path` gives (COLLIERY-T-2531).
@@ -1329,6 +1419,81 @@ mod tests {
             is_test: false,
             summary: None,
         }
+    }
+
+    /// #272: a session that starts in a folder above several checkouts.
+    /// The server opens none, and names each one, in the instructions and
+    /// in the error of a tool that needs an open checkout.
+    #[test]
+    fn a_start_folder_above_checkouts_names_them() {
+        let work = tempfile::tempdir().expect("a temporary folder");
+        let work = work.path().canonicalize().expect("the folder");
+        for name in ["service", "engine", ".hidden"] {
+            std::fs::create_dir_all(work.join(name).join(".git")).expect("a clone");
+        }
+        std::fs::create_dir_all(work.join("engine-fix")).expect("a worktree");
+        std::fs::write(work.join("engine-fix").join(".git"), "gitdir: /nowhere\n")
+            .expect("its .git file");
+        std::fs::create_dir_all(work.join("engine").join(".kairos")).expect("the index folder");
+        std::fs::write(work.join("engine").join(kairos_index::INDEX_FILE), b"")
+            .expect("a local index");
+        std::fs::create_dir_all(work.join("scripts")).expect("a folder of no repository");
+
+        let tools = CodeTools::new(work.clone());
+        assert_eq!(tools.root(), None, "a folder above checkouts opens none");
+        let names: Vec<&str> = tools.below.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["engine", "engine-fix", "service"]);
+        let engine = &tools.below[0];
+        assert!(engine.indexed);
+        assert_eq!(
+            engine.line(),
+            format!(
+                "engine ({}, no origin remote, a local index)",
+                work.join("engine").display()
+            )
+        );
+
+        let instructions = no_checkout_instructions(&tools.below);
+        assert!(
+            instructions.contains("It has 3 checkouts below it:\n- engine ("),
+            "{instructions}"
+        );
+        assert!(instructions.contains("\n- service ("), "{instructions}");
+        assert!(!instructions.contains("scripts"), "{instructions}");
+
+        let error = tools.no_checkout().text();
+        assert!(
+            error.starts_with("NO_CHECKOUT: The server has no open checkout."),
+            "{error}"
+        );
+        assert!(
+            error.contains(&format!(
+                "The checkouts below the start folder of the server: engine ({}, ",
+                work.join("engine").display()
+            )),
+            "{error}"
+        );
+    }
+
+    /// A folder with no checkout below it: the text of before #272.
+    #[test]
+    fn a_start_folder_with_no_checkout_below_names_none() {
+        let work = tempfile::tempdir().expect("a temporary folder");
+        let tools = CodeTools::new(work.path().to_path_buf());
+        assert!(tools.below.is_empty());
+        assert_eq!(
+            no_checkout_instructions(&tools.below),
+            "The server has no open checkout: call `fetch_index` with the path of the \
+             checkout you work on."
+        );
+        assert!(
+            tools
+                .no_checkout()
+                .text()
+                .ends_with("is not a repository of Kairos."),
+            "{}",
+            tools.no_checkout().text()
+        );
     }
 
     /// KAIROS-T-0425: a file with no symbol to summarize and no summary.

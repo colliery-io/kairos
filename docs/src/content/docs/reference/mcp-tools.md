@@ -1949,6 +1949,36 @@ Creates a relationship edge between two items.
 | `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`, `impacts`, `external`. |
 | `label` | string | no | — | For `external` only: the label of the reference, at most 200 characters. |
 
+The types of the two items must agree with this table (KAIROS-T-0677). The
+description of the tool has the same table, and a test compares it with the
+rules of the server.
+
+| relationship | source | target |
+|---|---|---|
+| `parent` | strategy | initiative |
+| `parent` | initiative | task |
+| `supports` | strategy, initiative, task | document, adr |
+| `informs` | document, adr | strategy, initiative, task |
+| `informs` | task | task |
+| `supersedes` | adr | adr |
+| `blocks` | strategy, initiative, task | strategy, initiative, task |
+| `impacts` | document, adr | repository (slug or UUID) |
+| `external` | any item | URI (`http`, `https` or `mailto`) |
+
+When the edge is possible in the other direction, the `RELATIONSHIP_RULE`
+refusal ends with `swap source and target`:
+
+```text
+RELATIONSHIP_RULE: A supports edge cannot go from document to initiative. A supports edge goes from a strategy, an initiative or a task to a document or an adr. The edge is possible in the other direction: swap source and target.
+```
+
+A `relationship` that is not in the vocabulary is `VALIDATION`. For a value
+that agents often send, the refusal names the nearest relationship:
+
+```text
+VALIDATION: The value "relates_to" is not a value of relationship. The values are: parent, supports, informs, supersedes, blocks, impacts, external. For a reference to a document or an adr, or from a task to a task, use informs. For work that must wait for other work, use blocks.
+```
+
 The [link rule](../capabilities/#who-can-write-relationships) applies. The
 caller can edit the source or the target. One end is sufficient. No type needs
 the admin role.

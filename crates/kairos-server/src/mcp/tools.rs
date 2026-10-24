@@ -4885,13 +4885,15 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
+        let routes = crate::api::org::structure_grants::SignInRoutes::of(&self.state.config);
         self.run_tool(&tenant, move |conn| {
             let team = team_by_ref(conn, &params.team)?;
-            let target = crate::api::org::structure_grants::resolve_member(
+            let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
                 &params.user,
                 "user",
+                routes,
             )?;
             let member =
                 crate::api::org::teams::add_member_as(conn, &slug, user, team.id, target.id)?;
@@ -4914,6 +4916,7 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
+        let routes = crate::api::org::structure_grants::SignInRoutes::of(&self.state.config);
         self.run_tool(&tenant, move |conn| {
             if params.capability == kairos_core::abac::MANAGE_STRUCTURE {
                 let grant = crate::api::org::structure_grants::grant(
@@ -4922,6 +4925,7 @@ impl KairosMcp {
                     user,
                     &params.user,
                     params.board.as_deref(),
+                    routes,
                 )?;
                 let scope = match &grant.board_slug {
                     Some(board) => format!("on the board {board}"),
@@ -4941,11 +4945,12 @@ impl KairosMcp {
                 .with_details(json!({ "field": "board" })));
             };
             let board = board_by_ref(conn, board)?;
-            let target = crate::api::org::structure_grants::resolve_member(
+            let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
                 &params.user,
                 "user",
+                routes,
             )?;
             let member = crate::api::org::boards::grant_as(
                 conn,

@@ -2465,6 +2465,17 @@ Refuses: `VALIDATION` for an unknown team, and for a `user` that is not a
 member of the organization. `CONFLICT` when the user is a member of the team
 already. `FORBIDDEN` as for `create_team`.
 
+A person is not a member of the organization before the first sign-in or a
+provisioning step. The refusal of an unknown `user` says how a person becomes
+a member on this deployment (KAIROS-T-0679). It names only the routes that the
+deployment has: the identity provider, SCIM, and local accounts. For an email,
+it also says if an account has that email. `grant_capability` gives the same
+refusal. A deployment with an identity provider and no local accounts gives:
+
+```text
+VALIDATION: No member of the organization has the id, the email, the user name or the service-account name "sam@example.com". No account has the email "sam@example.com" yet. A person becomes a member of the organization in one of these ways: (1) the person signs in to Kairos one time through the identity provider, and then an organization admin adds the person to the organization (`kairos members add --email <email>`, or POST /api/members); (2) the identity provider provisions the person through SCIM (/scim/v2). Then send the reference again.
+```
+
 ### `grant_capability`
 
 Grants one capability to a member of the organization.

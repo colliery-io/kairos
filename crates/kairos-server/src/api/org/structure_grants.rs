@@ -49,6 +49,62 @@ pub fn router() -> Router<AppState> {
         )
 }
 
+/// The ways in which a person becomes a member of the organization on this
+/// deployment (KAIROS-T-0679). The refusal of an unknown member names them
+/// when the call adds a person (a team member, a board grant, a structure
+/// grant), because the person often has not signed in yet.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct SignInRoutes {
+    /// The deployment has an OIDC issuer: a person signs in through the
+    /// identity provider, and SCIM can provision people.
+    pub identity_provider: bool,
+    /// The deployment has local accounts (`KAIROS_LOCAL_AUTH`).
+    pub local_accounts: bool,
+}
+
+impl SignInRoutes {
+    /// The routes of the deployment that `config` describes.
+    pub(crate) fn of(config: &crate::config::AppConfig) -> Self {
+        Self {
+            identity_provider: config.oidc_issuer_url.is_some(),
+            local_accounts: config.local_auth,
+        }
+    }
+
+    /// The sentences that tell how a person becomes a member. Empty when
+    /// the deployment has no route.
+    fn text(self) -> String {
+        let mut routes = Vec::new();
+        if self.identity_provider {
+            routes.push(
+                "the person signs in to Kairos one time through the identity provider, and \
+                 then an organization admin adds the person to the organization \
+                 (`kairos members add --email <email>`, or POST /api/members)",
+            );
+            routes.push("the identity provider provisions the person through SCIM (/scim/v2)");
+        }
+        if self.local_accounts {
+            routes.push(
+                "an organization admin creates a local account for the person \
+                 (POST /api/local-accounts)",
+            );
+        }
+        if routes.is_empty() {
+            return String::new();
+        }
+        let list = routes
+            .iter()
+            .enumerate()
+            .map(|(n, route)| format!("({}) {route}", n + 1))
+            .collect::<Vec<_>>()
+            .join("; ");
+        format!(
+            " A person becomes a member of the organization in one of these ways: {list}. \
+             Then send the reference again."
+        )
+    }
+}
+
 /// The member of the organization that `reference` names: a user id, an
 /// email, a user name, or the name of a service account. A person or a
 /// service account. `argument` is the name of the field or the argument,
@@ -59,12 +115,36 @@ pub(crate) fn resolve_member(
     reference: &str,
     argument: &str,
 ) -> Result<User, ApiError> {
+    lookup_member(conn, slug, reference, argument, None)
+}
+
+/// [`resolve_member`] for a call that adds a person: the refusal of an
+/// unknown member also says how a person becomes a member on this
+/// deployment (KAIROS-T-0679).
+pub(crate) fn resolve_member_to_add(
+    conn: &mut PgConnection,
+    slug: &str,
+    reference: &str,
+    argument: &str,
+    routes: SignInRoutes,
+) -> Result<User, ApiError> {
+    lookup_member(conn, slug, reference, argument, Some(routes))
+}
+
+fn lookup_member(
+    conn: &mut PgConnection,
+    slug: &str,
+    reference: &str,
+    argument: &str,
+    routes: Option<SignInRoutes>,
+) -> Result<User, ApiError> {
     use kairos_db::schema::users;
     let reference = reference.trim();
     let select = users::table.select(User::as_select());
+    let looks_like_email = reference.contains('@');
     let mut candidates: Vec<User> = if let Ok(id) = reference.parse::<Uuid>() {
         select.filter(users::id.eq(id)).load(conn)
-    } else if reference.contains('@') {
+    } else if looks_like_email {
         select.filter(users::email.eq(reference)).load(conn)
     } else {
         let by_user_name = select
@@ -84,6 +164,7 @@ pub(crate) fn resolve_member(
         }
     }
     .map_err(ApiError::internal)?;
+    let accounts = candidates.len();
     let mut members = Vec::new();
     for user in candidates.drain(..) {
         if kairos_db::abac::is_org_member(conn, slug, user.id).map_err(map_abac_error)? {
@@ -92,9 +173,11 @@ pub(crate) fn resolve_member(
     }
     match members.len() {
         1 => Ok(members.remove(0)),
-        0 => Err(ApiError::validation(format!(
-            "No member of the organization has the id, the email, the user name or the \
-             service-account name {reference:?}. Send a member of the organization."
+        0 => Err(ApiError::validation(not_a_member_text(
+            reference,
+            looks_like_email,
+            accounts > 0,
+            routes,
         ))
         .with_details(serde_json::json!({ "field": argument }))),
         _ => Err(ApiError::validation(format!(
@@ -103,6 +186,35 @@ pub(crate) fn resolve_member(
         ))
         .with_details(serde_json::json!({ "field": argument }))),
     }
+}
+
+/// The refusal of a reference that names no member (KAIROS-T-0679). For an
+/// email it says whether an account has the email. With `routes` (a call
+/// that adds a person) it says how a person becomes a member.
+fn not_a_member_text(
+    reference: &str,
+    looks_like_email: bool,
+    has_account: bool,
+    routes: Option<SignInRoutes>,
+) -> String {
+    let mut text = format!(
+        "No member of the organization has the id, the email, the user name or the \
+         service-account name {reference:?}."
+    );
+    if looks_like_email {
+        if has_account {
+            text.push_str(&format!(
+                " The account with the email {reference:?} is not a member of the organization."
+            ));
+        } else {
+            text.push_str(&format!(" No account has the email {reference:?} yet."));
+        }
+    }
+    match routes.map(SignInRoutes::text) {
+        Some(routes) if !routes.is_empty() => text.push_str(&routes),
+        _ => text.push_str(" Send a member of the organization."),
+    }
+    text
 }
 
 /// The DTO of one grant: the principal and the board come from their rows.
@@ -187,9 +299,10 @@ pub(crate) fn grant(
     user: Uuid,
     reference: &str,
     board: Option<&str>,
+    routes: SignInRoutes,
 ) -> Result<dto::StructureGrant, ApiError> {
     require_org_admin_for_grants(conn, slug, user)?;
-    let target = resolve_member(conn, slug, reference, "user")?;
+    let target = resolve_member_to_add(conn, slug, reference, "user", routes)?;
     let board_id = board
         .map(|board| load_board_by_ref(conn, board).map(|b| b.id))
         .transpose()?;
@@ -247,10 +360,11 @@ pub(crate) async fn create_structure_grant(
 ) -> Result<(StatusCode, Json<dto::StructureGrant>), ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
+    let routes = SignInRoutes::of(&state.config);
     let grant = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            grant(conn, &slug, user, &body.user, body.board.as_deref())
+            grant(conn, &slug, user, &body.user, body.board.as_deref(), routes)
         })
         .await?;
     Ok((StatusCode::CREATED, Json(grant)))
@@ -288,4 +402,64 @@ pub(crate) async fn delete_structure_grant(
         })
         .await?;
     Ok(Json(revoked))
+}
+
+#[cfg(test)]
+mod t0679_tests {
+    //! KAIROS-T-0679: the refusal of a reference that names no member.
+    use super::{SignInRoutes, not_a_member_text};
+
+    const BOTH: SignInRoutes = SignInRoutes {
+        identity_provider: true,
+        local_accounts: true,
+    };
+
+    #[test]
+    fn an_email_with_no_account_names_each_route() {
+        let text = not_a_member_text("sam@example.com", true, false, Some(BOTH));
+        assert_eq!(
+            text,
+            "No member of the organization has the id, the email, the user name or the \
+             service-account name \"sam@example.com\". No account has the email \
+             \"sam@example.com\" yet. A person becomes a member of the organization in one \
+             of these ways: (1) the person signs in to Kairos one time through the identity \
+             provider, and then an organization admin adds the person to the organization \
+             (`kairos members add --email <email>`, or POST /api/members); (2) the identity \
+             provider provisions the person through SCIM (/scim/v2); (3) an organization \
+             admin creates a local account for the person (POST /api/local-accounts). Then \
+             send the reference again."
+        );
+    }
+
+    #[test]
+    fn local_accounts_only() {
+        let routes = SignInRoutes {
+            identity_provider: false,
+            local_accounts: true,
+        };
+        let text = not_a_member_text("sam@example.com", true, true, Some(routes));
+        assert!(
+            text.contains("The account with the email \"sam@example.com\" is not a member"),
+            "{text}"
+        );
+        assert!(
+            text.contains("(1) an organization admin creates a local account"),
+            "{text}"
+        );
+        assert!(!text.contains("SCIM"), "{text}");
+    }
+
+    #[test]
+    fn a_lookup_that_adds_nobody_keeps_the_short_text() {
+        assert_eq!(
+            not_a_member_text("robin", false, false, None),
+            "No member of the organization has the id, the email, the user name or the \
+             service-account name \"robin\". Send a member of the organization."
+        );
+        // No route on the deployment: the short text too.
+        assert!(
+            not_a_member_text("robin", false, false, Some(SignInRoutes::default()))
+                .ends_with("Send a member of the organization.")
+        );
+    }
 }

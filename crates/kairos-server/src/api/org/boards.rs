@@ -2161,15 +2161,17 @@ pub(crate) async fn add_board_member(
     let board_id = parse_uuid(&id, "id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
+    let routes = crate::api::org::structure_grants::SignInRoutes::of(&state.config);
     let member = state
         .blocking
         .run(&tenant.slug, move |conn| {
             // KAIROS-T-0443: a UUID, an email or a user name.
-            let target = crate::api::org::structure_grants::resolve_member(
+            let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
                 &body.user_id,
                 "user_id",
+                routes,
             )?
             .id;
             grant_as(conn, &slug, user, board_id, target, &body.capabilities)

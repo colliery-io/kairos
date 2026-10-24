@@ -566,7 +566,11 @@ async fn mcp_endpoint_against_live_stack() {
          the administration tools: teams, boards, grants, metadata, dispatch rule writes, \
          team page writes, org read tokens, purge. `/mcp?profile=all` lists each tool. The \
          server runs a call to a tool that the profile does not list. A client such as \
-         Claude Code calls only the listed tools."
+         Claude Code calls only the listed tools. With the Claude Code plugin, the user \
+         gets the admin tools with one command: `claude mcp add --scope user kairos-admin \
+         -- kairos mcp-proxy --profile admin`, then a new session; the CLI is the fallback \
+         (`kairos teams create`). Do not add an MCP server yourself: tell the user. The \
+         plugin skill `/kairos:onboard-team` sets up a team; only the user can start it."
     );
 
     // --- KAIROS-T-0392: stateless — no handshake, a stale session id -------
@@ -2686,10 +2690,23 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"q": "cache", "filter": {"board_slug": "platform-delivery"}}),
         )
         .await;
+    // KAIROS-T-0674: the refusal names the object and gives its fields.
     assert!(
         text.starts_with(
-            "VALIDATION: The call has the argument \"board_slug\". This tool does not accept \
-             that argument. The arguments of this tool are: entity_type, board_id, "
+            "VALIDATION: The call has the field \"board_slug\" in filter. The object filter \
+             does not accept that field. The fields of filter are: entity_type, board_id, "
+        ),
+        "{text}"
+    );
+    // KAIROS-T-0674: a string where the tool must have a list names the
+    // path, the type, and the list to send.
+    let text = session
+        .call_err("search", json!({"filter": {"entity_type": "document"}}))
+        .await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The value of filter.entity_type must be a list of strings. The call \
+             gives a string. For example: [\"document\"]."
         ),
         "{text}"
     );
@@ -3533,6 +3550,8 @@ async fn repository_tools_against_live_stack() {
             "forge",
             "repo_full_name",
             "repo_url",
+            // KAIROS-T-0681: a retry of the add is safe with a key.
+            "request_key",
             "slug",
             "team"
         ]
@@ -3883,7 +3902,7 @@ async fn repository_tools_against_live_stack() {
         text.starts_with(
             "VALIDATION: The call has the argument \"owner\". This tool does not accept \
              that argument. The arguments of this tool are: slug, forge, repo_full_name, \
-             repo_url, default_branch, team, description.\ndetails: "
+             repo_url, default_branch, team, description, request_key.\ndetails: "
         ),
         "{text}"
     );

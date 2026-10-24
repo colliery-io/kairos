@@ -85,33 +85,142 @@ pub enum TransitionError {
     UnknownToColumn(Uuid),
     /// No `board_transitions` edge allows this move. Carries the allowed
     /// target columns for the item's current column so the API layer can
-    /// return them in the error envelope (S-0006 REQ-1.4).
+    /// return them in the error envelope (S-0006 REQ-1.4), the shortest
+    /// path to the target (KAIROS-T-0675), and what to say when no
+    /// transition starts at the column.
     #[error(
-        "This board does not permit the transition from {from} to {to}. {targets}",
+        "This board does not permit the transition from {from} to {to}. {way}",
         from = .from.name,
         to = .to.name,
-        targets = targets_sentence(.from, .allowed_targets),
+        way = way_text(.from, .to, .allowed_targets, .route),
     )]
     NotAllowed {
         from: ColumnRef,
         to: ColumnRef,
         allowed_targets: Vec<ColumnRef>,
+        /// The path to `to`, and the way out of a column with no
+        /// transition. Boxed, so that the error stays small.
+        route: Box<Route>,
     },
 }
 
-/// The sentence of [`TransitionError::NotAllowed`] that gives the columns
-/// an item can move to (COLLIERY-T-0258). A column with no transition out of
-/// it gets a sentence of its own, and not an empty list.
-fn targets_sentence(from: &ColumnRef, allowed_targets: &[ColumnRef]) -> String {
+/// The way to the target of a refused move, or out of a column with no
+/// transition (KAIROS-T-0675).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Route {
+    /// The shortest chain of columns from `from` to `to`, both included,
+    /// one transition for each step. Empty when no chain of transitions
+    /// goes to `to`.
+    pub path: Vec<ColumnRef>,
+    /// What the refusal says when `allowed_targets` is empty.
+    pub dead_end: DeadEnd,
+}
+
+/// What the refusal says when no transition starts at the column of the
+/// item (KAIROS-T-0675). The core does not know the item: the caller that
+/// loads it sets the value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeadEnd {
+    /// The caller did not say.
+    #[default]
+    Unknown,
+    /// A task in a done column: `reopen_item` moves it out
+    /// (KAIROS-A-0048).
+    DoneTask,
+    /// A different item, or a task in a column that is not done:
+    /// `reopen_item` does not move it.
+    NoReopen { entity_type: &'static str },
+}
+
+/// The second part of the text of [`TransitionError::NotAllowed`]: the
+/// columns an item can move to (COLLIERY-T-0258), and the path to the
+/// target or the way out of a column with no transition (KAIROS-T-0675).
+fn way_text(
+    from: &ColumnRef,
+    to: &ColumnRef,
+    allowed_targets: &[ColumnRef],
+    route: &Route,
+) -> String {
+    let Route { path, dead_end } = route;
+    let mut text = String::new();
     if allowed_targets.is_empty() {
-        return format!("No transition starts at {}.", from.name);
+        text.push_str(&format!("No transition starts at {}.", from.name));
+        match *dead_end {
+            DeadEnd::Unknown => {}
+            DeadEnd::DoneTask => text.push_str(&format!(
+                " {} is a done column. To move the task out of it, call reopen_item. The \
+                 task then goes to the first column that is not done.",
+                from.name
+            )),
+            DeadEnd::NoReopen { entity_type } => text.push_str(&format!(
+                " reopen_item moves only a task that is in a done column. It does not move \
+                 this {entity_type}. An admin of the board can add a transition out of {}.",
+                from.name
+            )),
+        }
+        return text;
     }
     let names: Vec<&str> = allowed_targets.iter().map(|c| c.name.as_str()).collect();
-    format!(
+    text.push_str(&format!(
         "From {}, an item can move to: {}.",
         from.name,
         names.join(", ")
-    )
+    ));
+    if path.is_empty() {
+        text.push_str(&format!(
+            " No chain of transitions goes from {} to {}.",
+            from.name, to.name
+        ));
+    } else {
+        let steps: Vec<&str> = path.iter().map(|c| c.name.as_str()).collect();
+        text.push_str(&format!(
+            " The path to {} is {}: call transition_item for each step.",
+            to.name,
+            steps.join(" → ")
+        ));
+    }
+    text
+}
+
+/// The shortest chain of columns from `from` to `to`, both included
+/// (KAIROS-T-0675). A breadth-first search over the transitions; of two
+/// chains with the same length, the one through the columns of lower
+/// position wins. Empty when no chain goes to `to`, or when `from` is `to`.
+pub fn shortest_path(
+    columns: &[Column],
+    transitions: &[Transition],
+    from: Uuid,
+    to: Uuid,
+) -> Vec<ColumnRef> {
+    use std::collections::{HashMap, VecDeque};
+    if from == to {
+        return Vec::new();
+    }
+    let mut previous: HashMap<Uuid, Uuid> = HashMap::new();
+    let mut queue = VecDeque::from([from]);
+    while let Some(at) = queue.pop_front() {
+        for next in allowed_targets(columns, transitions, at) {
+            if next.id == from || previous.contains_key(&next.id) {
+                continue;
+            }
+            previous.insert(next.id, at);
+            if next.id == to {
+                let mut chain = vec![to];
+                let mut cursor = to;
+                while let Some(&back) = previous.get(&cursor) {
+                    chain.push(back);
+                    cursor = back;
+                }
+                chain.reverse();
+                return chain
+                    .into_iter()
+                    .filter_map(|id| find_column(columns, id).map(ColumnRef::of))
+                    .collect();
+            }
+            queue.push_back(next.id);
+        }
+    }
+    Vec::new()
 }
 
 /// A move from `from` to `to` is allowed iff a matching transition edge
@@ -137,6 +246,10 @@ pub fn can_transition(
             from: ColumnRef::of(from_column),
             to: ColumnRef::of(to_column),
             allowed_targets: allowed_targets(columns, transitions, from),
+            route: Box::new(Route {
+                path: shortest_path(columns, transitions, from, to),
+                dead_end: DeadEnd::Unknown,
+            }),
         })
     }
 }
@@ -534,6 +647,7 @@ mod tests {
                 from,
                 to,
                 allowed_targets,
+                ..
             } => {
                 assert_eq!(from.id, ids[1]);
                 assert_eq!(from.name, "B");
@@ -562,6 +676,139 @@ mod tests {
             } => assert!(allowed_targets.is_empty()),
             other => panic!("expected NotAllowed, got {other:?}"),
         }
+    }
+
+    /// The seeded initiative flow (KAIROS-T-0675): Discovery → Design →
+    /// Ready → Decompose → Active, and Completed with no way out.
+    fn initiative_flow() -> (Vec<Column>, Vec<Transition>, Vec<Uuid>) {
+        let names = [
+            "Discovery",
+            "Design",
+            "Ready",
+            "Decompose",
+            "Active",
+            "Completed",
+        ];
+        let ids: Vec<Uuid> = names.iter().map(|_| Uuid::new_v4()).collect();
+        let columns = names
+            .iter()
+            .zip(&ids)
+            .enumerate()
+            .map(|(position, (name, id))| Column {
+                id: *id,
+                name: (*name).to_string(),
+                position: position as i32,
+            })
+            .collect();
+        let transitions = ids
+            .windows(2)
+            .map(|pair| Transition {
+                from_column_id: pair[0],
+                to_column_id: pair[1],
+            })
+            .collect();
+        (columns, transitions, ids)
+    }
+
+    #[test]
+    fn refusal_names_the_shortest_path_to_the_target() {
+        let (columns, transitions, ids) = initiative_flow();
+        let err = can_transition(&columns, &transitions, ids[0], ids[4]).unwrap_err();
+        let TransitionError::NotAllowed { ref route, .. } = err else {
+            panic!("expected NotAllowed, got {err:?}");
+        };
+        assert_eq!(
+            route
+                .path
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Discovery", "Design", "Ready", "Decompose", "Active"]
+        );
+        assert_eq!(
+            err.to_string(),
+            "This board does not permit the transition from Discovery to Active. From \
+             Discovery, an item can move to: Design. The path to Active is Discovery → Design \
+             → Ready → Decompose → Active: call transition_item for each step."
+        );
+    }
+
+    #[test]
+    fn refusal_says_when_no_chain_goes_to_the_target() {
+        let (columns, transitions, ids) = initiative_flow();
+        // Nothing goes back from Active to Discovery.
+        let err = can_transition(&columns, &transitions, ids[4], ids[0]).unwrap_err();
+        let TransitionError::NotAllowed { ref route, .. } = err else {
+            panic!("expected NotAllowed, got {err:?}");
+        };
+        assert!(route.path.is_empty());
+        assert!(
+            err.to_string()
+                .ends_with("No chain of transitions goes from Active to Discovery."),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn shortest_path_takes_the_short_chain_and_skips_cycles() {
+        let (columns, transitions, ids) = fixture();
+        // A → B → D, with the cycle B ↔ D.
+        let path = shortest_path(&columns, &transitions, ids[0], ids[3]);
+        assert_eq!(
+            path.iter().map(|c| c.id).collect::<Vec<_>>(),
+            [ids[0], ids[1], ids[3]]
+        );
+        assert!(shortest_path(&columns, &transitions, ids[0], ids[0]).is_empty());
+        assert!(shortest_path(&columns, &transitions, ids[2], ids[0]).is_empty());
+    }
+
+    #[test]
+    fn refusal_out_of_a_dead_end_names_the_way_out() {
+        let (columns, transitions, ids) = initiative_flow();
+        let refusal = |dead_end| {
+            let Err(TransitionError::NotAllowed {
+                from,
+                to,
+                allowed_targets,
+                route,
+            }) = can_transition(&columns, &transitions, ids[5], ids[4])
+            else {
+                panic!("expected NotAllowed");
+            };
+            TransitionError::NotAllowed {
+                from,
+                to,
+                allowed_targets,
+                route: Box::new(Route { dead_end, ..*route }),
+            }
+            .to_string()
+        };
+        assert_eq!(
+            refusal(DeadEnd::Unknown),
+            "This board does not permit the transition from Completed to Active. No transition \
+             starts at Completed."
+        );
+        assert!(
+            refusal(DeadEnd::DoneTask).ends_with(
+                "Completed is a done column. To move the task out of it, call reopen_item. The \
+                 task then goes to the first column that is not done."
+            ),
+            "{}",
+            refusal(DeadEnd::DoneTask)
+        );
+        assert!(
+            refusal(DeadEnd::NoReopen {
+                entity_type: "initiative"
+            })
+            .ends_with(
+                "reopen_item moves only a task that is in a done column. It does not move this \
+                 initiative. An admin of the board can add a transition out of Completed."
+            ),
+            "{}",
+            refusal(DeadEnd::NoReopen {
+                entity_type: "initiative"
+            })
+        );
     }
 
     #[test]

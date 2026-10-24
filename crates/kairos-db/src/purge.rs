@@ -10,8 +10,9 @@
 //! In one transaction, [`purge_task`] deletes:
 //!
 //! - the row of the task (`tasks`), live or archived;
-//! - its claim (`task_claims`) and its cancel mark (`task_cancellations`),
-//!   by `ON DELETE CASCADE`;
+//! - its claim (`task_claims`), by `ON DELETE CASCADE`, and its cancel
+//!   mark (`task_cancellations`), by a delete: the table holds the marks
+//!   of initiatives too, and has no foreign key (KAIROS-T-0678);
 //! - its content versions (`item_history`) and its notes (`item_notes`,
 //!   KAIROS-T-0630);
 //! - its metadata values (`item_metadata`);
@@ -144,6 +145,12 @@ pub fn purge_task(
             .execute(conn)?;
         diesel::delete(retired_codes::table.filter(retired_codes::item_id.eq(task_id)))
             .execute(conn)?;
+        // KAIROS-T-0678: no cascade from tasks any more.
+        diesel::delete(
+            crate::schema::task_cancellations::table
+                .filter(crate::schema::task_cancellations::task_id.eq(task_id)),
+        )
+        .execute(conn)?;
         diesel::delete(tasks::table.filter(tasks::id.eq(task_id))).execute(conn)?;
         crate::notifications::on_blocks_removed(
             conn,

@@ -20,14 +20,24 @@ The rules:
 
 Most tools of this skill are in the admin profile of the Kairos MCP server (KAIROS-T-0454): `create_team`, `update_team`, `add_team_member`, `grant_capability`, the column and transition tools, the dispatch tools, `set_agent_triage` and the tools that write the team page. The default server (`/mcp`) does not list them, and Claude Code calls only the tools that a server lists.
 
-Look for the `kairos-admin` server: its tools have names such as `mcp__kairos-admin__create_team_page`. (`team_pages`, which reads the team page, and `list_dispatch_rules` are on the default server only: read with the default server, write with `kairos-admin`.) If it is not there, stop and tell the person to add it, then to start a new session:
+Look for the `kairos-admin` server: its tools have names such as `mcp__kairos-admin__create_team_page`. (`team_pages`, which reads the team page, and `list_dispatch_rules` are on the default server only: read with the default server, write with `kairos-admin`.) If it is not there, tell the person to add it with this command, then to start a new session:
 
 ```sh
-claude mcp add --scope user --transport http kairos-admin \
-  "$KAIROS_URL/mcp?profile=admin" --header "Authorization: Bearer $KAIROS_MCP_KEY"
+claude mcp add --scope user kairos-admin -- kairos mcp-proxy --profile admin
 ```
 
+The command adds a second `kairos mcp-proxy` with the admin profile. It uses the same deployment and credential as the `kairos` server of the plugin: `kairos login`, or an agent key in `KAIROS_KEY` or `KAIROS_MCP_KEY`. Do not add the server yourself, and do not add a different MCP server: the person decides.
+
 Use the `kairos-admin` tools for the admin steps, and the default server for the rest.
+
+**The CLI fallback.** When the person does not add the server, use the CLI for the admin steps. It uses the same login. For example:
+
+- A team and its delivery board: `kairos teams create --name <NAME> --slug <SLUG> --code-prefix <PREFIX> [--kind <KIND>]`.
+- Members: `kairos teams members add|remove`.
+- Boards, columns and transitions: `kairos boards --help`.
+- The team page: `kairos teams pages list|show|create|edit|move|delete`.
+
+Run `kairos <command> --help` for the arguments. Show the person each command before you run it.
 
 ## 1. Read the state
 

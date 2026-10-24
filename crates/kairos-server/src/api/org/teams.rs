@@ -30,7 +30,7 @@ use super::{
     check_team_slug, count_live_board_items, is_unique_violation, map_config_error,
     require_user_exists, run_in_transaction,
 };
-use crate::api::org::structure_grants::resolve_member;
+use crate::api::org::structure_grants::{SignInRoutes, resolve_member, resolve_member_to_add};
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
@@ -888,12 +888,13 @@ pub(crate) async fn add_member(
 ) -> Result<(StatusCode, Json<dto::TeamMember>), ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
+    let routes = SignInRoutes::of(&state.config);
     let member = state
         .blocking
         .run(&tenant.slug, move |conn| {
             let team_id = team_by_ref(conn, &id)?;
             // KAIROS-T-0443: a UUID, an email or a user name.
-            let target = resolve_member(conn, &slug, &body.user_id, "user_id")?.id;
+            let target = resolve_member_to_add(conn, &slug, &body.user_id, "user_id", routes)?.id;
             add_member_as(conn, &slug, user, team_id, target)
         })
         .await?;

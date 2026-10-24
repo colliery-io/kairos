@@ -54,7 +54,15 @@ The work tools:
   `list_dispatch_rules`;
 - a code index build: `rebuild_code_index`.
 
-To administer from Claude Code, add a second server with the admin profile:
+To administer from Claude Code with the plugin, add a second server with the
+admin profile. It uses the credential of the plugin server: `kairos login`, or an
+agent key in `KAIROS_KEY` or `KAIROS_MCP_KEY`.
+
+```sh
+claude mcp add --scope user kairos-admin -- kairos mcp-proxy --profile admin
+```
+
+Without the `kairos` CLI, add the HTTP server with an agent key:
 
 ```sh
 claude mcp add --scope user --transport http kairos-admin \
@@ -77,6 +85,7 @@ These hold for every tool.
 | Errors | A refusal comes back as an MCP tool error whose text is `CODE: message`, the code being the same stable one as the REST API's error envelope. Where that code has structured `details`, a second line follows: `details: ` and the JSON object. See [Errors](../errors/) for what each code's `details` carries. The key `field` names the argument that the refusal is about, as it names the field of a REST body. |
 | Audit | Writes are recorded in the activity log by the same code path as the REST API. |
 | Notifications | While the caller has unread [notifications](#your-notifications), each answer (not a refusal) ends with a block: the 5 newest, then `More: call get_events` when there are more. The block stops when the caller marks them read. An agent key keeps its own read state, apart from the person. `get_events` itself has no block, because it lists them. A service account gets no notifications. |
+| Request keys | A write can be complete when its answer does not get to the client (a timeout, an upgrade). These tools take an optional `request_key`: `create_item`, `append_note`, `link_items`, `propose_edge`, `promote_note`, `transition_item`, `move_item`, `edit_item`, `add_repository`, `create_team`, `create_board`, `add_column`, `create_team_page`, `create_dispatch_rule`. The key is 8 to 128 characters of letters, digits, `.`, `_`, `:` and `-`; a UUID is a good key. Send a new key with each new request, and the same key when you retry it. A second call with the same key, by the same person and agent key, in 24 hours, writes nothing. It gives the answer of the first call, then the line `Replayed: the call with this request_key at <time> applied the write. Nothing new was written.` The same key with a different tool or different arguments is refused with `REQUEST_KEY_REUSED`. A refused call keeps no key, so its retry runs again (KAIROS-A-0065). |
 | Claims | A task in Active has a [claim](../glossary/#claim): the person who works on it. A write to a task that a different person has the claim on succeeds and is recorded. The text of the tool then ends with a line: `Warning: Alice (agent) has the claim on ACME-T-0012 (since 2026-10-09T10:00:00Z). Your change is recorded.` A write by the person who has the claim, also with the agent key of the person, gets no warning. |
 
 ### Refusal codes
@@ -1606,9 +1615,14 @@ Moves an item to another column on its own board.
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The item's short code. |
 | `to_column` | string | yes | — | Target column, name or UUID, on the item's own board. |
+| `claim` | boolean | no | false | Initiatives: makes you the owner in the same move. |
 
 Requires `transition_items` on the item's board. A transition is a move and
 not an edit. The creator of the item gets no right to move it.
+
+A move goes one column at a time, along a transition of the board. To find
+the columns and the moves between them, call [`my_boards`](#my_boards) first.
+`get_item` also gives the next columns of the item.
 
 A person who moves a task to Active gets the [claim](../glossary/#claim) of the
 task. The answer then has the line `claim`. An agent can move the task with
@@ -1626,12 +1640,32 @@ entry column) while the board lets a person decide the triage. A task a
 person triaged out of the entry column moves as any other. The
 `ITEM_NOT_ON_BOARD` refusal for a document names `set_lifecycle`.
 
+The `INVALID_TRANSITION` refusal gives the shortest path to the target, in
+the text and in the detail `path`. Call `transition_item` for each step. A
+column can have no transition out of it. Then the text names `reopen_item`
+for a task in a done column. For a different item, the text says that
+`reopen_item` does not move it.
+
 Kairos also refuses `PARENT_NOT_ACTIVE` for a task that goes into a claims
 column under an inactive initiative. The board policy `parent_gate` sets this
 rule. See [`set_board_policy`](#set_board_policy).
 
 Kairos refuses `OWNER_REQUIRED` for an initiative that goes into Active with
 no owner. The board policy `owner_gate` sets this rule.
+
+A move of an initiative does not set its owner. To become the owner in the
+same move, send `claim: true`. The rules of [`claim_item`](#claim_item) apply.
+Kairos does the claim and the move in one transaction, so a refused move
+keeps no owner.
+
+When you are the owner already, Kairos does not claim again. When a different
+person is the owner, Kairos refuses with `CONFLICT`. A task gets your claim
+from a move to Active with no flag. A strategy or an ADR with `claim: true`
+gets `VALIDATION`.
+
+When the initiative of a task has no owner and its board has `owner_gate`,
+the `PARENT_NOT_ACTIVE` refusal names both steps. Its details give
+`owner_needed: true` and the `fix` `transition_item <initiative> Active claim: true`.
 
 A task can have open blockers: the items that block it and are not done.
 Kairos counts a cancelled blocker as open. Such a task can move into a claims
@@ -1861,14 +1895,14 @@ Refuses:
 
 ### `cancel_item`
 
-[Cancels](../glossary/#cancel) a task: the team will not do it. The task moves
-to the done column of its board, and it gets the mark "cancelled" with the
-reason.
+[Cancels](../glossary/#cancel) a task or an initiative: the team will not do
+it. The item moves to the done column of its board, and it gets the mark
+"cancelled" with the reason.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `short_code` | string | yes | — | The task's short code. The task must not be in a done column. |
-| `reason` | string | yes | — | Why the task is cancelled. Must not be empty. |
+| `short_code` | string | yes | — | The short code of the task or the initiative. It must not be in a done column. |
+| `reason` | string | yes | — | Why the item is cancelled. Must not be empty. |
 
 The transition rules of the board do not apply. You can cancel a task from
 each column that is not done. The done column is the first live column with
@@ -1880,15 +1914,27 @@ show the mark. [`reopen_item`](#reopen_item) brings the task back and removes
 the mark. A transition out of the done column also removes it. The activity
 log keeps the reason.
 
-Needs `transition_items` on the board of the task: the capability of a move.
-The creator of the task gets no right here.
+An initiative has no claim, and its owner stays. An initiative has no reopen:
+it stays in the done column. A transition out of the done column, on a board
+where an admin added one, removes the mark.
+
+To retire a different type:
+
+- A strategy or an ADR: move it with `transition_item`, and write the reason
+  with `append_note`.
+- A document: call `set_lifecycle` with `archived`.
+
+Needs `transition_items` on the board of the item: the capability of a move.
+The creator of the item gets no right here.
 
 Refuses:
 
 - `NOT_FOUND` for an unknown short code or an archived task.
-- `VALIDATION` for an empty reason, and for an item that is not a task.
+- `VALIDATION` for an empty reason, and for an item that is not a task or an
+  initiative. The text names the route for that type.
 - `FORBIDDEN` without `transition_items`.
-- `TASK_DONE` for a task in a done column.
+- `TASK_DONE` for a task in a done column, and `INITIATIVE_DONE` for an
+  initiative in a done column.
 - `NO_DONE_COLUMN` for a board with no done column.
 - `AGENT_TRIAGE_OFF` for an agent's cancel of intake (a support-lane task in
   the entry column) while the board lets a person decide the triage.
@@ -1948,6 +1994,36 @@ Creates a relationship edge between two items.
 | `target` | string | yes | — | Target item's short code. For `impacts`: the slug or the UUID of a repository. For `external`: a URI. |
 | `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`, `impacts`, `external`. |
 | `label` | string | no | — | For `external` only: the label of the reference, at most 200 characters. |
+
+The types of the two items must agree with this table (KAIROS-T-0677). The
+description of the tool has the same table, and a test compares it with the
+rules of the server.
+
+| relationship | source | target |
+|---|---|---|
+| `parent` | strategy | initiative |
+| `parent` | initiative | task |
+| `supports` | strategy, initiative, task | document, adr |
+| `informs` | document, adr | strategy, initiative, task |
+| `informs` | task | task |
+| `supersedes` | adr | adr |
+| `blocks` | strategy, initiative, task | strategy, initiative, task |
+| `impacts` | document, adr | repository (slug or UUID) |
+| `external` | any item | URI (`http`, `https` or `mailto`) |
+
+When the edge is possible in the other direction, the `RELATIONSHIP_RULE`
+refusal ends with `swap source and target`:
+
+```text
+RELATIONSHIP_RULE: A supports edge cannot go from document to initiative. A supports edge goes from a strategy, an initiative or a task to a document or an adr. The edge is possible in the other direction: swap source and target.
+```
+
+A `relationship` that is not in the vocabulary is `VALIDATION`. For a value
+that agents often send, the refusal names the nearest relationship:
+
+```text
+VALIDATION: The value "relates_to" is not a value of relationship. The values are: parent, supports, informs, supersedes, blocks, impacts, external. For a reference to a document or an adr, or from a task to a task, use informs. For work that must wait for other work, use blocks.
+```
 
 The [link rule](../capabilities/#who-can-write-relationships) applies. The
 caller can edit the source or the target. One end is sufficient. No type needs
@@ -2464,6 +2540,17 @@ organization.
 Refuses: `VALIDATION` for an unknown team, and for a `user` that is not a
 member of the organization. `CONFLICT` when the user is a member of the team
 already. `FORBIDDEN` as for `create_team`.
+
+A person is not a member of the organization before the first sign-in or a
+provisioning step. The refusal of an unknown `user` says how a person becomes
+a member on this deployment (KAIROS-T-0679). It names only the routes that the
+deployment has: the identity provider, SCIM, and local accounts. For an email,
+it also says if an account has that email. `grant_capability` gives the same
+refusal. A deployment with an identity provider and no local accounts gives:
+
+```text
+VALIDATION: No member of the organization has the id, the email, the user name or the service-account name "sam@example.com". No account has the email "sam@example.com" yet. A person becomes a member of the organization in one of these ways: (1) the person signs in to Kairos one time through the identity provider, and then an organization admin adds the person to the organization (`kairos members add --email <email>`, or POST /api/members); (2) the identity provider provisions the person through SCIM (/scim/v2). Then send the reference again.
+```
 
 ### `grant_capability`
 

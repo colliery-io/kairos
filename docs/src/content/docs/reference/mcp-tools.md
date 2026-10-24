@@ -310,6 +310,14 @@ and its id in `delivery_board_id`.
 Refuses: `VALIDATION` for an unknown `team` — it is a filter value, not a
 path.
 
+The refusal of an unknown team lists the slugs of the teams of the
+organization, 50 at most (KAIROS-T-0685). Each tool with a `team` argument
+gives the same refusal:
+
+```text
+VALIDATION: The team "Kairos team" is not in the organization. Send the id or the slug of a team of the organization. The slugs are: kairos, skadi.
+```
+
 ### `get_repository`
 
 One repository in full. The output has these parts:
@@ -1514,6 +1522,9 @@ you stop.
 | `pr_url` | string or `null` | no | kept | The URL of the PR. `null` clears it. |
 | `next_step` | string or `null` | no | kept | What comes next. `null` clears it. |
 | `expected_updated_at` | string | no | — | The `updated_at` of the state you read (RFC 3339). A state that changed since refuses the write with `CONFLICT`; the details carry the current state. |
+
+Send each field as its own argument, not one object or one JSON text
+(KAIROS-T-0685).
 
 The write is a patch (KAIROS-T-0533). A field that you send gets the value.
 `null` clears the field. A field that you do not send keeps its value. Send

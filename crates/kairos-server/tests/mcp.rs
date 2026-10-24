@@ -3804,10 +3804,27 @@ async fn repository_tools_against_live_stack() {
             }),
         )
         .await;
-    assert_eq!(
-        text,
-        "VALIDATION: The team \"nobody\" is not in the organization. Send the id or the \
-         slug of a team of the organization."
+    // KAIROS-T-0685: the refusal lists the slugs of the teams.
+    assert!(
+        text.starts_with(
+            "VALIDATION: The team \"nobody\" is not in the organization. Send the id or the \
+             slug of a team of the organization. The slugs are: "
+        ),
+        "{text}"
+    );
+    let slugs = text
+        .split("The slugs are: ")
+        .nth(1)
+        .and_then(|rest| rest.split('.').next())
+        .unwrap_or_default()
+        .split(", ")
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let mut sorted = slugs.clone();
+    sorted.sort();
+    assert!(
+        slugs.contains(&"platform".to_string()) && slugs == sorted,
+        "{text}"
     );
     // An argument that the tool does not know. `owner` is a probable guess
     // for `team`.

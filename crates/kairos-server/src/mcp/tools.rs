@@ -3129,7 +3129,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy, initiative, task, document or ADR. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks: the board decides the team; `repository` is an optional link and chooses no board. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives: `bucket_type` makes a bucket; `set_complexity` changes the complexity later. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code."
+        description = "Create a work item: strategy, initiative, task, document or ADR. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks only: `repository`, an optional link that chooses no board; the board decides the team. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives only: `complexity`, and `bucket_type`, which makes a bucket; `set_complexity` changes the complexity later. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -3697,7 +3697,7 @@ impl KairosMcp {
 
     // KAIROS-T-0506: the live state of a task.
     #[tool(
-        description = "Write the live state of a TASK: `branch`, `commit`, `pushed`, `pr_url`, `next_step` (send at least one). The write is a patch: a field that you send is set, `null` clears it, a field that you do not send is kept. `expected_updated_at` (the `updated_at` you read) refuses a write over a state that changed since, with CONFLICT and the current state. A hand-off or a release clears `next_step`. The state is not a note: it is one current line that `get_item`, `board_items` and the card show, with who wrote it when. Write it after each commit, each push, a PR, and before you stop. The edit rule applies: the creator of the task, or `manage_tasks` on its board."
+        description = "Write the live state of a TASK: `branch`, `commit`, `pushed`, `pr_url`, `next_step` (send at least one). Send each field as its own argument, not one object or one JSON text. The write is a patch: a field that you send is set, `null` clears it, a field that you do not send is kept. `expected_updated_at` (the `updated_at` you read) refuses a write over a state that changed since, with CONFLICT and the current state. A hand-off or a release clears `next_step`. The state is not a note: it is one current line that `get_item`, `board_items` and the card show, with who wrote it when. Write it after each commit, each push, a PR, and before you stop. The edit rule applies: the creator of the task, or `manage_tasks` on its board."
     )]
     pub async fn set_state(
         &self,
@@ -7023,30 +7023,14 @@ fn meta_id(
     })
 }
 
+/// A team by id or slug: the ONE lookup of REST and MCP
+/// ([`crate::api::org::repositories::resolve_team`]). The refusal lists
+/// the slugs of the teams (KAIROS-T-0685).
 fn team_by_ref(
     conn: &mut PgConnection,
     reference: &str,
 ) -> Result<kairos_db::models::teams::Team, ApiError> {
-    use kairos_db::models::teams::Team;
-    use kairos_db::schema::teams;
-    let mut query = teams::table
-        .filter(teams::deleted_at.is_null())
-        .select(Team::as_select())
-        .into_boxed();
-    query = match Uuid::parse_str(reference) {
-        Ok(id) => query.filter(teams::id.eq(id)),
-        Err(_) => query.filter(teams::slug.eq(reference)),
-    };
-    query
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| {
-            ApiError::validation(format!(
-                "The team {reference:?} is not in the organization. Send the id or the \
-                 slug of a team of the organization."
-            ))
-        })
+    crate::api::org::repositories::resolve_team(conn, reference)
 }
 
 /// A board's LIVE columns in position order — what the board is now, so
@@ -10078,6 +10062,51 @@ mod t0561_tests {
         assert_eq!(
             empty_page_text("(none)", 51, 100),
             "(none at offset 100: the list has 51)\n"
+        );
+    }
+}
+
+#[cfg(test)]
+mod t0685_tests {
+    //! KAIROS-T-0685: the refusal of an unknown team, and the descriptions
+    //! of create_item and set_state.
+    use super::KairosMcp;
+    use crate::api::org::repositories::unknown_team_text;
+
+    #[test]
+    fn the_refusal_lists_the_slugs() {
+        let slugs = ["kairos".to_string(), "skadi".to_string()];
+        assert_eq!(
+            unknown_team_text("Kairos team", &slugs),
+            "The team \"Kairos team\" is not in the organization. Send the id or the slug \
+             of a team of the organization. The slugs are: kairos, skadi."
+        );
+        assert!(unknown_team_text("x", &[]).ends_with("The organization has no team."));
+        let many: Vec<String> = (0..51).map(|n| format!("team-{n:02}")).collect();
+        let text = unknown_team_text("x", &many);
+        assert!(text.contains("The first 50 slugs are: team-00,"), "{text}");
+        assert!(!text.contains("team-50"), "{text}");
+        assert!(text.ends_with("GET /api/teams gives each team."), "{text}");
+    }
+
+    #[test]
+    fn the_descriptions_name_the_scope_of_the_fields() {
+        let create = KairosMcp::create_item_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        assert!(create.contains("Tasks only: `repository`"), "{create}");
+        assert!(
+            create.contains("Initiatives only: `complexity`"),
+            "{create}"
+        );
+        let state = KairosMcp::set_state_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        assert!(
+            state.contains("Send each field as its own argument, not one object"),
+            "{state}"
         );
     }
 }

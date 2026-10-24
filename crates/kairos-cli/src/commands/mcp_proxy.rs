@@ -19,8 +19,17 @@
 //! `Mcp-Session-Id` of the server. A request that fails before the server
 //! answers gets a JSON-RPC error with the reason, so the client shows it
 //! and does not wait.
+//!
+//! KAIROS-T-0682: a deployment that is down (an upgrade) answered a raw
+//! HTML 503 page, or reset the connection, or did not answer, and the agent
+//! read "refused" for a write that the server had applied. A 502, 503 or
+//! 504, a timeout and a reset now give one plain message, with
+//! `retryable: true` in the error data. A read is safe to send again, so the
+//! proxy retries it with a backoff. A write is not retried: the server has
+//! no request key yet (KAIROS-T-0681), and a second send can apply it twice.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use kairos_client::TokenProvider;
 use serde_json::{Value, json};
@@ -59,6 +68,105 @@ struct Upstream {
     credential: Credential,
     tenant: Option<String>,
     session: Mutex<Option<String>>,
+    /// The waits before each retry of a read; its length is the number of
+    /// retries.
+    backoff: Vec<Duration>,
+}
+
+/// The waits before the retries of a read: two retries.
+const READ_BACKOFF: [Duration; 2] = [Duration::from_millis(250), Duration::from_secs(1)];
+
+/// The message of a write when the deployment is unavailable.
+const UNAVAILABLE_WRITE: &str = "The deployment is unavailable or did not answer (maybe an \
+     upgrade). A write may or may not have been applied: read the item before you retry.";
+
+/// The message of a write that did not get to the deployment.
+const UNAVAILABLE_NOT_SENT: &str = "The deployment is unavailable (maybe an upgrade). The \
+     request did not get to it, so nothing was applied. Retry the request later.";
+
+/// The tools of the server that only read. A `tools/call` of one of them
+/// is safe to send again. A tool that is not in this list is a write.
+const READ_TOOLS: [&str; 18] = [
+    "whoami",
+    "my_boards",
+    "my_work",
+    "board_items",
+    "search",
+    "get_item",
+    "get_history",
+    "related_work",
+    "list_repositories",
+    "get_repository",
+    "list_members",
+    "get_events",
+    "list_metadata_definitions",
+    "list_templates",
+    "team_pages",
+    "board_flow",
+    "list_dispatch_rules",
+    "list_org_read_tokens",
+];
+
+/// The methods of MCP that only read.
+const READ_METHODS: [&str; 9] = [
+    "initialize",
+    "ping",
+    "tools/list",
+    "resources/list",
+    "resources/templates/list",
+    "resources/read",
+    "prompts/list",
+    "prompts/get",
+    "completion/complete",
+];
+
+/// Why a post failed.
+#[derive(Debug, PartialEq)]
+enum Failure {
+    /// The deployment is unavailable: a 502, 503 or 504, a timeout, a reset,
+    /// or no connection. The request is safe to send again only when it is
+    /// a read, or when it did not get to the deployment (`sent: false`).
+    Unavailable {
+        cause: &'static str,
+        status: Option<u16>,
+        sent: bool,
+    },
+    /// Any other failure: the text says why.
+    Other(String),
+}
+
+impl Failure {
+    /// The failure of a request that got no answer.
+    fn of_send(e: &reqwest::Error) -> Self {
+        let (cause, sent) = if e.is_connect() {
+            ("connect", false)
+        } else if e.is_timeout() {
+            ("timeout", true)
+        } else {
+            ("reset", true)
+        };
+        Failure::Unavailable {
+            cause,
+            status: None,
+            sent,
+        }
+    }
+}
+
+/// True when a message only reads: a read method, a `tools/call` of a read
+/// tool, or a batch of reads.
+fn is_read(message: &Value) -> bool {
+    if let Value::Array(batch) = message {
+        return !batch.is_empty() && batch.iter().all(is_read);
+    }
+    match message.get("method").and_then(Value::as_str) {
+        Some("tools/call") => message
+            .pointer("/params/name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| READ_TOOLS.contains(&name)),
+        Some(method) => READ_METHODS.contains(&method),
+        None => false,
+    }
 }
 
 impl McpProxyArgs {
@@ -131,16 +239,38 @@ fn connect(args: McpProxyArgs) -> Result<Upstream, CliError> {
             (deployment, Credential::Login(provider), tenant)
         }
     };
-    let http = reqwest::Client::builder()
-        .build()
-        .map_err(|e| CliError::Failure(format!("The CLI cannot make an HTTP client: {e}.")))?;
-    Ok(Upstream {
-        http,
-        endpoint: format!("{}/mcp", credentials::normalize_url(&deployment)),
+    let timeout = kairos_client::timeout_from_env()?.unwrap_or(kairos_client::DEFAULT_TIMEOUT);
+    Upstream::new(
+        format!("{}/mcp", credentials::normalize_url(&deployment)),
         credential,
         tenant,
-        session: Mutex::new(None),
-    })
+        timeout,
+    )
+}
+
+impl Upstream {
+    fn new(
+        endpoint: String,
+        credential: Credential,
+        tenant: Option<String>,
+        timeout: Duration,
+    ) -> Result<Self, CliError> {
+        // The timeouts of kairos-client (KAIROS-T-0607): before, the proxy
+        // waited with no limit for a deployment that did not answer.
+        let http = reqwest::Client::builder()
+            .connect_timeout(kairos_client::DEFAULT_CONNECT_TIMEOUT.min(timeout))
+            .timeout(timeout)
+            .build()
+            .map_err(|e| CliError::Failure(format!("The CLI cannot make an HTTP client: {e}.")))?;
+        Ok(Upstream {
+            http,
+            endpoint,
+            credential,
+            tenant,
+            session: Mutex::new(None),
+            backoff: READ_BACKOFF.to_vec(),
+        })
+    }
 }
 
 impl Upstream {
@@ -165,18 +295,55 @@ impl Upstream {
             }
         };
         let id = message.get("id").cloned();
-        match self.post(line).await {
-            Ok(lines) => lines,
-            // A notification gets no answer, also when it fails.
-            Err(why) => match id {
-                Some(id) => vec![error_line(id, -32603, why)],
-                None => Vec::new(),
-            },
-        }
+        let read = is_read(&message);
+        let mut attempts = 1;
+        let failure = loop {
+            match self.post(line).await {
+                Ok(lines) => return lines,
+                Err(Failure::Unavailable { .. }) if read && attempts <= self.backoff.len() => {
+                    tokio::time::sleep(self.backoff[attempts - 1]).await;
+                    attempts += 1;
+                }
+                Err(failure) => break failure,
+            }
+        };
+        // A notification gets no answer, also when it fails.
+        let Some(id) = id else {
+            return Vec::new();
+        };
+        let (message, data) = match failure {
+            Failure::Other(why) => (why, None),
+            Failure::Unavailable {
+                cause,
+                status,
+                sent,
+            } => {
+                let message = if read {
+                    format!(
+                        "The deployment is unavailable or did not answer (maybe an upgrade). \
+                         The proxy sent this read {attempts} times. Retry it later."
+                    )
+                } else if sent {
+                    UNAVAILABLE_WRITE.to_string()
+                } else {
+                    UNAVAILABLE_NOT_SENT.to_string()
+                };
+                let applied = if read || !sent { "no" } else { "unknown" };
+                let data = json!({
+                    "retryable": true,
+                    "cause": cause,
+                    "status": status,
+                    "attempts": attempts,
+                    "write_applied": applied,
+                });
+                (message, Some(data))
+            }
+        };
+        vec![error_line_with(id, -32603, message, data)]
     }
 
-    async fn post(&self, body: &str) -> Result<Vec<String>, String> {
-        let token = self.token().await?;
+    async fn post(&self, body: &str) -> Result<Vec<String>, Failure> {
+        let token = self.token().await.map_err(Failure::Other)?;
         let mut request = self
             .http
             .post(&self.endpoint)
@@ -193,12 +360,7 @@ impl Upstream {
         if let Some(session) = self.session.lock().await.clone() {
             request = request.header(SESSION_HEADER, session);
         }
-        let response = request.send().await.map_err(|e| {
-            format!(
-                "The Kairos deployment at {} did not answer: {e}",
-                self.endpoint
-            )
-        })?;
+        let response = request.send().await.map_err(|e| Failure::of_send(&e))?;
         if let Some(session) = response
             .headers()
             .get(SESSION_HEADER)
@@ -212,12 +374,26 @@ impl Upstream {
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|t| t.starts_with("text/event-stream"));
-        let text = response
-            .text()
-            .await
-            .map_err(|e| format!("The answer of {} could not be read: {e}", self.endpoint))?;
+        if unavailable(status) {
+            // The body is often the HTML page of a proxy in front of the
+            // server: it is not read, and not shown.
+            return Err(Failure::Unavailable {
+                cause: "status",
+                status: Some(status.as_u16()),
+                sent: true,
+            });
+        }
+        // A reset or a timeout in the body: the request got to the server.
+        let text = response.text().await.map_err(|e| {
+            let cause = if e.is_timeout() { "timeout" } else { "reset" };
+            Failure::Unavailable {
+                cause,
+                status: None,
+                sent: true,
+            }
+        })?;
         if !status.is_success() {
-            return Err(refusal(status, &self.endpoint, &text));
+            return Err(Failure::Other(refusal(status, &self.endpoint, &text)));
         }
         Ok(if event_stream {
             sse_messages(&text)
@@ -244,10 +420,17 @@ impl Upstream {
     }
 }
 
-/// The text of a refused request: the status, and what to do for 401.
+/// True for the statuses of a deployment that is down or that is not
+/// ready: 502, 503 and 504.
+fn unavailable(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 502..=504)
+}
+
+/// The text of a refused request: the status, and what to do for 401. An
+/// HTML body is not shown.
 fn refusal(status: reqwest::StatusCode, endpoint: &str, body: &str) -> String {
     let detail = body.trim();
-    let detail = if detail.is_empty() {
+    let detail = if detail.is_empty() || detail.starts_with('<') {
         String::new()
     } else {
         format!(": {}", detail.chars().take(300).collect::<String>())
@@ -265,7 +448,16 @@ fn refusal(status: reqwest::StatusCode, endpoint: &str, body: &str) -> String {
 
 /// A JSON-RPC error as one line.
 fn error_line(id: Value, code: i64, message: String) -> String {
-    json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}).to_string()
+    error_line_with(id, code, message, None)
+}
+
+/// A JSON-RPC error as one line, with its `data` when there is one.
+fn error_line_with(id: Value, code: i64, message: String, data: Option<Value>) -> String {
+    let mut error = json!({"code": code, "message": message});
+    if let Some(data) = data {
+        error["data"] = data;
+    }
+    json!({"jsonrpc": "2.0", "id": id, "error": error}).to_string()
 }
 
 /// The messages of a JSON body: one message, or a batch (an array). An
@@ -343,5 +535,212 @@ mod tests {
             error_line(json!(7), -32603, "no".into()),
             r#"{"error":{"code":-32603,"message":"no"},"id":7,"jsonrpc":"2.0"}"#
         );
+    }
+
+    #[test]
+    fn an_html_body_of_a_refusal_is_not_shown() {
+        let text = refusal(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "https://k/mcp",
+            "<html><body>oops</body></html>",
+        );
+        assert_eq!(
+            text,
+            "The Kairos deployment at https://k/mcp refused the request with 500 Internal Server Error."
+        );
+    }
+
+    #[test]
+    fn reads_are_the_read_methods_and_the_calls_of_read_tools() {
+        let call = |name: &str| json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name}});
+        assert!(is_read(&call("get_item")));
+        assert!(is_read(&call("search")));
+        assert!(!is_read(&call("create_item")));
+        assert!(!is_read(&call("append_note")));
+        assert!(!is_read(&call("a_tool_that_is_not_known")));
+        assert!(is_read(&json!({"id": 1, "method": "tools/list"})));
+        assert!(is_read(&json!({"id": 1, "method": "initialize"})));
+        assert!(!is_read(&json!({"method": "notifications/initialized"})));
+        assert!(is_read(&json!([call("get_item"), call("whoami")])));
+        assert!(!is_read(&json!([
+            call("get_item"),
+            call("transition_item")
+        ])));
+        assert!(!is_read(&json!([])));
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::AsyncReadExt;
+    use tokio::net::{TcpListener, TcpStream};
+
+    /// What the stub server does with each request.
+    #[derive(Clone, Copy)]
+    enum Stub {
+        /// 503 with an HTML page, as a proxy in front of the server.
+        Html503,
+        /// Close the connection after it reads the request.
+        Reset,
+        /// Read the request and give no answer.
+        Hang,
+        /// Close the first connection, then answer 200.
+        ResetThenOk,
+    }
+
+    /// Read one HTTP request: the head, then the body of Content-Length.
+    async fn read_request(socket: &mut TcpStream) {
+        let mut data = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            let Ok(n) = socket.read(&mut buf).await else {
+                return;
+            };
+            if n == 0 {
+                return;
+            }
+            data.extend_from_slice(&buf[..n]);
+            let text = String::from_utf8_lossy(&data).to_string();
+            if let Some(end) = text.find("\r\n\r\n") {
+                let length = text[..end]
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                    })
+                    .unwrap_or(0);
+                if data.len() >= end + 4 + length {
+                    return;
+                }
+            }
+        }
+    }
+
+    /// A stub deployment on a local port: its endpoint and its count of
+    /// requests.
+    async fn stub(kind: Stub) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let count = hits.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let n = count.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    read_request(&mut socket).await;
+                    let answer = match (kind, n) {
+                        (Stub::Html503, _) => {
+                            let page = "<html><body><h1>503 Service Temporarily Unavailable</h1></body></html>";
+                            format!(
+                                "HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                                page.len()
+                            )
+                        }
+                        (Stub::Reset, _) | (Stub::ResetThenOk, 0) => return,
+                        (Stub::Hang, _) => {
+                            tokio::time::sleep(Duration::from_secs(30)).await;
+                            return;
+                        }
+                        (Stub::ResetThenOk, _) => {
+                            let body = r#"{"jsonrpc":"2.0","id":1,"result":{"ok":true}}"#;
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                                body.len()
+                            )
+                        }
+                    };
+                    let _ = socket.write_all(answer.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+        (format!("http://{addr}/mcp"), hits)
+    }
+
+    /// A proxy to `endpoint` with short waits.
+    fn proxy(endpoint: String) -> Upstream {
+        let mut upstream = Upstream::new(
+            endpoint,
+            Credential::Key("test-key".into()),
+            None,
+            Duration::from_millis(500),
+        )
+        .unwrap();
+        upstream.backoff = vec![Duration::from_millis(1); 2];
+        upstream
+    }
+
+    fn call(name: &str) -> String {
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}}).to_string()
+    }
+
+    /// The one answer line, as JSON.
+    fn answer(lines: Vec<String>) -> Value {
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(!lines[0].contains("<html"), "{}", lines[0]);
+        serde_json::from_str(&lines[0]).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_503_html_page_on_a_write_is_a_plain_message_and_is_not_retried() {
+        let (endpoint, hits) = stub(Stub::Html503).await;
+        let out = answer(proxy(endpoint).forward(&call("create_item")).await);
+        assert_eq!(out["error"]["message"], UNAVAILABLE_WRITE);
+        assert_eq!(out["error"]["data"]["retryable"], true);
+        assert_eq!(out["error"]["data"]["status"], 503);
+        assert_eq!(out["error"]["data"]["write_applied"], "unknown");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_reset_on_a_write_says_the_write_may_be_applied() {
+        let (endpoint, hits) = stub(Stub::Reset).await;
+        let out = answer(proxy(endpoint).forward(&call("append_note")).await);
+        assert_eq!(out["error"]["message"], UNAVAILABLE_WRITE);
+        assert_eq!(out["error"]["data"]["cause"], "reset");
+        assert_eq!(out["error"]["data"]["retryable"], true);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_timeout_on_a_write_says_the_write_may_be_applied() {
+        let (endpoint, hits) = stub(Stub::Hang).await;
+        let out = answer(proxy(endpoint).forward(&call("transition_item")).await);
+        assert_eq!(out["error"]["message"], UNAVAILABLE_WRITE);
+        assert_eq!(out["error"]["data"]["cause"], "timeout");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_write_with_no_connection_says_nothing_was_applied() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let out = answer(
+            proxy(format!("http://{addr}/mcp"))
+                .forward(&call("create_item"))
+                .await,
+        );
+        assert_eq!(out["error"]["message"], UNAVAILABLE_NOT_SENT);
+        assert_eq!(out["error"]["data"]["cause"], "connect");
+        assert_eq!(out["error"]["data"]["write_applied"], "no");
+    }
+
+    #[tokio::test]
+    async fn a_read_is_retried_after_a_reset() {
+        let (endpoint, hits) = stub(Stub::ResetThenOk).await;
+        let out = answer(proxy(endpoint).forward(&call("get_item")).await);
+        assert_eq!(out["result"]["ok"], true, "{out}");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_read_is_sent_three_times_then_fails_plainly() {
+        let (endpoint, hits) = stub(Stub::Html503).await;
+        let out = answer(proxy(endpoint).forward(&call("search")).await);
+        let message = out["error"]["message"].as_str().unwrap();
+        assert!(message.contains("sent this read 3 times"), "{message}");
+        assert_eq!(out["error"]["data"]["retryable"], true);
+        assert_eq!(out["error"]["data"]["write_applied"], "no");
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
     }
 }

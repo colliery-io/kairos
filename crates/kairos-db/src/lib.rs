@@ -49,6 +49,7 @@ pub mod proposals;
 pub mod purge;
 pub mod repositories;
 pub mod repository_credentials;
+pub mod request_keys;
 pub mod retention;
 pub mod retired_codes;
 pub mod schema;

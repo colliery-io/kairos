@@ -1,0 +1,19 @@
+-- KAIROS-T-0678: an initiative can be cancelled, as a task can.
+--
+--   task_cancellations   Holds the cancel mark of a task or of an
+--                        initiative now. `task_id` is the id of the item.
+--
+-- The foreign key to `tasks` goes. A mark keyed by the item id lets each
+-- reader that asks "is this item cancelled?" (the [cancelled] end of an
+-- edge, an open blocker, the cards) read an initiative with no change.
+-- Ids are UUIDs, so a task and an initiative never have the same id.
+--
+-- With no `ON DELETE CASCADE`, the purge of a task deletes its mark itself
+-- (kairos-db purge.rs). Kairos does not delete the row of an initiative.
+--
+-- WHAT THIS DOES TO THE DATA OF A TENANT
+--
+-- 1 constraint is removed. No row is changed.
+--
+-- Re-runnable: the drop has a guard.
+ALTER TABLE task_cancellations DROP CONSTRAINT IF EXISTS task_cancellations_task_id_fkey;

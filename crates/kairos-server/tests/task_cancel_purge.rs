@@ -566,6 +566,16 @@ async fn a_task_can_be_cancelled_and_purged() {
         error && text.contains("TASK_LIVE") && text.contains("Archive it first"),
         "{text}"
     );
+    // KAIROS-T-0678: a cancelled task; the purge deletes its mark (the
+    // table has no cascade from tasks now).
+    alice
+        .cancel_task(&doomed.short_code, "Gone.")
+        .await
+        .expect("cancel");
+    assert_eq!(
+        rows(&mut conn, "task_cancellations", "task_id", doomed_id),
+        1
+    );
     alice
         .delete_task(&doomed.short_code)
         .await
@@ -613,6 +623,7 @@ async fn a_task_can_be_cancelled_and_purged() {
         ("item_relationships", "target_id"),
         ("item_external_refs", "item_id"),
         ("forge_issue_intake", "item_id"),
+        ("task_cancellations", "task_id"),
     ] {
         assert_eq!(
             rows(&mut conn, table, column, doomed_id),

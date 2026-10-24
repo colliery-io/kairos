@@ -1231,6 +1231,15 @@ current content, and for a `search` matching more than once while
 `replace_all` is false — the refusal states the occurrence count. Otherwise as
 `update_item`, and the same edit rule applies.
 
+Sometimes the `search` text is not in the content, but a text that differs
+only in whitespace is there. Then the refusal quotes the exact text of the
+item (KAIROS-T-0684). Each run of spaces, tabs and line breaks counts as one space.
+Kairos does not replace that text: send it as `search`.
+
+```text
+VALIDATION: The text of search is not in ACME-T-0012 (version 3). A text that differs only in whitespace is in the content one time. Send this exact text as search: "Line one.\n  Line two.".
+```
+
 ### `append_note`
 
 Appends a note to the item, in one call. Send no version and no anchor

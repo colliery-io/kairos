@@ -588,6 +588,11 @@ pub struct GetEventsParams {
     /// page. The page has the unread ones older than it, and no read ones.
     #[serde(default)]
     pub before: Option<String>,
+    /// `true`: only the unread notifications, with no read ones
+    /// (KAIROS-T-0683). The first page names the newest unread id, to send
+    /// as `up_to` to `mark_events_read`.
+    #[serde(default)]
+    pub unread: Option<bool>,
 }
 
 /// `my_work` has no arguments (KAIROS-T-0489).
@@ -3223,7 +3228,7 @@ impl KairosMcp {
     // KAIROS-T-0382: the notifications of the person of the key. The read
     // state is of the caller (KAIROS-T-0550): the agent key, or the person.
     #[tool(
-        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board. Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
+        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board. Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `unread: true` gives only the unread ones, and names the newest unread id to send as `up_to` to `mark_events_read`. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
     )]
     pub async fn get_events(
         &self,
@@ -3235,14 +3240,19 @@ impl KairosMcp {
         self.run_tool(&tenant, move |conn| {
             let reader = crate::api::notifications::reader_for(conn, user, key)?;
             let before = params.before.as_deref();
-            let (items, unread) = crate::api::notifications::list_for(conn, &reader, before, None)?;
-            Ok(events_text(&items, unread, before.is_some()))
+            let (mut items, unread) =
+                crate::api::notifications::list_for(conn, &reader, before, None)?;
+            let unread_only = params.unread.unwrap_or(false);
+            if unread_only {
+                items.retain(|n| n.read_at.is_none());
+            }
+            Ok(events_text(&items, unread, before.is_some(), unread_only))
         })
         .await
     }
 
     #[tool(
-        description = "Mark your notifications read: `ids` (the ids that `get_events` gives), or `all: true` with `up_to` (the id of the newest notification that you read). `all` marks that one and each older unread one, and no newer one; `all` without `up_to` is refused. A read with an agent key is the key's: the person's bell keeps its own state. A read notification no longer comes at the end of each answer. An id that is not one of your notifications is refused and named, and nothing changes."
+        description = "Mark your notifications read: `ids` (the ids that `get_events` gives), or `all: true` with `up_to` (the id of the newest notification that you read: `get_events` with `unread: true` names it). `all` marks that one and each older unread one, and no newer one; `all` without `up_to` is refused. A read with an agent key is the key's: the person's bell keeps its own state. A read notification no longer comes at the end of each answer. An id that is not one of your notifications is refused and named, and nothing changes."
     )]
     pub async fn mark_events_read(
         &self,
@@ -9404,16 +9414,30 @@ fn events_text(
     items: &[kairos_db::notifications::Notification],
     unread: i64,
     page: bool,
+    unread_only: bool,
 ) -> String {
     let unread_items: Vec<_> = items.iter().filter(|n| n.read_at.is_none()).collect();
     if items.is_empty() {
         return if page {
             format!("# Your notifications ({unread} unread)\nNo older unread ones.\n")
+        } else if unread_only {
+            "# Your notifications (0 unread)\nNo unread ones.\n".to_string()
         } else {
             "# Your notifications\n(none)\n".to_string()
         };
     }
     let mut out = format!("# Your notifications ({unread} unread)\n");
+    // KAIROS-T-0683: the newest unread id first, ready for `up_to`.
+    if unread_only
+        && !page
+        && let Some(newest) = unread_items.first()
+    {
+        out.push_str(&format!(
+            "Newest unread id: \"{}\". Send it as `up_to` with `all: true` to \
+             mark_events_read.\n\n",
+            newest.id
+        ));
+    }
     let mut read_heading = false;
     for n in items {
         if n.read_at.is_some() && !read_heading {
@@ -10079,5 +10103,60 @@ mod t0561_tests {
             empty_page_text("(none)", 51, 100),
             "(none at offset 100: the list has 51)\n"
         );
+    }
+}
+
+#[cfg(test)]
+mod t0683_tests {
+    //! KAIROS-T-0683: `get_events` with `unread: true`.
+
+    use super::events_text;
+    use kairos_db::notifications::Notification;
+    use uuid::Uuid;
+
+    fn notification(n: u128, read: bool) -> Notification {
+        Notification {
+            id: Uuid::from_u128(n),
+            kind: "mention".into(),
+            item_id: None,
+            short_code: Some(format!("ACME-T-{n:04}")),
+            entity_type: None,
+            title: None,
+            text: format!("Robin mentioned you ({n})"),
+            actor_id: None,
+            created_at: chrono::Utc::now(),
+            read_at: read.then(chrono::Utc::now),
+        }
+    }
+
+    #[test]
+    fn the_unread_list_names_the_newest_id_first() {
+        let items = [notification(2, false), notification(1, false)];
+        let text = events_text(&items, 2, false, true);
+        let newest = Uuid::from_u128(2);
+        assert!(
+            text.starts_with(&format!(
+                "# Your notifications (2 unread)\nNewest unread id: \"{newest}\". Send it as \
+                 `up_to` with `all: true` to mark_events_read.\n\n"
+            )),
+            "{text}"
+        );
+        assert!(!text.contains("## Read"), "{text}");
+    }
+
+    #[test]
+    fn no_unread_ones() {
+        assert_eq!(
+            events_text(&[], 0, false, true),
+            "# Your notifications (0 unread)\nNo unread ones.\n"
+        );
+    }
+
+    #[test]
+    fn the_default_list_has_no_newest_line() {
+        let items = [notification(2, false), notification(1, true)];
+        let text = events_text(&items, 1, false, false);
+        assert!(!text.contains("Newest unread id"), "{text}");
+        assert!(text.contains("## Read"), "{text}");
     }
 }

@@ -1349,10 +1349,13 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         })),
         BoardError::Transition(e) => ApiError::unprocessable("INVALID_TRANSITION", e.to_string()),
         // KAIROS-T-0641: the board policy parent_gate.
+        // KAIROS-T-0676: an initiative with no owner under owner_gate gets
+        // the claim in the same move.
         BoardError::ParentNotActive {
             ref initiative,
             ref initiative_column,
             ref to_column,
+            owner_needed,
             board_id,
             ..
         } => ApiError::unprocessable("PARENT_NOT_ACTIVE", e.to_string()).with_details(json!({
@@ -1361,7 +1364,12 @@ pub fn map_board_error(e: BoardError) -> ApiError {
             "to_column": to_column,
             "board_id": board_id,
             "policy": "parent_gate",
-            "fix": format!("transition_item {initiative} Active"),
+            "owner_needed": owner_needed,
+            "fix": if owner_needed {
+                format!("transition_item {initiative} Active claim: true")
+            } else {
+                format!("transition_item {initiative} Active")
+            },
         })),
         // KAIROS-T-0643: the board policy owner_gate.
         BoardError::OwnerRequired {

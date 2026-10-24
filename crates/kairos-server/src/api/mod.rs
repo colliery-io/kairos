@@ -1332,11 +1332,15 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         // KAIROS-T-0554: the message keeps the sentence of the core that
         // names the targets ("From Todo, an item can move to: Active,
         // Blocked."), so an agent reads where it can go without the details.
+        // KAIROS-T-0675: `path` is the shortest chain of columns to the
+        // target (empty when none goes there), one transition_item for
+        // each step.
         BoardError::Transition(
             ref error @ TransitionError::NotAllowed {
                 ref from,
                 ref to,
                 ref allowed_targets,
+                ref route,
             },
         ) => ApiError::unprocessable("INVALID_TRANSITION", error.to_string())
         .with_details(json!({
@@ -1346,13 +1350,21 @@ pub fn map_board_error(e: BoardError) -> ApiError {
                 .iter()
                 .map(|c| json!({"id": c.id, "name": c.name}))
                 .collect::<Vec<_>>(),
+            "path": route
+                .path
+                .iter()
+                .map(|c| json!({"id": c.id, "name": c.name}))
+                .collect::<Vec<_>>(),
         })),
         BoardError::Transition(e) => ApiError::unprocessable("INVALID_TRANSITION", e.to_string()),
         // KAIROS-T-0641: the board policy parent_gate.
+        // KAIROS-T-0676: an initiative with no owner under owner_gate gets
+        // the claim in the same move.
         BoardError::ParentNotActive {
             ref initiative,
             ref initiative_column,
             ref to_column,
+            owner_needed,
             board_id,
             ..
         } => ApiError::unprocessable("PARENT_NOT_ACTIVE", e.to_string()).with_details(json!({
@@ -1361,7 +1373,12 @@ pub fn map_board_error(e: BoardError) -> ApiError {
             "to_column": to_column,
             "board_id": board_id,
             "policy": "parent_gate",
-            "fix": format!("transition_item {initiative} Active"),
+            "owner_needed": owner_needed,
+            "fix": if owner_needed {
+                format!("transition_item {initiative} Active claim: true")
+            } else {
+                format!("transition_item {initiative} Active")
+            },
         })),
         // KAIROS-T-0643: the board policy owner_gate.
         BoardError::OwnerRequired {

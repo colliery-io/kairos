@@ -3134,12 +3134,20 @@ command refuses. Then you edit the entry in the file.
 ### `kairos mcp-proxy`
 
 ```
-kairos mcp-proxy [--url <URL>] [--tenant <TENANT>]
+kairos mcp-proxy [--url <URL>] [--tenant <TENANT>] [--profile work|admin|all]
 ```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `--profile <PROFILE>` | `work`, `admin` or `all` | `work` | The tool profile: `work` sends to `/mcp`, `admin` to `/mcp?profile=admin`, `all` to `/mcp?profile=all`. |
 
 Serves the MCP tools of Kairos over standard input and output. The command
 sends each message to `/mcp` of the deployment, over HTTP. The Claude Code
 plugin starts this command as its `kairos` MCP server.
+
+To get the admin tools in Claude Code, add a second server with the admin
+profile:
+`claude mcp add --scope user kairos-admin -- kairos mcp-proxy --profile admin`.
 
 The command finds the deployment and the tenant in the order of the
 [common options](#common-options). The folder of the binding is

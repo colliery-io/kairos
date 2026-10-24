@@ -529,6 +529,47 @@ async fn an_admin_agent_sets_up_a_team_with_manage_structure() {
         )
         .await;
     assert!(text.contains("to the team home-ops"), "{text}");
+    // KAIROS-T-0679: a person who has not signed in yet. The refusal says
+    // that no account has the email, and names the routes of this
+    // deployment (an issuer, no local accounts).
+    let text = org_mcp
+        .err(
+            "add_team_member",
+            json!({"team": "home-ops", "user": "nobody-yet@kairos.test"}),
+        )
+        .await;
+    assert!(
+        text.starts_with("VALIDATION: No member of the organization has the id")
+            && text.contains("No account has the email \"nobody-yet@kairos.test\" yet.")
+            && text.contains("signs in to Kairos one time through the identity provider")
+            && text.contains("kairos members add --email <email>")
+            && text.contains("SCIM")
+            && !text.contains("local account")
+            && text.contains("Then send the reference again."),
+        "{text}"
+    );
+    // A name that is not an email gets the routes, and no email sentence.
+    let text = org_mcp
+        .err(
+            "grant_capability",
+            json!({"user": "nobody-yet", "capability": "manage_tasks", "board": "lab-delivery"}),
+        )
+        .await;
+    assert!(
+        !text.contains("No account has the email") && text.contains("through SCIM"),
+        "{text}"
+    );
+    // A call that does not add a person keeps the short refusal.
+    let text = org_mcp
+        .err(
+            "remove_team_member",
+            json!({"team": "home-ops", "user": "nobody-yet@kairos.test"}),
+        )
+        .await;
+    assert!(
+        text.contains("yet. Send a member of the organization."),
+        "{text}"
+    );
     // A service account by its name.
     org_mcp
         .ok(

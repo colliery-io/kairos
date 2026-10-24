@@ -190,17 +190,22 @@ pub enum BoardError {
     /// The board policy `parent_gate` (KAIROS-T-0641,
     /// [`crate::board_policy`]): the task goes into a claims column, and its
     /// parent initiative is not active.
+    ///
+    /// KAIROS-T-0676: when the initiative has no owner and its board has
+    /// the policy owner_gate, the text names both steps in one refusal.
     #[error(
         "{task} cannot move to {to_column}. Its initiative {initiative} is in \
          {initiative_column}. A task moves to {to_column} only while its initiative is in \
-         Active or Monitoring. Move {initiative} to Active first: transition_item. Then move \
-         the task."
+         Active or Monitoring. {fix}",
+        fix = parent_fix(initiative, *owner_needed)
     )]
     ParentNotActive {
         task: String,
         to_column: String,
         initiative: String,
         initiative_column: String,
+        /// The initiative has no owner, and its board has owner_gate.
+        owner_needed: bool,
         board_id: Uuid,
     },
     /// The board policy `owner_gate` (KAIROS-T-0643,
@@ -253,6 +258,19 @@ pub enum BoardError {
     /// Any other database error.
     #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
+}
+
+/// The fix of [`BoardError::ParentNotActive`] (KAIROS-T-0676).
+fn parent_fix(initiative: &str, owner_needed: bool) -> String {
+    if owner_needed {
+        format!(
+            "{initiative} also has no owner, and an initiative moves to Active only with an \
+             owner. Become its owner and move it in one call: transition_item {initiative} \
+             Active with claim: true. Or claim it first: claim_item. Then move the task."
+        )
+    } else {
+        format!("Move {initiative} to Active first: transition_item. Then move the task.")
+    }
 }
 
 /// Insert one `activity_log` row (current tenant schema). A
@@ -1098,16 +1116,56 @@ fn is_code_prefix_violation(e: &DieselError) -> bool {
 /// `(from, to)` column names for the audit details.
 fn validate_transition(
     conn: &mut PgConnection,
+    entity_type: &'static str,
     board_id: Uuid,
     from_column_id: Uuid,
     to_column_id: Uuid,
 ) -> Result<(String, String), BoardError> {
     let (columns, transitions) = load_board_rules(conn, board_id)?;
-    rules::can_transition(&columns, &transitions, from_column_id, to_column_id)?;
+    if let Err(e) = rules::can_transition(&columns, &transitions, from_column_id, to_column_id) {
+        return Err(name_dead_end(conn, entity_type, e));
+    }
     Ok((
         column_name(&columns, from_column_id)?,
         column_name(&columns, to_column_id)?,
     ))
+}
+
+/// KAIROS-T-0675: a refusal out of a column with no transition says the
+/// way out. A task in a done column comes back by `reopen_item`
+/// (KAIROS-A-0048); for a different item the text says that the reopen
+/// does not apply.
+fn name_dead_end(
+    conn: &mut PgConnection,
+    entity_type: &'static str,
+    error: rules::TransitionError,
+) -> BoardError {
+    match error {
+        rules::TransitionError::NotAllowed {
+            from,
+            to,
+            allowed_targets,
+            route,
+        } if allowed_targets.is_empty() => {
+            let done = match crate::notifications::column_is_done(conn, from.id) {
+                Ok(done) => done,
+                Err(e) => return e.into(),
+            };
+            let dead_end = if entity_type == "task" && done {
+                rules::DeadEnd::DoneTask
+            } else {
+                rules::DeadEnd::NoReopen { entity_type }
+            };
+            rules::TransitionError::NotAllowed {
+                from,
+                to,
+                allowed_targets,
+                route: Box::new(rules::Route { dead_end, ..*route }),
+            }
+            .into()
+        }
+        other => other.into(),
+    }
 }
 
 /// The refusal for an item that is not in the column of the read any more
@@ -1115,6 +1173,7 @@ fn validate_transition(
 /// targets from there.
 fn moved_meanwhile(
     conn: &mut PgConnection,
+    entity_type: &'static str,
     board_id: Uuid,
     now_column_id: Uuid,
     to_column_id: Uuid,
@@ -1133,12 +1192,19 @@ fn moved_meanwhile(
             })
     };
     match (column(now_column_id), column(to_column_id)) {
-        (Some(from), Some(to)) => rules::TransitionError::NotAllowed {
-            from,
-            to,
-            allowed_targets: rules::allowed_targets(&columns, &transitions, now_column_id),
-        }
-        .into(),
+        (Some(from), Some(to)) => name_dead_end(
+            conn,
+            entity_type,
+            rules::TransitionError::NotAllowed {
+                from,
+                to,
+                allowed_targets: rules::allowed_targets(&columns, &transitions, now_column_id),
+                route: Box::new(rules::Route {
+                    path: rules::shortest_path(&columns, &transitions, now_column_id, to_column_id),
+                    dead_end: rules::DeadEnd::Unknown,
+                }),
+            },
+        ),
         (None, _) => rules::TransitionError::UnknownFromColumn(now_column_id).into(),
         (_, None) => rules::TransitionError::UnknownToColumn(to_column_id).into(),
     }
@@ -1196,6 +1262,10 @@ fn after_column_move(
         // KAIROS-T-0385: the dispatch rules of the column.
         crate::dispatch::on_task_entered_column(conn, item_id, to_column_id, actor_id)?;
     }
+    // KAIROS-T-0678: the cancel mark of an initiative ends in the same way.
+    if entity_type == "initiative" {
+        crate::task_cancellations::after_column_change(conn, item_id, to_column_id)?;
+    }
     // KAIROS-T-0386: the GitHub write-back of its pull requests.
     crate::writeback::on_item_changed(conn, item_id)?;
     // KAIROS-T-0022: thin event (new column), delivered on commit.
@@ -1242,7 +1312,7 @@ macro_rules! transition_item_fn {
                 })?;
 
                 let (from_name, to_name) =
-                    validate_transition(conn, board_id, from_column_id, to_column_id)?;
+                    validate_transition(conn, $entity_type, board_id, from_column_id, to_column_id)?;
                 // KAIROS-T-0641, KAIROS-T-0565: the board policies
                 // parent_gate and blockers_gate.
                 if $entity_type == "task" {
@@ -1269,7 +1339,7 @@ macro_rules! transition_item_fn {
                         .filter(dsl::id.eq(item_id))
                         .select(dsl::column_id)
                         .first(conn)?;
-                    return Err(moved_meanwhile(conn, board_id, now, to_column_id));
+                    return Err(moved_meanwhile(conn, $entity_type, board_id, now, to_column_id));
                 }
 
                 after_column_move(
@@ -1630,7 +1700,7 @@ pub fn transition_adr(
         };
 
         let (from_name, to_name) =
-            validate_transition(conn, board_id, from_column_id, to_column_id)?;
+            validate_transition(conn, "adr", board_id, from_column_id, to_column_id)?;
 
         let updated = diesel::update(
             dsl::adrs
@@ -1649,7 +1719,7 @@ pub fn transition_adr(
                 .select(dsl::column_id)
                 .first(conn)?;
             return Err(match now {
-                Some(now) => moved_meanwhile(conn, board_id, now, to_column_id),
+                Some(now) => moved_meanwhile(conn, "adr", board_id, now, to_column_id),
                 None => BoardError::ItemNotOnBoard {
                     entity_type: "adr",
                     id: item_id,

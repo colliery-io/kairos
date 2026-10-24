@@ -13,7 +13,11 @@
 //! on, an initiative moves into Active only with an owner, and the owner of
 //! an initiative in Active or Monitoring cannot release it; a hand-off to a
 //! member of the board can change it. The refusal is 422 `OWNER_REQUIRED`.
-//! With the policy off, both pass.
+//! With the policy off, both pass. KAIROS-T-0676: `transition_item` with
+//! `claim: true` makes the caller the owner in the same move; a refused
+//! move keeps no owner; a different owner is a CONFLICT; a strategy is
+//! VALIDATION. PARENT_NOT_ACTIVE under an initiative with no owner names
+//! both steps.
 //!
 //! `blockers_gate` (KAIROS-T-0565): a move of a task with open blockers
 //! into a claims column or a done column (a transition, a reopen, a board
@@ -277,6 +281,29 @@ async fn a_task_moves_to_active_only_under_an_active_initiative() {
         text.contains(&initiative) && text.contains("Discovery"),
         "{text}"
     );
+    // KAIROS-T-0676: the initiative has no owner, so the refusal names
+    // both steps.
+    assert!(
+        text.contains(&format!(
+            "{initiative} also has no owner, and an initiative moves to Active only with an \
+             owner. Become its owner and move it in one call: transition_item {initiative} \
+             Active with claim: true."
+        )),
+        "{text}"
+    );
+    let err = admin
+        .transition_task(&first, &active)
+        .await
+        .expect_err("refused");
+    let Error::Other { details, .. } = &err else {
+        panic!("expected PARENT_NOT_ACTIVE, got {err:?}");
+    };
+    assert_eq!(details["owner_needed"], json!(true), "{details}");
+    assert_eq!(
+        details["fix"],
+        json!(format!("transition_item {initiative} Active claim: true")),
+        "{details}"
+    );
     parent_not_active(admin.transition_task(&first, &active).await, &initiative);
     // Kairos does not move the initiative.
     assert_eq!(
@@ -323,6 +350,8 @@ async fn a_task_moves_to_active_only_under_an_active_initiative() {
         )
         .await;
     assert!(text.contains("Completed"), "{text}");
+    // The initiative has an owner: one step only.
+    assert!(!text.contains("claim: true"), "{text}");
     assert_eq!(admin.get_task(&first).await.unwrap().column_id, active);
     mcp.walk(&first, &["Completed"]).await;
 
@@ -677,6 +706,109 @@ async fn an_initiative_moves_to_active_only_with_an_owner() {
     .expect("count")
     .n;
     assert_eq!(lines, 2);
+
+    // --- KAIROS-T-0676: `claim: true` takes the owner in the move.
+    let claimed = mcp
+        .create(json!({"item_type": "initiative", "board": "initiatives", "title": "Claimed in the move"}))
+        .await;
+    alice_mcp
+        .walk(&claimed, &["Design", "Ready", "Decompose"])
+        .await;
+    // A refused move keeps no owner.
+    alice_mcp
+        .refused(
+            "transition_item",
+            json!({"short_code": claimed, "to_column": "Completed", "claim": true}),
+            "INVALID_TRANSITION",
+        )
+        .await;
+    assert!(
+        admin
+            .get_initiative(&claimed)
+            .await
+            .expect("claimed")
+            .owner
+            .is_none(),
+        "a refused move keeps no owner"
+    );
+    let text = alice_mcp
+        .ok(
+            "transition_item",
+            json!({"short_code": claimed, "to_column": "Active", "claim": true}),
+        )
+        .await;
+    assert!(
+        text.contains(&format!("Transitioned {claimed}: Decompose -> Active.")),
+        "{text}"
+    );
+    assert!(text.contains("- owner: "), "{text}");
+    let got = admin.get_initiative(&claimed).await.expect("claimed");
+    assert_eq!(got.column_id, active);
+    assert_eq!(
+        got.owner.as_ref().map(|o| o.user_id.clone()),
+        Some(user_id(&mut conn, "alice@kairos.test").to_string())
+    );
+    // The owner sends `claim: true` again: the move passes, no new claim.
+    alice_mcp
+        .ok(
+            "transition_item",
+            json!({"short_code": claimed, "to_column": "Monitoring", "claim": true}),
+        )
+        .await;
+    // A different person: the claim is refused, and the move with it.
+    mcp.refused(
+        "transition_item",
+        json!({"short_code": claimed, "to_column": "Completed", "claim": true}),
+        "CONFLICT",
+    )
+    .await;
+    let monitoring = initiatives
+        .columns
+        .iter()
+        .find(|c| c.name == "Monitoring")
+        .unwrap()
+        .id
+        .clone();
+    assert_eq!(
+        admin.get_initiative(&claimed).await.unwrap().column_id,
+        monitoring
+    );
+    // A strategy takes no `claim` in a move.
+    let strategy = mcp
+        .create(json!({"item_type": "strategy", "board": "strategy", "title": "Plan"}))
+        .await;
+    let text = mcp
+        .refused(
+            "transition_item",
+            json!({"short_code": strategy, "to_column": strategies.columns[1].name, "claim": true}),
+            "VALIDATION",
+        )
+        .await;
+    assert!(text.contains("claim_item"), "{text}");
+    // The description states the initiative case.
+    mcp.next_id += 1;
+    let id = mcp.next_id;
+    let (_, body) = mcp
+        .post(json!({"jsonrpc": "2.0", "id": id, "method": "tools/list"}))
+        .await;
+    let tools = rpc_message(&body)["result"]["tools"].clone();
+    let tool = tools
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == "transition_item")
+        .expect("transition_item")
+        .clone();
+    let description = tool["description"].as_str().expect("description");
+    assert!(
+        description.contains("A move of an INITIATIVE does not set its owner")
+            && description.contains("`claim: true`"),
+        "{description}"
+    );
+    assert!(
+        tool["inputSchema"]["properties"]["claim"].is_object(),
+        "{tool}"
+    );
 }
 
 /// The values of the header `Kairos-Warning` of a REST transition, and the

@@ -97,7 +97,10 @@ impl std::fmt::Display for Relationship {
 /// KAIROS-A-0001 matrix (see module docs). `rule` restates the allowed
 /// shape for the relationship, for error messages.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("A {relationship} edge cannot go from {source_type} to {target_type}. {rule}")]
+#[error(
+    "A {relationship} edge cannot go from {source_type} to {target_type}. {rule}{}.",
+    swap_text(*.reversed_allowed)
+)]
 pub struct GraphRuleError {
     /// The rejected edge type.
     pub relationship: Relationship,
@@ -107,24 +110,38 @@ pub struct GraphRuleError {
     pub target_type: ItemType,
     /// The allowed shape for this relationship.
     pub rule: &'static str,
+    /// KAIROS-T-0677: the same relationship from the target to the source
+    /// is allowed, so the caller most likely sent the two ends in the wrong
+    /// order. The message then says to swap them.
+    pub reversed_allowed: bool,
+}
+
+/// The sentence that ends a [`GraphRuleError`] when the reversed edge is
+/// allowed (KAIROS-T-0677).
+fn swap_text(reversed_allowed: bool) -> &'static str {
+    if reversed_allowed {
+        ". The edge is possible in the other direction: swap source and target"
+    } else {
+        ""
+    }
 }
 
 /// The allowed shape of each relationship, as prose (used in
-/// [`GraphRuleError`]).
+/// [`GraphRuleError`], which adds the final period).
 fn rule_text(relationship: Relationship) -> &'static str {
     match relationship {
         Relationship::Parent => {
-            "A parent edge goes from a strategy to an initiative, or from an initiative to a task."
+            "A parent edge goes from a strategy to an initiative, or from an initiative to a task"
         }
         Relationship::Supports => {
-            "A supports edge goes from a strategy, an initiative or a task to a document or an adr."
+            "A supports edge goes from a strategy, an initiative or a task to a document or an adr"
         }
         Relationship::Informs => {
-            "An informs edge goes from a document or an adr to a strategy, an initiative or a task, or from a task to a task."
+            "An informs edge goes from a document or an adr to a strategy, an initiative or a task, or from a task to a task"
         }
-        Relationship::Supersedes => "A supersedes edge goes from an adr to an adr.",
+        Relationship::Supersedes => "A supersedes edge goes from an adr to an adr",
         Relationship::Blocks => {
-            "A blocks edge goes between two items of the types strategy, initiative and task."
+            "A blocks edge goes between two items of the types strategy, initiative and task"
         }
     }
 }
@@ -147,9 +164,24 @@ pub fn check_link(
     source_type: ItemType,
     target_type: ItemType,
 ) -> Result<(), GraphRuleError> {
+    if is_allowed(relationship, source_type, target_type) {
+        Ok(())
+    } else {
+        Err(GraphRuleError {
+            relationship,
+            source_type,
+            target_type,
+            rule: rule_text(relationship),
+            reversed_allowed: is_allowed(relationship, target_type, source_type),
+        })
+    }
+}
+
+/// The matrix of [`check_link`], as a decision only.
+fn is_allowed(relationship: Relationship, source_type: ItemType, target_type: ItemType) -> bool {
     use ItemType::{Adr, Document, Initiative, Strategy, Task};
 
-    let allowed = match relationship {
+    match relationship {
         Relationship::Parent => matches!(
             (source_type, target_type),
             (Strategy, Initiative) | (Initiative, Task)
@@ -161,17 +193,6 @@ pub fn check_link(
         }
         Relationship::Supersedes => matches!((source_type, target_type), (Adr, Adr)),
         Relationship::Blocks => is_workflow(source_type) && is_workflow(target_type),
-    };
-
-    if allowed {
-        Ok(())
-    } else {
-        Err(GraphRuleError {
-            relationship,
-            source_type,
-            target_type,
-            rule: rule_text(relationship),
-        })
     }
 }
 
@@ -312,6 +333,40 @@ mod tests {
             message.contains("supersedes") && message.contains("from an adr to an adr"),
             "message restates the allowed shape: {message}"
         );
+    }
+
+    #[test]
+    fn a_reversed_edge_says_to_swap_the_ends() {
+        // KAIROS-T-0677: the refusals that agents met most.
+        for (relationship, source, target) in [
+            (Relationship::Supports, Document, Initiative),
+            (Relationship::Supports, Adr, Initiative),
+            (Relationship::Parent, Task, Initiative),
+            (Relationship::Parent, Initiative, Strategy),
+            (Relationship::Informs, Task, Adr),
+        ] {
+            let message = check_link(relationship, source, target)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                message.ends_with(
+                    "The edge is possible in the other direction: swap source and target."
+                ),
+                "{message}"
+            );
+        }
+        // No swap helps: no hint.
+        for (relationship, source, target) in [
+            (Relationship::Informs, Initiative, Initiative),
+            (Relationship::Informs, Document, Document),
+            (Relationship::Supersedes, Initiative, Initiative),
+            (Relationship::Parent, Strategy, Task),
+        ] {
+            let message = check_link(relationship, source, target)
+                .unwrap_err()
+                .to_string();
+            assert!(!message.contains("swap"), "{message}");
+        }
     }
 
     #[test]

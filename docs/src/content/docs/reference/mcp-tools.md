@@ -1606,6 +1606,7 @@ Moves an item to another column on its own board.
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The item's short code. |
 | `to_column` | string | yes | — | Target column, name or UUID, on the item's own board. |
+| `claim` | boolean | no | false | Initiatives: makes you the owner in the same move. |
 
 Requires `transition_items` on the item's board. A transition is a move and
 not an edit. The creator of the item gets no right to move it.
@@ -1632,6 +1633,20 @@ rule. See [`set_board_policy`](#set_board_policy).
 
 Kairos refuses `OWNER_REQUIRED` for an initiative that goes into Active with
 no owner. The board policy `owner_gate` sets this rule.
+
+A move of an initiative does not set its owner. To become the owner in the
+same move, send `claim: true`. The rules of [`claim_item`](#claim_item) apply.
+Kairos does the claim and the move in one transaction, so a refused move
+keeps no owner.
+
+When you are the owner already, Kairos does not claim again. When a different
+person is the owner, Kairos refuses with `CONFLICT`. A task gets your claim
+from a move to Active with no flag. A strategy or an ADR with `claim: true`
+gets `VALIDATION`.
+
+When the initiative of a task has no owner and its board has `owner_gate`,
+the `PARENT_NOT_ACTIVE` refusal names both steps. Its details give
+`owner_needed: true` and the `fix` `transition_item <initiative> Active claim: true`.
 
 A task can have open blockers: the items that block it and are not done.
 Kairos counts a cancelled blocker as open. Such a task can move into a claims

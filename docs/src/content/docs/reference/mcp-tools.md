@@ -1871,14 +1871,14 @@ Refuses:
 
 ### `cancel_item`
 
-[Cancels](../glossary/#cancel) a task: the team will not do it. The task moves
-to the done column of its board, and it gets the mark "cancelled" with the
-reason.
+[Cancels](../glossary/#cancel) a task or an initiative: the team will not do
+it. The item moves to the done column of its board, and it gets the mark
+"cancelled" with the reason.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `short_code` | string | yes | — | The task's short code. The task must not be in a done column. |
-| `reason` | string | yes | — | Why the task is cancelled. Must not be empty. |
+| `short_code` | string | yes | — | The short code of the task or the initiative. It must not be in a done column. |
+| `reason` | string | yes | — | Why the item is cancelled. Must not be empty. |
 
 The transition rules of the board do not apply. You can cancel a task from
 each column that is not done. The done column is the first live column with
@@ -1890,15 +1890,27 @@ show the mark. [`reopen_item`](#reopen_item) brings the task back and removes
 the mark. A transition out of the done column also removes it. The activity
 log keeps the reason.
 
-Needs `transition_items` on the board of the task: the capability of a move.
-The creator of the task gets no right here.
+An initiative has no claim, and its owner stays. An initiative has no reopen:
+it stays in the done column. A transition out of the done column, on a board
+where an admin added one, removes the mark.
+
+To retire a different type:
+
+- A strategy or an ADR: move it with `transition_item`, and write the reason
+  with `append_note`.
+- A document: call `set_lifecycle` with `archived`.
+
+Needs `transition_items` on the board of the item: the capability of a move.
+The creator of the item gets no right here.
 
 Refuses:
 
 - `NOT_FOUND` for an unknown short code or an archived task.
-- `VALIDATION` for an empty reason, and for an item that is not a task.
+- `VALIDATION` for an empty reason, and for an item that is not a task or an
+  initiative. The text names the route for that type.
 - `FORBIDDEN` without `transition_items`.
-- `TASK_DONE` for a task in a done column.
+- `TASK_DONE` for a task in a done column, and `INITIATIVE_DONE` for an
+  initiative in a done column.
 - `NO_DONE_COLUMN` for a board with no done column.
 - `AGENT_TRIAGE_OFF` for an agent's cancel of intake (a support-lane task in
   the entry column) while the board lets a person decide the triage.

@@ -4269,7 +4269,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create an edge between two items by short code: parent, supports, informs, supersedes or blocks (type rules and cycles are checked). `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it."
+        description = "Create an edge between two items by short code. The edge goes from `source` to `target`. The types of the two items must agree with this table; a `parent` or a `blocks` edge must not make a cycle.\n\n| relationship | source | target |\n|---|---|---|\n| parent | strategy | initiative |\n| parent | initiative | task |\n| supports | strategy, initiative, task | document, adr |\n| informs | document, adr | strategy, initiative, task |\n| informs | task | task |\n| supersedes | adr | adr |\n| blocks | strategy, initiative, task | strategy, initiative, task |\n| impacts | document, adr | repository (slug or UUID) |\n| external | any item | URI (http, https or mailto) |\n\nThere is no other relationship (no `relates_to`). `supports` goes from the work to the document that supports it. `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it."
     )]
     pub async fn link_items(
         &self,
@@ -7631,10 +7631,42 @@ fn parse_relationship(value: &str) -> Result<RelationshipType, ApiError> {
         allowed.push(kairos_db::impacts::RELATIONSHIP.to_string());
         allowed.push(kairos_db::external_refs::RELATIONSHIP.to_string());
         ApiError::validation(format!(
-            "The value {value:?} is not a value of relationship. The values are: {}.",
-            allowed.join(", ")
+            "The value {value:?} is not a value of relationship. The values are: {}.{}",
+            allowed.join(", "),
+            relationship_hint(value)
         ))
     })
+}
+
+/// KAIROS-T-0677: the nearest relationship for a value that agents guess.
+/// An empty text for a value with no near relationship.
+fn relationship_hint(value: &str) -> &'static str {
+    let normal = value.trim().to_ascii_lowercase().replace(['-', ' '], "_");
+    match normal.as_str() {
+        "relates_to" | "related_to" | "relates" | "related" | "relation" | "references"
+        | "refers_to" | "see_also" | "mentions" => {
+            " For a reference to a document or an adr, or from a task to a task, use informs. \
+             For work that must wait for other work, use blocks."
+        }
+        "depends_on" | "blocked_by" | "requires" | "needs" | "waits_for" | "after" => {
+            " For work that must wait for other work, use blocks: the source is the item that \
+             must be done first, and the target waits."
+        }
+        "informed_by" => " Use informs, and swap source and target.",
+        "supported_by" => " Use supports, and swap source and target.",
+        "superseded_by" | "replaced_by" => " Use supersedes, and swap source and target.",
+        "replaces" => " Use supersedes.",
+        "child_of" => " Use parent, and swap source and target: the source is the parent.",
+        "child" | "parent_of" | "contains" | "has_child" => {
+            " Use parent. The source is the parent, and the target is the child."
+        }
+        "block" | "blocking" => " Use blocks.",
+        "inform" => " Use informs.",
+        "support" => " Use supports.",
+        "supersede" => " Use supersedes.",
+        "impact" => " Use impacts.",
+        _ => "",
+    }
 }
 
 /// One line of a document or an ADR in a section of `get_repository`
@@ -10078,6 +10110,106 @@ mod t0561_tests {
         assert_eq!(
             empty_page_text("(none)", 51, 100),
             "(none at offset 100: the list has 51)\n"
+        );
+    }
+}
+
+#[cfg(test)]
+mod t0677_tests {
+    //! KAIROS-T-0677: the table of `link_items` and the hints of its
+    //! refusals.
+
+    use super::{KairosMcp, parse_relationship};
+    use kairos_core::graph::{Relationship, check_link};
+    use kairos_core::short_code::ItemType;
+    use std::collections::BTreeSet;
+
+    /// The rows of the table in the description, as `(relationship,
+    /// sources, targets)`.
+    fn table_rows(description: &str) -> Vec<(String, Vec<String>, Vec<String>)> {
+        let list = |cell: &str| -> Vec<String> {
+            cell.split(',')
+                .map(|part| part.trim().to_string())
+                .collect()
+        };
+        description
+            .lines()
+            .filter(|line| line.starts_with("| ") && !line.starts_with("| relationship"))
+            .map(|line| {
+                let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+                assert_eq!(cells.len(), 3, "a row has three cells: {line}");
+                (cells[0].to_string(), list(cells[1]), list(cells[2]))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_description_table_is_the_matrix_of_check_link() {
+        let tool = KairosMcp::link_items_tool_attr();
+        let description = tool.description.expect("a description").to_string();
+        let rows = table_rows(&description);
+
+        let mut from_table = BTreeSet::new();
+        let mut named = BTreeSet::new();
+        for (relationship, sources, targets) in &rows {
+            named.insert(relationship.clone());
+            if Relationship::ALL.iter().all(|r| r.as_str() != relationship) {
+                continue;
+            }
+            for source in sources {
+                for target in targets {
+                    from_table.insert((relationship.clone(), source.clone(), target.clone()));
+                }
+            }
+        }
+
+        let mut from_code = BTreeSet::new();
+        for &relationship in Relationship::ALL {
+            for &source in ItemType::ALL {
+                for &target in ItemType::ALL {
+                    if check_link(relationship, source, target).is_ok() {
+                        from_code.insert((
+                            relationship.to_string(),
+                            source.to_string(),
+                            target.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(from_table, from_code, "{description}");
+
+        // Each relationship that the tool takes has a row.
+        let expected: BTreeSet<String> = Relationship::ALL
+            .iter()
+            .map(|r| r.to_string())
+            .chain(["impacts".to_string(), "external".to_string()])
+            .collect();
+        assert_eq!(named, expected);
+    }
+
+    fn refusal(value: &str) -> String {
+        parse_relationship(value).unwrap_err().message
+    }
+
+    #[test]
+    fn an_unknown_relationship_names_the_nearest_one() {
+        let text = refusal("relates_to");
+        assert!(
+            text.contains("use informs") && text.contains("use blocks"),
+            "{text}"
+        );
+        let text = refusal("depends_on");
+        assert!(text.contains("use blocks"), "{text}");
+        let text = refusal("child_of");
+        assert!(text.contains("swap source and target"), "{text}");
+        let text = refusal("block");
+        assert!(text.ends_with("Use blocks."), "{text}");
+        // A value with no near relationship gets the list only.
+        let text = refusal("is_about");
+        assert!(
+            text.ends_with("parent, supports, informs, supersedes, blocks, impacts, external."),
+            "{text}"
         );
     }
 }

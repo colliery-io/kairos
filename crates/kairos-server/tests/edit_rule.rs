@@ -1814,7 +1814,10 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         .await;
     checks.check(
         "15 MCP: supersedes between two tasks is RELATIONSHIP_RULE, not FORBIDDEN",
-        reply.0 && reply.1.contains("RELATIONSHIP_RULE") && !reply.1.contains("FORBIDDEN"),
+        reply.0
+            && reply.1.contains("RELATIONSHIP_RULE")
+            && !reply.1.contains("FORBIDDEN")
+            && !reply.1.contains("swap"),
         &reply.1,
     );
     let result = alice
@@ -1824,6 +1827,45 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         "15 REST: parent from a task to an initiative is RELATIONSHIP_RULE",
         matches!(&result, Err(err) if err.to_string().contains("RELATIONSHIP_RULE")),
         format!("{result:?}"),
+    );
+    // KAIROS-T-0677: the reversed edge is possible, so the refusal says to
+    // swap the ends; the supersedes refusal above gets no such hint.
+    checks.check(
+        "15 REST: parent from a task to an initiative says to swap the ends",
+        matches!(&result, Err(err)
+            if err.to_string().contains("swap source and target")),
+        format!("{result:?}"),
+    );
+    let reply = alice_mcp
+        .call(
+            "link_items",
+            json!({"source": code, "target": alice_initiative.short_code,
+                   "relationship": "parent"}),
+        )
+        .await;
+    checks.check(
+        "15 MCP: parent from a task to an initiative says to swap the ends",
+        reply.0
+            && reply.1.contains("RELATIONSHIP_RULE")
+            && reply
+                .1
+                .ends_with("The edge is possible in the other direction: swap source and target."),
+        &reply.1,
+    );
+    let reply = alice_mcp
+        .call(
+            "link_items",
+            json!({"source": code, "target": alice_own.short_code,
+                   "relationship": "relates_to"}),
+        )
+        .await;
+    checks.check(
+        "15 MCP: relates_to names informs and blocks",
+        reply.0
+            && reply.1.starts_with("VALIDATION:")
+            && reply.1.contains("use informs")
+            && reply.1.contains("use blocks"),
+        &reply.1,
     );
     checks.allowed(
         "15 REST: blocks, one way",

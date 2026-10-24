@@ -1196,6 +1196,10 @@ fn after_column_move(
         // KAIROS-T-0385: the dispatch rules of the column.
         crate::dispatch::on_task_entered_column(conn, item_id, to_column_id, actor_id)?;
     }
+    // KAIROS-T-0678: the cancel mark of an initiative ends in the same way.
+    if entity_type == "initiative" {
+        crate::task_cancellations::after_column_change(conn, item_id, to_column_id)?;
+    }
     // KAIROS-T-0386: the GitHub write-back of its pull requests.
     crate::writeback::on_item_changed(conn, item_id)?;
     // KAIROS-T-0022: thin event (new column), delivered on commit.

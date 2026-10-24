@@ -1020,9 +1020,10 @@ pub struct DeleteItemParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct CancelItemParams {
-    /// The task's short code. The task must not be in a done column.
+    /// The short code of the task or the initiative. It must not be in a
+    /// done column.
     pub short_code: String,
-    /// Why the task is cancelled. Must not be empty.
+    /// Why the item is cancelled. Must not be empty.
     pub reason: String,
 }
 
@@ -4623,7 +4624,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Cancel a TASK the team will not do, with a `reason`: it moves to the done column with the mark \"cancelled\", from any column (the transition rules do not apply), and its claim ends. `reopen_item` brings it back and removes the mark. Needs `transition_items` on its board. An empty reason, or a task already done (TASK_DONE), is refused. An agent's cancel of intake is refused with AGENT_TRIAGE_OFF while the board lets a person decide."
+        description = "Cancel a TASK or an INITIATIVE that the team will not do, with a `reason`: it moves to the done column of its board with the mark \"cancelled\", from any column (the transition rules do not apply). The board and `get_item` show `[cancelled]`. A task: its claim ends, and `reopen_item` brings it back and removes the mark. An initiative: its owner stays, and it has no reopen; it stays in the done column. Needs `transition_items` on its board. An empty reason, or an item already done (TASK_DONE, INITIATIVE_DONE), is refused. An agent's cancel of intake is refused with AGENT_TRIAGE_OFF while the board lets a person decide. To retire a different type: a strategy or an ADR, move it with `transition_item` and write the reason with `append_note`; a document, `set_lifecycle` archived."
     )]
     pub async fn cancel_item(
         &self,
@@ -4635,13 +4636,36 @@ impl KairosMcp {
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-            let Some(board_id) = item.board_id.filter(|_| item.item_type == ItemType::Task) else {
+            let cancellable = matches!(item.item_type, ItemType::Task | ItemType::Initiative);
+            let Some(board_id) = item.board_id.filter(|_| cancellable) else {
                 return Err(ApiError::validation(format!(
-                    "{} is a {}. You can cancel only a task.",
-                    item.short_code, item.item_type
+                    "{} is a {}. You can cancel only a task or an initiative. {}",
+                    item.short_code,
+                    item.item_type,
+                    retire_route(item.item_type)
                 ))
                 .with_details(serde_json::json!({ "field": "short_code" })));
             };
+            // KAIROS-T-0678: an initiative has no claim and no intake.
+            if item.item_type == ItemType::Initiative {
+                let cancelled = crate::cancel::cancel_initiative(
+                    conn,
+                    &slug,
+                    item.id,
+                    board_id,
+                    &params.reason,
+                    user,
+                )?;
+                return Ok(format!(
+                    "Cancelled {}: {} -> {}.\nReason: {}\nAn initiative has no reopen: it \
+                     stays in {}.",
+                    cancelled.short_code,
+                    cancelled.from_column,
+                    cancelled.to_column,
+                    cancelled.mark.reason,
+                    cancelled.to_column
+                ));
+            }
             // KAIROS-T-0456: a cancel is a triage of intake (won't do).
             let triaged = crate::agent_triage::check(
                 conn,
@@ -6127,15 +6151,18 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
             facts.column_claims,
         ));
     }
-    // KAIROS-T-0362: the cancel mark and its reason.
-    if item.item_type == ItemType::Task {
-        if let (Some(at), Some(by), Some(reason)) = (
+    // KAIROS-T-0362: the cancel mark and its reason. KAIROS-T-0678: an
+    // initiative too.
+    if matches!(item.item_type, ItemType::Task | ItemType::Initiative)
+        && let (Some(at), Some(by), Some(reason)) = (
             facts.cancelled_at,
             &facts.cancelled_by_name,
             &facts.cancel_reason,
-        ) {
-            out.push_str(&crate::cancel::cancel_line(at, by, reason));
-        }
+        )
+    {
+        out.push_str(&crate::cancel::cancel_line(at, by, reason));
+    }
+    if item.item_type == ItemType::Task {
         // KAIROS-T-0506: the live state of the task.
         if let Some((state, name)) = facts.state(item.id) {
             out.push_str(&crate::task_state::state_line_of(&state, name, Utc::now()));
@@ -6885,6 +6912,17 @@ struct LoadedItem {
     created_by: Uuid,
     #[diesel(sql_type = SqlTimestamptz)]
     created_at: DateTime<Utc>,
+}
+
+/// How to retire an item that `cancel_item` does not take (KAIROS-T-0678).
+fn retire_route(item_type: ItemType) -> &'static str {
+    match item_type {
+        ItemType::Document => "To retire a document, call set_lifecycle with archived.",
+        _ => {
+            "To retire it, move it to its done column with transition_item, and write the \
+             reason with append_note."
+        }
+    }
 }
 
 /// `require_capability` for a MOVE (`transition_item`, `move_item`), with

@@ -116,6 +116,10 @@ pub struct Initiative {
     /// from an older server.
     #[serde(default)]
     pub entered_column_at: Option<String>,
+    /// The cancel mark (KAIROS-T-0678); `None` for an initiative that is
+    /// not cancelled, and from an older server.
+    #[serde(default)]
+    pub cancellation: Option<TaskCancellation>,
     /// The number of the notes of the item (KAIROS-T-0649).
     #[serde(default)]
     pub notes_count: Option<i64>,
@@ -1398,6 +1402,26 @@ pub async fn create_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0678: an initiative card reads the cancel mark; an older
+    /// server sends none.
+    #[test]
+    fn an_initiative_card_reads_the_cancel_mark() {
+        let card: Initiative = serde_json::from_value(serde_json::json!({
+            "short_code": "DEMO-I-0001", "title": "Old plan", "version": 1,
+            "cancellation": {"reason": "We write a new plan."}
+        }))
+        .expect("card");
+        assert_eq!(
+            card.cancellation.map(|m| m.reason),
+            Some("We write a new plan.".to_string())
+        );
+        let old: Initiative = serde_json::from_value(serde_json::json!({
+            "short_code": "DEMO-I-0001", "title": "Old plan", "version": 1
+        }))
+        .expect("card");
+        assert_eq!(old.cancellation, None);
+    }
 
     /// KAIROS-T-0567: the card badge counts a cancel apart from done.
     #[test]

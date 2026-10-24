@@ -136,6 +136,11 @@ pub struct InitiativeCard {
     /// the board route; absent on a search hit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes_count: Option<i64>,
+    /// The cancel mark of the initiative (KAIROS-T-0678). Absent when it
+    /// is not cancelled. Present on the board route; absent on a search
+    /// hit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancellation: Option<TaskCancellation>,
     /// About 200 characters of the content, near the first match of `q`.
     /// Only on a search hit.
     #[serde(default, skip_serializing_if = "Option::is_none")]

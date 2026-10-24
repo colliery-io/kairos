@@ -1481,6 +1481,24 @@ pub(crate) async fn board_items(
                     }
                 }
             }
+            // KAIROS-T-0678: the cancel mark of each initiative of the page,
+            // two queries for the page.
+            {
+                let ids: Vec<Uuid> = groups
+                    .iter()
+                    .flat_map(|g| g.initiatives.iter().filter_map(|i| i.id.parse().ok()))
+                    .collect();
+                let mut marks = crate::cancel::marks_dto(conn, &ids).map_err(ApiError::internal)?;
+                if !marks.is_empty() {
+                    for initiative in groups.iter_mut().flat_map(|g| g.initiatives.iter_mut()) {
+                        initiative.cancellation = initiative
+                            .id
+                            .parse()
+                            .ok()
+                            .and_then(|id: Uuid| marks.remove(&id));
+                    }
+                }
+            }
             // COLLIERY-T-0269: the `impacts` links of each ADR, ONE query
             // for the whole page.
             {

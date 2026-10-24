@@ -4021,7 +4021,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move an item to another column on its board (`to_column` is a column name or UUID). An invalid move fails with the allowed target columns enumerated — pick one and retry. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`."
+        description = "Move an item to another column on its board (`to_column` is a column name or UUID). A move goes one column at a time, along a transition of the board. When you do not know the columns, call `my_boards` first: it gives the columns of each board and the moves between them (`get_item` gives the next columns of the item). An invalid move fails with the allowed target columns enumerated, and the path to the target when one goes there (`path`): call transition_item for each step. A done task leaves its done column only by `reopen_item`. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`."
     )]
     pub async fn transition_item(
         &self,

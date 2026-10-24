@@ -241,6 +241,7 @@ fn two_moves_of_one_task_cannot_both_pass() {
             from,
             to,
             allowed_targets,
+            ..
         })) => {
             assert_eq!(from.name, "Active", "B reads the column of A's move");
             assert_eq!(to.name, "Active");

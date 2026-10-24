@@ -1,4 +1,5 @@
-//! The cancel of a task on the server (KAIROS-T-0362). The rules of a
+//! The cancel of a task on the server (KAIROS-T-0362), and of an
+//! initiative (KAIROS-T-0678). The rules of a
 //! cancel are in `kairos_db::task_cancellations`; this module has what
 //! the two surfaces (REST and MCP) share:
 //!
@@ -108,10 +109,57 @@ pub fn cancel(
     Ok(cancelled)
 }
 
+/// Cancel the initiative (KAIROS-T-0678): the capability check
+/// ([`CAPABILITY`] on the board of the initiative), the cancel, and the
+/// WIP warning of the done column. An initiative has no claim and no
+/// triage of intake.
+pub fn cancel_initiative(
+    conn: &mut PgConnection,
+    slug: &str,
+    initiative_id: Uuid,
+    board_id: Uuid,
+    reason: &str,
+    user: Uuid,
+) -> Result<Cancelled, ApiError> {
+    if reason.trim().is_empty() {
+        return Err(map_cancel_error(CancelError::EmptyReason));
+    }
+    crate::api::require_capability(conn, slug, Some(board_id), user, CAPABILITY)?;
+    let cancelled = task_cancellations::cancel_initiative(conn, initiative_id, reason, user)
+        .map_err(|e| match e {
+            CancelError::AlreadyDone { .. } => {
+                ApiError::unprocessable("INITIATIVE_DONE", e.to_string())
+            }
+            e => map_cancel_error(e),
+        })?;
+    crate::claims::note_wip(conn, cancelled.to_column_id, &cancelled.short_code)?;
+    Ok(cancelled)
+}
+
+/// The cancel marks of the items `ids` (tasks or initiatives), as the wire
+/// type, by item (KAIROS-T-0678: the cards of initiatives). Two queries.
+pub fn marks_dto(
+    conn: &mut PgConnection,
+    ids: &[Uuid],
+) -> Result<std::collections::HashMap<Uuid, dto::TaskCancellation>, diesel::result::Error> {
+    let marks = task_cancellations::marks_of(conn, ids)?;
+    if marks.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let users: Vec<Uuid> = marks.values().map(|m| m.cancelled_by).collect();
+    let names = task_claims::display_names(conn, &users)?;
+    Ok(marks
+        .iter()
+        .map(|(id, mark)| (*id, mark_dto(mark, &names)))
+        .collect())
+}
+
 /// [`CancelError`] → HTTP.
 pub fn map_cancel_error(e: CancelError) -> ApiError {
     match e {
-        CancelError::TaskNotFound(_) => ApiError::not_found(e.to_string()),
+        CancelError::TaskNotFound(_) | CancelError::InitiativeNotFound(_) => {
+            ApiError::not_found(e.to_string())
+        }
         CancelError::EmptyReason => {
             ApiError::validation(e.to_string()).with_details(json!({ "field": "reason" }))
         }

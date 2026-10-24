@@ -392,7 +392,9 @@ pub fn check_active_parent(
     task_id: Uuid,
     to_column_id: Uuid,
 ) -> Result<(), BoardError> {
-    use crate::schema::{board_columns, boards, initiatives, item_relationships, tasks};
+    use crate::schema::{
+        board_columns, boards, initiatives, item_owners, item_relationships, tasks,
+    };
 
     let column: Option<(Uuid, bool, String)> = board_columns::table
         .filter(board_columns::id.eq(to_column_id))
@@ -422,25 +424,37 @@ pub fn check_active_parent(
     }
     // The parent initiatives of the task: live ones only. A task has one
     // parent; old data can have more, and each must be active.
-    let parents: Vec<(String, bool, String)> = item_relationships::table
+    let parents: Vec<(Uuid, String, bool, String, bool)> = item_relationships::table
         .inner_join(initiatives::table.on(initiatives::id.eq(item_relationships::source_id)))
         .inner_join(board_columns::table.on(board_columns::id.eq(initiatives::column_id)))
+        .inner_join(boards::table.on(boards::id.eq(initiatives::board_id)))
         .filter(item_relationships::target_id.eq(task_id))
         .filter(item_relationships::relationship.eq(RelationshipType::Parent))
         .filter(initiatives::deleted_at.is_null())
         .select((
+            initiatives::id,
             initiatives::short_code,
             initiatives::is_bucket,
             board_columns::name,
+            boards::owner_gate,
         ))
         .order(initiatives::short_code.asc())
         .load(conn)?;
-    let Some((initiative, _, column)) = parents
+    let Some((initiative_id, initiative, _, column, owner_gate)) = parents
         .into_iter()
-        .find(|(_, bucket, column)| !bucket && !is_active_initiative_column(column))
+        .find(|(_, _, bucket, column, _)| !bucket && !is_active_initiative_column(column))
     else {
         return Ok(());
     };
+    // KAIROS-T-0676: the initiative also needs an owner to go to Active.
+    // The refusal then names both steps.
+    let owner_needed = owner_gate
+        && item_owners::table
+            .filter(item_owners::item_id.eq(initiative_id))
+            .select(item_owners::item_id)
+            .first::<Uuid>(conn)
+            .optional()?
+            .is_none();
     let task: String = tasks::table
         .filter(tasks::id.eq(task_id))
         .select(tasks::short_code)
@@ -450,6 +464,7 @@ pub fn check_active_parent(
         to_column: to_name,
         initiative,
         initiative_column: column,
+        owner_needed,
         board_id,
     })
 }

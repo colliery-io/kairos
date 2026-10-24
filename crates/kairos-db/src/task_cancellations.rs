@@ -28,6 +28,15 @@
 //!
 //! Who may cancel is the rule of the server (`transition_items`, the
 //! capability of a move); this module checks only the state of the task.
+//!
+//! # An initiative (KAIROS-T-0678)
+//!
+//! [`cancel_initiative`] does steps 1, 2, 3 and 5 for an initiative. An
+//! initiative has no claim; its owner stays. The mark is in the same table,
+//! keyed by the id of the item, so each reader that is keyed by the id
+//! (the `[cancelled]` end of an edge, an open blocker, a card) reads it with
+//! no change. A move of the initiative to a column that is not done removes
+//! the mark. Kairos has no reopen of an initiative (KAIROS-A-0048).
 
 use std::collections::HashMap;
 
@@ -50,16 +59,19 @@ pub enum CancelError {
     /// The reason is empty or only white space.
     #[error("The reason is empty. Write the reason for the cancel.")]
     EmptyReason,
-    /// The task is in a done column already.
+    /// No live initiative with this id exists (KAIROS-T-0678).
+    #[error("The initiative {0} does not exist.")]
+    InitiativeNotFound(Uuid),
+    /// The item is in a done column already.
     #[error(
-        "The task {short_code} is in the done column {column:?}. You can cancel only a task \
-         that is not done."
+        "{short_code} is in the done column {column:?}. You can cancel only an item that is \
+         not done."
     )]
     AlreadyDone { short_code: String, column: String },
-    /// The board of the task has no live done column.
+    /// The board of the item has no live done column.
     #[error(
-        "The board of the task {short_code} has no done column. An admin of the board must \
-         mark a column as done first."
+        "The board of {short_code} has no done column. An admin of the board must mark a \
+         column as done first."
     )]
     NoDoneColumn { short_code: String },
     /// Any other database error.
@@ -153,14 +165,7 @@ pub fn cancel_task(
                 column: from_column,
             });
         }
-        let target: Option<(Uuid, String)> = board_columns::table
-            .filter(board_columns::board_id.eq(board_id))
-            .filter(board_columns::is_done.eq(true))
-            .filter(board_columns::deleted_at.is_null())
-            .order(board_columns::position.asc())
-            .select((board_columns::id, board_columns::name))
-            .first(conn)
-            .optional()?;
+        let target = first_done_column(conn, board_id)?;
         let (to_column_id, to_column) = target.ok_or_else(|| CancelError::NoDoneColumn {
             short_code: short_code.clone(),
         })?;
@@ -190,24 +195,7 @@ pub fn cancel_task(
             });
         }
 
-        let mark = {
-            use crate::schema::task_cancellations::dsl;
-            diesel::insert_into(dsl::task_cancellations)
-                .values(NewTaskCancellation {
-                    task_id,
-                    cancelled_by: actor_id,
-                    reason: reason.to_string(),
-                })
-                .on_conflict(dsl::task_id)
-                .do_update()
-                .set((
-                    dsl::cancelled_by.eq(actor_id),
-                    dsl::reason.eq(reason),
-                    dsl::cancelled_at.eq(diesel::dsl::now),
-                ))
-                .returning(TaskCancellation::as_returning())
-                .get_result(conn)?
-        };
+        let mark = write_mark(conn, task_id, reason, actor_id)?;
 
         diesel::insert_into(crate::schema::activity_log::table)
             .values(NewActivityLogEntry {
@@ -248,7 +236,135 @@ pub fn cancel_task(
     })
 }
 
-/// The mark rule for a task that moved to `to_column_id`: a column that
+/// Cancel a live initiative (module docs, KAIROS-T-0678). `reason` is
+/// trimmed, and it must not be empty.
+pub fn cancel_initiative(
+    conn: &mut PgConnection,
+    initiative_id: Uuid,
+    reason: &str,
+    actor_id: Uuid,
+) -> Result<Cancelled, CancelError> {
+    let reason = reason.trim();
+    if reason.is_empty() {
+        return Err(CancelError::EmptyReason);
+    }
+    conn.transaction::<_, CancelError, _>(|conn| {
+        use crate::schema::{board_columns, initiatives};
+        // The lock of the row, as for a task (KAIROS-T-0534).
+        initiatives::table
+            .filter(initiatives::id.eq(initiative_id))
+            .select(initiatives::id)
+            .for_update()
+            .first::<Uuid>(conn)
+            .optional()?;
+        let row: Option<(String, Uuid, Uuid, String, bool)> = initiatives::table
+            .inner_join(board_columns::table)
+            .filter(initiatives::id.eq(initiative_id))
+            .filter(initiatives::deleted_at.is_null())
+            .select((
+                initiatives::short_code,
+                initiatives::board_id,
+                initiatives::column_id,
+                board_columns::name,
+                board_columns::is_done,
+            ))
+            .first(conn)
+            .optional()?;
+        let (short_code, board_id, from_column_id, from_column, done) =
+            row.ok_or(CancelError::InitiativeNotFound(initiative_id))?;
+        if done {
+            return Err(CancelError::AlreadyDone {
+                short_code,
+                column: from_column,
+            });
+        }
+        let (to_column_id, to_column) =
+            first_done_column(conn, board_id)?.ok_or_else(|| CancelError::NoDoneColumn {
+                short_code: short_code.clone(),
+            })?;
+        diesel::update(
+            initiatives::table
+                .filter(initiatives::id.eq(initiative_id))
+                .filter(initiatives::column_id.eq(from_column_id)),
+        )
+        .set((
+            initiatives::column_id.eq(to_column_id),
+            initiatives::updated_by.eq(actor_id),
+            initiatives::updated_at.eq(diesel::dsl::now),
+        ))
+        .execute(conn)?;
+        let mark = write_mark(conn, initiative_id, reason, actor_id)?;
+        diesel::insert_into(crate::schema::activity_log::table)
+            .values(NewActivityLogEntry {
+                actor_id,
+                action: ActivityAction::Cancel,
+                entity_id: Some(initiative_id),
+                entity_type: Some("initiative".to_string()),
+                details: format!("column:{from_column}->{to_column} reason:{reason}"),
+            })
+            .execute(conn)?;
+        // KAIROS-A-0038: a cancelled blocker still blocks. Its dependants
+        // are told; Kairos unblocks nothing.
+        crate::notifications::on_blocker_cancelled(conn, initiative_id, reason, actor_id)?;
+        events::emit_item_event_by_id(
+            conn,
+            EventKind::ItemTransitioned,
+            "initiative",
+            initiative_id,
+            actor_id,
+        )?;
+        Ok(Cancelled {
+            short_code,
+            from_column,
+            to_column,
+            to_column_id,
+            mark,
+        })
+    })
+}
+
+/// The first live done column of the board, by position.
+fn first_done_column(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+) -> Result<Option<(Uuid, String)>, DieselError> {
+    use crate::schema::board_columns;
+    board_columns::table
+        .filter(board_columns::board_id.eq(board_id))
+        .filter(board_columns::is_done.eq(true))
+        .filter(board_columns::deleted_at.is_null())
+        .order(board_columns::position.asc())
+        .select((board_columns::id, board_columns::name))
+        .first(conn)
+        .optional()
+}
+
+/// Write the mark of the item `item_id` (a task or an initiative).
+fn write_mark(
+    conn: &mut PgConnection,
+    item_id: Uuid,
+    reason: &str,
+    actor_id: Uuid,
+) -> Result<TaskCancellation, DieselError> {
+    use crate::schema::task_cancellations::dsl;
+    diesel::insert_into(dsl::task_cancellations)
+        .values(NewTaskCancellation {
+            task_id: item_id,
+            cancelled_by: actor_id,
+            reason: reason.to_string(),
+        })
+        .on_conflict(dsl::task_id)
+        .do_update()
+        .set((
+            dsl::cancelled_by.eq(actor_id),
+            dsl::reason.eq(reason),
+            dsl::cancelled_at.eq(diesel::dsl::now),
+        ))
+        .returning(TaskCancellation::as_returning())
+        .get_result(conn)
+}
+
+/// The mark rule for a task or an initiative that moved to `to_column_id`: a column that
 /// is not done removes the mark. Call it in the transaction of the move,
 /// after the write of the column.
 pub(crate) fn after_column_change(

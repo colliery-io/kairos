@@ -19,6 +19,10 @@
 //! `Mcp-Session-Id` of the server. A request that fails before the server
 //! answers gets a JSON-RPC error with the reason, so the client shows it
 //! and does not wait.
+//!
+//! KAIROS-T-0680: `--profile admin|all` forwards to `/mcp?profile=admin` or
+//! `/mcp?profile=all`, so a second server of the proxy gives the
+//! administration tools with the same credential (also a `kairos login`).
 
 use std::sync::Arc;
 
@@ -41,6 +45,30 @@ pub struct McpProxyArgs {
     /// Tenant slug override (defaults to the project config, then the tenant cached at login)
     #[arg(long)]
     pub tenant: Option<String>,
+    /// The tool profile of the server: work (the default), admin (the administration tools) or all (each tool)
+    #[arg(long, value_enum, default_value_t = Profile::Work)]
+    pub profile: Profile,
+}
+
+/// The tool profiles of `/mcp` (KAIROS-T-0454).
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Profile {
+    /// The tools of the daily work: `/mcp`.
+    Work,
+    /// The administration tools: `/mcp?profile=admin`.
+    Admin,
+    /// Each tool: `/mcp?profile=all`.
+    All,
+}
+
+/// The MCP endpoint of a deployment for a profile.
+fn endpoint(deployment: &str, profile: Profile) -> String {
+    let base = format!("{}/mcp", credentials::normalize_url(deployment));
+    match profile {
+        Profile::Work => base,
+        Profile::Admin => format!("{base}?profile=admin"),
+        Profile::All => format!("{base}?profile=all"),
+    }
 }
 
 /// The header of the session of the Streamable HTTP transport.
@@ -136,7 +164,7 @@ fn connect(args: McpProxyArgs) -> Result<Upstream, CliError> {
         .map_err(|e| CliError::Failure(format!("The CLI cannot make an HTTP client: {e}.")))?;
     Ok(Upstream {
         http,
-        endpoint: format!("{}/mcp", credentials::normalize_url(&deployment)),
+        endpoint: endpoint(&deployment, args.profile),
         credential,
         tenant,
         session: Mutex::new(None),
@@ -343,5 +371,45 @@ mod tests {
             error_line(json!(7), -32603, "no".into()),
             r#"{"error":{"code":-32603,"message":"no"},"id":7,"jsonrpc":"2.0"}"#
         );
+    }
+
+    #[test]
+    fn the_profile_chooses_the_endpoint() {
+        assert_eq!(
+            endpoint("https://k.example/", Profile::Work),
+            "https://k.example/mcp"
+        );
+        assert_eq!(
+            endpoint("https://k.example", Profile::Admin),
+            "https://k.example/mcp?profile=admin"
+        );
+        assert_eq!(
+            endpoint("https://k.example", Profile::All),
+            "https://k.example/mcp?profile=all"
+        );
+    }
+
+    #[test]
+    fn the_profile_flag_takes_work_admin_and_all() {
+        use clap::Parser;
+        #[derive(clap::Parser)]
+        struct Cli {
+            #[command(flatten)]
+            args: McpProxyArgs,
+        }
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| c.args.profile);
+        assert_eq!(parse(&["kairos"]).unwrap(), Profile::Work);
+        assert_eq!(
+            parse(&["kairos", "--profile", "admin"]).unwrap(),
+            Profile::Admin
+        );
+        assert_eq!(
+            parse(&["kairos", "--profile", "all"]).unwrap(),
+            Profile::All
+        );
+        let refused = parse(&["kairos", "--profile", "every"])
+            .unwrap_err()
+            .to_string();
+        assert!(refused.contains("work, admin, all"), "{refused}");
     }
 }

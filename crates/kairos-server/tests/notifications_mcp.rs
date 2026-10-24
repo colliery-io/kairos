@@ -444,6 +444,10 @@ async fn notifications_ride_along_until_read() {
         "{events}"
     );
     assert_eq!(ids_in(&events).len(), 7, "{events}");
+    // KAIROS-T-0683: `unread: true` lists no read one.
+    let events = agent.call_ok("get_events", json!({"unread": true})).await;
+    assert!(events.contains("No unread ones."), "{events}");
+    assert!(ids_in(&events).is_empty(), "{events}");
     let list = alice.notifications().await.expect("list");
     assert!(list.items.iter().all(|n| n.read_at.is_some()));
 }
@@ -559,6 +563,15 @@ async fn each_key_keeps_its_own_read_state() {
         events.contains(&format!("`up_to`: \"{}\"", ids[0])),
         "{events}"
     );
+    // KAIROS-T-0683: `unread: true` gives the same unread ids, and the
+    // newest one first, ready for `up_to`.
+    let unread_events = agent.call_ok("get_events", json!({"unread": true})).await;
+    assert_eq!(ids_in(&unread_events), ids, "{unread_events}");
+    assert!(
+        unread_events.contains(&format!("Newest unread id: \"{}\".", ids[0])),
+        "{unread_events}"
+    );
+    assert!(!unread_events.contains("## Read"), "{unread_events}");
     let text = agent
         .call_ok("mark_events_read", json!({"ids": [ids[2]]}))
         .await;

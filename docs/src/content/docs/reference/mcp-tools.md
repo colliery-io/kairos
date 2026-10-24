@@ -2824,6 +2824,16 @@ item and the text.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `before` | string | no | — | The id of a notification. The page has the unread notifications older than it, and no read ones. |
+| `unread` | boolean | no | false | `true`: only the unread notifications, and no read ones (KAIROS-T-0683). |
+
+With `unread: true`, the first line after the heading names the newest unread
+id:
+
+```text
+Newest unread id: "4f1c2a8e-0000-4000-8000-000000000001". Send it as `up_to` with `all: true` to mark_events_read.
+```
+
+With no unread notification, the answer is `No unread ones.`
 
 The answer ends with the `up_to` value for `mark_events_read`: the id of the
 newest unread notification. When the page has 100 unread notifications, the
@@ -2842,7 +2852,7 @@ with `up_to`.
 |---|---|---|---|---|
 | `ids` | array of strings | no | — | The ids of your notifications, as `get_events` gives them. |
 | `all` | boolean | no | — | `true`: each of your unread notifications up to `up_to`. |
-| `up_to` | string | with `all` | — | The id of the newest notification that you read. Kairos marks it and each older unread notification. A newer notification stays unread. |
+| `up_to` | string | with `all` | — | The id of the newest notification that you read. Kairos marks it and each older unread notification. A newer notification stays unread. `get_events` with `unread: true` names it. |
 
 Kairos refuses `all` without `up_to`. A notification can come after your list.
 Without a bound, Kairos would mark it read before you see it.

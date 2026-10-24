@@ -313,6 +313,11 @@ deployments in one Claude Code, with no `.mcp.json` and no direnv. The credentia
 `kairos login`, which the proxy refreshes. An OAuth deployment therefore works through the plugin
 server after `kairos login`; a user-scope entry (`claude mcp add --scope user`) still works,
 but then disable one of the two servers so the session does not have the tools twice.
+When the deployment is unavailable (502, 503 or 504, a timeout, or a reset, for example
+during an upgrade), the proxy gives a plain error with `retryable: true` in its data. The
+proxy sends a read again two times. It does not send a write again: read the item to see if
+the write was applied before you retry it. `KAIROS_TIMEOUT` sets the request timeout in
+seconds (default 60).
 With an older `kairos`, or none on PATH, `bin/kairos-mcp` is an MCP server with no tools whose
 instructions say why, as `bin/kairos-code` does. Before #270 the server was HTTP at
 `${KAIROS_URL}/mcp`, and `/mcp` showed it as failed when `KAIROS_URL` was not set.

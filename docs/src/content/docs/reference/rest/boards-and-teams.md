@@ -505,10 +505,6 @@ Each card has `entered_column_at` and `notes_count` (KAIROS-T-0649).
 time of its creation. `notes_count` is the number of its notes. The
 page query reads the two for the cards of the page only.
 
-A cancelled task card and a cancelled initiative card have `cancellation`:
-the reason, who cancelled it, and when (KAIROS-T-0678). A card that is not
-cancelled has no `cancellation`.
-
 `?done_limit=N` keeps the last N cards of each done column, by
 `entered_column_at` (KAIROS-T-0649). The other columns keep each card.
 `item_count` stays the count of the full column, and `total` counts

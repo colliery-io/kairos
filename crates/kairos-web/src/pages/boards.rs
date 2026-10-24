@@ -1056,7 +1056,8 @@ impl CardOwner {
     }
 }
 
-/// The text of the chip of a cancelled task (KAIROS-T-0362).
+/// The text of the chip of a cancelled task (KAIROS-T-0362) or initiative
+/// (KAIROS-T-0678).
 const CANCELLED_CHIP: &str = "Cancelled";
 
 /// One column's owned view model. Its `key` fingerprints identity + the
@@ -1204,6 +1205,11 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                 if let Some(pill) = data::owner_pill(item.owner.as_ref()) {
                     meta.push((pill, token::TEAL));
                 }
+                // KAIROS-T-0678: the chip of a cancelled initiative, first,
+                // as for a task.
+                if item.cancellation.is_some() {
+                    meta.insert(0, (CANCELLED_CHIP.to_string(), token::MUTED));
+                }
                 card(
                     EntityKind::Initiative,
                     (&item.short_code, item.version, column_id),
@@ -1211,7 +1217,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     meta,
                     None,
                     None,
-                    (None, None, false),
+                    (None, None, item.cancellation.is_some()),
                     item.owner.as_ref().map(CardOwner::of_owner),
                     (item.entered_column_at.as_deref(), item.notes_count),
                 )

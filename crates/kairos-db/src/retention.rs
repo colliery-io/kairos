@@ -1313,6 +1313,9 @@ pub struct RetentionPass {
     /// The finished webhook deliveries past their window that the pass
     /// deleted in all the tenants (KAIROS-T-0638).
     pub webhook_deliveries_deleted: u64,
+    /// The request keys past their window of 24 hours that the pass
+    /// deleted in all the tenants (KAIROS-T-0681).
+    pub request_keys_deleted: u64,
 }
 
 impl RetentionPass {
@@ -1404,6 +1407,8 @@ pub fn run_retention_pass_with(
     progress();
     let deliveries = delete_old_webhook_deliveries(conn, now, paging)?;
     progress();
+    let request_keys = delete_old_request_keys(conn, now, paging)?;
+    progress();
     Ok(RetentionPass {
         mode: config.mode,
         tenants,
@@ -1414,5 +1419,23 @@ pub fn run_retention_pass_with(
         code_indexes_deleted: indexes,
         unused_summaries_deleted: summaries,
         webhook_deliveries_deleted: deliveries,
+        request_keys_deleted: request_keys,
+    })
+}
+
+/// Delete, in each tenant, the request keys made more than
+/// [`crate::request_keys::WINDOW_HOURS`] hours before `now`
+/// (KAIROS-T-0681). In each mode, also `off`: a key past its window
+/// replays nothing. Not archived. Returns the count.
+fn delete_old_request_keys(
+    conn: &mut PgConnection,
+    now: DateTime<Utc>,
+    paging: SweepPaging,
+) -> Result<u64, RetentionError> {
+    let cutoff = now - crate::request_keys::window();
+    in_each_tenant(conn, |conn| {
+        Ok(delete_in_pages(conn, paging.batch, |conn, limit| {
+            crate::request_keys::delete_before(conn, cutoff, limit)
+        })?)
     })
 }

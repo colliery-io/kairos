@@ -38,6 +38,9 @@ tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# KAIROS-T-0674: the path of a wrong argument in a refusal of an MCP tool.
+# The lockfile has it already (axum).
+serde_path_to_error = "0.1.20"
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 jsonwebtoken = { workspace = true }

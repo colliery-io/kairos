@@ -3168,7 +3168,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Targeted server-side edit of an item's content: exact search/replace applied to the CURRENT version (retries once on a concurrent-edit race). Fails if `search` is not found, or is ambiguous when replace_all is false. You can edit an item that you created, or with `manage_<type>` on its board."
+        description = "Targeted server-side edit of an item's content: exact search/replace applied to the CURRENT version (retries once on a concurrent-edit race). Fails if `search` is not found, or is ambiguous when replace_all is false. When the text differs only in whitespace, the refusal quotes the exact text to send. You can edit an item that you created, or with `manage_<type>` on its board."
     )]
     pub async fn edit_item(
         &self,
@@ -5937,8 +5937,10 @@ pub fn edit_item_text(
         let occurrences = item.content.matches(&params.search).count();
         if occurrences == 0 {
             return Err(ApiError::validation(format!(
-                "The text of search is not in {} (version {}).",
-                item.short_code, item.version
+                "The text of search is not in {} (version {}).{}",
+                item.short_code,
+                item.version,
+                whitespace_hint(&item.content, &params.search)
             )));
         }
         if occurrences > 1 && !params.replace_all {
@@ -5973,6 +5975,74 @@ pub fn edit_item_text(
         }
     }
     unreachable!("edit_item loop returns within two attempts");
+}
+
+/// KAIROS-T-0684: the spans of `content` that are equal to `search` when
+/// each run of whitespace in the two texts counts as one space. The spans
+/// are byte ranges of `content`, in order, with no overlap.
+fn whitespace_matches(content: &str, search: &str) -> Vec<std::ops::Range<usize>> {
+    // The normal form of a text: each whitespace run is one space. For
+    // each char of the normal form, the byte range of `content` that it
+    // stands for.
+    fn normal(text: &str) -> (String, Vec<std::ops::Range<usize>>) {
+        let mut out = String::new();
+        let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
+        for (at, ch) in text.char_indices() {
+            let end = at + ch.len_utf8();
+            if ch.is_whitespace() {
+                if out.ends_with(' ') && spans.last().is_some_and(|s| s.end == at) {
+                    if let Some(last) = spans.last_mut() {
+                        last.end = end;
+                    }
+                    continue;
+                }
+                out.push(' ');
+            } else {
+                out.push(ch);
+            }
+            spans.push(at..end);
+        }
+        (out, spans)
+    }
+    let (text, spans) = normal(content);
+    let (needle, _) = normal(search);
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    // The char index of each byte offset of the normal form.
+    let starts: Vec<usize> = text.char_indices().map(|(at, _)| at).collect();
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = text[from..].find(&needle) {
+        let begin = from + offset;
+        let end = begin + needle.len();
+        let first = starts.partition_point(|&at| at < begin);
+        let last = starts.partition_point(|&at| at < end) - 1;
+        found.push(spans[first].start..spans[last].end);
+        from = end;
+    }
+    found
+}
+
+/// KAIROS-T-0684: the end of the refusal of a `search` that is not in the
+/// content, when a text that differs only in whitespace is there. Empty
+/// when there is no such text.
+fn whitespace_hint(content: &str, search: &str) -> String {
+    let found = whitespace_matches(content, search);
+    match found.as_slice() {
+        [] => String::new(),
+        [one] => format!(
+            " A text that differs only in whitespace is in the content one time. Send this \
+             exact text as search: {:?}.",
+            &content[one.clone()]
+        ),
+        [first, ..] => format!(
+            " A text that differs only in whitespace is in the content {} times. The first \
+             is {:?}. Send the exact text, with more text around it to make it unique.",
+            found.len(),
+            &content[first.clone()]
+        ),
+    }
 }
 
 /// The answer text of `append_note`.
@@ -10079,5 +10149,45 @@ mod t0561_tests {
             empty_page_text("(none)", 51, 100),
             "(none at offset 100: the list has 51)\n"
         );
+    }
+}
+
+#[cfg(test)]
+mod t0684_tests {
+    //! KAIROS-T-0684: the whitespace hint of `edit_item`.
+    use super::{whitespace_hint, whitespace_matches};
+
+    #[test]
+    fn a_run_of_whitespace_matches_one_space() {
+        let content = "## Done when\n\n- The  table is there.\n- Tests.";
+        let found = whitespace_matches(content, "- The table is\tthere.");
+        assert_eq!(found.len(), 1);
+        assert_eq!(&content[found[0].clone()], "- The  table is there.");
+        // A search across lines.
+        let found = whitespace_matches(content, "Done when - The table");
+        assert_eq!(&content[found[0].clone()], "Done when\n\n- The  table");
+    }
+
+    #[test]
+    fn the_hint_quotes_the_exact_text() {
+        let content = "Line one.\n  Line two.";
+        assert_eq!(
+            whitespace_hint(content, "Line one. Line two."),
+            " A text that differs only in whitespace is in the content one time. Send this \
+             exact text as search: \"Line one.\\n  Line two.\"."
+        );
+    }
+
+    #[test]
+    fn more_than_one_and_none() {
+        let content = "a  b and a\tb";
+        let hint = whitespace_hint(content, "a b");
+        assert!(hint.contains("2 times"), "{hint}");
+        assert!(hint.contains("\"a  b\""), "{hint}");
+        assert_eq!(whitespace_hint(content, "no such text"), "");
+        // Non-ASCII text keeps char bounds.
+        let content = "Größe:  10 µm";
+        let found = whitespace_matches(content, "Größe: 10 µm");
+        assert_eq!(&content[found[0].clone()], content);
     }
 }

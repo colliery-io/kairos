@@ -1170,6 +1170,20 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(text.contains("VALIDATION"), "{text}");
     assert!(text.contains("The text of search is not in"), "{text}");
+    assert!(!text.contains("whitespace"), "{text}");
+    // KAIROS-T-0684: a search that differs only in whitespace gets the
+    // exact text of the item.
+    let text = session
+        .call_err(
+            "edit_item",
+            json!({"short_code": task_code, "search": "drifts  under\nload", "replace": "x"}),
+        )
+        .await;
+    assert!(
+        text.contains("A text that differs only in whitespace is in the content one time.")
+            && text.contains("Send this exact text as search: \"drifts under load\"."),
+        "{text}"
+    );
 
     let text = session
         .call_ok(

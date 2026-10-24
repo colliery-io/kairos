@@ -1332,17 +1332,26 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         // KAIROS-T-0554: the message keeps the sentence of the core that
         // names the targets ("From Todo, an item can move to: Active,
         // Blocked."), so an agent reads where it can go without the details.
+        // KAIROS-T-0675: `path` is the shortest chain of columns to the
+        // target (empty when none goes there), one transition_item for
+        // each step.
         BoardError::Transition(
             ref error @ TransitionError::NotAllowed {
                 ref from,
                 ref to,
                 ref allowed_targets,
+                ref route,
             },
         ) => ApiError::unprocessable("INVALID_TRANSITION", error.to_string())
         .with_details(json!({
             "from": {"id": from.id, "name": from.name},
             "to": {"id": to.id, "name": to.name},
             "allowed_targets": allowed_targets
+                .iter()
+                .map(|c| json!({"id": c.id, "name": c.name}))
+                .collect::<Vec<_>>(),
+            "path": route
+                .path
                 .iter()
                 .map(|c| json!({"id": c.id, "name": c.name}))
                 .collect::<Vec<_>>(),

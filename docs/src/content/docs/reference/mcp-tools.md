@@ -1610,6 +1610,10 @@ Moves an item to another column on its own board.
 Requires `transition_items` on the item's board. A transition is a move and
 not an edit. The creator of the item gets no right to move it.
 
+A move goes one column at a time, along a transition of the board. To find
+the columns and the moves between them, call [`my_boards`](#my_boards) first.
+`get_item` also gives the next columns of the item.
+
 A person who moves a task to Active gets the [claim](../glossary/#claim) of the
 task. The answer then has the line `claim`. An agent can move the task with
 the agent key of a person. Then the claim names the person and has the mark
@@ -1625,6 +1629,12 @@ target outside the board's transition graph, enumerating the allowed targets;
 entry column) while the board lets a person decide the triage. A task a
 person triaged out of the entry column moves as any other. The
 `ITEM_NOT_ON_BOARD` refusal for a document names `set_lifecycle`.
+
+The `INVALID_TRANSITION` refusal gives the shortest path to the target, in
+the text and in the detail `path`. Call `transition_item` for each step. A
+column can have no transition out of it. Then the text names `reopen_item`
+for a task in a done column. For a different item, the text says that
+`reopen_item` does not move it.
 
 Kairos also refuses `PARENT_NOT_ACTIVE` for a task that goes into a claims
 column under an inactive initiative. The board policy `parent_gate` sets this

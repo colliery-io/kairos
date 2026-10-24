@@ -3477,6 +3477,8 @@ async fn repository_tools_against_live_stack() {
             "forge",
             "repo_full_name",
             "repo_url",
+            // KAIROS-T-0681: a retry of the add is safe with a key.
+            "request_key",
             "slug",
             "team"
         ]
@@ -3827,7 +3829,7 @@ async fn repository_tools_against_live_stack() {
         text.starts_with(
             "VALIDATION: The call has the argument \"owner\". This tool does not accept \
              that argument. The arguments of this tool are: slug, forge, repo_full_name, \
-             repo_url, default_branch, team, description.\ndetails: "
+             repo_url, default_branch, team, description, request_key.\ndetails: "
         ),
         "{text}"
     );

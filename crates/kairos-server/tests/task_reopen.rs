@@ -15,6 +15,9 @@
 //!    Discovery is a 422 `PARENT_NOT_ACTIVE`, and the task stays done.
 //! 6. A board with only done columns: 422 `NO_OPEN_COLUMN`.
 //! 7. `reopen_item` of an item that is not a task is `VALIDATION`.
+//! 8. KAIROS-T-0675: a transition out of Completed, which has no
+//!    transition, names `reopen_item`. A refused move of an initiative from
+//!    Discovery to Active names the path, in the text and in `path`.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_task_reopen_t0564_test`.
@@ -326,6 +329,46 @@ async fn a_done_task_is_reopened_and_not_moved() {
         "TASK_DONE",
     )
     .await;
+    // 8. KAIROS-T-0675: the description names the tool that lists the
+    //    columns and the moves.
+    mcp.next_id += 1;
+    let id = mcp.next_id;
+    let (_, body) = mcp
+        .post(json!({"jsonrpc": "2.0", "id": id, "method": "tools/list"}))
+        .await;
+    let tools = rpc_message(&body)["result"]["tools"].clone();
+    let description = tools
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == "transition_item")
+        .and_then(|tool| tool["description"].as_str())
+        .expect("transition_item description")
+        .to_string();
+    for part in [
+        "A move goes one column at a time",
+        "call `my_boards` first",
+        "`reopen_item`",
+    ] {
+        assert!(description.contains(part), "{part}: {description}");
+    }
+    assert!(!description.contains("board_flow"), "{description}");
+    // 8. KAIROS-T-0675: Completed has no transition out; the refusal
+    //    names the reopen.
+    let text = mcp
+        .refused(
+            "transition_item",
+            json!({"short_code": done.short_code, "to_column": "Todo"}),
+            "INVALID_TRANSITION",
+        )
+        .await;
+    assert!(
+        text.contains(
+            "No transition starts at Completed. Completed is a done column. To move the task \
+             out of it, call reopen_item."
+        ),
+        "{text}"
+    );
 
     // 2. carol has no `transition_items` on the board.
     let err = carol
@@ -426,6 +469,48 @@ async fn a_done_task_is_reopened_and_not_moved() {
             json!({"item_type": "initiative", "board": "initiatives", "title": "Discovery work"}),
         )
         .await;
+    // 8. KAIROS-T-0675: the path from Discovery to Active.
+    let text = admin_mcp
+        .refused(
+            "transition_item",
+            json!({"short_code": initiative, "to_column": "Active"}),
+            "INVALID_TRANSITION",
+        )
+        .await;
+    assert!(
+        text.contains(
+            "The path to Active is Discovery → Design → Ready → Decompose → Active: call \
+             transition_item for each step."
+        ),
+        "{text}"
+    );
+    let err = admin
+        .transition_initiative(&initiative, &{
+            let board = admin.get_board("initiatives").await.expect("board");
+            board
+                .columns
+                .iter()
+                .find(|c| c.name == "Active")
+                .expect("Active")
+                .id
+                .clone()
+        })
+        .await
+        .expect_err("refused");
+    let Error::InvalidTransition { details, .. } = &err else {
+        panic!("expected InvalidTransition, got {err:?}");
+    };
+    let path: Vec<&str> = details["path"]
+        .as_array()
+        .expect("path")
+        .iter()
+        .map(|c| c["name"].as_str().expect("name"))
+        .collect();
+    assert_eq!(
+        path,
+        ["Discovery", "Design", "Ready", "Decompose", "Active"],
+        "{details}"
+    );
     let gated = admin_mcp
         .create(json!({"item_type": "task", "board": "web-delivery", "title": "Gated", "parent": initiative}))
         .await;

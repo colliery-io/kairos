@@ -1070,9 +1070,10 @@ pub struct DeleteItemParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct CancelItemParams {
-    /// The task's short code. The task must not be in a done column.
+    /// The short code of the task or the initiative. It must not be in a
+    /// done column.
     pub short_code: String,
-    /// Why the task is cancelled. Must not be empty.
+    /// Why the item is cancelled. Must not be empty.
     pub reason: String,
 }
 
@@ -4122,7 +4123,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move an item to another column on its board (`to_column` is a column name or UUID). An invalid move fails with the allowed target columns enumerated — pick one and retry. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`. Send a `request_key` when you may retry this call."
+        description = "Move an item to another column on its board (`to_column` is a column name or UUID). A move goes one column at a time, along a transition of the board. When you do not know the columns, call `my_boards` first: it gives the columns of each board and the moves between them (`get_item` gives the next columns of the item). An invalid move fails with the allowed target columns enumerated, and the path to the target when one goes there (`path`): call transition_item for each step. A done task leaves its done column only by `reopen_item`. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`. Send a `request_key` when you may retry this call."
     )]
     pub async fn transition_item(
         &self,
@@ -4371,7 +4372,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create an edge between two items by short code: parent, supports, informs, supersedes or blocks (type rules and cycles are checked). `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it. Send a `request_key` when you may retry this call."
+        description = "Create an edge between two items by short code. The edge goes from `source` to `target`. The types of the two items must agree with this table; a `parent` or a `blocks` edge must not make a cycle.\n\n| relationship | source | target |\n|---|---|---|\n| parent | strategy | initiative |\n| parent | initiative | task |\n| supports | strategy, initiative, task | document, adr |\n| informs | document, adr | strategy, initiative, task |\n| informs | task | task |\n| supersedes | adr | adr |\n| blocks | strategy, initiative, task | strategy, initiative, task |\n| impacts | document, adr | repository (slug or UUID) |\n| external | any item | URI (http, https or mailto) |\n\nThere is no other relationship (no `relates_to`). `supports` goes from the work to the document that supports it. `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it. Send a `request_key` when you may retry this call."
     )]
     pub async fn link_items(
         &self,
@@ -4726,7 +4727,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Cancel a TASK the team will not do, with a `reason`: it moves to the done column with the mark \"cancelled\", from any column (the transition rules do not apply), and its claim ends. `reopen_item` brings it back and removes the mark. Needs `transition_items` on its board. An empty reason, or a task already done (TASK_DONE), is refused. An agent's cancel of intake is refused with AGENT_TRIAGE_OFF while the board lets a person decide."
+        description = "Cancel a TASK or an INITIATIVE that the team will not do, with a `reason`: it moves to the done column of its board with the mark \"cancelled\", from any column (the transition rules do not apply). The board and `get_item` show `[cancelled]`. A task: its claim ends, and `reopen_item` brings it back and removes the mark. An initiative: its owner stays, and it has no reopen; it stays in the done column. Needs `transition_items` on its board. An empty reason, or an item already done (TASK_DONE, INITIATIVE_DONE), is refused. An agent's cancel of intake is refused with AGENT_TRIAGE_OFF while the board lets a person decide. To retire a different type: a strategy or an ADR, move it with `transition_item` and write the reason with `append_note`; a document, `set_lifecycle` archived."
     )]
     pub async fn cancel_item(
         &self,
@@ -4738,13 +4739,36 @@ impl KairosMcp {
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-            let Some(board_id) = item.board_id.filter(|_| item.item_type == ItemType::Task) else {
+            let cancellable = matches!(item.item_type, ItemType::Task | ItemType::Initiative);
+            let Some(board_id) = item.board_id.filter(|_| cancellable) else {
                 return Err(ApiError::validation(format!(
-                    "{} is a {}. You can cancel only a task.",
-                    item.short_code, item.item_type
+                    "{} is a {}. You can cancel only a task or an initiative. {}",
+                    item.short_code,
+                    item.item_type,
+                    retire_route(item.item_type)
                 ))
                 .with_details(serde_json::json!({ "field": "short_code" })));
             };
+            // KAIROS-T-0678: an initiative has no claim and no intake.
+            if item.item_type == ItemType::Initiative {
+                let cancelled = crate::cancel::cancel_initiative(
+                    conn,
+                    &slug,
+                    item.id,
+                    board_id,
+                    &params.reason,
+                    user,
+                )?;
+                return Ok(format!(
+                    "Cancelled {}: {} -> {}.\nReason: {}\nAn initiative has no reopen: it \
+                     stays in {}.",
+                    cancelled.short_code,
+                    cancelled.from_column,
+                    cancelled.to_column,
+                    cancelled.mark.reason,
+                    cancelled.to_column
+                ));
+            }
             // KAIROS-T-0456: a cancel is a triage of intake (won't do).
             let triaged = crate::agent_triage::check(
                 conn,
@@ -4990,13 +5014,15 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
+        let routes = crate::api::org::structure_grants::SignInRoutes::of(&self.state.config);
         self.run_tool(&tenant, move |conn| {
             let team = team_by_ref(conn, &params.team)?;
-            let target = crate::api::org::structure_grants::resolve_member(
+            let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
                 &params.user,
                 "user",
+                routes,
             )?;
             let member =
                 crate::api::org::teams::add_member_as(conn, &slug, user, team.id, target.id)?;
@@ -5019,6 +5045,7 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
+        let routes = crate::api::org::structure_grants::SignInRoutes::of(&self.state.config);
         self.run_tool(&tenant, move |conn| {
             if params.capability == kairos_core::abac::MANAGE_STRUCTURE {
                 let grant = crate::api::org::structure_grants::grant(
@@ -5027,6 +5054,7 @@ impl KairosMcp {
                     user,
                     &params.user,
                     params.board.as_deref(),
+                    routes,
                 )?;
                 let scope = match &grant.board_slug {
                     Some(board) => format!("on the board {board}"),
@@ -5046,11 +5074,12 @@ impl KairosMcp {
                 .with_details(json!({ "field": "board" })));
             };
             let board = board_by_ref(conn, board)?;
-            let target = crate::api::org::structure_grants::resolve_member(
+            let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
                 &params.user,
                 "user",
+                routes,
             )?;
             let member = crate::api::org::boards::grant_as(
                 conn,
@@ -6234,15 +6263,18 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
             facts.column_claims,
         ));
     }
-    // KAIROS-T-0362: the cancel mark and its reason.
-    if item.item_type == ItemType::Task {
-        if let (Some(at), Some(by), Some(reason)) = (
+    // KAIROS-T-0362: the cancel mark and its reason. KAIROS-T-0678: an
+    // initiative too.
+    if matches!(item.item_type, ItemType::Task | ItemType::Initiative)
+        && let (Some(at), Some(by), Some(reason)) = (
             facts.cancelled_at,
             &facts.cancelled_by_name,
             &facts.cancel_reason,
-        ) {
-            out.push_str(&crate::cancel::cancel_line(at, by, reason));
-        }
+        )
+    {
+        out.push_str(&crate::cancel::cancel_line(at, by, reason));
+    }
+    if item.item_type == ItemType::Task {
         // KAIROS-T-0506: the live state of the task.
         if let Some((state, name)) = facts.state(item.id) {
             out.push_str(&crate::task_state::state_line_of(&state, name, Utc::now()));
@@ -6994,6 +7026,17 @@ struct LoadedItem {
     created_at: DateTime<Utc>,
 }
 
+/// How to retire an item that `cancel_item` does not take (KAIROS-T-0678).
+fn retire_route(item_type: ItemType) -> &'static str {
+    match item_type {
+        ItemType::Document => "To retire a document, call set_lifecycle with archived.",
+        _ => {
+            "To retire it, move it to its done column with transition_item, and write the \
+             reason with append_note."
+        }
+    }
+}
+
 /// `require_capability` for a MOVE (`transition_item`, `move_item`), with
 /// one explanation added. When the refused caller CREATED this item as a
 /// request and it is still in the entry column, the refusal explains the
@@ -7738,10 +7781,42 @@ fn parse_relationship(value: &str) -> Result<RelationshipType, ApiError> {
         allowed.push(kairos_db::impacts::RELATIONSHIP.to_string());
         allowed.push(kairos_db::external_refs::RELATIONSHIP.to_string());
         ApiError::validation(format!(
-            "The value {value:?} is not a value of relationship. The values are: {}.",
-            allowed.join(", ")
+            "The value {value:?} is not a value of relationship. The values are: {}.{}",
+            allowed.join(", "),
+            relationship_hint(value)
         ))
     })
+}
+
+/// KAIROS-T-0677: the nearest relationship for a value that agents guess.
+/// An empty text for a value with no near relationship.
+fn relationship_hint(value: &str) -> &'static str {
+    let normal = value.trim().to_ascii_lowercase().replace(['-', ' '], "_");
+    match normal.as_str() {
+        "relates_to" | "related_to" | "relates" | "related" | "relation" | "references"
+        | "refers_to" | "see_also" | "mentions" => {
+            " For a reference to a document or an adr, or from a task to a task, use informs. \
+             For work that must wait for other work, use blocks."
+        }
+        "depends_on" | "blocked_by" | "requires" | "needs" | "waits_for" | "after" => {
+            " For work that must wait for other work, use blocks: the source is the item that \
+             must be done first, and the target waits."
+        }
+        "informed_by" => " Use informs, and swap source and target.",
+        "supported_by" => " Use supports, and swap source and target.",
+        "superseded_by" | "replaced_by" => " Use supersedes, and swap source and target.",
+        "replaces" => " Use supersedes.",
+        "child_of" => " Use parent, and swap source and target: the source is the parent.",
+        "child" | "parent_of" | "contains" | "has_child" => {
+            " Use parent. The source is the parent, and the target is the child."
+        }
+        "block" | "blocking" => " Use blocks.",
+        "inform" => " Use informs.",
+        "support" => " Use supports.",
+        "supersede" => " Use supersedes.",
+        "impact" => " Use impacts.",
+        _ => "",
+    }
 }
 
 /// One line of a document or an ADR in a section of `get_repository`
@@ -10270,5 +10345,105 @@ impl super::request_key::Keyed for CreateTeamPageParams {
 impl super::request_key::Keyed for CreateDispatchRuleParams {
     fn request_key(&self) -> Option<&str> {
         self.request_key.as_deref()
+    }
+}
+
+#[cfg(test)]
+mod t0677_tests {
+    //! KAIROS-T-0677: the table of `link_items` and the hints of its
+    //! refusals.
+
+    use super::{KairosMcp, parse_relationship};
+    use kairos_core::graph::{Relationship, check_link};
+    use kairos_core::short_code::ItemType;
+    use std::collections::BTreeSet;
+
+    /// The rows of the table in the description, as `(relationship,
+    /// sources, targets)`.
+    fn table_rows(description: &str) -> Vec<(String, Vec<String>, Vec<String>)> {
+        let list = |cell: &str| -> Vec<String> {
+            cell.split(',')
+                .map(|part| part.trim().to_string())
+                .collect()
+        };
+        description
+            .lines()
+            .filter(|line| line.starts_with("| ") && !line.starts_with("| relationship"))
+            .map(|line| {
+                let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+                assert_eq!(cells.len(), 3, "a row has three cells: {line}");
+                (cells[0].to_string(), list(cells[1]), list(cells[2]))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_description_table_is_the_matrix_of_check_link() {
+        let tool = KairosMcp::link_items_tool_attr();
+        let description = tool.description.expect("a description").to_string();
+        let rows = table_rows(&description);
+
+        let mut from_table = BTreeSet::new();
+        let mut named = BTreeSet::new();
+        for (relationship, sources, targets) in &rows {
+            named.insert(relationship.clone());
+            if Relationship::ALL.iter().all(|r| r.as_str() != relationship) {
+                continue;
+            }
+            for source in sources {
+                for target in targets {
+                    from_table.insert((relationship.clone(), source.clone(), target.clone()));
+                }
+            }
+        }
+
+        let mut from_code = BTreeSet::new();
+        for &relationship in Relationship::ALL {
+            for &source in ItemType::ALL {
+                for &target in ItemType::ALL {
+                    if check_link(relationship, source, target).is_ok() {
+                        from_code.insert((
+                            relationship.to_string(),
+                            source.to_string(),
+                            target.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(from_table, from_code, "{description}");
+
+        // Each relationship that the tool takes has a row.
+        let expected: BTreeSet<String> = Relationship::ALL
+            .iter()
+            .map(|r| r.to_string())
+            .chain(["impacts".to_string(), "external".to_string()])
+            .collect();
+        assert_eq!(named, expected);
+    }
+
+    fn refusal(value: &str) -> String {
+        parse_relationship(value).unwrap_err().message
+    }
+
+    #[test]
+    fn an_unknown_relationship_names_the_nearest_one() {
+        let text = refusal("relates_to");
+        assert!(
+            text.contains("use informs") && text.contains("use blocks"),
+            "{text}"
+        );
+        let text = refusal("depends_on");
+        assert!(text.contains("use blocks"), "{text}");
+        let text = refusal("child_of");
+        assert!(text.contains("swap source and target"), "{text}");
+        let text = refusal("block");
+        assert!(text.ends_with("Use blocks."), "{text}");
+        // A value with no near relationship gets the list only.
+        let text = refusal("is_about");
+        assert!(
+            text.ends_with("parent, supports, informs, supersedes, blocks, impacts, external."),
+            "{text}"
+        );
     }
 }

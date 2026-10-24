@@ -290,6 +290,7 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | `SAME_BOARD` | 422 | The move's target is the board the item is already on | — |
 | `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only. "Archive completed" (`POST /api/boards/{id}/archive-completed`) is for a delivery board only | — |
 | `RENAME_NOT_NEEDED` | 422 | A move with a rename to a board whose prefix the code has already, or a rename of a document whose owner board does not change. Nothing changes. Do the move with no rename | `field`: `rename`. For a prefix, also `short_code` and `code_prefix` |
+| `REQUEST_KEY_REUSED` | 409 | An MCP write with a `request_key` that an earlier, different request of the same caller used in the last 24 hours: a different tool or different arguments. Nothing is written. Use a new `request_key` for a new request (KAIROS-A-0065) | `request_key`, `first_tool`, `first_call_at` |
 | `RESTORE_BLOCKED` | 422 | The item's board, column, owning team or repository has been removed, so it has nowhere to return to. For a document, the board is its owner board | `missing` — a list naming each thing that is gone |
 
 Each document has an owner board. The server refuses a document create with

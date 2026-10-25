@@ -87,14 +87,14 @@ journey(
       await mcp.call('update_column', { board, column: 'Review', wip_limit: 3 });
       const added = await mcp.call('add_column', { board, name: 'Parked' });
       expect(added).toContain('Parked');
-      await mcp.call('set_transition', { board, from: 'Active', to: 'Parked', allowed: true });
+      await mcp.call('set_transition', { board, from_column: 'Active', to_column: 'Parked', allowed: true });
       let detail = await api.get(`/api/boards/${team.fixture.boardId}`);
       const parked = detail.columns.find((c: any) => c.name === 'Parked');
       expect(parked, 'the column exists').toBeTruthy();
       expect(detail.transitions.some((t: any) => t.to_column_id === parked.id)).toBe(true);
       expect(detail.columns.find((c: any) => c.name === 'Review').wip_limit).toBe(3);
 
-      await mcp.call('set_transition', { board, from: 'Active', to: 'Parked', allowed: false });
+      await mcp.call('set_transition', { board, from_column: 'Active', to_column: 'Parked', allowed: false });
       await mcp.call('remove_column', { board, column: 'Parked' });
       detail = await api.get(`/api/boards/${team.fixture.boardId}`);
       const names = detail.columns.map((c: any) => c.name);

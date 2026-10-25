@@ -147,7 +147,7 @@ pub struct GetRepositoryParams {
 #[serde(deny_unknown_fields)]
 pub struct MyBoardsParams {
     /// Restrict to one board level: strategy | initiative | delivery | adr.
-    pub level: Option<String>,
+    pub board_level: Option<String>,
 }
 
 /// `board_flow` (KAIROS-T-0372).
@@ -1412,9 +1412,9 @@ pub struct SetTransitionParams {
     /// The board, by slug or UUID.
     pub board: String,
     /// The column the move starts in, by name or UUID.
-    pub from: String,
+    pub from_column: String,
     /// The column the move ends in, by name or UUID.
-    pub to: String,
+    pub to_column: String,
     /// True: allow the move. False: stop it.
     pub allowed: bool,
 }
@@ -1452,14 +1452,22 @@ pub struct SaveMetadataDefinitionParams {
     pub entity_types: Option<Vec<String>>,
 }
 
-/// Parameters for `delete_metadata_definition` and `delete_template`
-/// (KAIROS-T-0443).
+/// Parameters for `delete_metadata_definition` (KAIROS-T-0443).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
-pub struct DeleteMetaParams {
-    /// The definition or the template, by slug or UUID.
-    pub reference: String,
+pub struct DeleteDefinitionParams {
+    /// The definition, by slug or UUID.
+    pub definition: String,
+}
+
+/// Parameters for `delete_template` (KAIROS-T-0443).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct DeleteTemplateParams {
+    /// The template, by slug or UUID.
+    pub template: String,
 }
 
 /// A metadata field of a template (KAIROS-T-0443).
@@ -2023,7 +2031,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "The boards of the organization by level (strategy, initiative, delivery, ADR), with the columns and item counts of your delivery boards, the team of each ADR board, the capabilities that your teams or your board memberships give you with no grant, and the boards where you approve edge proposals. Optional `level`."
+        description = "The boards of the organization by level (strategy, initiative, delivery, ADR), with the columns and item counts of your delivery boards, the team of each ADR board, the capabilities that your teams or your board memberships give you with no grant, and the boards where you approve edge proposals. Optional `board_level`."
     )]
     pub async fn my_boards(
         &self,
@@ -2036,9 +2044,9 @@ impl KairosMcp {
             use kairos_db::schema::{board_member_capabilities as caps, boards, team_members};
 
             let level_filter = params
-                .level
+                .board_level
                 .as_deref()
-                .map(|v| parse_enum(v, "level", BoardLevel::ALL))
+                .map(|v| parse_enum(v, "board_level", BoardLevel::ALL))
                 .transpose()?;
 
             let mut query = boards::table
@@ -5385,7 +5393,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Allow or stop a move between two columns of a board, as POST and DELETE /api/boards/{id}/transitions do. `allowed: true` adds the transition `from` -> `to`; `allowed: false` removes it. `board` is a slug or UUID; `from` and `to` are column names or UUIDs. Requires `configure_boards` on the board."
+        description = "Allow or stop a move between two columns of a board, as POST and DELETE /api/boards/{id}/transitions do. `allowed: true` adds the transition `from_column` -> `to_column`; `allowed: false` removes it. `board` is a slug or UUID; `from_column` and `to_column` are column names or UUIDs. Requires `configure_boards` on the board."
     )]
     pub async fn set_transition(
         &self,
@@ -5398,21 +5406,21 @@ impl KairosMcp {
         self.run_tool(&tenant, move |conn| {
             use crate::api::org::boards as b;
             let board = board_by_ref(conn, &params.board)?;
-            let from = crate::api::org::dispatch::column_of(conn, &board, &params.from)
-                .map_err(|e| e.with_details(json!({ "field": "from" })))?;
-            let to = crate::api::org::dispatch::column_of(conn, &board, &params.to)
-                .map_err(|e| e.with_details(json!({ "field": "to" })))?;
+            let from = crate::api::org::dispatch::column_of(conn, &board, &params.from_column)
+                .map_err(|e| e.with_details(json!({ "field": "from_column" })))?;
+            let to = crate::api::org::dispatch::column_of(conn, &board, &params.to_column)
+                .map_err(|e| e.with_details(json!({ "field": "to_column" })))?;
             if params.allowed {
                 b::add_transition_as(conn, &slug, user, board.id, from, to)?;
                 Ok(format!(
                     "The board {} allows the move {} -> {}.",
-                    board.slug, params.from, params.to
+                    board.slug, params.from_column, params.to_column
                 ))
             } else {
                 b::remove_transition_as(conn, &slug, user, board.id, from, to)?;
                 Ok(format!(
                     "The board {} does not allow the move {} -> {} now.",
-                    board.slug, params.from, params.to
+                    board.slug, params.from_column, params.to_column
                 ))
             }
         })
@@ -5508,22 +5516,27 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Delete a metadata definition, as DELETE /api/metadata-definitions/{id} does. Refused while an item has a value or a template has the field (DEFINITION_IN_USE names them). `reference` is a slug or UUID. Organization admins only."
+        description = "Delete a metadata definition, as DELETE /api/metadata-definitions/{id} does. Refused while an item has a value or a template has the field (DEFINITION_IN_USE names them). `definition` is a slug or UUID. Organization admins only."
     )]
     pub async fn delete_metadata_definition(
         &self,
-        Parameters(params): Parameters<DeleteMetaParams>,
+        Parameters(params): Parameters<DeleteDefinitionParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (_, tenant) = Self::caller(&context)?;
         let gate = crate::api::meta::require_org_admin(&tenant);
         self.run_tool(&tenant, move |conn| {
             gate?;
-            let id = meta_id(conn, "metadata_definitions", &params.reference, "reference")?;
+            let id = meta_id(
+                conn,
+                "metadata_definitions",
+                &params.definition,
+                "definition",
+            )?;
             crate::api::meta::definitions::delete_definition_in(conn, id)?;
             Ok(format!(
                 "Deleted the metadata definition {}.",
-                params.reference
+                params.definition
             ))
         })
         .await
@@ -5599,20 +5612,20 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Delete a template, as DELETE /api/templates/{id} does. Items made from it keep their content and their metadata. `reference` is a slug or UUID. Organization admins only."
+        description = "Delete a template, as DELETE /api/templates/{id} does. Items made from it keep their content and their metadata. `template` is a slug or UUID. Organization admins only."
     )]
     pub async fn delete_template(
         &self,
-        Parameters(params): Parameters<DeleteMetaParams>,
+        Parameters(params): Parameters<DeleteTemplateParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (_, tenant) = Self::caller(&context)?;
         let gate = crate::api::meta::require_org_admin(&tenant);
         self.run_tool(&tenant, move |conn| {
             gate?;
-            let id = meta_id(conn, "templates", &params.reference, "reference")?;
+            let id = meta_id(conn, "templates", &params.template, "template")?;
             crate::api::meta::templates::delete_template_in(conn, id)?;
-            Ok(format!("Deleted the template {}.", params.reference))
+            Ok(format!("Deleted the template {}.", params.template))
         })
         .await
     }

@@ -199,9 +199,9 @@ these include `manage_adrs`.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `level` | string | no | all levels | One of `strategy`, `initiative`, `delivery`, `adr`. |
+| `board_level` | string | no | all levels | One of `strategy`, `initiative`, `delivery`, `adr`. The tool also accepts the name `level`. |
 
-Refuses: `VALIDATION` for a `level` outside that vocabulary.
+Refuses: `VALIDATION` for a `board_level` outside that vocabulary.
 
 ### `my_work`
 
@@ -2707,8 +2707,8 @@ Allows or stops a move between two columns, as
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `board` | string | yes | — | Slug or UUID. |
-| `from` | string | yes | — | The column where the move starts. Name or UUID. |
-| `to` | string | yes | — | The column where the move ends. Name or UUID. |
+| `from_column` | string | yes | — | The column where the move starts. Name or UUID. The tool also accepts the name `from`. |
+| `to_column` | string | yes | — | The column where the move ends. Name or UUID. The tool also accepts the names `to` and `column`. |
 | `allowed` | boolean | yes | — | `true` adds the transition. `false` removes it. |
 
 Requires `configure_boards` on the board. Refuses: `DUPLICATE_TRANSITION`.
@@ -2736,7 +2736,7 @@ does.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `reference` | string | yes | — | Slug or UUID. |
+| `definition` | string | yes | — | Slug or UUID. The tool also accepts the name `reference`. |
 
 For organization admins only. Refuses: `DEFINITION_IN_USE` while an item has a
 value or a template has the field. The message names them.
@@ -2762,7 +2762,7 @@ keep their content and their metadata.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `reference` | string | yes | — | Slug or UUID. |
+| `template` | string | yes | — | Slug or UUID. The tool also accepts the name `reference`. |
 
 For organization admins only.
 

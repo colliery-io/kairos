@@ -44,6 +44,9 @@
 //! constructor and is not used in this mode.
 
 mod arguments;
+// KAIROS-T-0688: the test of the argument names.
+#[cfg(test)]
+mod names;
 mod profiles;
 mod request_key;
 mod service;

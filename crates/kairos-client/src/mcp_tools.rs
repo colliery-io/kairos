@@ -2,9 +2,9 @@
 //! reads, it is an idempotent write, or it is a write that is not
 //! idempotent. One table for the server and the CLI.
 //!
-//! - The `kairos mcp-proxy` retries a read, and a write that carries a
-//!   `request_key` (KAIROS-T-0682, KAIROS-T-0687). It takes its list of
-//!   reads from [`TOOLS`].
+//! - The `kairos mcp-proxy` retries a read, a write that carries a
+//!   `request_key` (KAIROS-T-0682, KAIROS-T-0687) and an idempotent write
+//!   (KAIROS-T-0699). It takes the kind of each tool from [`TOOLS`].
 //! - A test of the server fails when a tool of `tools/list` is not in the
 //!   table, when a name of the table is not a tool, and when the
 //!   `request_key` of a tool does not agree with its kind: a write that is
@@ -163,6 +163,11 @@ pub fn is_read(name: &str) -> bool {
     kind(name) == Some(ToolKind::Read)
 }
 
+/// True for a write that a second call does not change (KAIROS-T-0699).
+pub fn is_idempotent(name: &str) -> bool {
+    kind(name) == Some(ToolKind::Idempotent)
+}
+
 /// True for a tool that takes a `request_key`.
 pub fn takes_request_key(name: &str) -> bool {
     kind(name) == Some(KEYED)
@@ -188,6 +193,14 @@ mod tests {
         assert_eq!((reads, keyed), (19, 14));
         assert!(is_read("get_item") && !is_read("create_item") && !is_read("no_such_tool"));
         assert!(takes_request_key("create_item") && !takes_request_key("set_state"));
+        let idempotent = TOOLS
+            .iter()
+            .filter(|(_, k)| *k == ToolKind::Idempotent)
+            .count();
+        assert_eq!(idempotent, 21);
+        assert!(is_idempotent("set_state") && is_idempotent("set_metadata"));
+        assert!(!is_idempotent("get_item") && !is_idempotent("create_item"));
+        assert!(!is_idempotent("claim_item") && !is_idempotent("no_such_tool"));
     }
 
     #[test]

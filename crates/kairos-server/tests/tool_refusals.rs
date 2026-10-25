@@ -335,11 +335,7 @@ async fn refusals_are_counted_by_tool_and_code() {
         .refused("refusal_counts", json!({"limit": 0}), "VALIDATION")
         .await;
     let text = admin_mcp
-        .refused(
-            "refusal_counts",
-            json!({"to": "yesterday"}),
-            "VALIDATION",
-        )
+        .refused("refusal_counts", json!({"to": "yesterday"}), "VALIDATION")
         .await;
     assert!(text.contains("\"field\":\"to\""), "{text}");
 }

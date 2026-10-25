@@ -1002,12 +1002,13 @@ pub(crate) async fn list_dispatch_rules(
     post,
     path = "/api/boards/{id}/dispatch-rules",
     tag = "boards",
-    params(("id" = String, Path, description = "The slug or the id (UUID) of the board")),
+    params(("id" = String, Path, description = "The slug or the id (UUID) of the board"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateDispatchRuleRequest,
     responses(
         (status = 201, description = "The rule", body = dto::DispatchRule),
         (status = 403, description = "Missing configure_boards", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board, target or repository", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "VALIDATION: an unknown column, task type or metadata definition", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -1016,16 +1017,20 @@ pub(crate) async fn create_dispatch_rule(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateDispatchRuleRequest>,
-) -> Result<(StatusCode, Json<dto::DispatchRule>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::DispatchRule>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let (slug, user) = (tenant.slug.clone(), auth.user_id);
     let rule = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            create_rule_as(conn, &slug, user, &id, &body)
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                create_rule_as(conn, &slug, user, &id, &body)
+            })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(rule)))
+    Ok(rule)
 }
 
 /// Remove a dispatch rule. Its deliveries stay in the log. Needs

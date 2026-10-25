@@ -526,11 +526,13 @@ pub(crate) fn create(
     post,
     path = "/api/documents",
     tag = "documents",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateDocumentRequest,
     responses(
         (status = 201, description = "Created. With parent_short_code, the supports edge is written", body = dto::Document),
         (status = 403, description = "Missing manage_documents on the board that the document names", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "No board (details.field is board), unknown parent, non-workflow parent, or unknown template", body = dto::ErrorEnvelope),
     ),
 )]
@@ -538,8 +540,10 @@ pub(crate) async fn create_document(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateDocumentRequest>,
-) -> Result<(StatusCode, Json<dto::Document>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Document>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let template_id = parse_opt_uuid(body.template_id.as_deref(), "template_id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -547,27 +551,29 @@ pub(crate) async fn create_document(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            // COLLIERY-T-0227: the document and its edge, or neither.
-            let created = atomically(conn, |conn| {
-                create(
-                    conn,
-                    &slug,
-                    role,
-                    user,
-                    NewDocument {
-                        title: &body.title,
-                        content: body.content.as_deref(),
-                        template_id,
-                        board: Some(body.board.as_str()),
-                        parent: body.parent_short_code.as_deref(),
-                    },
-                    REST_WORDING,
-                )
-            })?;
-            render(conn, created.document)
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                // COLLIERY-T-0227: the document and its edge, or neither.
+                let created = atomically(conn, |conn| {
+                    create(
+                        conn,
+                        &slug,
+                        role,
+                        user,
+                        NewDocument {
+                            title: &body.title,
+                            content: body.content.as_deref(),
+                            template_id,
+                            board: Some(body.board.as_str()),
+                            parent: body.parent_short_code.as_deref(),
+                        },
+                        REST_WORDING,
+                    )
+                })?;
+                render(conn, created.document)
+            })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// What [`change_board`] did.

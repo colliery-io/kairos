@@ -334,12 +334,13 @@ pub(crate) async fn get_page(
     post,
     path = "/api/teams/{id}/pages",
     tag = "team-pages",
-    params(("id" = String, Path, description = "The slug or the id (UUID) of the team")),
+    params(("id" = String, Path, description = "The slug or the id (UUID) of the team"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateTeamPageRequest,
     responses(
         (status = 201, description = "Created", body = dto::TeamPage),
         (status = 403, description = "Not a team member", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown team", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad kind/parent, sibling slug conflict, or content too large", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -348,18 +349,22 @@ pub(crate) async fn create_page(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateTeamPageRequest>,
-) -> Result<(StatusCode, Json<dto::TeamPage>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::TeamPage>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let slug = tenant.slug.clone();
     let user = auth.user_id;
     let created = state
         .blocking
         .run(&slug, move |conn| {
-            let team_id = team_by_ref(conn, &id)?;
-            create_as(conn, &tenant, user, team_id, &body)
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                let team_id = team_by_ref(conn, &id)?;
+                create_as(conn, &tenant, user, team_id, &body)
+            })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// Create a page or a folder, as the REST route does: the gate, the write

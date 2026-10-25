@@ -1199,11 +1199,12 @@ pub(crate) async fn get_repository(
     post,
     path = "/api/repositories",
     tag = "repositories",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateRepositoryRequest,
     responses(
         (status = 201, description = "Registered", body = dto::Repository),
         (status = 403, description = "Neither org admin nor the owning team", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "Slug or (forge, name) already registered", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "Slug or (forge, name) already registered; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad slug/forge, unknown team, or a field that does not have its form", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -1211,15 +1212,21 @@ pub(crate) async fn create_repository(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateRepositoryRequest>,
-) -> Result<(StatusCode, Json<dto::Repository>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Repository>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let created = state
         .blocking
-        .run(&tenant.slug, move |conn| add(conn, &slug, user, body))
+        .run(&tenant.slug, move |conn| {
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                add(conn, &slug, user, body)
+            })
+        })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// Edit a repository (same gate as create, evaluated against the CURRENT

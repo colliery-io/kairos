@@ -435,11 +435,12 @@ pub(crate) async fn list_work_documents(
     post,
     path = "/api/teams",
     tag = "teams",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateTeamRequest,
     responses(
         (status = 201, description = "Created; delivery_board_id names the team's new board", body = dto::Team),
         (status = 403, description = "Not an org admin, and no manage_structure on the organization", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "A live team has the slug, a live board has the slug of the delivery board, or a live delivery board has the prefix", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live team has the slug, a live board has the slug of the delivery board, or a live delivery board has the prefix; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad team_type, the slug does not have the form of a slug, or the code_prefix is absent or does not match the rule", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -447,15 +448,21 @@ pub(crate) async fn create_team(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateTeamRequest>,
-) -> Result<(StatusCode, Json<dto::Team>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Team>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let team = state
         .blocking
-        .run(&tenant.slug, move |conn| create(conn, &slug, user, body))
+        .run(&tenant.slug, move |conn| {
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                create(conn, &slug, user, body)
+            })
+        })
         .await?;
-    Ok((StatusCode::CREATED, Json(team)))
+    Ok(team)
 }
 
 /// Create a team and its delivery board as `user`: the ONE implementation

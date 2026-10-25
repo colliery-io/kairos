@@ -496,11 +496,12 @@ pub(crate) fn archive_completed_tasks(
     post,
     path = "/api/boards",
     tag = "boards",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateBoardRequest,
     responses(
         (status = 201, description = "Created, with the seeded configuration", body = dto::BoardDetail),
         (status = 403, description = "Not an org admin, and no manage_structure on the organization", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "A live board has the slug, or a live board of the same level has the prefix; details.board names it", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live board has the slug, or a live board of the same level has the prefix; details.board names it; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad level/team reference, a slug that does not have the form of a board slug, a code_prefix that is absent or does not match the rule, a delivery board with no team, a strategy or initiative board with a team, the prefix of a team ADR board that is not the prefix of the team, TEAM_HAS_DELIVERY_BOARD, or TEAM_HAS_ADR_BOARD", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -508,15 +509,21 @@ pub(crate) async fn create_board(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateBoardRequest>,
-) -> Result<(StatusCode, Json<dto::BoardDetail>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::BoardDetail>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let detail = state
         .blocking
-        .run(&tenant.slug, move |conn| create(conn, &slug, user, body))
+        .run(&tenant.slug, move |conn| {
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                create(conn, &slug, user, body)
+            })
+        })
         .await?;
-    Ok((StatusCode::CREATED, Json(detail)))
+    Ok(detail)
 }
 
 /// Create a board as `user`: the ONE implementation of `POST /api/boards`
@@ -1640,12 +1647,13 @@ pub(crate) async fn list_columns(
     post,
     path = "/api/boards/{id}/columns",
     tag = "boards",
-    params(("id" = String, Path, description = "Board id (UUID)")),
+    params(("id" = String, Path, description = "Board id (UUID)"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateColumnRequest,
     responses(
         (status = 201, description = "Created", body = dto::BoardColumn),
         (status = 403, description = "Missing capability", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "DUPLICATE_COLUMN_NAME / DUPLICATE_COLUMN_POSITION / VALIDATION", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -1654,18 +1662,22 @@ pub(crate) async fn add_column(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateColumnRequest>,
-) -> Result<(StatusCode, Json<dto::BoardColumn>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::BoardColumn>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let board_id = parse_uuid(&id, "id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            add_column_as(conn, &slug, user, board_id, &body.name, body.position)
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                add_column_as(conn, &slug, user, board_id, &body.name, body.position)
+            })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// Add a column as `user`: the ONE implementation of

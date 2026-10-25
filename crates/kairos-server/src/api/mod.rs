@@ -33,6 +33,7 @@ pub mod convert;
 pub mod convert_meta;
 pub mod convert_org;
 pub mod documents;
+pub mod idempotency;
 pub mod initiatives;
 pub mod local_accounts;
 pub mod meta;

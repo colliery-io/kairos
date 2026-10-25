@@ -46,6 +46,8 @@
 mod arguments;
 mod profiles;
 mod request_key;
+// KAIROS-T-0686: the REST Idempotency-Key gives the same refusal.
+pub(crate) use request_key::reused as request_key_reused;
 mod service;
 mod tools;
 

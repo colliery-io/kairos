@@ -440,9 +440,11 @@ pub(crate) async fn get_task(
     post,
     path = "/api/tasks",
     tag = "tasks",
+    params(("Idempotency-Key" = Option<String>, Header, description = super::idempotency::HEADER_DOC)),
     request_body = dto::CreateTaskRequest,
     responses(
         (status = 201, description = "Created", body = dto::Task),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 403, description = "Missing capability. For a caller without `manage_tasks` on the board: the work class `planned`, or a board that is not a delivery board", body = dto::ErrorEnvelope),
         (status = 422, description = "No board and no team, a team that is not the team of the board, a team without exactly one delivery board, unknown board/column/repository/parent, a column that is not the entry column of the board, a parent that is not an initiative, PARENT_NOT_ACTIVE (a claims column under an inactive parent), or bad enum value", body = dto::ErrorEnvelope),
     ),
@@ -451,8 +453,10 @@ pub(crate) async fn create_task(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: super::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateTaskRequest>,
-) -> Result<(StatusCode, Json<dto::Task>), ApiError> {
+) -> Result<super::idempotency::Answer<dto::Task>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     // KAIROS-T-0150: slug or UUID; resolved in the closure below.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
     let team_id = parse_opt_uuid(body.team_id.as_deref(), "team_id")?;
@@ -478,68 +482,70 @@ pub(crate) async fn create_task(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let board_id = opt_board_id_by_ref(conn, body.board_id.as_deref())?;
-            let route = resolve_routing(conn, board_id, team_id, repository.as_deref())?;
-            require_entry_column(conn, route.board_id, column_id)?;
-            let access = require_task_create_capability(
-                conn,
-                &slug,
-                user,
-                &route,
-                requested_work_class,
-                body.from_team.as_deref(),
-            )?;
-            let work_class = access.work_class(requested_work_class, task_type);
-            // KAIROS-T-0572: the parent is checked before the first write.
-            let parent = body
-                .parent
-                .as_deref()
-                .map(|code| {
-                    super::meta::relationships::parent_for_create(conn, code, ItemType::Task)
-                })
-                .transpose()?;
-            // The task and its parent edge are one transaction: a refused
-            // edge leaves no task (COLLIERY-T-0227).
-            super::atomically(conn, |conn| {
-                let created = items::create_task(
+            super::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                let board_id = opt_board_id_by_ref(conn, body.board_id.as_deref())?;
+                let route = resolve_routing(conn, board_id, team_id, repository.as_deref())?;
+                require_entry_column(conn, route.board_id, column_id)?;
+                let access = require_task_create_capability(
                     conn,
-                    items::CreateTask {
-                        board_id: route.board_id,
-                        column_id,
-                        title: &body.title,
-                        content: &body.content,
-                        task_type,
-                        work_class,
-                        repository_id: route.repository_id,
-                    },
+                    &slug,
                     user,
-                )
-                .map_err(map_item_error)?;
-                if let Some(parent) = &parent {
-                    super::meta::relationships::link_created_parent(
+                    &route,
+                    requested_work_class,
+                    body.from_team.as_deref(),
+                )?;
+                let work_class = access.work_class(requested_work_class, task_type);
+                // KAIROS-T-0572: the parent is checked before the first write.
+                let parent = body
+                    .parent
+                    .as_deref()
+                    .map(|code| {
+                        super::meta::relationships::parent_for_create(conn, code, ItemType::Task)
+                    })
+                    .transpose()?;
+                // The task and its parent edge are one transaction: a refused
+                // edge leaves no task (COLLIERY-T-0227).
+                super::atomically(conn, |conn| {
+                    let created = items::create_task(
                         conn,
-                        role,
+                        items::CreateTask {
+                            board_id: route.board_id,
+                            column_id,
+                            title: &body.title,
+                            content: &body.content,
+                            task_type,
+                            work_class,
+                            repository_id: route.repository_id,
+                        },
                         user,
-                        parent,
-                        (created.id, ItemType::Task),
-                    )?;
-                    // KAIROS-A-0040: a create into a claims column is a move
-                    // into it, and the task has a parent now.
-                    kairos_db::board_policy::check_active_parent(
-                        conn,
-                        created.id,
-                        created.column_id,
                     )
-                    .map_err(map_board_error)?;
-                }
-                // KAIROS-T-0566: an entry column over its WIP limit warns,
-                // as for a move.
-                crate::claims::note_wip(conn, created.column_id, &created.short_code)?;
-                embed(conn, created.into_dto())
+                    .map_err(map_item_error)?;
+                    if let Some(parent) = &parent {
+                        super::meta::relationships::link_created_parent(
+                            conn,
+                            role,
+                            user,
+                            parent,
+                            (created.id, ItemType::Task),
+                        )?;
+                        // KAIROS-A-0040: a create into a claims column is a move
+                        // into it, and the task has a parent now.
+                        kairos_db::board_policy::check_active_parent(
+                            conn,
+                            created.id,
+                            created.column_id,
+                        )
+                        .map_err(map_board_error)?;
+                    }
+                    // KAIROS-T-0566: an entry column over its WIP limit warns,
+                    // as for a move.
+                    crate::claims::note_wip(conn, created.column_id, &created.short_code)?;
+                    embed(conn, created.into_dto())
+                })
             })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// Update task content (KAIROS-A-0004 optimistic concurrency).
@@ -870,12 +876,13 @@ pub(crate) async fn set_state(
     post,
     path = "/api/tasks/{short_code}/move",
     tag = "tasks",
-    params(("short_code" = String, Path, description = "Task short code")),
+    params(("short_code" = String, Path, description = "Task short code"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::MoveTaskRequest,
     responses(
         (status = 200, description = "Moved (new board, entry column)", body = dto::Task),
         (status = 403, description = "Missing manage_tasks on either board", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code or board", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN | RENAME_NOT_NEEDED (the code has the prefix of the target board) | TASK_DONE (the task is in a done column: reopen it first) | PARENT_NOT_ACTIVE", body = dto::ErrorEnvelope),
     ),
 )]
@@ -884,43 +891,47 @@ pub(crate) async fn move_task(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::MoveTaskRequest>,
-) -> Result<Json<dto::Task>, ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Task>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let moved = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let task = load(conn, &short_code, Liveness::LiveOnly)?;
-            let target = board_id_by_ref(conn, &body.board)?;
-            // Two-sided: the work leaves one team's board and lands on
-            // another's, so the caller needs the capability on the two.
-            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
-            // The creator of a task needs the capability on the two boards
-            // as all others do, because a team controls its own plan
-            // (COLLIERY-T-0218).
-            require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
-            require_capability(conn, &slug, Some(target), user, MANAGE)?;
-            // KAIROS-T-0456: a move to another team is a triage of intake.
-            let triaged = crate::agent_triage::check(
-                conn,
-                &auth,
-                task.id,
-                crate::agent_triage::TriageMove::Board(target),
-            )?;
-            crate::claims::note(conn, task.id, user)?;
-            let moved = boards::move_task_with(conn, task.id, target, user, body.rename)
-                .map_err(map_board_error)?;
-            crate::agent_triage::record(conn, &auth, task.id, triaged)?;
-            let code = moved.rename.map_or(short_code, |rename| rename.new_code);
-            // KAIROS-T-0371, KAIROS-T-0565: the WIP limit and the open
-            // blockers of the entry column.
-            crate::claims::note_task_move(conn, task.id, moved.column_id, &code)?;
-            let moved = load(conn, &code, Liveness::LiveOnly)?.into_dto();
-            embed(conn, moved)
+            crate::api::idempotency::run(conn, keyed, StatusCode::OK, |conn| {
+                let task = load(conn, &short_code, Liveness::LiveOnly)?;
+                let target = board_id_by_ref(conn, &body.board)?;
+                // Two-sided: the work leaves one team's board and lands on
+                // another's, so the caller needs the capability on the two.
+                // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+                // The creator of a task needs the capability on the two boards
+                // as all others do, because a team controls its own plan
+                // (COLLIERY-T-0218).
+                require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
+                require_capability(conn, &slug, Some(target), user, MANAGE)?;
+                // KAIROS-T-0456: a move to another team is a triage of intake.
+                let triaged = crate::agent_triage::check(
+                    conn,
+                    &auth,
+                    task.id,
+                    crate::agent_triage::TriageMove::Board(target),
+                )?;
+                crate::claims::note(conn, task.id, user)?;
+                let moved = boards::move_task_with(conn, task.id, target, user, body.rename)
+                    .map_err(map_board_error)?;
+                crate::agent_triage::record(conn, &auth, task.id, triaged)?;
+                let code = moved.rename.map_or(short_code, |rename| rename.new_code);
+                // KAIROS-T-0371, KAIROS-T-0565: the WIP limit and the open
+                // blockers of the entry column.
+                crate::claims::note_task_move(conn, task.id, moved.column_id, &code)?;
+                let moved = load(conn, &code, Liveness::LiveOnly)?.into_dto();
+                embed(conn, moved)
+            })
         })
         .await?;
-    Ok(Json(moved))
+    Ok(moved)
 }
 
 /// Move a task to another column (requires `transition_items` on the
@@ -930,12 +941,13 @@ pub(crate) async fn move_task(
     post,
     path = "/api/tasks/{short_code}/transition",
     tag = "tasks",
-    params(("short_code" = String, Path, description = "Task short code")),
+    params(("short_code" = String, Path, description = "Task short code"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::TransitionRequest,
     responses(
         (status = 200, description = "Transitioned (new column)", body = dto::Task),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "Invalid transition; details.allowed_targets lists valid moves", body = dto::ErrorEnvelope),
     ),
 )]
@@ -944,37 +956,42 @@ pub(crate) async fn transition_task(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::TransitionRequest>,
-) -> Result<Json<dto::Task>, ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Task>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let to_column_id = parse_uuid(&body.to_column_id, "to_column_id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let transitioned = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let task = load(conn, &short_code, Liveness::LiveOnly)?;
-            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
-            // The creator of an item needs this capability as all others do,
-            // because a team controls its own plan (COLLIERY-T-0218).
-            require_capability(conn, &slug, Some(task.board_id), user, "transition_items")?;
-            // KAIROS-T-0428: an agent's triage of intake.
-            let triaged = crate::agent_triage::check(
-                conn,
-                &auth,
-                task.id,
-                crate::agent_triage::TriageMove::Column(to_column_id),
-            )?;
-            crate::claims::note(conn, task.id, user)?;
-            boards::transition_task(conn, task.id, to_column_id, user).map_err(map_board_error)?;
-            crate::agent_triage::record(conn, &auth, task.id, triaged)?;
-            // KAIROS-T-0371, KAIROS-T-0565: the WIP limit and the open
-            // blockers.
-            crate::claims::note_task_move(conn, task.id, to_column_id, &short_code)?;
-            let task = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
-            embed(conn, task)
+            crate::api::idempotency::run(conn, keyed, StatusCode::OK, |conn| {
+                let task = load(conn, &short_code, Liveness::LiveOnly)?;
+                // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+                // The creator of an item needs this capability as all others do,
+                // because a team controls its own plan (COLLIERY-T-0218).
+                require_capability(conn, &slug, Some(task.board_id), user, "transition_items")?;
+                // KAIROS-T-0428: an agent's triage of intake.
+                let triaged = crate::agent_triage::check(
+                    conn,
+                    &auth,
+                    task.id,
+                    crate::agent_triage::TriageMove::Column(to_column_id),
+                )?;
+                crate::claims::note(conn, task.id, user)?;
+                boards::transition_task(conn, task.id, to_column_id, user)
+                    .map_err(map_board_error)?;
+                crate::agent_triage::record(conn, &auth, task.id, triaged)?;
+                // KAIROS-T-0371, KAIROS-T-0565: the WIP limit and the open
+                // blockers.
+                crate::claims::note_task_move(conn, task.id, to_column_id, &short_code)?;
+                let task = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
+                embed(conn, task)
+            })
         })
         .await?;
-    Ok(Json(transitioned))
+    Ok(transitioned)
 }
 
 /// Give the claim of a task in Active to a person (KAIROS-T-0359,

@@ -132,7 +132,7 @@ impl KeyedCall {
 }
 
 /// The refusal of a key that an earlier, different request used.
-fn reused(key: &str, first_tool: &str, at: &str) -> ApiError {
+pub(crate) fn reused(key: &str, first_tool: &str, at: &str) -> ApiError {
     ApiError::new(
         StatusCode::CONFLICT,
         "REQUEST_KEY_REUSED",

@@ -433,6 +433,11 @@ pub(crate) async fn get_relationships(
     Ok(Json(response))
 }
 
+/// The JSON of an answer that the Idempotency-Key keeps.
+fn json_value<T: serde::Serialize>(value: T) -> Result<serde_json::Value, ApiError> {
+    serde_json::to_value(value).map_err(ApiError::internal)
+}
+
 /// Create a relationship edge, or a proposal of a `blocks` edge.
 ///
 /// The link rule applies (COLLIERY-T-0228). The caller can edit the source
@@ -449,12 +454,13 @@ pub(crate) async fn get_relationships(
     post,
     path = "/api/relationships",
     tag = "relationships",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateRelationshipRequest,
     responses(
         (status = 201, description = "Edge created (relationship_add activity row written)", body = dto::Relationship),
         (status = 202, description = "No edge: a proposal of a blocks edge. The caller can edit the source only. The message says who can confirm it", body = dto::ProposedRelationship),
         (status = 403, description = "The caller may edit neither the source nor the target", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "CONFLICT: the same proposal is pending, or the item has too many pending proposals", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "CONFLICT: the same proposal is pending, or the item has too many pending proposals; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Rule violation, cycle, duplicate edge, or unknown endpoint", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -462,51 +468,54 @@ pub(crate) async fn create_relationship(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateRelationshipRequest>,
 ) -> Result<Response, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let relationship = parse_enum(&body.relationship, "relationship", RelationshipType::ALL)?;
     let user = auth.user_id;
     let tenant_ctx = tenant.clone();
     state
         .blocking
         .run(&tenant.slug, move |conn| {
-            // KAIROS-T-0560: a retired code follows to its item, and the
-            // answer has the current codes.
-            let source = resolve_live_ref(conn, &body.source_short_code, "source_short_code")?;
-            let target = resolve_live_ref(conn, &body.target_short_code, "target_short_code")?;
-            // COLLIERY-T-0228, KAIROS-T-0569: the link rule and the write,
-            // by the ONE function that MCP `link_items` calls.
-            match link_or_propose(
-                conn,
-                tenant_ctx.role,
-                user,
-                relationship,
-                (source.typed(), target.typed()),
-                map_link_error,
-            )? {
-                LinkOutcome::Linked(created) => Ok((
-                    StatusCode::CREATED,
-                    Json(relationship_dto(created, source.code, target.code)),
-                )
-                    .into_response()),
-                LinkOutcome::Proposed { proposal, boards } => {
-                    let message = link_proposal_text(
-                        &source.code,
-                        &target.code,
-                        relationship.as_str(),
-                        &proposal,
-                        &boards,
-                    );
-                    let proposal = crate::api::proposals::to_dto(conn, *proposal)?;
-                    Ok((
-                        StatusCode::ACCEPTED,
-                        Json(dto::ProposedRelationship { message, proposal }),
-                    )
-                        .into_response())
+            crate::api::idempotency::run_with_status(conn, keyed, |conn| {
+                // KAIROS-T-0560: a retired code follows to its item, and the
+                // answer has the current codes.
+                let source = resolve_live_ref(conn, &body.source_short_code, "source_short_code")?;
+                let target = resolve_live_ref(conn, &body.target_short_code, "target_short_code")?;
+                // COLLIERY-T-0228, KAIROS-T-0569: the link rule and the write,
+                // by the ONE function that MCP `link_items` calls.
+                match link_or_propose(
+                    conn,
+                    tenant_ctx.role,
+                    user,
+                    relationship,
+                    (source.typed(), target.typed()),
+                    map_link_error,
+                )? {
+                    LinkOutcome::Linked(created) => Ok((
+                        StatusCode::CREATED,
+                        json_value(relationship_dto(created, source.code, target.code))?,
+                    )),
+                    LinkOutcome::Proposed { proposal, boards } => {
+                        let message = link_proposal_text(
+                            &source.code,
+                            &target.code,
+                            relationship.as_str(),
+                            &proposal,
+                            &boards,
+                        );
+                        let proposal = crate::api::proposals::to_dto(conn, *proposal)?;
+                        Ok((
+                            StatusCode::ACCEPTED,
+                            json_value(dto::ProposedRelationship { message, proposal })?,
+                        ))
+                    }
                 }
-            }
+            })
         })
         .await
+        .map(IntoResponse::into_response)
 }
 
 /// The parent of a create (KAIROS-T-0572): resolve `parent` and check the

@@ -63,6 +63,7 @@ impl<P: JsonSchema> JsonSchema for Parameters<P> {
         let mut schema = P::json_schema(generator);
         if let Some(object) = schema.as_object_mut() {
             show_aliases(object);
+            show_field_aliases(object, generator.definitions_mut());
         }
         schema
     }
@@ -110,9 +111,32 @@ pub(super) const ALIASES: &[(&str, &[&str])] = &[
     ("content", &["body", "text"]),
     ("q", &["query"]),
     ("to_column", &["to", "column"]),
+    // KAIROS-T-0688: the old names of the arguments of `set_transition`,
+    // `my_boards`, `delete_metadata_definition` and `delete_template`.
+    ("from_column", &["from"]),
+    ("board_level", &["level"]),
+    // KAIROS-T-0696 (Dylan, 2026-10-25): one name for a metadata
+    // definition; `metadata_slug` is the old name on create_dispatch_rule.
+    ("definition", &["reference", "metadata_slug"]),
+    ("template", &["reference"]),
     ("source", &["from"]),
     ("target", &["to"]),
     ("relationship", &["relation", "edge_type"]),
+];
+
+/// The other names of a field of an object argument (KAIROS-T-0696): the
+/// argument, the field, and its aliases. The search filter takes `board`,
+/// `team` and `column` (a slug, a name or a UUID); `board_id`, `team_id`
+/// and `column_id` are their old names, and REST still accepts them.
+///
+/// The argument is an object, or a list of objects: each entry gets the
+/// alias (`metadata[]` of save_template: `definition_slug` is the old name
+/// of `definition`).
+pub(super) const FIELD_ALIASES: &[(&str, &str, &[&str])] = &[
+    ("metadata", "definition", &["definition_slug"]),
+    ("filter", "board", &["board_id"]),
+    ("filter", "team", &["team_id"]),
+    ("filter", "column", &["column_id"]),
 ];
 
 /// Guesses that are not aliases, and the argument that the refusal names
@@ -154,7 +178,89 @@ fn with_names(mut arguments: JsonObject, names: &[String]) -> Result<JsonObject,
         }
         arguments.insert(argument.to_string(), value);
     }
+    for (object, field, aliases) in FIELD_ALIASES {
+        if !names.iter().any(|n| n == object) {
+            continue;
+        }
+        let entries: Vec<&mut JsonObject> = match arguments.get_mut(*object) {
+            Some(Value::Object(fields)) => vec![fields],
+            Some(Value::Array(list)) => list.iter_mut().filter_map(Value::as_object_mut).collect(),
+            _ => continue,
+        };
+        for fields in entries {
+            for alias in *aliases {
+                let Some(value) = fields.remove(*alias) else {
+                    continue;
+                };
+                if fields.contains_key(*field) {
+                    return Err(validation(format!(
+                        "The call has the field {field:?} and the field {alias:?} in {object}. \
+                         They are the same field. Send only one of them."
+                    ))
+                    .with_details(json!({
+                        "field": format!("{object}.{alias}"),
+                        "argument": format!("{object}.{field}"),
+                    })));
+                }
+                fields.insert(field.to_string(), value);
+            }
+        }
+    }
     Ok(arguments)
+}
+
+/// The aliases of the fields of [`FIELD_ALIASES`] in the schema of the
+/// object of the argument (in `$defs`): in the description, and as the
+/// list `x-aliases`.
+fn show_field_aliases(schema: &JsonObject, definitions: &mut JsonObject) {
+    for (object, field, aliases) in FIELD_ALIASES {
+        let Some(property) = schema.get("properties").and_then(|p| p.get(*object)) else {
+            continue;
+        };
+        let Some(name) = reference_of(property) else {
+            continue;
+        };
+        let Some(Value::Object(def)) = definitions.get_mut(&name) else {
+            continue;
+        };
+        let Some(Value::Object(fields)) = def.get_mut("properties") else {
+            continue;
+        };
+        if aliases.iter().any(|alias| fields.contains_key(*alias)) {
+            continue;
+        }
+        let Some(Value::Object(property)) = fields.get_mut(*field) else {
+            continue;
+        };
+        let list = aliases
+            .iter()
+            .map(|alias| format!("`{alias}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let note = format!("Other names that the tool accepts: {list}.");
+        let description = match property.get("description").and_then(Value::as_str) {
+            Some(text) if !text.is_empty() => format!("{text}\n{note}"),
+            _ => note,
+        };
+        property.insert("description".into(), Value::String(description));
+        property.insert("x-aliases".into(), json!(aliases));
+    }
+}
+
+/// The name in `$defs` of the object of a property: its `$ref`, also in an
+/// `anyOf` with `null`, and the `$ref` of the entries of a list.
+fn reference_of(property: &Value) -> Option<String> {
+    if let Some(reference) = property.get("$ref").and_then(Value::as_str) {
+        return reference.strip_prefix("#/$defs/").map(str::to_string);
+    }
+    if let Some(found) = property.get("items").and_then(reference_of) {
+        return Some(found);
+    }
+    property
+        .get("anyOf")
+        .and_then(Value::as_array)?
+        .iter()
+        .find_map(reference_of)
 }
 
 /// The aliases of each argument in the schema of the tool: in the
@@ -303,19 +409,38 @@ fn argument_error(
     }
     let field = path_text(path);
     if field.is_empty() {
+        // KAIROS-T-0690: the words of the schema, not the text of `serde`.
+        let allowed = properties(schema);
         return validation(format!(
-            "The arguments are not correct for this tool: {serde_message}."
-        ));
+            "The arguments of this tool must be one object with these arguments: {}.",
+            allowed.join(", ")
+        ))
+        .with_details(json!({ "allowed": allowed }));
     }
-    // Only a fault of type gets the words of the schema. A value of the
-    // correct type that is not correct (an unknown variant, a bad UUID)
-    // keeps the message of `serde`, which says what is wrong.
+    // A fault of type gets the type of the schema. A value of the correct
+    // type that is not correct (an unknown variant, a bad UUID) gets the
+    // values or the format of the schema, and the value of the call
+    // (KAIROS-T-0690: never the text of `serde`).
     let given = value_at(call, path);
-    let expected = serde_message
-        .starts_with("invalid type:")
-        .then(|| schema_at(schema, path).and_then(|s| describe(schema, s)))
-        .flatten();
+    let wrong_type = serde_message.starts_with("invalid type:");
+    let expected = schema_at(schema, path).and_then(|s| {
+        if wrong_type {
+            describe(schema, s)
+        } else {
+            format_of(schema, s).or_else(|| describe(schema, s))
+        }
+    });
     match expected {
+        Some(expected) if !wrong_type => {
+            let mut message = format!("The value of {field} must be {expected}.");
+            if let Some(given) = given.filter(|g| g.is_string() || g.is_number()) {
+                let text = given.to_string();
+                if text.chars().count() <= 80 {
+                    message.push_str(&format!(" The call gives {text}."));
+                }
+            }
+            validation(message).with_details(json!({ "field": field, "expected": expected }))
+        }
         Some(expected) => {
             let mut message = format!("The value of {field} must be {expected}.");
             if let Some(given) = given {
@@ -332,9 +457,22 @@ fn argument_error(
             validation(message).with_details(json!({ "field": field, "expected": expected }))
         }
         None => validation(format!(
-            "The value of {field} is not correct: {serde_message}."
+            "The value of {field} is not a value that this tool accepts. The schema of the \
+             tool in tools/list gives the values."
         ))
         .with_details(json!({ "field": field })),
+    }
+}
+
+/// The format of a string of the schema in words: `a UUID`. `None` for a
+/// string with no format that the words help.
+fn format_of(root: &JsonObject, schema: &Value) -> Option<String> {
+    let schema = resolve(root, schema)?;
+    match schema.get("format")?.as_str()? {
+        "uuid" => Some("a UUID".into()),
+        "date" => Some("a date in the form YYYY-MM-DD".into()),
+        "date-time" => Some("an RFC 3339 timestamp".into()),
+        _ => None,
     }
 }
 
@@ -560,6 +698,76 @@ mod tests {
         parse::<P>(arguments).expect_err("the call is refused")
     }
 
+    #[derive(Debug, Deserialize, JsonSchema)]
+    #[schemars(crate = "rmcp::schemars")]
+    #[serde(deny_unknown_fields)]
+    #[allow(dead_code)]
+    struct Find {
+        filter: Option<Filter>,
+    }
+
+    #[derive(Debug, Deserialize, JsonSchema)]
+    #[schemars(crate = "rmcp::schemars")]
+    #[serde(deny_unknown_fields)]
+    #[allow(dead_code)]
+    struct Filter {
+        board: Option<String>,
+        team: Option<String>,
+    }
+
+    /// KAIROS-T-0696: an old name of a field of the filter is the field.
+    #[test]
+    fn an_old_name_of_a_field_of_the_filter_is_the_field() {
+        let Value::Object(call) = json!({"filter": {"board_id": "0193a1c2-0000-7000-8000-000000000003", "team_id": "platform"}})
+        else {
+            unreachable!()
+        };
+        let found = parse::<Find>(call).expect("the old names are read");
+        let filter = found.filter.expect("the filter");
+        assert_eq!(
+            filter.board.as_deref(),
+            Some("0193a1c2-0000-7000-8000-000000000003")
+        );
+        assert_eq!(filter.team.as_deref(), Some("platform"));
+        let err = refusal_of::<Find>(json!({"filter": {"board": "a", "board_id": "b"}}));
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(
+            err.message,
+            "The call has the field \"board\" and the field \"board_id\" in filter. They are \
+             the same field. Send only one of them."
+        );
+        assert_eq!(
+            err.details,
+            json!({"field": "filter.board_id", "argument": "filter.board"})
+        );
+        // A list of objects: each entry gets the alias.
+        #[derive(Debug, Deserialize, JsonSchema)]
+        #[schemars(crate = "rmcp::schemars")]
+        #[serde(deny_unknown_fields)]
+        #[allow(dead_code)]
+        struct Save {
+            metadata: Vec<Field>,
+        }
+        #[derive(Debug, Deserialize, JsonSchema)]
+        #[schemars(crate = "rmcp::schemars")]
+        #[serde(deny_unknown_fields)]
+        #[allow(dead_code)]
+        struct Field {
+            definition: String,
+        }
+        let Value::Object(call) =
+            json!({"metadata": [{"definition_slug": "size"}, {"definition": "risk"}]})
+        else {
+            unreachable!()
+        };
+        let saved = parse::<Save>(call).expect("the old name in a list is read");
+        assert_eq!(saved.metadata[0].definition, "size");
+        assert_eq!(saved.metadata[1].definition, "risk");
+        // A tool with no `filter` argument does not rename.
+        let err = refusal_of::<Read>(json!({"short_code": "A", "filter": {"board_id": "b"}}));
+        assert_eq!(err.details["field"], "filter");
+    }
+
     /// COLLIERY-T-0256: the refusal names the argument, and it gives the
     /// arguments that the tool has.
     #[test]
@@ -687,19 +895,43 @@ mod tests {
         );
     }
 
-    /// KAIROS-T-0674: a value of the correct type that is not correct keeps
-    /// the message of `serde`, after the path.
+    /// KAIROS-T-0674, KAIROS-T-0690: a value of the correct type that is
+    /// not correct gets the values of the schema and the value of the
+    /// call, with the path; not the text of `serde`.
     #[test]
-    fn a_wrong_value_keeps_the_message_of_serde_with_the_path() {
+    fn a_wrong_value_names_the_values_with_the_path() {
         let err = refusal_of::<Read>(
             json!({"short_code": "ACME-T-0001", "within": {"from": "a", "mode": "quick"}}),
         );
         assert_eq!(
             err.message,
-            "The value of within.mode is not correct: unknown variant `quick`, expected \
-             `fast` or `slow`."
+            "The value of within.mode must be one of these values: fast, slow. The call \
+             gives \"quick\"."
         );
-        assert_eq!(err.details, json!({"field": "within.mode"}));
+        assert_eq!(
+            err.details,
+            json!({"field": "within.mode", "expected": "one of these values: fast, slow"})
+        );
+        assert!(!err.message.contains("variant"), "{}", err.message);
+    }
+
+    /// KAIROS-T-0690: arguments that are not an object get the list of the
+    /// arguments, not the text of `serde`.
+    #[test]
+    fn arguments_that_are_not_an_object_get_the_list() {
+        let schema = schema_for_input::<Read>().expect("a schema");
+        let err = argument_error(
+            "invalid type: sequence, expected struct Read",
+            &[],
+            &json!([]),
+            &schema,
+        );
+        assert_eq!(
+            err.message,
+            "The arguments of this tool must be one object with these arguments: limit, \
+             short_code, within."
+        );
+        assert!(!err.message.contains("struct"), "{}", err.message);
     }
 
     #[test]
@@ -890,6 +1122,54 @@ mod tests {
             aliases("link_items", "relationship"),
             json!(["relation", "edge_type"])
         );
+        // KAIROS-T-0696: the old names of the fields of the search filter.
+        let search = schema_of("search");
+        let filter = reference_of(&search["properties"]["filter"]).expect("the $ref of filter");
+        let fields = &search["$defs"][&filter]["properties"];
+        assert_eq!(fields["board"]["x-aliases"], json!(["board_id"]));
+        assert_eq!(fields["team"]["x-aliases"], json!(["team_id"]));
+        assert_eq!(fields["column"]["x-aliases"], json!(["column_id"]));
+        // KAIROS-T-0696 (Dylan, 2026-10-25): one name for a definition.
+        let save = schema_of("save_template");
+        let entry = reference_of(&save["properties"]["metadata"]).expect("the $ref of metadata");
+        assert_eq!(
+            save["$defs"][&entry]["properties"]["definition"]["x-aliases"],
+            json!(["definition_slug"])
+        );
+        assert_eq!(
+            aliases("create_dispatch_rule", "definition"),
+            json!(["reference", "metadata_slug"])
+        );
+        assert_eq!(
+            aliases("delete_metadata_definition", "definition"),
+            json!(["reference", "metadata_slug"])
+        );
+        assert!(
+            fields["board"]["description"]
+                .as_str()
+                .unwrap()
+                .ends_with("Other names that the tool accepts: `board_id`."),
+            "{}",
+            fields["board"]
+        );
+        for old in ["board_id", "team_id", "column_id"] {
+            assert!(
+                fields.get(old).is_none(),
+                "{old} is not a field of the filter"
+            );
+        }
+        // KAIROS-T-0688: the old names of the renamed arguments.
+        assert_eq!(aliases("set_transition", "from_column"), json!(["from"]));
+        assert_eq!(
+            aliases("set_transition", "to_column"),
+            json!(["to", "column"])
+        );
+        assert_eq!(aliases("my_boards", "board_level"), json!(["level"]));
+        assert_eq!(
+            aliases("delete_metadata_definition", "definition"),
+            json!(["reference", "metadata_slug"])
+        );
+        assert_eq!(aliases("delete_template", "template"), json!(["reference"]));
         // `hand_off_item` has an argument `to`: it is not an alias there.
         assert_eq!(
             aliases("hand_off_item", "short_code"),

@@ -1707,7 +1707,9 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         reply,
         (
             true,
-            "VALIDATION: No live repository has the slug \"no-such-repo\".".to_string(),
+            "VALIDATION: No live repository has the slug \"no-such-repo\".\ndetails: \
+             {\"field\":\"repository\"}"
+                .to_string(),
         ),
     );
 
@@ -1948,7 +1950,9 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         (
             true,
             "VALIDATION: The value \"is_about\" is not a value of relationship. The values \
-             are: parent, supports, informs, supersedes, blocks, impacts, external."
+             are: parent, supports, informs, supersedes, blocks, impacts, external.\n\
+             details: {\"allowed\":[\"parent\",\"supports\",\"informs\",\"supersedes\",\
+             \"blocks\",\"impacts\",\"external\"],\"field\":\"relationship\"}"
                 .to_string(),
         ),
     );
@@ -2451,7 +2455,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     // KAIROS-T-0555 added set_lifecycle. KAIROS-T-0556 added list_members.
     // KAIROS-T-0572 added set_parent. KAIROS-T-0558 added the 3 tools of
     // the webhook targets. set_complexity is one more.
-    checks.same("H1: the number of tools", tools.len(), 79);
+    checks.same("H1: the number of tools", tools.len(), 80);
     let schema_of = |name: &str| -> Value {
         tools
             .iter()

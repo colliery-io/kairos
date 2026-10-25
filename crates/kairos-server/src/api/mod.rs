@@ -33,6 +33,7 @@ pub mod convert;
 pub mod convert_meta;
 pub mod convert_org;
 pub mod documents;
+pub mod idempotency;
 pub mod initiatives;
 pub mod local_accounts;
 pub mod meta;
@@ -129,8 +130,10 @@ pub fn clamp_list(query: &dto::ListQuery) -> (i64, i64, Liveness) {
 /// Parse a UUID body field (`422 VALIDATION` on malformed input — the DTO
 /// crate carries ids as strings, see `kairos_client::types`).
 pub fn parse_uuid(value: &str, field: &str) -> Result<Uuid, ApiError> {
-    Uuid::parse_str(value)
-        .map_err(|_| ApiError::validation(format!("The value {value:?} of {field} is not a UUID.")))
+    Uuid::parse_str(value).map_err(|_| {
+        ApiError::validation(format!("The value {value:?} of {field} is not a UUID."))
+            .with_details(json!({ "field": field }))
+    })
 }
 
 /// [`parse_uuid`] over an optional field.
@@ -156,23 +159,15 @@ pub fn parse_opt_uuid(value: Option<&str>, field: &str) -> Result<Option<Uuid>, 
 /// difference between "no board called that" and "that is not a UUID" is the
 /// whole point for someone who typed a slug on purpose.
 pub fn board_id_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError> {
-    use kairos_db::schema::boards::dsl;
-    let mut query = dsl::boards
-        .filter(dsl::deleted_at.is_null())
-        .select(dsl::id)
-        .into_boxed();
-    query = match Uuid::parse_str(reference) {
-        Ok(id) => query.filter(dsl::id.eq(id)),
-        Err(_) => query.filter(dsl::slug.eq(reference)),
-    };
-    query
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
+    // KAIROS-T-0689: the forms of crate::references::BOARD_FORMS.
+    let reference = crate::references::text(reference);
+    crate::references::board(conn, reference)?
+        .map(|board| board.id)
         .ok_or_else(|| {
             ApiError::not_found(format!(
                 "No live board has the slug or the id {reference:?}."
             ))
+            .with_details(json!({ "field": "board" }))
         })
 }
 
@@ -196,6 +191,7 @@ where
             "The value {value:?} is not a value of {field}. The values are: {}.",
             allowed.join(", ")
         ))
+        .with_details(json!({ "field": field }))
     })
 }
 
@@ -602,6 +598,7 @@ fn relationship_type_of(relationship: &str) -> Result<RelationshipType, ApiError
         .find(|kind| kind.as_str() == relationship)
         .ok_or_else(|| {
             ApiError::validation(format!("{relationship:?} is not a relationship type."))
+                .with_details(json!({ "field": "relationship" }))
         })
 }
 
@@ -1013,7 +1010,7 @@ pub fn resolve_short_code(
         }
     };
     let row: Option<DirectoryRow> = sql_query(sql)
-        .bind::<Text, _>(short_code.to_ascii_uppercase())
+        .bind::<Text, _>(crate::references::short_code(short_code))
         .get_result(conn)
         .optional()
         .map_err(ApiError::internal)?;
@@ -1041,7 +1038,7 @@ pub fn retired_to_current(
     short_code: &str,
 ) -> Result<Option<String>, ApiError> {
     Ok(
-        kairos_db::retired_codes::current_code(conn, &short_code.to_ascii_uppercase())
+        kairos_db::retired_codes::current_code(conn, &crate::references::short_code(short_code))
             .map_err(ApiError::internal)?
             .and_then(|retired| retired.current.map(|(code, _)| code)),
     )
@@ -1074,6 +1071,7 @@ pub fn retired_code_refused(short_code: &str, current: &str) -> ApiError {
          code is a retired code. Use the new code."
     ))
     .with_details(json!({
+        "field": "short_code",
         "retired_code": short_code,
         "current_code": current,
     }))
@@ -1097,7 +1095,7 @@ pub fn found_or_follow_retired<T>(
     }
     // KAIROS-T-0560: a code in input ignores case. The upper-cased code
     // loads one more time at most.
-    let upper = short_code.to_ascii_uppercase();
+    let upper = crate::references::short_code(short_code);
     if upper != short_code {
         return load(conn, &upper, liveness);
     }
@@ -1120,6 +1118,7 @@ pub fn archived_write_refused(short_code: &str) -> ApiError {
         "The item {short_code} is archived. A write needs a live item. Restore the item first \
          with restore_item."
     ))
+    .with_details(json!({ "field": "short_code" }))
 }
 
 /// A live item that a write names as a reference (KAIROS-T-0560): an end
@@ -1164,7 +1163,7 @@ pub fn resolve_live_ref(
     short_code: &str,
     field: &str,
 ) -> Result<LiveRef, ApiError> {
-    let code = short_code.to_ascii_uppercase();
+    let code = crate::references::short_code(short_code);
     if let Some((id, item_type)) = resolve_short_code(conn, &code, Liveness::LiveOnly)? {
         return Ok(LiveRef {
             id,
@@ -1189,11 +1188,13 @@ pub fn resolve_live_ref(
         return Err(ApiError::validation(format!(
             "The {field} {current} is archived. A write needs a live item. Restore the item \
              first with restore_item."
-        )));
+        ))
+        .with_details(json!({ "field": field })));
     }
     Err(ApiError::validation(format!(
         "The {field} {short_code:?} is not the short code of a live item."
-    )))
+    ))
+    .with_details(json!({ "field": field })))
 }
 
 /// The type of a live item by id (documents included), via the same
@@ -1228,6 +1229,7 @@ pub fn short_code_not_found(entity_type: &str, short_code: &str) -> ApiError {
     ApiError::not_found(format!(
         "No {entity_type} has the short code {short_code:?}."
     ))
+    .with_details(json!({ "field": "short_code" }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1248,7 +1250,9 @@ pub fn map_abac_error(e: AbacError) -> ApiError {
 /// [`kairos_db::item_notes::NoteError`] → API error (KAIROS-T-0367).
 pub fn map_note_error(e: kairos_db::item_notes::NoteError) -> ApiError {
     match e {
-        kairos_db::item_notes::NoteError::EmptyText => ApiError::validation(e.to_string()),
+        kairos_db::item_notes::NoteError::EmptyText => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "text" }))
+        }
         kairos_db::item_notes::NoteError::Item(inner) => map_item_error(inner),
     }
 }
@@ -1268,10 +1272,12 @@ pub fn map_item_error(e: ItemError) -> ApiError {
     match e {
         ItemError::ItemNotFound { entity_type, id } => {
             ApiError::not_found(format!("The {entity_type} {id} does not exist."))
+                .with_details(json!({ "field": "short_code" }))
         }
         ItemError::HistoryNotFound { item_id, version } => ApiError::not_found(format!(
             "The item {item_id} has no version {version} in its history."
-        )),
+        ))
+        .with_details(json!({ "field": "version" })),
         e @ ItemError::HistoryCorrupt { .. } => ApiError::internal(e),
         ItemError::VersionConflict {
             expected_version,
@@ -1293,22 +1299,27 @@ pub fn map_item_error(e: ItemError) -> ApiError {
         })),
         ItemError::BoardNotFound(id) => {
             ApiError::validation(format!("The board {id} does not exist."))
+                .with_details(json!({ "field": "board" }))
         }
         ItemError::BoardHasNoColumns(id) => ApiError::validation(format!(
             "The board {id} has no columns, so the item has no place on it. Add a column \
              to the board."
-        )),
+        ))
+        .with_details(json!({ "field": "board" })),
         ItemError::ColumnNotOnBoard {
             board_id,
             column_id,
         } => ApiError::validation(format!(
             "The column {column_id} is not a column of the board {board_id}."
-        )),
+        ))
+        .with_details(json!({ "field": "column" })),
         ItemError::TemplateNotFound(id) => {
             ApiError::validation(format!("The template {id} does not exist."))
+                .with_details(json!({ "field": "template" }))
         }
         ItemError::RepositoryNotFound(id) => {
             ApiError::validation(format!("The repository {id} does not exist."))
+                .with_details(json!({ "field": "repository" }))
         }
         ItemError::Database(e) => ApiError::internal(e),
     }
@@ -1322,6 +1333,7 @@ pub fn map_board_error(e: BoardError) -> ApiError {
     match e {
         BoardError::ItemNotFound { entity_type, id } => {
             ApiError::not_found(format!("The {entity_type} {id} does not exist."))
+                .with_details(json!({ "field": "short_code" }))
         }
         BoardError::ItemNotOnBoard { entity_type, id } => ApiError::unprocessable(
             "ITEM_NOT_ON_BOARD",
@@ -1424,9 +1436,11 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         }
         BoardError::ColumnNotFound(id) => {
             ApiError::validation(format!("The column {id} does not exist."))
+                .with_details(json!({ "field": "column" }))
         }
         BoardError::BoardNotFound(id) => {
             ApiError::validation(format!("The board {id} does not exist."))
+                .with_details(json!({ "field": "board" }))
         }
         // KAIROS-I-0012: moving a task between delivery boards.
         BoardError::SameBoard(id) => {
@@ -1502,14 +1516,20 @@ pub fn map_rename_error(e: RenameError) -> ApiError {
 /// by a request that got this far.
 pub fn map_graph_error(e: GraphError) -> ApiError {
     match e {
-        GraphError::Rule(e) => ApiError::validation(e.to_string()),
+        // Each caller links a new item to the parent that the call named.
+        GraphError::Rule(e) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "parent" }))
+        }
         GraphError::ItemNotFound(id) => {
             ApiError::validation(format!("The related item {id} does not exist."))
+                .with_details(json!({ "field": "parent" }))
         }
         e @ (GraphError::SelfLink(_)
         | GraphError::CycleDetected { .. }
         | GraphError::AlreadyLinked { .. }
-        | GraphError::NotLinked { .. }) => ApiError::validation(e.to_string()),
+        | GraphError::NotLinked { .. }) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "parent" }))
+        }
         // KAIROS-T-0572: a create gives a new item, which has no parent;
         // only a write at the same time can get here.
         e @ GraphError::ParentExists { .. } => {

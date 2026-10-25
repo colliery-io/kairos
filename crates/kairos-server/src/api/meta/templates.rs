@@ -53,7 +53,10 @@ fn load(conn: &mut PgConnection, id: Uuid) -> Result<Template, ApiError> {
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("The template {id} does not exist.")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("The template {id} does not exist."))
+                .with_details(serde_json::json!({ "field": "template" }))
+        })
 }
 
 /// The id of the template that `reference` names, or 404 (KAIROS-T-0644).
@@ -75,6 +78,7 @@ pub(crate) fn template_by_ref(conn: &mut PgConnection, reference: &str) -> Resul
         .map_err(ApiError::internal)?
         .ok_or_else(|| {
             ApiError::not_found(format!("No template has the slug or the id {reference:?}."))
+                .with_details(serde_json::json!({ "field": "template" }))
         })
 }
 
@@ -131,13 +135,16 @@ fn resolve_entries(
     use kairos_db::schema::metadata_definitions as definitions;
     let mut resolved: Vec<(Uuid, Option<String>, bool)> = Vec::with_capacity(entries.len());
     let mut seen: Vec<&str> = Vec::with_capacity(entries.len());
-    for entry in entries {
+    for (index, entry) in entries.iter().enumerate() {
         if seen.contains(&entry.definition_slug.as_str()) {
             return Err(ApiError::validation(format!(
                 "The request has the definition slug {:?} two times. Send each definition \
                  one time.",
                 entry.definition_slug
-            )));
+            ))
+            .with_details(serde_json::json!({
+                "field": format!("metadata[{index}].definition_slug"),
+            })));
         }
         seen.push(&entry.definition_slug);
         let definition: MetadataDefinition = definitions::table
@@ -151,9 +158,17 @@ fn resolve_entries(
                     "No metadata definition has the slug {:?}.",
                     entry.definition_slug
                 ))
+                .with_details(serde_json::json!({
+                    "field": format!("metadata[{index}].definition_slug"),
+                }))
             })?;
         if let Some(default_value) = &entry.default_value {
-            validate_metadata_value(conn, &definition, default_value)?;
+            validate_metadata_value(
+                conn,
+                &definition,
+                default_value,
+                &format!("metadata[{index}].default_value"),
+            )?;
         }
         resolved.push((definition.id, entry.default_value.clone(), entry.required));
     }
@@ -228,6 +243,7 @@ fn map_write_error(e: DieselError) -> ApiError {
                 "The template is in conflict with a template that exists: {}.",
                 info.message()
             ))
+            .with_details(serde_json::json!({ "field": "slug" }))
         }
         e => ApiError::internal(e),
     }
@@ -413,7 +429,11 @@ pub(crate) fn update_template_in(
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of name, slug, content and \
              metadata.",
-        ));
+        )
+        .with_details(serde_json::json!({
+            "field": "name",
+            "fields": ["name", "slug", "content", "metadata"],
+        })));
     }
     use kairos_db::schema::templates;
     let current = load(conn, id)?;

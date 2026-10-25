@@ -274,6 +274,23 @@ def render(spec):
         "[Configuration](../configuration/) for how a deployment resolves "
         "both. The live spec is at `/api/openapi.json`.",
         "",
+        "A write can be complete when its answer does not get to the client "
+        "(a timeout, an upgrade). Some routes take an optional "
+        "`Idempotency-Key` header, and each of these routes lists it. The key "
+        "has 8 to 128 characters: letters, digits, `.`, `_`, `:` and `-`. A "
+        "UUID is a good key.",
+        "",
+        "Send a new key with each new request, and the same key when you "
+        "retry it. The key belongs to the person and the agent key. A second "
+        "request with the same key in 24 hours writes nothing. Its answer has "
+        "the status and the body of the first answer, and the header "
+        "`Idempotent-Replayed: true`.",
+        "",
+        "The server refuses the same key with a different route, path or "
+        "body with 409 `REQUEST_KEY_REUSED`. A refused request keeps no key, "
+        "so its retry runs again. The MCP `request_key` uses the same keys "
+        "(KAIROS-A-0065).",
+        "",
         "This page is generated from that spec, so it cannot drift from the "
         "router — but it describes only *what exists*. For how to do "
         "something, see the how-to guides; for why the API is shaped this "

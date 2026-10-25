@@ -104,12 +104,14 @@ fn map_tenant_error(e: TenantError) -> ApiError {
         TenantError::InvalidSlug(slug) => ApiError::validation(format!(
             "The tenant slug {slug:?} is not correct. A tenant slug must match \
              ^[a-z][a-z0-9_-]{{1,62}}$."
-        )),
+        ))
+        .with_details(serde_json::json!({ "field": "slug" })),
         TenantError::AlreadyExists(slug) => {
             ApiError::conflict(format!("The tenant {slug:?} exists already."))
         }
         TenantError::NotFound(slug) => {
             ApiError::not_found(format!("The tenant {slug:?} does not exist."))
+                .with_details(serde_json::json!({ "field": "tenant" }))
         }
         TenantError::ConfirmationRequired(slug) => ApiError::unprocessable(
             "CONFIRMATION_REQUIRED",
@@ -168,6 +170,7 @@ pub(crate) async fn create_tenant(
                  the first login. The first admin must log in one time. Then send this \
                  request again."
             ))
+            .with_details(serde_json::json!({ "field": "initial_admin_external_id" }))
         })?;
 
         provision_with_admin(conn, &body.slug, &body.name, &admin)

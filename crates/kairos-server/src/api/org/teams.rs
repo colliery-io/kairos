@@ -72,7 +72,10 @@ fn load_team(conn: &mut PgConnection, team_id: Uuid) -> Result<Team, ApiError> {
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("No live team has the id {team_id}.")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("No live team has the id {team_id}."))
+                .with_details(serde_json::json!({ "field": "team" }))
+        })
 }
 
 /// The id of the live team that `reference` names, or 404
@@ -82,21 +85,19 @@ fn load_team(conn: &mut PgConnection, team_id: Uuid) -> Result<Team, ApiError> {
 /// `/api/teams/{id}` route takes it, so that a client that has the slug of
 /// a team makes one call.
 pub(crate) fn team_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError> {
-    use kairos_db::schema::teams::dsl;
+    // KAIROS-T-0689: the forms of crate::references::TEAM_FORMS.
+    let reference = crate::references::text(reference);
+    // An id gets the refusal that names the id.
     if let Ok(team_id) = Uuid::parse_str(reference) {
         return load_team(conn, team_id).map(|team| team.id);
     }
-    dsl::teams
-        .filter(dsl::slug.eq(reference))
-        .filter(dsl::deleted_at.is_null())
-        .select(dsl::id)
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
+    crate::references::team(conn, reference)?
+        .map(|team| team.id)
         .ok_or_else(|| {
             ApiError::not_found(format!(
                 "No live team has the slug or the id {reference:?}."
             ))
+            .with_details(serde_json::json!({ "field": "team" }))
         })
 }
 
@@ -238,8 +239,10 @@ pub(crate) async fn get_team_by_slug(
                 .first(conn)
                 .optional()
                 .map_err(ApiError::internal)?;
-            let team =
-                team.ok_or_else(|| ApiError::not_found(format!("No team has the slug {slug:?}.")))?;
+            let team = team.ok_or_else(|| {
+                ApiError::not_found(format!("No team has the slug {slug:?}."))
+                    .with_details(serde_json::json!({ "field": "team" }))
+            })?;
             let board = delivery_board_of(conn, team.id)?;
             Ok(team_to_dto(team, board))
         })
@@ -435,11 +438,12 @@ pub(crate) async fn list_work_documents(
     post,
     path = "/api/teams",
     tag = "teams",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateTeamRequest,
     responses(
         (status = 201, description = "Created; delivery_board_id names the team's new board", body = dto::Team),
         (status = 403, description = "Not an org admin, and no manage_structure on the organization", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "A live team has the slug, a live board has the slug of the delivery board, or a live delivery board has the prefix", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live team has the slug, a live board has the slug of the delivery board, or a live delivery board has the prefix; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad team_type, the slug does not have the form of a slug, or the code_prefix is absent or does not match the rule", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -447,15 +451,21 @@ pub(crate) async fn create_team(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateTeamRequest>,
-) -> Result<(StatusCode, Json<dto::Team>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Team>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let team = state
         .blocking
-        .run(&tenant.slug, move |conn| create(conn, &slug, user, body))
+        .run(&tenant.slug, move |conn| {
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                create(conn, &slug, user, body)
+            })
+        })
         .await?;
-    Ok((StatusCode::CREATED, Json(team)))
+    Ok(team)
 }
 
 /// Create a team and its delivery board as `user`: the ONE implementation
@@ -602,7 +612,11 @@ pub(crate) fn update_as(
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of name, slug, team_type \
              and site_enabled.",
-        ));
+        )
+        .with_details(serde_json::json!({
+            "field": "name",
+            "fields": ["name", "slug", "team_type", "site_enabled"],
+        })));
     }
     let team_type = body
         .team_type
@@ -894,7 +908,8 @@ pub(crate) async fn add_member(
         .run(&tenant.slug, move |conn| {
             let team_id = team_by_ref(conn, &id)?;
             // KAIROS-T-0443: a UUID, an email or a user name.
-            let target = resolve_member_to_add(conn, &slug, &body.user_id, "user_id", routes)?.id;
+            let target =
+                resolve_member_to_add(conn, &slug, user, &body.user_id, "user_id", routes)?.id;
             add_member_as(conn, &slug, user, team_id, target)
         })
         .await?;
@@ -986,7 +1001,7 @@ pub(crate) async fn remove_member(
             // be taken off the team.
             let target = match Uuid::parse_str(target.trim()) {
                 Ok(id) => id,
-                Err(_) => resolve_member(conn, &slug, &target, "user_id")?.id,
+                Err(_) => resolve_member(conn, &slug, user, &target, "user_id")?.id,
             };
             remove_member_as(conn, &slug, user, team_id, target)
         })
@@ -1018,7 +1033,8 @@ pub(crate) fn remove_member_as(
     if deleted == 0 {
         return Err(ApiError::not_found(format!(
             "The user {target} is not a member of the team {team_id}."
-        )));
+        ))
+        .with_details(serde_json::json!({ "field": "user" })));
     }
     log_team_activity(
         conn,

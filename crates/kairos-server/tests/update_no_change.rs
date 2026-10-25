@@ -538,9 +538,10 @@ async fn an_update_with_the_stored_values_writes_nothing_against_live_stack() {
     stack
         .writes_nothing(
             &template_uri,
+            // KAIROS-T-0696: REST accepts `definition`, the name on MCP.
             json!({
                 "name": "Postmortem", "slug": "postmortem", "content": "## What happened",
-                "metadata": [{"definition_slug": "risk", "default_value": "low", "required": true}],
+                "metadata": [{"definition": "risk", "default_value": "low", "required": true}],
             }),
             stamp_of("templates", template_id.clone()),
         )

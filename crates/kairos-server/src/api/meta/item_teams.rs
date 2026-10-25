@@ -130,12 +130,17 @@ pub(crate) fn map_item_team_error(e: ItemTeamError) -> ApiError {
         e @ ItemTeamError::AlreadyLinked { .. } => {
             ApiError::unprocessable("ALREADY_LINKED", e.to_string())
         }
-        e @ ItemTeamError::NotLinked { .. } => ApiError::not_found(e.to_string()),
+        e @ ItemTeamError::NotLinked { .. } => {
+            ApiError::not_found(e.to_string()).with_details(json!({ "field": "team" }))
+        }
         e @ ItemTeamError::SubjectType { .. } => {
             ApiError::unprocessable("RELATIONSHIP_RULE", e.to_string())
         }
-        e @ (ItemTeamError::ItemNotFound(_) | ItemTeamError::TeamNotFound(_)) => {
-            ApiError::validation(e.to_string())
+        e @ ItemTeamError::ItemNotFound(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "short_code" }))
+        }
+        e @ ItemTeamError::TeamNotFound(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "team" }))
         }
         ItemTeamError::Database(e) => ApiError::internal(e),
     }
@@ -152,7 +157,8 @@ pub(crate) fn team_filter(
         (Some(_), true) => Err(ApiError::validation(
             "Send team or no_team, not the two. The value team gives the items of one team. \
              The value no_team gives the items with no team.",
-        )),
+        )
+        .with_details(json!({ "field": "team", "fields": ["team", "no_team"] }))),
         (Some(reference), false) => {
             let team = crate::api::org::repositories::resolve_team(conn, reference)?;
             Ok(Some(TeamFilter::Team(team.id)))
@@ -253,7 +259,8 @@ pub(crate) fn remove(
         };
         return Err(ApiError::not_found(format!(
             "The team {team:?} is not set on {short_code} by hand.{why}"
-        )));
+        ))
+        .with_details(json!({ "field": "team" })));
     };
     let slug_of_team: String = {
         use kairos_db::schema::teams::dsl;

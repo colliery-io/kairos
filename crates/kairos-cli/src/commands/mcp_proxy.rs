@@ -29,13 +29,30 @@
 //! read "refused" for a write that the server had applied. A 502, 503 or
 //! 504, a timeout and a reset now give one plain message, with
 //! `retryable: true` in the error data. A read is safe to send again, so the
-//! proxy retries it with a backoff. A write is not retried: the server has
-//! no request key yet (KAIROS-T-0681), and a second send can apply it twice.
+//! proxy retries it with a backoff. A write with no `request_key` is not
+//! retried: a second send can apply it twice.
+//!
+//! KAIROS-T-0687: a write that carries a `request_key` (KAIROS-T-0681,
+//! KAIROS-A-0065) is retried with the backoff of a read. The server gives
+//! the first answer to a second call with the same key and writes nothing,
+//! so the retry is a replay. The error data says `"retry": "replay"` and
+//! names the key.
+//!
+//! KAIROS-T-0693: the reads and the tools that take a `request_key` come
+//! from the table `kairos_client::mcp_tools`, which a test of the server
+//! checks against `tools/list`.
+//!
+//! KAIROS-T-0699: a write that the table marks idempotent (a set, a patch,
+//! a replace: `set_state`, `set_metadata`) is retried with the backoff of
+//! a read. A second call gives the same state. The error data says
+//! `"retry": "idempotent"`.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use kairos_client::TokenProvider;
+// KAIROS-T-0693: the reads and the keyed writes come from one table.
+use kairos_client::mcp_tools;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, mpsc};
@@ -101,7 +118,8 @@ struct Upstream {
     backoff: Vec<Duration>,
 }
 
-/// The waits before the retries of a read: two retries.
+/// The waits before the retries of a read, of a write with a
+/// `request_key` and of an idempotent write: two retries.
 const READ_BACKOFF: [Duration; 2] = [Duration::from_millis(250), Duration::from_secs(1)];
 
 /// The message of a write when the deployment is unavailable.
@@ -111,29 +129,6 @@ const UNAVAILABLE_WRITE: &str = "The deployment is unavailable or did not answer
 /// The message of a write that did not get to the deployment.
 const UNAVAILABLE_NOT_SENT: &str = "The deployment is unavailable (maybe an upgrade). The \
      request did not get to it, so nothing was applied. Retry the request later.";
-
-/// The tools of the server that only read. A `tools/call` of one of them
-/// is safe to send again. A tool that is not in this list is a write.
-const READ_TOOLS: [&str; 18] = [
-    "whoami",
-    "my_boards",
-    "my_work",
-    "board_items",
-    "search",
-    "get_item",
-    "get_history",
-    "related_work",
-    "list_repositories",
-    "get_repository",
-    "list_members",
-    "get_events",
-    "list_metadata_definitions",
-    "list_templates",
-    "team_pages",
-    "board_flow",
-    "list_dispatch_rules",
-    "list_org_read_tokens",
-];
 
 /// The methods of MCP that only read.
 const READ_METHODS: [&str; 9] = [
@@ -191,9 +186,81 @@ fn is_read(message: &Value) -> bool {
         Some("tools/call") => message
             .pointer("/params/name")
             .and_then(Value::as_str)
-            .is_some_and(|name| READ_TOOLS.contains(&name)),
+            .is_some_and(mcp_tools::is_read),
         Some(method) => READ_METHODS.contains(&method),
         None => false,
+    }
+}
+
+/// The `request_key` of a `tools/call` of a tool that takes one, when its
+/// arguments carry one.
+fn request_key(message: &Value) -> Option<&str> {
+    if message.get("method").and_then(Value::as_str) != Some("tools/call") {
+        return None;
+    }
+    let name = message.pointer("/params/name").and_then(Value::as_str)?;
+    if !mcp_tools::takes_request_key(name) {
+        return None;
+    }
+    message
+        .pointer("/params/arguments/request_key")
+        .and_then(Value::as_str)
+        .filter(|key| !key.is_empty())
+}
+
+/// True for a `tools/call` of a write that the table marks idempotent
+/// (KAIROS-T-0699).
+fn is_idempotent(message: &Value) -> bool {
+    message.get("method").and_then(Value::as_str) == Some("tools/call")
+        && message
+            .pointer("/params/name")
+            .and_then(Value::as_str)
+            .is_some_and(mcp_tools::is_idempotent)
+}
+
+/// How the proxy may send a message again when the deployment is
+/// unavailable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Retry {
+    /// A read: safe to send again.
+    Read,
+    /// A write with a `request_key`: a second send is a replay, and writes
+    /// nothing new (KAIROS-A-0065).
+    Replay,
+    /// An idempotent write: a second send gives the same state
+    /// (KAIROS-T-0699).
+    Idempotent,
+    /// A write with no key: never sent again.
+    None,
+}
+
+impl Retry {
+    fn of(message: &Value) -> Self {
+        if is_read(message) {
+            return Retry::Read;
+        }
+        let safe = |m: &Value| is_read(m) || request_key(m).is_some() || is_idempotent(m);
+        let batch: Vec<&Value> = match message {
+            Value::Array(batch) => batch.iter().collect(),
+            message => vec![message],
+        };
+        if batch.is_empty() || !batch.iter().all(|m| safe(m)) {
+            return Retry::None;
+        }
+        if batch.iter().any(|m| request_key(m).is_some()) {
+            Retry::Replay
+        } else {
+            Retry::Idempotent
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Retry::Read => "read",
+            Retry::Replay => "replay",
+            Retry::Idempotent => "idempotent",
+            Retry::None => "none",
+        }
     }
 }
 
@@ -323,12 +390,19 @@ impl Upstream {
             }
         };
         let id = message.get("id").cloned();
-        let read = is_read(&message);
+        let retry = Retry::of(&message);
+        let key = request_key(&message).map(str::to_string);
+        let read = retry == Retry::Read;
         let mut attempts = 1;
+        // True when an attempt before the last got to the deployment.
+        let mut sent_before = false;
         let failure = loop {
             match self.post(line).await {
                 Ok(lines) => return lines,
-                Err(Failure::Unavailable { .. }) if read && attempts <= self.backoff.len() => {
+                Err(Failure::Unavailable { sent, .. })
+                    if retry != Retry::None && attempts <= self.backoff.len() =>
+                {
+                    sent_before |= sent;
                     tokio::time::sleep(self.backoff[attempts - 1]).await;
                     attempts += 1;
                 }
@@ -346,24 +420,40 @@ impl Upstream {
                 status,
                 sent,
             } => {
-                let message = if read {
-                    format!(
+                let sent_any = sent || sent_before;
+                let message = match retry {
+                    Retry::Read => format!(
                         "The deployment is unavailable or did not answer (maybe an upgrade). \
                          The proxy sent this read {attempts} times. Retry it later."
-                    )
-                } else if sent {
-                    UNAVAILABLE_WRITE.to_string()
-                } else {
-                    UNAVAILABLE_NOT_SENT.to_string()
+                    ),
+                    Retry::Replay => format!(
+                        "The deployment is unavailable or did not answer (maybe an upgrade). \
+                         The proxy sent this write {attempts} times with the same \
+                         request_key. Send it again later with the same request_key: if the \
+                         server applied the write, it gives the first answer and writes \
+                         nothing new."
+                    ),
+                    Retry::Idempotent => format!(
+                        "The deployment is unavailable or did not answer (maybe an upgrade). \
+                         The proxy sent this write {attempts} times. The tool is idempotent: \
+                         send it again later. If the server applied the write, a second \
+                         call gives the same state."
+                    ),
+                    Retry::None if sent => UNAVAILABLE_WRITE.to_string(),
+                    Retry::None => UNAVAILABLE_NOT_SENT.to_string(),
                 };
-                let applied = if read || !sent { "no" } else { "unknown" };
-                let data = json!({
+                let applied = if read || !sent_any { "no" } else { "unknown" };
+                let mut data = json!({
                     "retryable": true,
                     "cause": cause,
                     "status": status,
                     "attempts": attempts,
                     "write_applied": applied,
+                    "retry": retry.as_str(),
                 });
+                if let Some(key) = key {
+                    data["request_key"] = json!(key);
+                }
                 (message, Some(data))
             }
         };
@@ -748,11 +838,176 @@ mod tests {
         serde_json::from_str(&lines[0]).unwrap()
     }
 
+    fn keyed_call(name: &str, key: &str) -> String {
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {"short_code": "ACME-T-0001", "request_key": key}}}).to_string()
+    }
+
+    #[test]
+    fn a_write_with_a_request_key_is_a_replay() {
+        let call = |name: &str| json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}});
+        let keyed: Value = serde_json::from_str(&keyed_call("create_item", "key-0001")).unwrap();
+        assert_eq!(Retry::of(&call("get_item")), Retry::Read);
+        assert_eq!(Retry::of(&keyed), Retry::Replay);
+        assert_eq!(request_key(&keyed), Some("key-0001"));
+        assert_eq!(Retry::of(&call("create_item")), Retry::None);
+        let empty: Value = serde_json::from_str(&keyed_call("create_item", "")).unwrap();
+        assert_eq!(Retry::of(&empty), Retry::None, "an empty key is no key");
+        let not_a_string = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "create_item", "arguments": {"request_key": 7}}});
+        assert_eq!(Retry::of(&not_a_string), Retry::None);
+        assert_eq!(
+            Retry::of(&json!([call("get_item"), keyed.clone()])),
+            Retry::Replay
+        );
+        assert_eq!(
+            Retry::of(&json!([keyed, call("append_note")])),
+            Retry::None,
+            "a batch with one write with no key is not sent again"
+        );
+        assert_eq!(Retry::of(&json!([])), Retry::None);
+        let unkeyed: Value = serde_json::from_str(&keyed_call("claim_item", "key-0001")).unwrap();
+        assert_eq!(
+            Retry::of(&unkeyed),
+            Retry::None,
+            "a tool that takes no request_key and is not idempotent is not sent again"
+        );
+    }
+
+    #[test]
+    fn an_idempotent_write_is_sent_again() {
+        let call = |name: &str| json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}});
+        let keyed: Value = serde_json::from_str(&keyed_call("create_item", "key-0001")).unwrap();
+        assert_eq!(Retry::of(&call("set_state")), Retry::Idempotent);
+        assert_eq!(Retry::of(&call("set_metadata")), Retry::Idempotent);
+        assert_eq!(Retry::of(&call("mark_events_read")), Retry::Idempotent);
+        assert_eq!(Retry::of(&call("update_item")), Retry::None);
+        assert_eq!(Retry::of(&call("claim_item")), Retry::None);
+        assert_eq!(
+            Retry::of(&json!([call("get_item"), call("set_state")])),
+            Retry::Idempotent
+        );
+        assert_eq!(Retry::of(&json!([call("set_state"), keyed])), Retry::Replay);
+        assert_eq!(
+            Retry::of(&json!([call("set_state"), call("append_note")])),
+            Retry::None,
+            "a batch with one write with no key is not sent again"
+        );
+        // A method that is not tools/call is not an idempotent write.
+        assert_eq!(
+            Retry::of(&json!({"id": 1, "method": "set_state"})),
+            Retry::None
+        );
+        // Each tool that the table marks idempotent is sent again.
+        for (name, kind) in mcp_tools::TOOLS {
+            if *kind == mcp_tools::ToolKind::Idempotent {
+                assert_eq!(Retry::of(&call(name)), Retry::Idempotent, "{name}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_idempotent_write_is_retried_after_a_reset() {
+        let (endpoint, hits) = stub(Stub::ResetThenOk).await;
+        let out = answer(proxy(endpoint).forward(&call("set_state")).await);
+        assert_eq!(out["result"]["ok"], true, "{out}");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn an_idempotent_write_is_sent_three_times_and_the_data_says_idempotent() {
+        let (endpoint, hits) = stub(Stub::Html503).await;
+        let out = answer(proxy(endpoint).forward(&call("set_metadata")).await);
+        let message = out["error"]["message"].as_str().unwrap();
+        assert!(message.contains("sent this write 3 times"), "{message}");
+        assert!(message.contains("The tool is idempotent"), "{message}");
+        let data = &out["error"]["data"];
+        assert_eq!(data["retry"], "idempotent");
+        assert!(data.get("request_key").is_none());
+        assert_eq!(data["attempts"], 3);
+        assert_eq!(data["write_applied"], "unknown");
+        assert_eq!(data["retryable"], true);
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn an_idempotent_write_with_no_connection_was_not_applied() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let out = answer(
+            proxy(format!("http://{addr}/mcp"))
+                .forward(&call("set_state"))
+                .await,
+        );
+        assert_eq!(out["error"]["data"]["retry"], "idempotent");
+        assert_eq!(out["error"]["data"]["attempts"], 3);
+        assert_eq!(out["error"]["data"]["write_applied"], "no");
+    }
+
+    #[tokio::test]
+    async fn a_write_that_is_not_idempotent_and_has_no_key_is_sent_once() {
+        let (endpoint, hits) = stub(Stub::Html503).await;
+        let out = answer(proxy(endpoint).forward(&call("claim_item")).await);
+        assert_eq!(out["error"]["data"]["retry"], "none");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_write_with_a_request_key_is_retried_after_a_reset() {
+        let (endpoint, hits) = stub(Stub::ResetThenOk).await;
+        let out = answer(
+            proxy(endpoint)
+                .forward(&keyed_call("create_item", "key-reset-01"))
+                .await,
+        );
+        assert_eq!(out["result"]["ok"], true, "{out}");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_write_with_a_request_key_is_sent_three_times_and_the_data_says_replay() {
+        let (endpoint, hits) = stub(Stub::Html503).await;
+        let out = answer(
+            proxy(endpoint)
+                .forward(&keyed_call("append_note", "key-503-0001"))
+                .await,
+        );
+        let message = out["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("sent this write 3 times with the same request_key"),
+            "{message}"
+        );
+        assert!(message.contains("writes nothing new"), "{message}");
+        let data = &out["error"]["data"];
+        assert_eq!(data["retry"], "replay");
+        assert_eq!(data["request_key"], "key-503-0001");
+        assert_eq!(data["attempts"], 3);
+        assert_eq!(data["write_applied"], "unknown");
+        assert_eq!(data["retryable"], true);
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn a_write_with_a_request_key_and_no_connection_was_not_applied() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let out = answer(
+            proxy(format!("http://{addr}/mcp"))
+                .forward(&keyed_call("create_item", "key-conn-001"))
+                .await,
+        );
+        assert_eq!(out["error"]["data"]["retry"], "replay");
+        assert_eq!(out["error"]["data"]["attempts"], 3);
+        assert_eq!(out["error"]["data"]["write_applied"], "no");
+    }
+
     #[tokio::test]
     async fn a_503_html_page_on_a_write_is_a_plain_message_and_is_not_retried() {
         let (endpoint, hits) = stub(Stub::Html503).await;
         let out = answer(proxy(endpoint).forward(&call("create_item")).await);
         assert_eq!(out["error"]["message"], UNAVAILABLE_WRITE);
+        assert_eq!(out["error"]["data"]["retry"], "none");
+        assert!(out["error"]["data"].get("request_key").is_none());
         assert_eq!(out["error"]["data"]["retryable"], true);
         assert_eq!(out["error"]["data"]["status"], 503);
         assert_eq!(out["error"]["data"]["write_applied"], "unknown");
@@ -807,6 +1062,7 @@ mod tests {
         let out = answer(proxy(endpoint).forward(&call("search")).await);
         let message = out["error"]["message"].as_str().unwrap();
         assert!(message.contains("sent this read 3 times"), "{message}");
+        assert_eq!(out["error"]["data"]["retry"], "read");
         assert_eq!(out["error"]["data"]["retryable"], true);
         assert_eq!(out["error"]["data"]["write_applied"], "no");
         assert_eq!(hits.load(Ordering::SeqCst), 3);

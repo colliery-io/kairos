@@ -304,6 +304,18 @@ async fn a_request_key_makes_a_retried_write_safe() {
         14
     );
 
+    // KAIROS-T-0693: the table of kairos_client::mcp_tools has the same
+    // keyed tools.
+    let mut from_table: Vec<&str> = kairos_client::mcp_tools::TOOLS
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| kairos_client::mcp_tools::takes_request_key(name))
+        .collect();
+    let mut listed = KEYED_TOOLS.to_vec();
+    from_table.sort_unstable();
+    listed.sort_unstable();
+    assert_eq!(from_table, listed);
+
     // 2. A replay of create_item.
     let first = mcp
         .ok("create_item", create("Keyed one", "key-create-0001"))

@@ -191,6 +191,7 @@ async fn receive(body: Body, max_size: u64) -> Result<Received, ApiError> {
             ApiError::validation(format!(
                 "Kairos cannot read the body of the request: {e}. Send it again."
             ))
+            .with_details(serde_json::json!({ "field": "body" }))
         })?;
         size += chunk.len() as u64;
         if size > max_size {
@@ -453,6 +454,7 @@ pub(crate) async fn unpublish_site(
                             "The repository {:?} has no published site.",
                             repo.slug
                         ))
+                        .with_details(serde_json::json!({ "field": "repository" }))
                     })?;
                 log_activity(
                     conn,

@@ -10,6 +10,8 @@
 
 pub mod client;
 pub mod error;
+// KAIROS-T-0693: what each MCP tool does to the data.
+pub mod mcp_tools;
 pub mod types;
 pub mod types_auth;
 pub mod types_cards;

@@ -303,7 +303,8 @@ fn relay_params<'a>(
         other => {
             return Err(ApiError::validation(format!(
                 "The server does not accept the grant_type {other:?}. Send authorization_code or refresh_token."
-            )));
+            ))
+            .with_details(serde_json::json!({ "field": "grant_type" })));
         }
     }
     Ok(params)
@@ -318,9 +319,7 @@ async fn token_relay(
     Extension(web_auth): Extension<Arc<WebAuth>>,
     form: Result<Form<TokenRelayForm>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, ApiError> {
-    let Form(form) = form.map_err(|rejection| {
-        ApiError::validation(format!("The form of the body is not correct: {rejection}."))
-    })?;
+    let Form(form) = form.map_err(form_refusal)?;
     let params = relay_params(
         &web_auth.client_id,
         web_auth.client_secret.as_deref(),
@@ -355,6 +354,34 @@ fn missing(field: &'static str) -> impl FnOnce() -> ApiError {
         ApiError::validation(format!(
             "The request has no {field}. This grant_type must have {field}."
         ))
+        .with_details(serde_json::json!({ "field": field }))
+    }
+}
+
+/// The refusal of a form that the token relay cannot read (KAIROS-T-0697):
+/// in Kairos words, not the text of axum.
+fn form_refusal(fault: axum::extract::rejection::FormRejection) -> ApiError {
+    use axum::extract::rejection::FormRejection;
+    match fault {
+        FormRejection::InvalidFormContentType(_) => ApiError::validation(
+            "The request must have the header Content-Type: \
+             application/x-www-form-urlencoded. Send the form with that header.",
+        )
+        .with_details(serde_json::json!({ "field": "Content-Type", "header": "Content-Type" })),
+        FormRejection::FailedToDeserializeForm(_)
+        | FormRejection::FailedToDeserializeFormBody(_) => {
+            let field = crate::body::missing_field(&crate::body::innermost(&fault))
+                .unwrap_or_else(|| "grant_type".to_string());
+            ApiError::validation(format!(
+                "The form is not correct at the field {field}. Send grant_type \
+                 (authorization_code or refresh_token) and the fields of that grant: code, \
+                 redirect_uri and code_verifier, or refresh_token."
+            ))
+            .with_details(serde_json::json!({ "field": field }))
+        }
+        _ => ApiError::validation(
+            "The server could not read the body of the request. Send the form again.",
+        ),
     }
 }
 

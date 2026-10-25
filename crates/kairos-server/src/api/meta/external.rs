@@ -100,23 +100,24 @@ pub(crate) fn map_error(e: ExternalRefError) -> ApiError {
         e @ ExternalRefError::AlreadyLinked { .. } => {
             ApiError::unprocessable("ALREADY_LINKED", e.to_string())
         }
-        e @ ExternalRefError::NotLinked { .. } => ApiError::not_found(e.to_string()),
-        ExternalRefError::Form(e) => {
-            let details = match &e {
-                kairos_core::external_ref::ExternalRefError::Scheme { scheme } => json!({
-                    "field": "uri",
-                    "scheme": scheme,
-                    "allowed_schemes": kairos_core::external_ref::SCHEMES,
-                }),
-                kairos_core::external_ref::ExternalRefError::LabelTooLong => json!({
-                    "field": "label",
-                    "max_length": kairos_core::external_ref::MAX_LABEL_LEN,
-                }),
-                _ => json!({ "field": "uri" }),
-            };
-            ApiError::validation(e.to_string()).with_details(details)
+        e @ ExternalRefError::NotLinked { .. } => {
+            ApiError::not_found(e.to_string()).with_details(json!({ "field": "uri" }))
         }
-        e @ ExternalRefError::ItemNotFound(_) => ApiError::validation(e.to_string()),
+        ExternalRefError::Form(e) => ApiError::validation(e.to_string()).with_details(match &e {
+            kairos_core::external_ref::ExternalRefError::Scheme { scheme } => json!({
+                "field": "uri",
+                "scheme": scheme,
+                "allowed_schemes": kairos_core::external_ref::SCHEMES,
+            }),
+            kairos_core::external_ref::ExternalRefError::LabelTooLong => json!({
+                "field": "label",
+                "max_length": kairos_core::external_ref::MAX_LABEL_LEN,
+            }),
+            _ => json!({ "field": "uri" }),
+        }),
+        e @ ExternalRefError::ItemNotFound(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "short_code" }))
+        }
         ExternalRefError::Database(e) => ApiError::internal(e),
     }
 }
@@ -258,6 +259,7 @@ pub(crate) async fn delete_external_ref(
                 ApiError::not_found(format!(
                     "{short_code} has no external reference with the id {id:?}."
                 ))
+                .with_details(json!({ "field": "id" }))
             };
             let ref_id: Uuid = id.parse().map_err(|_| not_found())?;
             let found = external_refs::by_id(conn, item.0, ref_id)

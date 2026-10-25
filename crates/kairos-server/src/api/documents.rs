@@ -431,17 +431,15 @@ pub(crate) fn create(
         board: board_field,
         parent: parent_field,
     } = wording;
+    // Each surface sends `field` (KAIROS-T-0561).
+    debug_assert_eq!(details_key, "field");
     let Some(board) = input.board.map(str::trim).filter(|board| !board.is_empty()) else {
         return Err(ApiError::validation(format!(
             "The {request} has no {board_field}. Each document must have an owner board. \
              Send {board_field}: the slug or the id of the board that owns the document. \
              The code of the document gets the prefix of that board."
         ))
-        .with_details(serde_json::Value::Object(
-            [(details_key.to_string(), json!("board"))]
-                .into_iter()
-                .collect(),
-        )));
+        .with_details(json!({ "field": "board" })));
     };
     let board = board_by_ref(conn, board)?;
     let parent = input
@@ -458,7 +456,8 @@ pub(crate) fn create(
                 return Err(ApiError::validation(format!(
                     "The item {parent_code:?} of {parent_field} has the type {parent_type}. \
                      The parent of a document is a strategy, an initiative, or a task."
-                )));
+                ))
+                .with_details(json!({ "field": parent_field })));
             }
             Ok((parent, parent_id, parent_type))
         })
@@ -526,11 +525,13 @@ pub(crate) fn create(
     post,
     path = "/api/documents",
     tag = "documents",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateDocumentRequest,
     responses(
         (status = 201, description = "Created. With parent_short_code, the supports edge is written", body = dto::Document),
         (status = 403, description = "Missing manage_documents on the board that the document names", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "No board (details.field is board), unknown parent, non-workflow parent, or unknown template", body = dto::ErrorEnvelope),
     ),
 )]
@@ -538,8 +539,10 @@ pub(crate) async fn create_document(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateDocumentRequest>,
-) -> Result<(StatusCode, Json<dto::Document>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Document>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let template_id = parse_opt_uuid(body.template_id.as_deref(), "template_id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -547,27 +550,29 @@ pub(crate) async fn create_document(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            // COLLIERY-T-0227: the document and its edge, or neither.
-            let created = atomically(conn, |conn| {
-                create(
-                    conn,
-                    &slug,
-                    role,
-                    user,
-                    NewDocument {
-                        title: &body.title,
-                        content: body.content.as_deref(),
-                        template_id,
-                        board: Some(body.board.as_str()),
-                        parent: body.parent_short_code.as_deref(),
-                    },
-                    REST_WORDING,
-                )
-            })?;
-            render(conn, created.document)
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                // COLLIERY-T-0227: the document and its edge, or neither.
+                let created = atomically(conn, |conn| {
+                    create(
+                        conn,
+                        &slug,
+                        role,
+                        user,
+                        NewDocument {
+                            title: &body.title,
+                            content: body.content.as_deref(),
+                            template_id,
+                            board: Some(body.board.as_str()),
+                            parent: body.parent_short_code.as_deref(),
+                        },
+                        REST_WORDING,
+                    )
+                })?;
+                render(conn, created.document)
+            })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// What [`change_board`] did.
@@ -595,11 +600,11 @@ pub(crate) fn board_is_required(details_key: &str, name: &str) -> ApiError {
         "Each document has an owner board, and you cannot remove it. Send {name}: the \
          slug or the id of the new owner board."
     ))
-    .with_details(serde_json::Value::Object(
-        [(details_key.to_string(), json!(name))]
-            .into_iter()
-            .collect(),
-    ))
+    .with_details({
+        // Each caller sends `field` (KAIROS-T-0561).
+        debug_assert_eq!(details_key, "field");
+        json!({ "field": name })
+    })
 }
 
 /// THE CHANGE OF THE OWNER of a document (COLLIERY-T-0269): change the
@@ -731,7 +736,10 @@ fn load_by_id(conn: &mut PgConnection, id: Uuid) -> Result<Document, ApiError> {
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("The document {id} does not exist.")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("The document {id} does not exist."))
+                .with_details(json!({ "field": "short_code" }))
+        })
 }
 
 /// The board of a [`dto::SetDocumentBoardRequest`], or of the argument of

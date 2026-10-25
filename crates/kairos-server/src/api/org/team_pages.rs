@@ -71,9 +71,10 @@ fn require_team(conn: &mut PgConnection, team_id: Uuid) -> Result<(), ApiError> 
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?;
-    exists
-        .map(|_| ())
-        .ok_or_else(|| ApiError::not_found(format!("The team {team_id} does not exist.")))
+    exists.map(|_| ()).ok_or_else(|| {
+        ApiError::not_found(format!("The team {team_id} does not exist."))
+            .with_details(json!({ "field": "team" }))
+    })
 }
 
 /// KAIROS-T-0536: a team page and an announcement are documents of the
@@ -148,6 +149,7 @@ fn map_page_error(e: TeamPageError) -> ApiError {
     match e {
         TeamPageError::PageNotFound(id) => {
             ApiError::not_found(format!("No live team page has the id {id}."))
+                .with_details(json!({ "field": "page" }))
         }
         TeamPageError::SlugConflict(slug) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -159,7 +161,8 @@ fn map_page_error(e: TeamPageError) -> ApiError {
         }
         TeamPageError::BadParent(id) => ApiError::validation(format!(
             "The parent {id} is not a live folder of this team."
-        )),
+        ))
+        .with_details(json!({ "field": "parent_id" })),
         TeamPageError::ProtectedPage(id) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "PROTECTED_PAGE",
@@ -168,7 +171,9 @@ fn map_page_error(e: TeamPageError) -> ApiError {
                  delete it."
             ),
         ),
-        e @ TeamPageError::NotTeamItem(_) => ApiError::validation(e.to_string()),
+        e @ TeamPageError::NotTeamItem(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "item" }))
+        }
         TeamPageError::NotArchived(id) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "NOT_ARCHIVED",
@@ -198,7 +203,8 @@ fn map_page_error(e: TeamPageError) -> ApiError {
         TeamPageError::ContentTooLarge { actual } => ApiError::validation(format!(
             "The content has {actual} bytes. The limit is {} bytes.",
             team_pages::MAX_CONTENT_BYTES
-        )),
+        ))
+        .with_details(json!({ "field": "content" })),
         TeamPageError::Database(e) => ApiError::internal(e),
     }
 }
@@ -334,12 +340,13 @@ pub(crate) async fn get_page(
     post,
     path = "/api/teams/{id}/pages",
     tag = "team-pages",
-    params(("id" = String, Path, description = "The slug or the id (UUID) of the team")),
+    params(("id" = String, Path, description = "The slug or the id (UUID) of the team"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateTeamPageRequest,
     responses(
         (status = 201, description = "Created", body = dto::TeamPage),
         (status = 403, description = "Not a team member", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown team", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad kind/parent, sibling slug conflict, or content too large", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -348,18 +355,22 @@ pub(crate) async fn create_page(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateTeamPageRequest>,
-) -> Result<(StatusCode, Json<dto::TeamPage>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::TeamPage>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let slug = tenant.slug.clone();
     let user = auth.user_id;
     let created = state
         .blocking
         .run(&slug, move |conn| {
-            let team_id = team_by_ref(conn, &id)?;
-            create_as(conn, &tenant, user, team_id, &body)
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                let team_id = team_by_ref(conn, &id)?;
+                create_as(conn, &tenant, user, team_id, &body)
+            })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// Create a page or a folder, as the REST route does: the gate, the write
@@ -459,19 +470,28 @@ pub(crate) fn update_as(
             "One request cannot edit the content and move the page. Send content and \
              version in one request. Send slug, parent_id, move_to_root or position in a \
              different request.",
-        ));
+        )
+        .with_details(json!({
+            "field": "content",
+            "fields": ["content", "slug", "parent_id", "move_to_root", "position"],
+        })));
     }
     if !is_content_edit && !is_structure_edit {
         return Err(ApiError::validation(
             "The request has no field to change. Send content and version, or send one or \
              more of slug, parent_id, move_to_root and position.",
-        ));
+        )
+        .with_details(json!({
+            "field": "content",
+            "fields": ["content", "version", "slug", "parent_id", "move_to_root", "position"],
+        })));
     }
     if is_content_edit && body.version.is_none() {
         return Err(ApiError::validation(
             "The request has content and no version. An edit of the content must have the \
              version.",
-        ));
+        )
+        .with_details(json!({ "field": "version" })));
     }
     let new_parent = if body.move_to_root {
         Some(None)
@@ -795,6 +815,7 @@ pub(crate) fn version_as(
             ApiError::not_found(format!(
                 "The team page {page_id} has no version {version} in its history."
             ))
+            .with_details(json!({ "field": "version" }))
         })?;
     let names = editor_names(conn, &[row.edited_by])?;
     Ok(dto::TeamPageVersion {
@@ -919,6 +940,7 @@ pub(crate) fn place_item_as(
                 "The item {item:?} is not a document or an ADR of this team. Send the short code \
                  or the id of a document or an ADR that a board of the team owns."
             ))
+            .with_details(json!({ "field": "item" }))
         })?;
     let item_id = parse_uuid(&found.item_id, "item")?;
     team_pages::place_item(conn, team_id, item_id, parent_id, body.position, user)
@@ -1007,7 +1029,8 @@ pub(crate) async fn create_announcement(
             "The body has {} bytes. The limit is {} bytes.",
             body.body.len(),
             team_pages::MAX_CONTENT_BYTES
-        )));
+        ))
+        .with_details(json!({ "field": "body" })));
     }
     let slug = tenant.slug.clone();
     let user = auth.user_id;
@@ -1084,7 +1107,8 @@ pub(crate) async fn delete_announcement(
             let Some(author) = author else {
                 return Err(ApiError::not_found(format!(
                     "This team has no announcement {announcement_uuid}."
-                )));
+                ))
+                .with_details(json!({ "field": "announcement" })));
             };
             if author != user && !is_admin {
                 return Err(ApiError::new(

@@ -213,12 +213,16 @@ pub fn require_subject(item_type: ItemType, short_code: &str) -> Result<(), ApiE
 /// [`OwnerError`] → HTTP.
 pub fn map_owner_error(e: OwnerError) -> ApiError {
     match e {
-        OwnerError::ItemNotFound(_) => ApiError::not_found(e.to_string()),
+        OwnerError::ItemNotFound(_) => {
+            ApiError::not_found(e.to_string()).with_details(json!({ "field": "short_code" }))
+        }
         OwnerError::HasOwner { .. } | OwnerError::AlreadyOwner { .. } => {
             ApiError::conflict(e.to_string())
         }
         OwnerError::NoOwner { .. } => ApiError::unprocessable("NO_OWNER", e.to_string()),
-        OwnerError::NotAPerson(_) => ApiError::validation(e.to_string()),
+        OwnerError::NotAPerson(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "user" }))
+        }
         OwnerError::Database(db) => ApiError::internal(db),
     }
 }

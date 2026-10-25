@@ -43,6 +43,7 @@ pub fn write_state(
                         "{text:?} is not an RFC 3339 instant. Send expected_updated_at as the \
                          updated_at of the state you read."
                     ))
+                    .with_details(serde_json::json!({ "field": "expected_updated_at" }))
                 })
         })
         .transpose()?;
@@ -59,7 +60,11 @@ pub fn write_state(
             "The patch changes nothing. Send at least one of branch, commit, pushed, pr_url and \
              next_step: a field that you send is set, null clears it, a field that you do not \
              send is kept.",
-        ));
+        )
+        .with_details(serde_json::json!({
+            "field": "branch",
+            "fields": ["branch", "commit", "pushed", "pr_url", "next_step"],
+        })));
     }
     crate::api::require_item_edit(conn, role, user, task_id, ItemType::Task)?;
     let state = match task_state::patch(conn, task_id, patch, user) {

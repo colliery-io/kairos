@@ -62,28 +62,30 @@ pub struct SearchFilter {
     /// (`strategy|initiative|task|document|adr`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entity_type: Option<Vec<String>>,
-    /// Restrict to items on this board (UUID; excludes documents, which do
-    /// not live on boards). Not with `board`.
+    /// The old name of `board` (KAIROS-T-0696): a UUID only. Kairos still
+    /// accepts it; send `board`. Not with `board`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board_id: Option<String>,
-    /// Restrict to items on this board, by slug or UUID (KAIROS-T-0368).
-    /// Not with `board_id`.
+    /// Restrict to items on this board, by slug or UUID (KAIROS-T-0368;
+    /// excludes documents, which do not live on boards). Not with
+    /// `board_id`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board: Option<String>,
-    /// Restrict to items in this board column (UUID; excludes documents).
-    /// Not with `column`.
+    /// The old name of `column` (KAIROS-T-0696): a UUID only. Kairos still
+    /// accepts it; send `column`. Not with `column`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column_id: Option<String>,
     /// Restrict to items in this board column, by name (with `board`) or
     /// UUID (KAIROS-T-0552). Not with `column_id`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column: Option<String>,
-    /// Restrict to tasks assigned to this team (UUID; task-level attribute,
-    /// other entity types are excluded).
+    /// The old name of `team` (KAIROS-T-0696): a UUID only. Kairos still
+    /// accepts it; send `team`. Not with `team`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_id: Option<String>,
-    /// Restrict to tasks of this team, by slug or UUID (KAIROS-T-0368).
-    /// Not with `team_id`.
+    /// Restrict to tasks of this team, by slug or UUID (KAIROS-T-0368; a
+    /// task-level attribute, other entity types are excluded). Not with
+    /// `team_id`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
     /// Restrict to the items of this repository (slug or UUID of a live

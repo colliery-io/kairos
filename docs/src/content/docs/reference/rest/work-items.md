@@ -34,12 +34,17 @@ is that a listing nobody asked hides put-away work.
 
 Create a strategy (requires `manage_strategies` on the target board).
 
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
+
 Request body (required): `application/json`, [`CreateStrategyRequest`](../schemas/#createstrategyrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Strategy`](../schemas/#strategy) | Created |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board/column |
 
 ### `GET /api/strategies/{short_code}`
@@ -107,6 +112,7 @@ The creator of the strategy gets no right here (COLLIERY-T-0228).
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `short_code` | path | yes | `string` | Strategy short code |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`TransitionRequest`](../schemas/#transitionrequest)
 
@@ -115,6 +121,7 @@ Request body (required): `application/json`, [`TransitionRequest`](../schemas/#t
 | `200` | [`Strategy`](../schemas/#strategy) | Transitioned (new column) |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Invalid transition; details.allowed_targets lists valid moves |
 
 ## initiatives
@@ -147,12 +154,17 @@ board). `bucket_type` set marks it as a bucket (`is_bucket` derived).
 Kairos writes the initiative and the edge in one transaction: a refused
 parent leaves no initiative.
 
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
+
 Request body (required): `application/json`, [`CreateInitiativeRequest`](../schemas/#createinitiativerequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Initiative`](../schemas/#initiative) | Created |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board/column/parent, a column that is not the entry column of the board, a parent that is not a strategy, or bad enum value |
 
 ### `GET /api/initiatives/{short_code}`
@@ -243,6 +255,7 @@ here (COLLIERY-T-0228).
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `short_code` | path | yes | `string` | Initiative short code |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`TransitionRequest`](../schemas/#transitionrequest)
 
@@ -251,6 +264,7 @@ Request body (required): `application/json`, [`TransitionRequest`](../schemas/#t
 | `200` | [`Initiative`](../schemas/#initiative) | Transitioned (new column) |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Invalid transition; details.allowed_targets lists valid moves |
 
 ## tasks
@@ -300,12 +314,17 @@ parent leaves no task. The link rule applies to the edge; the creator of the
 task can edit it, so it passes. In a claims column, `parent_gate`
 applies (KAIROS-A-0040).
 
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
+
 Request body (required): `application/json`, [`CreateTaskRequest`](../schemas/#createtaskrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Task`](../schemas/#task) | Created |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability. For a caller without `manage_tasks` on the board: the work class `planned`, or a board that is not a delivery board |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No board and no team, a team that is not the team of the board, a team without exactly one delivery board, unknown board/column/repository/parent, a column that is not the entry column of the board, a parent that is not an initiative, PARENT_NOT_ACTIVE (a claims column under an inactive parent), or bad enum value |
 
 ### `GET /api/tasks/{short_code}`
@@ -482,6 +501,7 @@ A task in a done column (completed or cancelled) does not move: 422
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `short_code` | path | yes | `string` | Task short code |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`MoveTaskRequest`](../schemas/#movetaskrequest)
 
@@ -490,6 +510,7 @@ Request body (required): `application/json`, [`MoveTaskRequest`](../schemas/#mov
 | `200` | [`Task`](../schemas/#task) | Moved (new board, entry column) |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing manage_tasks on either board |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code or board |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN | RENAME_NOT_NEEDED (the code has the prefix of the target board) | TASK_DONE (the task is in a done column: reopen it first) | PARENT_NOT_ACTIVE |
 
 ### `POST /api/tasks/{short_code}/purge`
@@ -641,6 +662,7 @@ task's board). The creator of the task gets no right here
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `short_code` | path | yes | `string` | Task short code |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`TransitionRequest`](../schemas/#transitionrequest)
 
@@ -649,6 +671,7 @@ Request body (required): `application/json`, [`TransitionRequest`](../schemas/#t
 | `200` | [`Task`](../schemas/#task) | Transitioned (new column) |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Invalid transition; details.allowed_targets lists valid moves |
 
 ### `POST /api/tasks/{short_code}/work-class`
@@ -712,6 +735,10 @@ The caller needs `manage_documents` on that board. With
 `template_id`, the template's content and metadata defaults are stamped
 (KAIROS-A-0003).
 
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
+
 Request body (required): `application/json`, [`CreateDocumentRequest`](../schemas/#createdocumentrequest)
 
 | Response | Body | Meaning |
@@ -719,6 +746,7 @@ Request body (required): `application/json`, [`CreateDocumentRequest`](../schema
 | `201` | [`Document`](../schemas/#document) | Created. With parent_short_code, the supports edge is written |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing manage_documents on the board that the document names |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No board (details.field is board), unknown parent, non-workflow parent, or unknown template |
 
 ### `GET /api/documents/{short_code}`
@@ -872,12 +900,17 @@ Off-board (no `board_id`): org-admin-only (A-0006 fallback).
 supports: a strategy, an initiative or a task. The ADR and its
 `supports` edge are one transaction: a refused parent leaves no ADR.
 
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
+
 Request body (required): `application/json`, [`CreateAdrRequest`](../schemas/#createadrrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Adr`](../schemas/#adr) | Created |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board/column/parent, a parent that is not a strategy, an initiative or a task, or bad date |
 
 ### `GET /api/adrs/{short_code}`
@@ -942,6 +975,7 @@ on the ADR's board). The creator of the ADR gets no right here
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `short_code` | path | yes | `string` | ADR short code |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`TransitionRequest`](../schemas/#transitionrequest)
 
@@ -950,5 +984,6 @@ Request body (required): `application/json`, [`TransitionRequest`](../schemas/#t
 | `200` | [`Adr`](../schemas/#adr) | Transitioned (new column) |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Invalid transition (details.allowed_targets) or ITEM_NOT_ON_BOARD |
 

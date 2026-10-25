@@ -172,6 +172,7 @@ archive:
   were read (`KAIROS_NOTIFICATIONS_READ_DAYS`).
 - The webhook deliveries that finished more than 30 days ago, with their
   tries.
+- The rows of the count of the MCP refusals after 90 days (`refusal_counts`).
 - The expired password sessions and the other short-lived rows.
 
 If you must keep these rows, take a dump before the pass deletes them. Set a

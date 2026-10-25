@@ -105,17 +105,18 @@ impl SignInRoutes {
     }
 }
 
-/// The member of the organization that `reference` names: a user id, an
-/// email, a user name, or the name of a service account. A person or a
+/// The member of the organization that `reference` names, in the forms of
+/// [`crate::references::PERSON_FORMS`] (`me` is `caller`). A person or a
 /// service account. `argument` is the name of the field or the argument,
 /// for the refusal.
 pub(crate) fn resolve_member(
     conn: &mut PgConnection,
     slug: &str,
+    caller: Uuid,
     reference: &str,
     argument: &str,
 ) -> Result<User, ApiError> {
-    lookup_member(conn, slug, reference, argument, None)
+    lookup_member(conn, slug, caller, reference, argument, None)
 }
 
 /// [`resolve_member`] for a call that adds a person: the refusal of an
@@ -124,46 +125,26 @@ pub(crate) fn resolve_member(
 pub(crate) fn resolve_member_to_add(
     conn: &mut PgConnection,
     slug: &str,
+    caller: Uuid,
     reference: &str,
     argument: &str,
     routes: SignInRoutes,
 ) -> Result<User, ApiError> {
-    lookup_member(conn, slug, reference, argument, Some(routes))
+    lookup_member(conn, slug, caller, reference, argument, Some(routes))
 }
 
 fn lookup_member(
     conn: &mut PgConnection,
     slug: &str,
+    caller: Uuid,
     reference: &str,
     argument: &str,
     routes: Option<SignInRoutes>,
 ) -> Result<User, ApiError> {
-    use kairos_db::schema::users;
-    let reference = reference.trim();
-    let select = users::table.select(User::as_select());
+    // KAIROS-T-0689: the one lookup of a person.
+    let reference = crate::references::text(reference);
     let looks_like_email = reference.contains('@');
-    let mut candidates: Vec<User> = if let Ok(id) = reference.parse::<Uuid>() {
-        select.filter(users::id.eq(id)).load(conn)
-    } else if looks_like_email {
-        select.filter(users::email.eq(reference)).load(conn)
-    } else {
-        let by_user_name = select
-            .filter(users::user_name.eq(reference))
-            .load::<User>(conn)
-            .map_err(ApiError::internal)?;
-        if by_user_name.is_empty() {
-            // A service account has no user name: its name is its display
-            // name.
-            users::table
-                .select(User::as_select())
-                .filter(users::display_name.eq(reference))
-                .filter(users::kind.eq(kairos_db::models::public::USER_KIND_SERVICE_ACCOUNT))
-                .load(conn)
-        } else {
-            Ok(by_user_name)
-        }
-    }
-    .map_err(ApiError::internal)?;
+    let mut candidates = crate::references::people(conn, caller, reference)?;
     let accounts = candidates.len();
     let mut members = Vec::new();
     for user in candidates.drain(..) {
@@ -302,7 +283,7 @@ pub(crate) fn grant(
     routes: SignInRoutes,
 ) -> Result<dto::StructureGrant, ApiError> {
     require_org_admin_for_grants(conn, slug, user)?;
-    let target = resolve_member_to_add(conn, slug, reference, "user", routes)?;
+    let target = resolve_member_to_add(conn, slug, user, reference, "user", routes)?;
     let board_id = board
         .map(|board| load_board_by_ref(conn, board).map(|b| b.id))
         .transpose()?;

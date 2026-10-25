@@ -26,6 +26,10 @@ service enforces the A-0001 type-rule matrix, cycle prevention for
 `parent`/`blocks`, and duplicate detection — each rejection is a 422
 with its typed reason (module docs).
 
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
+
 Request body (required): `application/json`, [`CreateRelationshipRequest`](../schemas/#createrelationshiprequest)
 
 | Response | Body | Meaning |
@@ -33,7 +37,7 @@ Request body (required): `application/json`, [`CreateRelationshipRequest`](../sc
 | `201` | [`Relationship`](../schemas/#relationship) | Edge created (relationship_add activity row written) |
 | `202` | [`ProposedRelationship`](../schemas/#proposedrelationship) | No edge: a proposal of a blocks edge. The caller can edit the source only. The message says who can confirm it |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller may edit neither the source nor the target |
-| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | CONFLICT: the same proposal is pending, or the item has too many pending proposals |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | CONFLICT: the same proposal is pending, or the item has too many pending proposals; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Rule violation, cycle, duplicate edge, or unknown endpoint |
 
 ### `DELETE /api/relationships/{id}`
@@ -539,6 +543,7 @@ item shows it in `notes`.
 |---|---|---|---|---|
 | `entity_type` | path | yes | `string` | Plural family name (strategies|initiatives|tasks|documents|adrs) |
 | `short_code` | path | yes | `string` | Item short code |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`AppendNoteRequest`](../schemas/#appendnoterequest)
 
@@ -547,6 +552,7 @@ Request body (required): `application/json`, [`AppendNoteRequest`](../schemas/#a
 | `200` | [`AppendNoteResponse`](../schemas/#appendnoteresponse) | Appended; the id of the note and the version of the content, which does not change |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown family or short code, or the item is archived |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The text is empty, or the body has an unknown field |
 
 ### `POST /api/{entity_type}/{short_code}/notes/{note_id}/promote`
@@ -566,6 +572,7 @@ to create on the target board.
 | `entity_type` | path | yes | `string` | Plural family name (strategies|initiatives|tasks|documents|adrs) |
 | `short_code` | path | yes | `string` | Item short code |
 | `note_id` | path | yes | `string` | The id of the note, as `get_item` lists it (n-3) |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`PromoteNoteRequest`](../schemas/#promotenoterequest)
 
@@ -574,7 +581,7 @@ Request body (required): `application/json`, [`PromoteNoteRequest`](../schemas/#
 | `201` | [`PromoteNoteResponse`](../schemas/#promotenoteresponse) | The new item and its edge |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Refused by the edit rule of the source item, or the caller cannot create on the target board |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown family, short code, note id or board |
-| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The note has the mark of a promote; the refusal names the item |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The note has the mark of a promote; the refusal names the item; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The kind is not adr or document, or the body has an unknown field |
 
 ## cascade

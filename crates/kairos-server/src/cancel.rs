@@ -158,7 +158,7 @@ pub fn marks_dto(
 pub fn map_cancel_error(e: CancelError) -> ApiError {
     match e {
         CancelError::TaskNotFound(_) | CancelError::InitiativeNotFound(_) => {
-            ApiError::not_found(e.to_string())
+            ApiError::not_found(e.to_string()).with_details(json!({ "field": "short_code" }))
         }
         CancelError::EmptyReason => {
             ApiError::validation(e.to_string()).with_details(json!({ "field": "reason" }))

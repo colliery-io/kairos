@@ -24,6 +24,7 @@ use kairos_db::forge::{self, ConnectionWithRepo, ForgeError};
 use kairos_db::models::enums::Forge;
 use kairos_db::models::forge::NewForgeConnection;
 use kairos_db::repositories;
+use serde_json::json;
 
 use super::super::convert::repository_ref;
 use super::super::{parse_uuid, require_capability};
@@ -59,6 +60,7 @@ pub(crate) fn map_error(e: ForgeError) -> ApiError {
     match e {
         ForgeError::ConnectionNotFound(id) => {
             ApiError::not_found(format!("No live forge connection has the id {id}."))
+                .with_details(json!({ "field": "connection" }))
         }
         ForgeError::RepoAlreadyConnected { repo } => ApiError::conflict(format!(
             "The repository {repo:?} has a live connection already."
@@ -70,7 +72,8 @@ pub(crate) fn map_error(e: ForgeError) -> ApiError {
         } => ApiError::validation(format!(
             "The forge {connection} of the connection is not the forge {repository} of \
              the repository."
-        )),
+        ))
+        .with_details(json!({ "field": "repository" })),
         ForgeError::Database(e) => ApiError::internal(e),
     }
 }
@@ -215,7 +218,8 @@ pub(crate) async fn create_connection(
                     "The repository {} has the forge `other`. Only a github repository or \
                      a gitlab repository can receive webhooks.",
                     repository.slug
-                )));
+                ))
+                .with_details(json!({ "field": "repository" })));
             }
             let created = forge::create_connection(
                 conn,

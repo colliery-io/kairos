@@ -44,8 +44,16 @@
 //! constructor and is not used in this mode.
 
 mod arguments;
+// KAIROS-T-0692: the test of the names in the texts.
+#[cfg(test)]
+mod mentions;
+// KAIROS-T-0688: the test of the argument names.
+#[cfg(test)]
+mod names;
 mod profiles;
 mod request_key;
+// KAIROS-T-0686: the REST Idempotency-Key gives the same refusal.
+pub(crate) use request_key::reused as request_key_reused;
 mod service;
 mod tools;
 
@@ -65,6 +73,13 @@ use crate::app::AppState;
 use crate::middleware::{auth, tenant};
 
 pub use service::KairosMcp;
+
+/// Each tool of each profile, for the tests of the schemas outside this
+/// module (KAIROS-T-0689).
+#[cfg(test)]
+pub(crate) fn all_tools() -> Vec<rmcp::model::Tool> {
+    KairosMcp::tool_router().list_all()
+}
 /// The answer text of `get_item` (KAIROS-T-0626), for the statement-count test.
 #[doc(hidden)]
 pub use tools::get_item_text;

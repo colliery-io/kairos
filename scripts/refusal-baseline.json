@@ -1,0 +1,26 @@
+{
+  "crates/kairos-server/src/app.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/body.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/config.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/input.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/mcp/arguments.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/web.rs": {
+    "LIB": 0,
+    "FIELD": 6
+  }
+}

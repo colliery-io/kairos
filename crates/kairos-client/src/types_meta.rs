@@ -414,7 +414,9 @@ pub struct TemplateDetail {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TemplateMetadataEntry {
-    /// Slug of an existing metadata definition.
+    /// Slug of an existing metadata definition. KAIROS-T-0696: the server
+    /// also accepts the name `definition`, the name on MCP.
+    #[serde(alias = "definition")]
     pub definition_slug: String,
     /// Optional default, validated against the definition's type.
     #[serde(default)]

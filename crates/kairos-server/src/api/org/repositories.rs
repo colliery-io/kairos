@@ -196,7 +196,8 @@ pub(crate) async fn issue_import(
                     "The repository {} has no import of open issues. Start one: POST \
                      /api/repositories/{}/import-issues, or set issue_import_interval.",
                     repository.slug, repository.slug
-                )));
+                ))
+                .with_details(json!({ "field": "repository" })));
             }
             let record = kairos_db::issue_sync::record_count(conn, repository.id)
                 .map_err(ApiError::internal)?;
@@ -223,9 +224,11 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
     match e {
         RepositoryError::NotFound(id) => {
             ApiError::not_found(format!("No live repository has the id {id}."))
+                .with_details(json!({ "field": "repository" }))
         }
         RepositoryError::SlugNotFound(slug) => {
             ApiError::not_found(format!("No live repository has the slug {slug:?}."))
+                .with_details(json!({ "field": "repository" }))
         }
         // COLLIERY-T-0265: the refusal names the field, so that a form
         // shows it below the field `Slug`. KAIROS-T-0268: the text (of
@@ -247,11 +250,13 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
         )),
         RepositoryError::TeamNotFound(id) => {
             ApiError::validation(format!("The team {id} is not in the organization."))
+                .with_details(json!({ "field": "team" }))
         }
         RepositoryError::NoDeliveryBoard { team, count } => ApiError::validation(format!(
             "The team {team} has {count} live delivery boards. A team must have one live \
              delivery board."
-        )),
+        ))
+        .with_details(json!({ "field": "team" })),
         RepositoryError::InUse {
             id,
             tasks,
@@ -262,29 +267,22 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
              Remove each link and each connection. Then delete the repository."
         )),
         RepositoryError::Database(e) => ApiError::internal(e),
-        routing
-        @ (RepositoryError::TeamNotBoardTeam { .. } | RepositoryError::NothingToRouteBy) => {
-            ApiError::validation(routing.to_string())
+        routing @ RepositoryError::TeamNotBoardTeam { .. } => {
+            ApiError::validation(routing.to_string()).with_details(json!({ "field": "team_id" }))
         }
+        routing @ RepositoryError::NothingToRouteBy => ApiError::validation(routing.to_string())
+            .with_details(json!({ "field": "board_id", "fields": ["board_id", "team_id"] })),
     }
 }
 
-/// Resolve a team reference (UUID or slug) to its live row, or 422.
+/// Resolve a team reference ([`crate::references::TEAM_FORMS`]) to its live
+/// row, or 422.
 pub(crate) fn resolve_team(conn: &mut PgConnection, reference: &str) -> Result<Team, ApiError> {
     use kairos_db::schema::teams::dsl;
-    let mut query = dsl::teams.filter(dsl::deleted_at.is_null()).into_boxed();
-    query = match reference.parse::<Uuid>() {
-        Ok(id) => query.filter(dsl::id.eq(id)),
-        Err(_) => query.filter(dsl::slug.eq(reference)),
-    };
-    if let Some(team) = query
-        .select(Team::as_select())
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
-    {
+    if let Some(team) = crate::references::team(conn, reference)? {
         return Ok(team);
     }
+    let reference = crate::references::text(reference);
     // KAIROS-T-0685: the refusal lists the slugs of the teams. Each member
     // can read the teams of the organization (the A-0006 read rule).
     let slugs: Vec<String> = dsl::teams
@@ -294,7 +292,8 @@ pub(crate) fn resolve_team(conn: &mut PgConnection, reference: &str) -> Result<T
         .limit(TEAM_SLUGS_IN_REFUSAL + 1)
         .load(conn)
         .map_err(ApiError::internal)?;
-    Err(ApiError::validation(unknown_team_text(reference, &slugs)))
+    Err(ApiError::validation(unknown_team_text(reference, &slugs))
+        .with_details(json!({ "field": "team" })))
 }
 
 /// How many team slugs the refusal of an unknown team lists at most.
@@ -502,7 +501,23 @@ pub(crate) fn change(
             "The request has no field to change. Send one or more of slug, repo_url, \
              default_branch, default_branch_source, team, description, code_index_build, \
              code_index_summaries, site_enabled, issue_import_interval and forge_filters.",
-        ));
+        )
+        .with_details(json!({
+            "field": "slug",
+            "fields": [
+                "slug",
+                "repo_url",
+                "default_branch",
+                "default_branch_source",
+                "team",
+                "description",
+                "code_index_build",
+                "code_index_summaries",
+                "site_enabled",
+                "issue_import_interval",
+                "forge_filters"
+            ]
+        })));
     }
     // KAIROS-T-0670: the interval of the issue import. Org admin only, as
     // the manual import. The form and the limits are checked before
@@ -1020,7 +1035,11 @@ pub(crate) async fn list_repositories(
                 return Err(ApiError::validation(
                     "The parameters forge and name go together. Send the two, or send \
                      none of them.",
-                ));
+                )
+                .with_details(json!({
+                    "parameter": if query.forge.is_some() { "name" } else { "forge" },
+                    "parameters": ["forge", "name"]
+                })));
             }
             let team_id = query
                 .team
@@ -1199,11 +1218,12 @@ pub(crate) async fn get_repository(
     post,
     path = "/api/repositories",
     tag = "repositories",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateRepositoryRequest,
     responses(
         (status = 201, description = "Registered", body = dto::Repository),
         (status = 403, description = "Neither org admin nor the owning team", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "Slug or (forge, name) already registered", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "Slug or (forge, name) already registered; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad slug/forge, unknown team, or a field that does not have its form", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -1211,15 +1231,21 @@ pub(crate) async fn create_repository(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateRepositoryRequest>,
-) -> Result<(StatusCode, Json<dto::Repository>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Repository>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let created = state
         .blocking
-        .run(&tenant.slug, move |conn| add(conn, &slug, user, body))
+        .run(&tenant.slug, move |conn| {
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                add(conn, &slug, user, body)
+            })
+        })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// Edit a repository (same gate as create, evaluated against the CURRENT

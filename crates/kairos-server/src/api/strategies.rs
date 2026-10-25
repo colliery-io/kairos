@@ -162,10 +162,12 @@ pub(crate) async fn get_strategy(
     post,
     path = "/api/strategies",
     tag = "strategies",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateStrategyRequest,
     responses(
         (status = 201, description = "Created", body = dto::Strategy),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "Unknown board/column", body = dto::ErrorEnvelope),
     ),
 )]
@@ -173,8 +175,10 @@ pub(crate) async fn create_strategy(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateStrategyRequest>,
-) -> Result<(StatusCode, Json<dto::Strategy>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Strategy>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     // KAIROS-T-0150: `board_id` takes a slug or a UUID, so resolution needs a
     // connection and moves inside the closure.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
@@ -183,24 +187,26 @@ pub(crate) async fn create_strategy(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let board_id = board_id_by_ref(conn, &body.board_id)?;
-            require_capability(conn, &slug, Some(board_id), user, MANAGE)?;
-            let created = items::create_strategy(
-                conn,
-                items::CreateStrategy {
-                    board_id,
-                    column_id,
-                    title: &body.title,
-                    content: &body.content,
-                    hypothesis: body.hypothesis.as_deref(),
-                },
-                user,
-            )
-            .map_err(map_item_error)?;
-            Ok(created.into_dto())
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                let board_id = board_id_by_ref(conn, &body.board_id)?;
+                require_capability(conn, &slug, Some(board_id), user, MANAGE)?;
+                let created = items::create_strategy(
+                    conn,
+                    items::CreateStrategy {
+                        board_id,
+                        column_id,
+                        title: &body.title,
+                        content: &body.content,
+                        hypothesis: body.hypothesis.as_deref(),
+                    },
+                    user,
+                )
+                .map_err(map_item_error)?;
+                Ok(created.into_dto())
+            })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// Update strategy content (KAIROS-A-0004 optimistic concurrency).
@@ -327,12 +333,13 @@ pub(crate) async fn delete_strategy(
     post,
     path = "/api/strategies/{short_code}/transition",
     tag = "strategies",
-    params(("short_code" = String, Path, description = "Strategy short code")),
+    params(("short_code" = String, Path, description = "Strategy short code"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::TransitionRequest,
     responses(
         (status = 200, description = "Transitioned (new column)", body = dto::Strategy),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "Invalid transition; details.allowed_targets lists valid moves", body = dto::ErrorEnvelope),
     ),
 )]
@@ -341,31 +348,35 @@ pub(crate) async fn transition_strategy(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::TransitionRequest>,
-) -> Result<Json<dto::Strategy>, ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Strategy>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let to_column_id = parse_uuid(&body.to_column_id, "to_column_id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let transitioned = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let strategy = load(conn, &short_code, Liveness::LiveOnly)?;
-            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
-            // The creator of an item needs this capability as all others do,
-            // because a team controls its own plan (COLLIERY-T-0218).
-            require_capability(
-                conn,
-                &slug,
-                Some(strategy.board_id),
-                user,
-                "transition_items",
-            )?;
-            boards::transition_strategy(conn, strategy.id, to_column_id, user)
-                .map_err(map_board_error)?;
-            crate::claims::note_wip(conn, to_column_id, &short_code)?;
-            let item = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
-            crate::owners::attach_owner(conn, item)
+            crate::api::idempotency::run(conn, keyed, StatusCode::OK, |conn| {
+                let strategy = load(conn, &short_code, Liveness::LiveOnly)?;
+                // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+                // The creator of an item needs this capability as all others do,
+                // because a team controls its own plan (COLLIERY-T-0218).
+                require_capability(
+                    conn,
+                    &slug,
+                    Some(strategy.board_id),
+                    user,
+                    "transition_items",
+                )?;
+                boards::transition_strategy(conn, strategy.id, to_column_id, user)
+                    .map_err(map_board_error)?;
+                crate::claims::note_wip(conn, to_column_id, &short_code)?;
+                let item = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
+                crate::owners::attach_owner(conn, item)
+            })
         })
         .await?;
-    Ok(Json(transitioned))
+    Ok(transitioned)
 }

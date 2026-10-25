@@ -64,6 +64,7 @@ fn load_stream(conn: &mut PgConnection, stream_id: Uuid) -> Result<DeliveryStrea
         .map_err(ApiError::internal)?
         .ok_or_else(|| {
             ApiError::not_found(format!("No live delivery stream has the id {stream_id}."))
+                .with_details(serde_json::json!({ "field": "stream" }))
         })
 }
 
@@ -254,7 +255,11 @@ pub(crate) async fn update_stream(
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of name, slug and \
              description.",
-        ));
+        )
+        .with_details(serde_json::json!({
+            "field": "name",
+            "fields": ["name", "slug", "description"],
+        })));
     }
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -468,7 +473,8 @@ pub(crate) async fn add_stream_team(
                 return Err(ApiError::validation(format!(
                     "The team {team_id} is not in the organization. Send the id of a team \
                      of the organization as team_id."
-                )));
+                ))
+                .with_details(serde_json::json!({ "field": "team_id" })));
             }
             diesel::insert_into(dsl::team_delivery_streams)
                 .values(TeamDeliveryStream {
@@ -542,7 +548,8 @@ pub(crate) async fn remove_stream_team(
             if deleted == 0 {
                 return Err(ApiError::not_found(format!(
                     "The team {team_id} is not in the stream {stream_id}."
-                )));
+                ))
+                .with_details(serde_json::json!({ "field": "team" })));
             }
             log_stream_activity(
                 conn,

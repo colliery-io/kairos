@@ -3,7 +3,7 @@
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
 //! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
 //! (COLLIERY-T-0220), and `add_repository` and `update_repository`
-//! (COLLIERY-T-0266); later tasks added more (79 in all, in the profiles
+//! (COLLIERY-T-0266); later tasks added more (80 in all, in the profiles
 //! of `profiles.rs`, KAIROS-T-0454) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
@@ -147,7 +147,7 @@ pub struct GetRepositoryParams {
 #[serde(deny_unknown_fields)]
 pub struct MyBoardsParams {
     /// Restrict to one board level: strategy | initiative | delivery | adr.
-    pub level: Option<String>,
+    pub board_level: Option<String>,
 }
 
 /// `board_flow` (KAIROS-T-0372).
@@ -198,9 +198,10 @@ pub struct CreateDispatchRuleParams {
     /// Only tasks of this type: task | bug | tech_debt | support.
     pub task_type: Option<String>,
     /// Only tasks with this metadata: the slug of a definition. Send it with
-    /// `metadata_value`.
-    pub metadata_slug: Option<String>,
-    /// The value of `metadata_slug` that matches (no case).
+    /// `metadata_value`. KAIROS-T-0696: the old name `metadata_slug` is an
+    /// alias.
+    pub definition: Option<String>,
+    /// The value of `definition` that matches (no case).
     pub metadata_value: Option<String>,
     /// Only tasks of this repository: its slug or UUID.
     pub repository: Option<String>,
@@ -271,6 +272,22 @@ pub struct WebhookTargetParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct ListOrgReadTokensParams {}
+
+/// `refusal_counts` (KAIROS-T-0694).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct RefusalCountsParams {
+    /// The number of days of the range, 1 to 90 (default 7). The range
+    /// ends at `to`.
+    pub days: Option<i64>,
+    /// The last day of the range, YYYY-MM-DD in UTC; the range includes
+    /// that day. Default: now.
+    pub to: Option<String>,
+    /// The number of rows, 1 to 100 (default 20): the pairs of tool and
+    /// code with the most refusals.
+    pub limit: Option<i64>,
+}
 
 /// `set_org_read_token` (KAIROS-T-0431).
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -426,18 +443,12 @@ pub struct SearchParams {
 pub struct SearchFilterParams {
     /// Restrict to entity types: strategy | initiative | task | document | adr.
     pub entity_type: Option<Vec<String>>,
-    /// Restrict to items on this board (UUID). Not with `board`.
-    pub board_id: Option<String>,
-    /// Restrict to items on this board, by slug or UUID. Not with `board_id`.
+    /// Restrict to items on this board, by slug or UUID.
     pub board: Option<String>,
-    /// Restrict to items in this column (UUID). Not with `column`.
-    pub column_id: Option<String>,
     /// Restrict to items in this column, by name (with `board`) or UUID
-    /// (KAIROS-T-0552). Not with `column_id`.
+    /// (KAIROS-T-0552).
     pub column: Option<String>,
-    /// Restrict to tasks of this team (UUID). Not with `team`.
-    pub team_id: Option<String>,
-    /// Restrict to tasks of this team, by slug or UUID. Not with `team_id`.
+    /// Restrict to tasks of this team, by slug or UUID.
     pub team: Option<String>,
     /// Restrict to the items of this repository (slug or UUID): the tasks
     /// that link to it, and the documents and the ADRs that impact it.
@@ -519,7 +530,7 @@ pub struct CreateItemParams {
     /// Parent item's short code: the `parent` edge (for a document or an
     /// ADR, the `supports` edge).
     pub parent: Option<String>,
-    /// Template (id or name) — documents only (KAIROS-A-0003).
+    /// Documents only: the template, by id, slug or name (KAIROS-A-0003).
     pub template: Option<String>,
     /// Initial markdown content (defaults to empty / the template's).
     pub content: Option<String>,
@@ -1188,8 +1199,8 @@ pub struct CreateBoardParams {
 pub struct AddTeamMemberParams {
     /// The team, by slug or UUID.
     pub team: String,
-    /// The member of the organization: a user id, an email, a user name, or
-    /// the name of a service account.
+    /// The member of the organization: `me`, a user id, an email, a user
+    /// name, or the name of a service account.
     pub user: String,
 }
 
@@ -1198,8 +1209,8 @@ pub struct AddTeamMemberParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct GrantCapabilityParams {
-    /// The member of the organization: a user id, an email, a user name, or
-    /// the name of a service account.
+    /// The member of the organization: `me`, a user id, an email, a user
+    /// name, or the name of a service account.
     pub user: String,
     /// A board capability (manage_tasks, manage_documents, manage_adrs,
     /// manage_initiatives, manage_strategies, transition_items,
@@ -1326,7 +1337,7 @@ pub struct DeleteTeamPageParams {
 pub struct RemoveTeamMemberParams {
     /// The team, by slug or UUID.
     pub team: String,
-    /// The member: a user id, an email, a user name, or the name of a
+    /// The member: `me`, a user id, an email, a user name, or the name of a
     /// service account.
     pub user: String,
 }
@@ -1338,8 +1349,8 @@ pub struct RemoveTeamMemberParams {
 pub struct SetBoardCapabilitiesParams {
     /// The board, by slug or UUID.
     pub board: String,
-    /// The member of the organization: a user id, an email, a user name, or
-    /// the name of a service account.
+    /// The member of the organization: `me`, a user id, an email, a user
+    /// name, or the name of a service account.
     pub user: String,
     /// The full set of board capabilities of the user on the board. It
     /// replaces the set. An empty list revokes each capability.
@@ -1412,9 +1423,9 @@ pub struct SetTransitionParams {
     /// The board, by slug or UUID.
     pub board: String,
     /// The column the move starts in, by name or UUID.
-    pub from: String,
+    pub from_column: String,
     /// The column the move ends in, by name or UUID.
-    pub to: String,
+    pub to_column: String,
     /// True: allow the move. False: stop it.
     pub allowed: bool,
 }
@@ -1452,14 +1463,22 @@ pub struct SaveMetadataDefinitionParams {
     pub entity_types: Option<Vec<String>>,
 }
 
-/// Parameters for `delete_metadata_definition` and `delete_template`
-/// (KAIROS-T-0443).
+/// Parameters for `delete_metadata_definition` (KAIROS-T-0443).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
-pub struct DeleteMetaParams {
-    /// The definition or the template, by slug or UUID.
-    pub reference: String,
+pub struct DeleteDefinitionParams {
+    /// The definition, by slug or UUID.
+    pub definition: String,
+}
+
+/// Parameters for `delete_template` (KAIROS-T-0443).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct DeleteTemplateParams {
+    /// The template, by slug or UUID.
+    pub template: String,
 }
 
 /// A metadata field of a template (KAIROS-T-0443).
@@ -1467,8 +1486,9 @@ pub struct DeleteMetaParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct TemplateFieldParams {
-    /// The slug of a metadata definition.
-    pub definition_slug: String,
+    /// The slug of a metadata definition. KAIROS-T-0696: the old name
+    /// `definition_slug` is an alias.
+    pub definition: String,
     /// The default value.
     pub default_value: Option<String>,
     /// True: an item of the template must have a value.
@@ -1495,7 +1515,7 @@ pub struct SaveTemplateParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (79; the list of each profile is asserted in tests/mcp.rs)
+// The tools (80; the list of each profile is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -1743,7 +1763,7 @@ impl KairosMcp {
                         "Send `team` or `board`, not both. `team` lists the members of a team. \
                          `board` lists the members of a board and their capabilities.",
                     )
-                    .with_details(json!({ "arguments": ["team", "board"] })));
+                    .with_details(json!({ "field": "team", "arguments": ["team", "board"] })));
                 }
                 (Some(reference), None) => {
                     let team = team_by_ref(conn, reference)?;
@@ -1844,7 +1864,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "One repository: owner team and its delivery board, open task count, default branch and where it comes from, the team's `description` of how to work in it (read it before working in an unfamiliar repository), the documents and ADRs that impact it, the other ADRs of the owner team (newest first, 50 at most, none superseded; read each with `get_item` before planning), its open branches and pull requests with their items and those not linked to an item (50 of each at most; `offset` gives the next part), the forge filters, and the lines read token, write-back, code index build and code index breaker (a tripped breaker stops builds until `rebuild_code_index`). `repository` is a slug or UUID; `include_deleted: true` adds archived documents and ADRs."
+        description = "One repository: owner team and its delivery board, open task count, default branch and where it comes from, the team's `description` of how to work in it (`update_repository` sets it; read it before working in an unfamiliar repository), the documents and ADRs that impact it, the other ADRs of the owner team (newest first, 50 at most, none superseded; read each with `get_item` before planning), its open branches and pull requests with their items and those not linked to an item (50 of each at most; `offset` gives the next part), the forge filters, and the lines read token, write-back, code index build and code index breaker (a tripped breaker stops builds until `rebuild_code_index`). `repository` is a slug or UUID; `include_deleted: true` adds archived documents and ADRs."
     )]
     pub async fn get_repository(
         &self,
@@ -2023,7 +2043,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "The boards of the organization by level (strategy, initiative, delivery, ADR), with the columns and item counts of your delivery boards, the team of each ADR board, the capabilities that your teams or your board memberships give you with no grant, and the boards where you approve edge proposals. Optional `level`."
+        description = "The boards of the organization by level (strategy, initiative, delivery, ADR), with the columns and item counts of your delivery boards, the team of each ADR board, the capabilities that your teams or your board memberships give you with no grant, and the boards where you approve edge proposals. Optional `board_level`."
     )]
     pub async fn my_boards(
         &self,
@@ -2036,9 +2056,9 @@ impl KairosMcp {
             use kairos_db::schema::{board_member_capabilities as caps, boards, team_members};
 
             let level_filter = params
-                .level
+                .board_level
                 .as_deref()
-                .map(|v| parse_enum(v, "level", BoardLevel::ALL))
+                .map(|v| parse_enum(v, "board_level", BoardLevel::ALL))
                 .transpose()?;
 
             let mut query = boards::table
@@ -2223,7 +2243,7 @@ impl KairosMcp {
             // would be fetched and then silently never rendered.
             let mut columns = board_columns_including_removed(conn, board.id, liveness)?;
             if let Some(wanted) = &params.column {
-                let target = resolve_column(&columns, wanted)?;
+                let target = resolve_column(&columns, wanted, "column")?;
                 columns.retain(|c| c.id == target);
             }
             let repository = params
@@ -2480,7 +2500,10 @@ impl KairosMcp {
                 },
             )?;
             let triage = d::agent_triage_as(conn, &slug, user, &params.board)?;
-            let mut text = dispatch_text(&params.board, &rules, &targets, &log);
+            // KAIROS-T-0689: the slug of the board, for each form of the
+            // reference.
+            let board = board_by_ref(conn, &params.board)?;
+            let mut text = dispatch_text(&board.slug, &rules, &targets, &log);
             text.push_str(&format!(
                 "Triage of intake (KAIROS-T-0428): {}.\n",
                 if triage.agents_decide {
@@ -2495,7 +2518,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Make a dispatch rule on a board: when a task that matches the filter enters `column` (event task.entered_column), or with `trigger: unblocked` when its last open blocker closes (event task.unblocked; `column` optional), Kairos sends one signed delivery to a webhook target. Send `target_id`, or `url` (and `target_name`) to make a target: the answer shows its secret once, for the receiver to check X-Kairos-Signature. Optional filter, each part must match: `task_type`, `metadata_slug` with `metadata_value`, `repository`. Needs configure_boards. Send a `request_key` when you may retry this call."
+        description = "Make a dispatch rule on a board: when a task that matches the filter enters `column` (event task.entered_column), or with `trigger: unblocked` when its last open blocker closes (event task.unblocked; `column` optional), Kairos sends one signed delivery to a webhook target. Send `target_id`, or `url` (and `target_name`) to make a target: the answer shows its secret once, for the receiver to check X-Kairos-Signature. Optional filter, each part must match: `task_type`, `definition` with `metadata_value`, `repository`. Needs configure_boards. Send a `request_key` when you may retry this call."
     )]
     pub async fn create_dispatch_rule(
         &self,
@@ -2550,7 +2573,7 @@ impl KairosMcp {
                         column: params.column.clone(),
                         target_id,
                         task_type: params.task_type.clone(),
-                        metadata_slug: params.metadata_slug.clone(),
+                        metadata_slug: params.definition.clone(),
                         metadata_value: params.metadata_value.clone(),
                         repository: params.repository.clone(),
                     },
@@ -2837,6 +2860,32 @@ impl KairosMcp {
         .await
     }
 
+    // KAIROS-T-0694 (KAIROS-A-0068): the count of the refusals.
+    #[tool(
+        description = "The count of the MCP refusals for each tool and code in a range of days, the highest first: the field that the refusals name most, and the count for each kind of caller (person, agent key, service account). Kairos keeps one row for each tool call that ends in a tool error, with no argument value, for 90 days. `days` is 1 to 90 (default 7), `to` is the last day of the range, YYYY-MM-DD in UTC (default now), and `limit` is 1 to 100 rows (default 20). Only an organization admin."
+    )]
+    pub async fn refusal_counts(
+        &self,
+        Parameters(params): Parameters<RefusalCountsParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (_, tenant) = Self::caller(&context)?;
+        if let Err(e) = crate::api::meta::require_org_admin(&tenant) {
+            return Ok(tool_error(e));
+        }
+        let range = match refusal_range(&params, chrono::Utc::now()) {
+            Ok(range) => range,
+            Err(e) => return Ok(tool_error(e)),
+        };
+        self.run_tool(&tenant, move |conn| {
+            let (since, until, top) = range;
+            let counts =
+                kairos_db::tool_refusals::counts(conn, since, until).map_err(ApiError::internal)?;
+            Ok(refusal_counts_text(since, until, top, &counts))
+        })
+        .await
+    }
+
     // KAIROS-T-0368: the metadata definitions and the templates, so that an
     // agent knows the scales (the values of `priority`, in order) and the
     // slugs that `set_metadata` and `search` take.
@@ -2860,7 +2909,8 @@ impl KairosMcp {
                     "The value {entity_type:?} of entity_type is not an entity type. The entity \
                      types are: {}.",
                     ENTITY_TYPES.join(", ")
-                )));
+                ))
+                .with_details(json!({ "field": "entity_type", "allowed": ENTITY_TYPES })));
             }
             let rows: Vec<MetadataDefinition> = definitions::table
                 .order(definitions::slug.asc())
@@ -2928,7 +2978,8 @@ impl KairosMcp {
             {
                 return Err(ApiError::not_found(format!(
                     "The organization has no template with the slug {slug:?}."
-                )));
+                ))
+                .with_details(json!({ "field": "slug" })));
             }
             let mut out = String::from("# Templates\n");
             for row in rows {
@@ -3010,6 +3061,7 @@ impl KairosMcp {
                         "{} has no version {version} in its history.",
                         item.short_code
                     ))
+                    .with_details(json!({ "field": "version" }))
                 })?;
                 return Ok(format!(
                     "# {} v{version} — {title}\n\n{content}\n",
@@ -3098,7 +3150,10 @@ impl KairosMcp {
                     return Err(ApiError::validation(format!(
                         "You can propose only a parent edge or a blocks edge. {other:?} \
                          is not one of them."
-                    )));
+                    ))
+                    .with_details(
+                        json!({ "field": "relationship", "allowed": ["parent", "blocks"] }),
+                    ));
                 }
             };
             let source = load_item(conn, &params.source, Liveness::LiveOnly)?;
@@ -3181,10 +3236,10 @@ impl KairosMcp {
         let refs = match params.filter.as_ref().map(|f| {
             crate::api::search::FilterRefs::new(
                 f.repository.clone(),
-                (f.board.clone(), f.board_id.is_some()),
-                (f.team.clone(), f.team_id.is_some()),
+                (f.board.clone(), false),
+                (f.team.clone(), false),
             )
-            .and_then(|refs| refs.with_column(f.column.clone(), f.column_id.is_some()))
+            .and_then(|refs| refs.with_column(f.column.clone(), false))
             .map(|refs| {
                 refs.with_people(
                     f.claimed_by.clone(),
@@ -3201,7 +3256,8 @@ impl KairosMcp {
             && let Err(e) = core_search::validate(&request)
         {
             // Invalid requests never cost a connection checkout.
-            return Ok(tool_error(ApiError::validation(e.to_string())));
+            // KAIROS-T-0698: the details of REST, with the field.
+            return Ok(tool_error(crate::api::search::map_validation_error(e)));
         }
         self.run_tool(&tenant, move |conn| {
             // KAIROS-T-0107, KAIROS-T-0368: the slug-or-UUID repository,
@@ -3209,7 +3265,8 @@ impl KairosMcp {
             // filter here — then validate.
             if !refs.is_empty() {
                 refs.resolve_into(conn, &slug, caller, &mut request)?;
-                core_search::validate(&request).map_err(|e| ApiError::validation(e.to_string()))?;
+                core_search::validate(&request)
+                    .map_err(crate::api::search::map_validation_error)?;
             }
             let results = search::execute_search(conn, &request).map_err(map_search_error)?;
             // KAIROS-T-0561: the board, the column, the claim, the open
@@ -3416,7 +3473,8 @@ impl KairosMcp {
                      different owner board. Use transition_item to move an item between \
                      the columns of its board.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let to_board = to_board.ok_or_else(|| {
                 ApiError::validation(format!(
@@ -3517,7 +3575,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not a task. set_repository applies to tasks only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             // The same gate as PUT /api/tasks/{short_code}/repository, and
             // at the same point: before the repository is resolved. A caller
@@ -3628,7 +3687,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not a task. set_work_class applies to tasks only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let (Some(board_id), Some(before)) = (item.board_id, item.work_class) else {
                 return Err(ApiError::internal("a task has a board and a lane"));
@@ -3672,7 +3732,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not an initiative. set_complexity applies to initiatives only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let (before, updated) = crate::api::initiatives::change_complexity(
                 conn,
@@ -3788,7 +3849,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not a document. set_lifecycle applies to documents only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let (before, updated) = crate::api::documents::change_lifecycle(
                 conn,
@@ -3830,7 +3892,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not a task. set_state applies to tasks only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let body = kairos_client::types::SetTaskStateRequest {
                 branch: params.branch,
@@ -3998,7 +4061,15 @@ impl KairosMcp {
                     "The call has nothing to change. Send one or more of these arguments: \
                      description, default_branch, default_branch_source, repo_url, \
                      code_index_build, slug, team, forge_filters, issue_import_interval.",
-                ));
+                )
+                .with_details(json!({
+                    "field": "description",
+                    "fields": [
+                        "description", "default_branch", "default_branch_source", "repo_url",
+                        "code_index_build", "slug", "team", "forge_filters",
+                        "issue_import_interval",
+                    ],
+                })));
             }
             // KAIROS-T-0430: refuse an unknown value, and name it.
             let default_branch_source = params
@@ -4095,7 +4166,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Ask for a full build of the code index of a repository (the head of its default branch), when the index is missing, old or wrong. It also resets a tripped code index breaker. `repository` is a slug or UUID; the answer names the run. Refused: CODE_INDEX_BUILD_RUNNING (a run is active), CODE_INDEX_BUILD_OFF (set `code_index_build` on first), CODE_INDEX_BUILDER_OFF (no builder on this deployment). Needs membership of the owner team, or the org admin role."
+        description = "Ask for a full build of the code index of a repository (the head of its default branch), when the index is missing, old or wrong. It also resets a tripped code index breaker. `repository` is a slug or UUID; the answer names the run. Refused: CODE_INDEX_BUILD_RUNNING (a run is active), CODE_INDEX_BUILD_OFF (set `code_index_build` on with `update_repository` first), CODE_INDEX_BUILDER_OFF (no builder on this deployment). Needs membership of the owner team, or the org admin role."
     )]
     pub async fn rebuild_code_index(
         &self,
@@ -4185,7 +4256,7 @@ impl KairosMcp {
                 &item,
             )?;
             let columns = board_columns(conn, board_id)?;
-            let to_column_id = resolve_column(&columns, &params.to_column)?;
+            let to_column_id = resolve_column(&columns, &params.to_column, "to_column")?;
             // KAIROS-T-0676: `claim: true` takes the owner of an initiative
             // in the move. A task gets its claim from the move itself.
             let claim = params.claim.unwrap_or(false);
@@ -4444,7 +4515,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The parameter label applies to the relationship external only, not to {:?}.",
                     params.relationship
-                )));
+                ))
+                .with_details(json!({ "field": "label" })));
             }
             // COLLIERY-T-0269: the target of `impacts` is a repository.
             if params.relationship == kairos_db::impacts::RELATIONSHIP {
@@ -4647,7 +4719,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(
                     "Send preview=true to see the cascade, or confirm=true to archive. Do not \
                      send both.",
-                ));
+                )
+                .with_details(json!({ "field": "preview", "fields": ["preview", "confirm"] })));
             }
             if preview {
                 let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
@@ -4658,7 +4731,8 @@ impl KairosMcp {
                     "delete_item must have confirm=true. The call archives the item and \
                      each descendant that a parent edge connects to it. A restore brings \
                      each one back. Send preview=true to see the cascade first.",
-                ));
+                )
+                .with_details(json!({ "field": "confirm" })));
             }
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             // KAIROS-T-0537: an archive of intake is a triage (won't do).
@@ -4722,7 +4796,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "{} is not archived, so the server cannot restore it.",
                     item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             crate::api::require_item_archive(conn, role, user, item.id, item.item_type)?;
             match items::restore_item(conn, item.item_type, item.id, user)
@@ -4777,7 +4852,7 @@ impl KairosMcp {
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-            let cancellable = matches!(item.item_type, ItemType::Task | ItemType::Initiative);
+            let cancellable = CANCELLABLE.contains(&item.item_type);
             let Some(board_id) = item.board_id.filter(|_| cancellable) else {
                 return Err(ApiError::validation(format!(
                     "{} is a {}. You can cancel only a task or an initiative. {}",
@@ -5058,6 +5133,7 @@ impl KairosMcp {
             let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
+                user,
                 &params.user,
                 "user",
                 routes,
@@ -5073,7 +5149,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Grant a capability to a member (`user`: user id, email, user name or service account name). A board capability (manage_tasks, manage_documents, manage_adrs, manage_initiatives, manage_strategies, transition_items, configure_boards, administer_members, pages, purge, member, approve_proposals, or a glob such as manage_*) needs `board` and `administer_members` there, or `manage_structure`. `manage_structure` (only an org admin grants it): with no `board`, the structure of the organization; with `board`, that board's columns, transitions, members and grants."
+        description = "Grant a capability to a member (`user`: `me`, a user id, an email, a user name or a service-account name). A board capability (manage_tasks, manage_documents, manage_adrs, manage_initiatives, manage_strategies, transition_items, configure_boards, administer_members, pages, purge, member, approve_proposals, or a glob such as manage_*) needs `board` and `administer_members` there, or `manage_structure`. `manage_structure` (only an org admin grants it): with no `board`, the structure of the organization; with `board`, that board's columns, transitions, members and grants."
     )]
     pub async fn grant_capability(
         &self,
@@ -5115,6 +5191,7 @@ impl KairosMcp {
             let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
+                user,
                 &params.user,
                 "user",
                 routes,
@@ -5198,6 +5275,7 @@ impl KairosMcp {
                     crate::api::org::structure_grants::resolve_member(
                         conn,
                         &slug,
+                        user,
                         &params.user,
                         "user",
                     )?
@@ -5227,6 +5305,7 @@ impl KairosMcp {
             let target = crate::api::org::structure_grants::resolve_member(
                 conn,
                 &slug,
+                user,
                 &params.user,
                 "user",
             )?;
@@ -5239,14 +5318,15 @@ impl KairosMcp {
             if params.capabilities.is_empty() {
                 if had == 0 {
                     return Ok(format!(
-                        "{} has no capability on the board {}: nothing changed.",
-                        params.user, board.slug
+                        "{} <{}> has no capability on the board {}: nothing changed.",
+                        target.display_name, target.email, board.slug
                     ));
                 }
                 let revoked = b::revoke_all_as(conn, &slug, user, board.id, target.id)?;
                 return Ok(format!(
-                    "Revoked each capability of {} on the board {}: {}.",
-                    params.user,
+                    "Revoked each capability of {} <{}> on the board {}: {}.",
+                    target.display_name,
+                    target.email,
                     board.slug,
                     revoked.revoked_capabilities.join(", ")
                 ));
@@ -5257,8 +5337,10 @@ impl KairosMcp {
                 b::replace_as(conn, &slug, user, board.id, target.id, &params.capabilities)?
             };
             Ok(format!(
-                "{} has on the board {}: {}.",
-                params.user,
+                // KAIROS-T-0689: the member, not the form of the reference.
+                "{} <{}> has on the board {}: {}.",
+                target.display_name,
+                target.email,
                 board.slug,
                 member.capabilities.join(", ")
             ))
@@ -5385,7 +5467,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Allow or stop a move between two columns of a board, as POST and DELETE /api/boards/{id}/transitions do. `allowed: true` adds the transition `from` -> `to`; `allowed: false` removes it. `board` is a slug or UUID; `from` and `to` are column names or UUIDs. Requires `configure_boards` on the board."
+        description = "Allow or stop a move between two columns of a board, as POST and DELETE /api/boards/{id}/transitions do. `allowed: true` adds the transition `from_column` -> `to_column`; `allowed: false` removes it. `board` is a slug or UUID; `from_column` and `to_column` are column names or UUIDs. Requires `configure_boards` on the board."
     )]
     pub async fn set_transition(
         &self,
@@ -5398,21 +5480,21 @@ impl KairosMcp {
         self.run_tool(&tenant, move |conn| {
             use crate::api::org::boards as b;
             let board = board_by_ref(conn, &params.board)?;
-            let from = crate::api::org::dispatch::column_of(conn, &board, &params.from)
-                .map_err(|e| e.with_details(json!({ "field": "from" })))?;
-            let to = crate::api::org::dispatch::column_of(conn, &board, &params.to)
-                .map_err(|e| e.with_details(json!({ "field": "to" })))?;
+            let from = crate::api::org::dispatch::column_of(conn, &board, &params.from_column)
+                .map_err(|e| e.with_details(json!({ "field": "from_column" })))?;
+            let to = crate::api::org::dispatch::column_of(conn, &board, &params.to_column)
+                .map_err(|e| e.with_details(json!({ "field": "to_column" })))?;
             if params.allowed {
                 b::add_transition_as(conn, &slug, user, board.id, from, to)?;
                 Ok(format!(
                     "The board {} allows the move {} -> {}.",
-                    board.slug, params.from, params.to
+                    board.slug, params.from_column, params.to_column
                 ))
             } else {
                 b::remove_transition_as(conn, &slug, user, board.id, from, to)?;
                 Ok(format!(
                     "The board {} does not allow the move {} -> {} now.",
-                    board.slug, params.from, params.to
+                    board.slug, params.from_column, params.to_column
                 ))
             }
         })
@@ -5508,29 +5590,34 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Delete a metadata definition, as DELETE /api/metadata-definitions/{id} does. Refused while an item has a value or a template has the field (DEFINITION_IN_USE names them). `reference` is a slug or UUID. Organization admins only."
+        description = "Delete a metadata definition, as DELETE /api/metadata-definitions/{id} does. Refused while an item has a value or a template has the field (DEFINITION_IN_USE names them). `definition` is a slug or UUID. Organization admins only."
     )]
     pub async fn delete_metadata_definition(
         &self,
-        Parameters(params): Parameters<DeleteMetaParams>,
+        Parameters(params): Parameters<DeleteDefinitionParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (_, tenant) = Self::caller(&context)?;
         let gate = crate::api::meta::require_org_admin(&tenant);
         self.run_tool(&tenant, move |conn| {
             gate?;
-            let id = meta_id(conn, "metadata_definitions", &params.reference, "reference")?;
+            let id = meta_id(
+                conn,
+                "metadata_definitions",
+                &params.definition,
+                "definition",
+            )?;
             crate::api::meta::definitions::delete_definition_in(conn, id)?;
             Ok(format!(
                 "Deleted the metadata definition {}.",
-                params.reference
+                params.definition
             ))
         })
         .await
     }
 
     #[tool(
-        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content` and `metadata` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition_slug`, optional `default_value`, `required`. Organization admins only."
+        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content` and `metadata` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. Organization admins only."
     )]
     pub async fn save_template(
         &self,
@@ -5548,7 +5635,7 @@ impl KairosMcp {
                 fields
                     .into_iter()
                     .map(|field| dto::TemplateMetadataEntry {
-                        definition_slug: field.definition_slug,
+                        definition_slug: field.definition,
                         default_value: field.default_value,
                         required: field.required,
                     })
@@ -5599,20 +5686,20 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Delete a template, as DELETE /api/templates/{id} does. Items made from it keep their content and their metadata. `reference` is a slug or UUID. Organization admins only."
+        description = "Delete a template, as DELETE /api/templates/{id} does. Items made from it keep their content and their metadata. `template` is a slug or UUID. Organization admins only."
     )]
     pub async fn delete_template(
         &self,
-        Parameters(params): Parameters<DeleteMetaParams>,
+        Parameters(params): Parameters<DeleteTemplateParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (_, tenant) = Self::caller(&context)?;
         let gate = crate::api::meta::require_org_admin(&tenant);
         self.run_tool(&tenant, move |conn| {
             gate?;
-            let id = meta_id(conn, "templates", &params.reference, "reference")?;
+            let id = meta_id(conn, "templates", &params.template, "template")?;
             crate::api::meta::templates::delete_template_in(conn, id)?;
-            Ok(format!("Deleted the template {}.", params.reference))
+            Ok(format!("Deleted the template {}.", params.template))
         })
         .await
     }
@@ -5778,7 +5865,8 @@ impl KairosMcp {
             if params.parent.is_some() && params.to_root == Some(true) {
                 return Err(ApiError::validation(
                     "The call has parent and to_root. Send one of them.",
-                ));
+                )
+                .with_details(json!({ "field": "to_root", "fields": ["parent", "to_root"] })));
             }
             let team = team_by_ref(conn, &params.team)?;
             let pages = crate::api::org::team_pages::list_as(conn, team.id)?;
@@ -5796,7 +5884,8 @@ impl KairosMcp {
                 if params.slug.is_some() {
                     return Err(ApiError::validation(
                         "A document or an ADR has no slug in the tree. Send parent, to_root or position.",
-                    ));
+                    )
+                    .with_details(json!({ "field": "slug" })));
                 }
                 let position = params.position.unwrap_or_else(|| {
                     pages
@@ -5946,6 +6035,7 @@ fn page_by_ref<'a>(
              or the id of a page. The path of the charter is \"charter\". team_pages gives \
              the tree."
         ))
+        .with_details(json!({ "field": "page" }))
     })
 }
 
@@ -6099,9 +6189,10 @@ pub fn edit_item_text(
     params: &EditItemParams,
 ) -> Result<String, ApiError> {
     if params.search.is_empty() {
-        return Err(ApiError::validation(
-            "The argument search is empty. Send the text to find.",
-        ));
+        return Err(
+            ApiError::validation("The argument search is empty. Send the text to find.")
+                .with_details(json!({ "field": "search" })),
+        );
     }
     // One retry on a version race (S-0006 edit_item semantics):
     // the read-modify-write below re-reads on the second attempt.
@@ -6115,7 +6206,8 @@ pub fn edit_item_text(
                 item.short_code,
                 item.version,
                 whitespace_hint(&item.content, &params.search)
-            )));
+            ))
+            .with_details(json!({ "field": "search" })));
         }
         if occurrences > 1 && !params.replace_all {
             return Err(ApiError::validation(format!(
@@ -6123,7 +6215,8 @@ pub fn edit_item_text(
                      times is {occurrences}. Send replace_all=true, or send a longer \
                      text that is there one time.",
                 item.short_code
-            )));
+            ))
+            .with_details(json!({ "field": "search", "occurrences": occurrences })));
         }
         let new_content = if params.replace_all {
             item.content.replace(&params.search, &params.replace)
@@ -6893,7 +6986,7 @@ fn load_item(
     short_code: &str,
     liveness: Liveness,
 ) -> Result<ItemView, ApiError> {
-    let upper = short_code.to_ascii_uppercase();
+    let upper = crate::references::short_code(short_code);
     let row: Option<LoadedItem> = sql_query(LOAD_ITEM_SQL)
         .bind::<SqlText, _>(&upper)
         .get_result(conn)
@@ -6943,9 +7036,11 @@ fn no_item(short_code: &str, liveness: Liveness) -> ApiError {
     match liveness {
         Liveness::LiveOnly => {
             ApiError::not_found(format!("No live item has the short code {short_code:?}."))
+                .with_details(json!({ "field": "short_code" }))
         }
         Liveness::IncludeArchived => {
             ApiError::not_found(format!("No item has the short code {short_code:?}."))
+                .with_details(json!({ "field": "short_code" }))
         }
     }
 }
@@ -6963,7 +7058,7 @@ fn refuse_write(
     }
     if archived {
         return Err(crate::api::archived_write_refused(
-            &short_code.to_ascii_uppercase(),
+            &crate::references::short_code(short_code),
         ));
     }
     Ok(())
@@ -6995,7 +7090,7 @@ struct ItemKey {
 /// refusals as [`load_item`] with [`Liveness::LiveOnly`].
 fn load_item_key(conn: &mut PgConnection, short_code: &str) -> Result<ItemKey, ApiError> {
     let row: Option<LoadedKey> = sql_query(LOAD_ITEM_KEY_SQL)
-        .bind::<SqlText, _>(short_code.to_ascii_uppercase())
+        .bind::<SqlText, _>(crate::references::short_code(short_code))
         .get_result(conn)
         .optional()
         .map_err(ApiError::internal)?;
@@ -7180,6 +7275,11 @@ fn claim_and_move_initiative(
 }
 
 /// How to retire an item that `cancel_item` does not take (KAIROS-T-0678).
+/// KAIROS-T-0691: the item types that `cancel_item` cancels. A unit test
+/// checks that the description of the tool and the page `mcp-tools.md` name
+/// these and give a route for each other type.
+pub(crate) const CANCELLABLE: &[ItemType] = &[ItemType::Task, ItemType::Initiative];
+
 fn retire_route(item_type: ItemType) -> &'static str {
     match item_type {
         ItemType::Document => "To retire a document, call set_lifecycle with archived.",
@@ -7271,26 +7371,11 @@ fn require_capability_explained(
     })))
 }
 
-/// Resolve a board by UUID or slug; 404 `NOT_FOUND` otherwise.
+/// A board by UUID or slug: the one lookup of REST and MCP
+/// ([`crate::api::org::load_board_by_ref`], KAIROS-T-0689); 404
+/// `NOT_FOUND` otherwise.
 fn board_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError> {
-    use kairos_db::schema::boards;
-    let mut query = boards::table
-        .filter(boards::deleted_at.is_null())
-        .select(Board::as_select())
-        .into_boxed();
-    query = match Uuid::parse_str(reference) {
-        Ok(id) => query.filter(boards::id.eq(id)),
-        Err(_) => query.filter(boards::slug.eq(reference)),
-    };
-    query
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| {
-            ApiError::not_found(format!(
-                "No live board has the slug or the id {reference:?}."
-            ))
-        })
+    crate::api::org::load_board_by_ref(conn, reference)
 }
 
 /// Resolve a team by UUID or slug; 422 otherwise (a filter value).
@@ -7369,25 +7454,21 @@ fn board_columns_including_removed(
         .map_err(ApiError::internal)
 }
 
-/// Resolve a column reference (UUID or case-insensitive name) against a
-/// board's columns; failure names the available columns (agent-corrective).
-fn resolve_column(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError> {
-    if let Ok(id) = Uuid::parse_str(reference)
-        && columns.iter().any(|c| c.id == id)
+/// Resolve a column reference ([`crate::references::COLUMN_FORMS`]) against
+/// a board's columns; failure names the available columns (agent-corrective).
+fn resolve_column(columns: &[BoardColumn], reference: &str, field: &str) -> Result<Uuid, ApiError> {
+    if let Some(id) =
+        crate::references::column(columns.iter().map(|c| (c.id, c.name.as_str())), reference)
     {
         return Ok(id);
     }
-    if let Some(column) = columns
-        .iter()
-        .find(|c| c.name.eq_ignore_ascii_case(reference))
-    {
-        return Ok(column.id);
-    }
+    let reference = crate::references::text(reference);
     let names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
     Err(ApiError::validation(format!(
         "This board has no column {reference:?}. The columns are: {}.",
         names.join(", ")
-    )))
+    ))
+    .with_details(json!({ "field": field, "allowed": names })))
 }
 
 /// One compact row of a board listing.
@@ -7922,6 +8003,7 @@ fn parse_relationship(value: &str) -> Result<RelationshipType, ApiError> {
             allowed.join(", "),
             relationship_hint(value)
         ))
+        .with_details(json!({ "field": "relationship", "allowed": allowed }))
     })
 }
 
@@ -8525,10 +8607,16 @@ fn map_link_error(e: GraphError) -> ApiError {
         e @ GraphError::ParentExists { .. } => {
             crate::api::meta::relationships::parent_exists(e, "set_parent")
         }
-        e @ (GraphError::SelfLink(_) | GraphError::ItemNotFound(_)) => {
-            ApiError::validation(e.to_string())
+        // KAIROS-T-0698: the end of the edge that is at fault: the target
+        // of a self-link; for an item that is not there or an edge that
+        // is not there, both ends.
+        e @ GraphError::SelfLink(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "target" }))
         }
-        e @ GraphError::NotLinked { .. } => ApiError::not_found(e.to_string()),
+        e @ GraphError::ItemNotFound(_) => ApiError::validation(e.to_string())
+            .with_details(json!({ "field": "target", "fields": ["source", "target"] })),
+        e @ GraphError::NotLinked { .. } => ApiError::not_found(e.to_string())
+            .with_details(json!({ "field": "target", "fields": ["source", "target"] })),
         GraphError::Database(e) => ApiError::internal(e),
     }
 }
@@ -8790,13 +8878,15 @@ fn default_board_for(conn: &mut PgConnection, level: BoardLevel) -> Result<Board
         1 => Ok(candidates.into_iter().next().expect("len checked")),
         0 => Err(ApiError::validation(format!(
             "The organization has no live {level} board. Make the board, or send `board`."
-        ))),
+        ))
+        .with_details(json!({ "field": "board" }))),
         _ => {
             let slugs: Vec<&str> = candidates.iter().map(|b| b.slug.as_str()).collect();
             Err(ApiError::validation(format!(
                 "The organization has more than one {level} board. Send `board` as one of: {}.",
                 slugs.join(", ")
-            )))
+            ))
+            .with_details(json!({ "field": "board", "allowed": slugs })))
         }
     }
 }
@@ -8828,29 +8918,83 @@ fn resolve_template(conn: &mut PgConnection, reference: &str) -> Result<Uuid, Ap
         1 => Ok(by_name.into_iter().next().expect("len checked").id),
         0 => Err(ApiError::validation(format!(
             "No template has the id, the slug or the name {reference:?}."
-        ))),
+        ))
+        .with_details(json!({ "field": "template" }))),
         _ => Err(ApiError::validation(format!(
             "More than one template has the name {reference:?}. Send the id or the slug \
              of the template."
-        ))),
+        ))
+        .with_details(json!({ "field": "template" }))),
     }
 }
 
-/// Reject a type-specific field supplied for the wrong item type (agents
-/// get corrected instead of silently losing input).
-fn reject_field(
-    field: &str,
-    value: Option<&String>,
-    item_type: ItemType,
-    applies_to: &str,
-) -> Result<(), ApiError> {
-    match value {
-        Some(_) => Err(ApiError::validation(format!(
-            "{field} applies to {applies_to}. It does not apply to an item of the type \
-             {item_type}."
-        ))),
-        None => Ok(()),
+/// KAIROS-T-0691: the arguments of `create_item` that apply to one item
+/// type only. `create_item_impl` refuses each of them for the other types,
+/// and a unit test checks that the argument descriptions of the schema and
+/// the page `mcp-tools.md` say the same ("Tasks only", ...).
+pub(crate) const TYPE_ONLY_FIELDS: &[(&str, ItemType)] = &[
+    ("template", ItemType::Document),
+    ("task_type", ItemType::Task),
+    ("repository", ItemType::Task),
+    ("work_class", ItemType::Task),
+    ("from_team", ItemType::Task),
+    ("hypothesis", ItemType::Strategy),
+    ("complexity", ItemType::Initiative),
+    ("bucket_type", ItemType::Initiative),
+    ("decision_maker", ItemType::Adr),
+    ("decision_date", ItemType::Adr),
+];
+
+/// The plural of an item type, as the refusals and descriptions write it.
+pub(crate) fn type_plural(item_type: ItemType) -> &'static str {
+    match item_type {
+        ItemType::Strategy => "strategies",
+        ItemType::Initiative => "initiatives",
+        ItemType::Task => "tasks",
+        ItemType::Document => "documents",
+        ItemType::Adr => "ADRs",
     }
+}
+
+/// The value of a [`TYPE_ONLY_FIELDS`] argument in the parameters.
+fn type_only_value<'a>(params: &'a CreateItemParams, field: &str) -> Option<&'a String> {
+    match field {
+        "template" => params.template.as_ref(),
+        "task_type" => params.task_type.as_ref(),
+        "repository" => params.repository.as_ref(),
+        "work_class" => params.work_class.as_ref(),
+        "from_team" => params.from_team.as_ref(),
+        "hypothesis" => params.hypothesis.as_ref(),
+        "complexity" => params.complexity.as_ref(),
+        "bucket_type" => params.bucket_type.as_ref(),
+        "decision_maker" => params.decision_maker.as_ref(),
+        "decision_date" => params.decision_date.as_ref(),
+        other => unreachable!("{other} is not in TYPE_ONLY_FIELDS"),
+    }
+}
+
+/// Reject each type-specific field supplied for the wrong item type (agents
+/// get corrected instead of silently losing input). The refusal names the
+/// field in `details.field` (KAIROS-T-0690).
+fn reject_type_only_fields(params: &CreateItemParams, item_type: ItemType) -> Result<(), ApiError> {
+    for &(field, applies_to) in TYPE_ONLY_FIELDS {
+        if applies_to == item_type || type_only_value(params, field).is_none() {
+            continue;
+        }
+        let mut message = format!(
+            "The argument {field} applies to {}. It does not apply to an item of the type \
+             {item_type}.",
+            type_plural(applies_to)
+        );
+        if field == "repository" && matches!(item_type, ItemType::Document | ItemType::Adr) {
+            message.push_str(&format!(
+                " To say that the {item_type} impacts a repository, create the {item_type}. \
+                 Then call link_items with the relationship impacts."
+            ));
+        }
+        return Err(ApiError::validation(message).with_details(json!({ "field": field })));
+    }
+    Ok(())
 }
 
 /// The create_item body: resolve the target board (or parent, for
@@ -8882,55 +9026,14 @@ fn create_item_impl(
             return Err(ApiError::validation(format!(
                 "{other:?} is not an item type. The item types are: strategy, initiative, \
                  task, document, adr."
-            )));
+            ))
+            .with_details(json!({
+                "field": "item_type",
+                "allowed": ["strategy", "initiative", "task", "document", "adr"],
+            })));
         }
     };
-    if item_type != ItemType::Document {
-        reject_field("template", params.template.as_ref(), item_type, "documents")?;
-    }
-    if item_type != ItemType::Task {
-        reject_field("task_type", params.task_type.as_ref(), item_type, "tasks")?;
-        // KAIROS-T-0553: refused like the others, not read and dropped.
-        reject_field("work_class", params.work_class.as_ref(), item_type, "tasks")?;
-    }
-    if item_type != ItemType::Strategy {
-        reject_field(
-            "hypothesis",
-            params.hypothesis.as_ref(),
-            item_type,
-            "strategies",
-        )?;
-    }
-    if item_type != ItemType::Initiative {
-        reject_field(
-            "complexity",
-            params.complexity.as_ref(),
-            item_type,
-            "initiatives",
-        )?;
-    }
-    if item_type != ItemType::Initiative {
-        reject_field(
-            "bucket_type",
-            params.bucket_type.as_ref(),
-            item_type,
-            "initiatives",
-        )?;
-    }
-    if item_type != ItemType::Adr {
-        reject_field(
-            "decision_maker",
-            params.decision_maker.as_ref(),
-            item_type,
-            "ADRs",
-        )?;
-        reject_field(
-            "decision_date",
-            params.decision_date.as_ref(),
-            item_type,
-            "ADRs",
-        )?;
-    }
+    reject_type_only_fields(params, item_type)?;
     let content = params.content.as_deref().unwrap_or("");
 
     // Documents: an owner is REQUIRED, which is `board`, or `parent`, or
@@ -8938,15 +9041,7 @@ fn create_item_impl(
     // those of POST /api/documents: the two call one function.
     if item_type == ItemType::Document {
         // Until COLLIERY-T-0269 the tool did not read `repository` for a
-        // document, and it did not say so.
-        if params.repository.is_some() {
-            return Err(ApiError::validation(
-                "The argument repository applies to tasks. It does not apply to an item \
-                 of the type document. To say that the document impacts a repository, \
-                 create the document. Then call link_items with the relationship \
-                 impacts.",
-            ));
-        }
+        // document, and it did not say so: `reject_type_only_fields` refuses it.
         let template_id = params
             .template
             .as_deref()
@@ -8984,10 +9079,6 @@ fn create_item_impl(
             out.push_str(&format!("\n{renamed}"));
         }
         return Ok(out);
-    }
-
-    if item_type != ItemType::Task {
-        reject_field("repository", params.repository.as_ref(), item_type, "tasks")?;
     }
 
     // Board items: resolve the board (explicit slug/UUID or the single
@@ -9052,13 +9143,8 @@ fn create_item_impl(
         let work_class = access.work_class(requested_work_class, task_type);
         (board, Some(route), Some((task_type, work_class)))
     } else {
-        // KAIROS-T-0426: `from_team` says who sends a task.
-        if params.from_team.is_some() {
-            return Err(ApiError::validation(format!(
-                "The argument from_team is for a task. A {item_type} has no sending team."
-            ))
-            .with_details(json!({ "field": "from_team" })));
-        }
+        // KAIROS-T-0426: `from_team` says who sends a task; a sending team
+        // on another type is refused by `reject_type_only_fields`.
         let board = match params.board.as_deref() {
             Some(reference) => board_by_ref(conn, reference)?,
             None => default_board_for(conn, level_of(item_type))?,
@@ -9105,7 +9191,9 @@ fn create_item_impl(
                 parent_type,
                 item_type,
             )
-            .map_err(|e| ApiError::validation(e.to_string()))?;
+            .map_err(|e| {
+                ApiError::validation(e.to_string()).with_details(json!({ "field": "parent" }))
+            })?;
             Ok::<_, ApiError>((parent, relationship))
         })
         .transpose()?;
@@ -9192,6 +9280,7 @@ fn create_item_impl(
                             "The value {value:?} of decision_date is not a date. Send the \
                              date as YYYY-MM-DD."
                         ))
+                        .with_details(json!({ "field": "decision_date" }))
                     })
                 })
                 .transpose()?;
@@ -9263,15 +9352,6 @@ fn create_item_impl(
 /// mirror of the REST endpoint's 400s).
 fn field_invalid(field: &str, message: impl Into<String>) -> ApiError {
     ApiError::validation(message).with_details(json!({ "field": field }))
-}
-
-fn uuid_field(value: &str, field: &str) -> Result<Uuid, ApiError> {
-    Uuid::parse_str(value).map_err(|_| {
-        field_invalid(
-            field,
-            format!("The value {value:?} of {field} is not a UUID."),
-        )
-    })
 }
 
 fn timestamp_field(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError> {
@@ -9394,21 +9474,12 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
                             .collect::<Result<Vec<core_search::SearchEntityType>, _>>()
                     })
                     .transpose()?,
-                board_id: filter
-                    .board_id
-                    .as_deref()
-                    .map(|v| uuid_field(v, "filter.board_id"))
-                    .transpose()?,
-                column_id: filter
-                    .column_id
-                    .as_deref()
-                    .map(|v| uuid_field(v, "filter.column_id"))
-                    .transpose()?,
-                team_id: filter
-                    .team_id
-                    .as_deref()
-                    .map(|v| uuid_field(v, "filter.team_id"))
-                    .transpose()?,
+                // KAIROS-T-0696: `board`, `column` and `team` (a slug, a
+                // name or a UUID) are resolved inside the tool; their old
+                // names are aliases (`arguments::FIELD_ALIASES`).
+                board_id: None,
+                column_id: None,
+                team_id: None,
                 // Resolved from the slug-or-UUID `repository` inside the
                 // tool (a conn is needed); see `search`.
                 repository_id: None,
@@ -9527,11 +9598,14 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
 /// the traverse-root 404 or a real failure).
 fn map_search_error(e: SearchError) -> ApiError {
     match e {
-        SearchError::Invalid(e) => ApiError::validation(e.to_string()),
-        SearchError::UnknownMetadataDefinition(_) => ApiError::validation(e.to_string()),
+        SearchError::Invalid(e) => crate::api::search::map_validation_error(e),
+        SearchError::UnknownMetadataDefinition(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "filter.metadata" }))
+        }
         SearchError::TraverseRootNotFound { reference } => ApiError::not_found(format!(
             "The item {reference:?} of traverse.from does not exist."
-        )),
+        ))
+        .with_details(json!({ "field": "traverse.from" })),
         SearchError::Database(e) => ApiError::internal(e),
     }
 }
@@ -9813,6 +9887,91 @@ fn ride_along_text(unread: &kairos_db::notifications::Unread) -> Option<String> 
          have acted on them.\n",
     );
     Some(out)
+}
+
+/// The range and the row count of `refusal_counts` (KAIROS-T-0694):
+/// `days` days that end at the end of the day `to`, or at `now`.
+fn refusal_range(
+    params: &RefusalCountsParams,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<
+    (
+        chrono::DateTime<chrono::Utc>,
+        chrono::DateTime<chrono::Utc>,
+        usize,
+    ),
+    ApiError,
+> {
+    let days = params.days.unwrap_or(7);
+    if !(1..=kairos_db::tool_refusals::KEEP_DAYS).contains(&days) {
+        return Err(ApiError::validation(format!(
+            "The value {days} of days is not in the range. Send a number of days from 1 to {}.",
+            kairos_db::tool_refusals::KEEP_DAYS
+        ))
+        .with_details(json!({ "field": "days" })));
+    }
+    let top = params.limit.unwrap_or(20);
+    if !(1..=100).contains(&top) {
+        return Err(ApiError::validation(format!(
+            "The value {top} of limit is not in the range. Send a number of rows from 1 to 100."
+        ))
+        .with_details(json!({ "field": "limit" })));
+    }
+    let until = match params.to.as_deref() {
+        None => now,
+        Some(text) => {
+            let day = chrono::NaiveDate::parse_from_str(text.trim(), "%Y-%m-%d").map_err(|_| {
+                ApiError::validation(format!(
+                    "The value {text:?} of to is not a date. Send a date in the form \
+                     YYYY-MM-DD, for example 2026-10-25."
+                ))
+                .with_details(json!({ "field": "to" }))
+            })?;
+            (day + chrono::Duration::days(1))
+                .and_hms_opt(0, 0, 0)
+                .expect("midnight")
+                .and_utc()
+        }
+    };
+    Ok((until - chrono::Duration::days(days), until, top as usize))
+}
+
+/// The answer of `refusal_counts`: one line, then a table of the top rows.
+fn refusal_counts_text(
+    since: chrono::DateTime<chrono::Utc>,
+    until: chrono::DateTime<chrono::Utc>,
+    top: usize,
+    counts: &[kairos_db::tool_refusals::Count],
+) -> String {
+    let when = |t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%d %H:%M UTC").to_string();
+    if counts.is_empty() {
+        return format!("No refusals from {} to {}.", when(since), when(until));
+    }
+    let total: i64 = counts.iter().map(|c| c.count).sum();
+    let shown = counts.len().min(top);
+    let mut out = format!(
+        "Refusals from {} to {}: {total} in all, in {} pairs of tool and code. The top \
+         {shown} of {} pairs:\n\n\
+         | tool | code | count | field named most | person | agent key | service account |\n\
+         |---|---|---|---|---|---|---|",
+        when(since),
+        when(until),
+        counts.len(),
+        counts.len(),
+    );
+    for c in &counts[..shown] {
+        out.push_str(&format!(
+            "\n| {} | {} | {} | {} | {} | {} | {} |",
+            c.tool,
+            c.code,
+            c.count,
+            c.top_field.as_deref().unwrap_or("-"),
+            c.person,
+            c.agent_key,
+            c.service_account
+        ));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -10566,7 +10725,7 @@ mod t0677_tests {
 
     /// The rows of the table in the description, as `(relationship,
     /// sources, targets)`.
-    fn table_rows(description: &str) -> Vec<(String, Vec<String>, Vec<String>)> {
+    pub(super) fn table_rows(description: &str) -> Vec<(String, Vec<String>, Vec<String>)> {
         let list = |cell: &str| -> Vec<String> {
             cell.split(',')
                 .map(|part| part.trim().to_string())
@@ -10735,6 +10894,237 @@ mod t0685_tests {
         assert!(
             state.contains("Send each field as its own argument, not one object"),
             "{state}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod t0691_tests {
+    //! KAIROS-T-0691 (pass 6 of KAIROS-D-0016): each rule table in the code
+    //! is stated in the description of its tool and on the page
+    //! `mcp-tools.md`. The tables: the link matrix (`check_link`, tested in
+    //! `t0677_tests` against the description and here against the page),
+    //! the type-only arguments of create_item (`TYPE_ONLY_FIELDS`), and the
+    //! types that cancel_item cancels (`CANCELLABLE`). The profile lists are
+    //! tested in `profiles`.
+
+    use super::{
+        CANCELLABLE, CreateItemParams, KairosMcp, TYPE_ONLY_FIELDS, retire_route, type_plural,
+    };
+    use kairos_core::short_code::ItemType;
+    use std::collections::BTreeMap;
+
+    fn page() -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/src/content/docs/reference/mcp-tools.md");
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    /// The section `### \`name\`` of the page, to the next section.
+    fn section(page: &str, name: &str) -> String {
+        let heading = format!("### `{name}`\n");
+        let start = page
+            .find(&heading)
+            .unwrap_or_else(|| panic!("no section {name}"));
+        let body = &page[start + heading.len()..];
+        let end = body.find("\n### ").unwrap_or(body.len());
+        body[..end].to_string()
+    }
+
+    /// The description of each argument in the JSON schema of the tool.
+    fn argument_descriptions(tool: rmcp::model::Tool) -> BTreeMap<String, String> {
+        let properties = tool
+            .input_schema
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .expect("properties")
+            .clone();
+        properties
+            .into_iter()
+            .map(|(name, schema)| {
+                let text = schema
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                (name, text)
+            })
+            .collect()
+    }
+
+    /// The type that an "X only" description names, or None.
+    fn only_type(text: &str) -> Option<ItemType> {
+        ItemType::ALL.iter().copied().find(|&item_type| {
+            let plural = type_plural(item_type);
+            let mut capital = plural.to_string();
+            capital[..1].make_ascii_uppercase();
+            text.starts_with(&format!("{capital} only"))
+        })
+    }
+
+    #[test]
+    fn the_type_only_arguments_are_the_table() {
+        let table: BTreeMap<String, ItemType> = TYPE_ONLY_FIELDS
+            .iter()
+            .map(|&(field, item_type)| (field.to_string(), item_type))
+            .collect();
+
+        // The schema of the tool: "Tasks only: ..." for each field of the
+        // table, and no "X only" for another field.
+        let schema = argument_descriptions(KairosMcp::create_item_tool_attr());
+        for field in table.keys() {
+            assert!(schema.contains_key(field), "{field} is not an argument");
+        }
+        for (field, text) in &schema {
+            assert_eq!(
+                only_type(text),
+                table.get(field).copied(),
+                "the schema description of {field}: {text}"
+            );
+        }
+
+        // The page: the column Description of the table of arguments.
+        let section = section(&page(), "create_item");
+        let mut rows = 0;
+        for line in section.lines().filter(|l| l.starts_with("| `")) {
+            let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+            let field = cells[0].trim_matches('`');
+            if !schema.contains_key(field) {
+                continue;
+            }
+            rows += 1;
+            let text = cells.last().expect("a description");
+            assert_eq!(
+                only_type(text),
+                table.get(field).copied(),
+                "mcp-tools.md, create_item, {field}: {text}"
+            );
+        }
+        // `request_key` is on the page under Conventions.
+        assert_eq!(
+            rows,
+            schema.len() - 1,
+            "a row on the page for each argument"
+        );
+
+        // The description of the tool: each "X only: `a`, and `b`" names
+        // fields of X.
+        let description = KairosMcp::create_item_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        for sentence in description.split(". ") {
+            if let Some(item_type) = only_type(sentence) {
+                let named = sentence
+                    .split('`')
+                    .skip(1)
+                    .step_by(2)
+                    .take_while(|name| table.contains_key(*name))
+                    .collect::<Vec<_>>();
+                assert!(!named.is_empty(), "{sentence}");
+                for name in named {
+                    assert_eq!(table.get(name), Some(&item_type), "{sentence}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_type_only_argument_is_refused_with_its_field() {
+        let params = |value: serde_json::Value| -> CreateItemParams {
+            serde_json::from_value(value).expect("the parameters")
+        };
+        let refusal = |value, item_type| {
+            super::reject_type_only_fields(&params(value), item_type).expect_err("a refusal")
+        };
+        for &(field, applies_to) in TYPE_ONLY_FIELDS {
+            let value = serde_json::json!({"item_type": "x", "title": "t", field: "v"});
+            assert!(super::reject_type_only_fields(&params(value.clone()), applies_to).is_ok());
+            for &other in ItemType::ALL.iter().filter(|&&t| t != applies_to) {
+                let err = refusal(value.clone(), other);
+                assert_eq!(err.code, "VALIDATION");
+                assert_eq!(err.details["field"], field, "{}", err.message);
+                assert!(
+                    err.message.starts_with(&format!(
+                        "The argument {field} applies to {}.",
+                        type_plural(applies_to)
+                    )),
+                    "{}",
+                    err.message
+                );
+            }
+        }
+        let err = refusal(
+            serde_json::json!({"item_type": "adr", "title": "t", "repository": "kairos"}),
+            ItemType::Adr,
+        );
+        assert!(
+            err.message.ends_with("relationship impacts."),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn the_cancel_types_are_the_table() {
+        let description = KairosMcp::cancel_item_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        let first = description.split(':').next().expect("a first clause");
+        for &item_type in ItemType::ALL {
+            let upper = item_type.entity_type().to_ascii_uppercase();
+            let named = first
+                .split(|c: char| !c.is_ascii_alphabetic())
+                .any(|w| w == upper);
+            assert_eq!(
+                named,
+                CANCELLABLE.contains(&item_type),
+                "cancel_item description, {item_type}: {first}"
+            );
+        }
+        let retire = &description[description
+            .find("To retire a different type")
+            .expect("the route for the other types")..];
+        let page = section(&page(), "cancel_item");
+        let page_retire = &page[page.find("To retire a different type").expect("route")..];
+        for &item_type in ItemType::ALL {
+            if CANCELLABLE.contains(&item_type) {
+                continue;
+            }
+            let name = match item_type {
+                ItemType::Adr => "ADR".to_string(),
+                other => other.entity_type().to_string(),
+            };
+            assert!(retire.contains(&name), "description: no route for {name}");
+            assert!(page_retire.contains(&name), "page: no route for {name}");
+            assert!(retire_route(item_type).starts_with("To retire"));
+        }
+        let start = page
+            .find("a task or an initiative")
+            .expect("the page names the types");
+        assert!(start < 200, "{page}");
+    }
+
+    #[test]
+    fn the_link_table_of_the_page_is_the_table_of_the_description() {
+        let description = KairosMcp::link_items_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        let page = section(&page(), "link_items");
+        let start = page
+            .find("| relationship |")
+            .expect("the table of the page");
+        let table: String = page[start..]
+            .lines()
+            .take_while(|line| line.starts_with('|'))
+            .map(|line| line.replace('`', "") + "\n")
+            .collect();
+        assert_eq!(
+            super::t0677_tests::table_rows(&table),
+            super::t0677_tests::table_rows(&description),
+            "{table}"
         );
     }
 }

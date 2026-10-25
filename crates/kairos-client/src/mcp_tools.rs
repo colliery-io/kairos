@@ -182,10 +182,10 @@ mod tests {
     }
 
     #[test]
-    fn the_table_has_18_reads_and_14_keyed_writes() {
+    fn the_table_has_19_reads_and_14_keyed_writes() {
         let reads = TOOLS.iter().filter(|(_, k)| *k == ToolKind::Read).count();
         let keyed = TOOLS.iter().filter(|(_, k)| *k == KEYED).count();
-        assert_eq!((reads, keyed), (18, 14));
+        assert_eq!((reads, keyed), (19, 14));
         assert!(is_read("get_item") && !is_read("create_item") && !is_read("no_such_tool"));
         assert!(takes_request_key("create_item") && !takes_request_key("set_state"));
     }

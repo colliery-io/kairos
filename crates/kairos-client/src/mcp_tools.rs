@@ -57,6 +57,7 @@ pub const TOOLS: &[(&str, ToolKind)] = &[
     ("board_flow", ToolKind::Read),
     ("list_dispatch_rules", ToolKind::Read),
     ("list_org_read_tokens", ToolKind::Read),
+    ("refusal_counts", ToolKind::Read),
     // The writes of decision 7 of KAIROS-A-0065: they take a request_key.
     ("create_item", KEYED),
     ("append_note", KEYED),

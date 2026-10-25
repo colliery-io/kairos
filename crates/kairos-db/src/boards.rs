@@ -190,17 +190,22 @@ pub enum BoardError {
     /// The board policy `parent_gate` (KAIROS-T-0641,
     /// [`crate::board_policy`]): the task goes into a claims column, and its
     /// parent initiative is not active.
+    ///
+    /// KAIROS-T-0676: when the initiative has no owner and its board has
+    /// the policy owner_gate, the text names both steps in one refusal.
     #[error(
         "{task} cannot move to {to_column}. Its initiative {initiative} is in \
          {initiative_column}. A task moves to {to_column} only while its initiative is in \
-         Active or Monitoring. Move {initiative} to Active first: transition_item. Then move \
-         the task."
+         Active or Monitoring. {fix}",
+        fix = parent_fix(initiative, *owner_needed)
     )]
     ParentNotActive {
         task: String,
         to_column: String,
         initiative: String,
         initiative_column: String,
+        /// The initiative has no owner, and its board has owner_gate.
+        owner_needed: bool,
         board_id: Uuid,
     },
     /// The board policy `owner_gate` (KAIROS-T-0643,
@@ -253,6 +258,19 @@ pub enum BoardError {
     /// Any other database error.
     #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
+}
+
+/// The fix of [`BoardError::ParentNotActive`] (KAIROS-T-0676).
+fn parent_fix(initiative: &str, owner_needed: bool) -> String {
+    if owner_needed {
+        format!(
+            "{initiative} also has no owner, and an initiative moves to Active only with an \
+             owner. Become its owner and move it in one call: transition_item {initiative} \
+             Active with claim: true. Or claim it first: claim_item. Then move the task."
+        )
+    } else {
+        format!("Move {initiative} to Active first: transition_item. Then move the task.")
+    }
 }
 
 /// Insert one `activity_log` row (current tenant schema). A

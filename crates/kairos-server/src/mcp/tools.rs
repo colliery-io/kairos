@@ -656,6 +656,12 @@ pub struct TransitionItemParams {
     /// Target column, by name (e.g. "In Progress") or UUID, on the item's
     /// own board.
     pub to_column: String,
+    /// Initiatives: `true` makes you the owner in the same move, as
+    /// `claim_item` does, so that the board policy owner_gate lets the
+    /// move to Active through. A task gets your claim from a move to Active
+    /// with no flag. Default false.
+    #[serde(default)]
+    pub claim: Option<bool>,
     /// A key that you choose for this call: 8 to 128 characters of letters,
     /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
     /// retry this call: a second call with the same key in 24 hours writes
@@ -4123,7 +4129,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move an item to another column on its board (`to_column` is a column name or UUID). A move goes one column at a time, along a transition of the board. When you do not know the columns, call `my_boards` first: it gives the columns of each board and the moves between them (`get_item` gives the next columns of the item). An invalid move fails with the allowed target columns enumerated, and the path to the target when one goes there (`path`): call transition_item for each step. A done task leaves its done column only by `reopen_item`. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`. Send a `request_key` when you may retry this call."
+        description = "Move an item to another column on its board (`to_column` is a column name or UUID). A move goes one column at a time, along a transition of the board. When you do not know the columns, call `my_boards` first: it gives the columns of each board and the moves between them (`get_item` gives the next columns of the item). An invalid move fails with the allowed target columns enumerated, and the path to the target when one goes there (`path`): call transition_item for each step. A done task leaves its done column only by `reopen_item`. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. A move of an INITIATIVE does not set its owner, and the board policy owner_gate refuses a move to Active with no owner (OWNER_REQUIRED). Send `claim: true` to become the owner in the same move (the rules of `claim_item` apply), or call `claim_item` first. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`. Send a `request_key` when you may retry this call."
     )]
     pub async fn transition_item(
         &self,
@@ -4170,6 +4176,17 @@ impl KairosMcp {
             )?;
             let columns = board_columns(conn, board_id)?;
             let to_column_id = resolve_column(&columns, &params.to_column)?;
+            // KAIROS-T-0676: `claim: true` takes the owner of an initiative
+            // in the move. A task gets its claim from the move itself.
+            let claim = params.claim.unwrap_or(false);
+            if claim && !matches!(item.item_type, ItemType::Initiative | ItemType::Task) {
+                return Err(ApiError::validation(format!(
+                    "{} is a {}. The argument claim takes an initiative or a task. To become \
+                     the owner of a {}, call claim_item. Then move it.",
+                    item.short_code, item.item_type, item.item_type
+                ))
+                .with_details(json!({ "field": "claim" })));
+            }
             let mut triaged = None;
             if item.item_type == ItemType::Task {
                 // KAIROS-T-0428: an agent's triage of intake.
@@ -4182,18 +4199,24 @@ impl KairosMcp {
                 crate::claims::note(conn, item.id, user)?;
             }
 
-            match item.item_type {
-                ItemType::Strategy => {
-                    boards::transition_strategy(conn, item.id, to_column_id, user)
+            let claimed = if claim && item.item_type == ItemType::Initiative {
+                // One transaction: a refused move keeps no owner.
+                claim_and_move_initiative(conn, &slug, user, &item, to_column_id)?
+            } else {
+                match item.item_type {
+                    ItemType::Strategy => {
+                        boards::transition_strategy(conn, item.id, to_column_id, user)
+                    }
+                    ItemType::Initiative => {
+                        boards::transition_initiative(conn, item.id, to_column_id, user)
+                    }
+                    ItemType::Task => boards::transition_task(conn, item.id, to_column_id, user),
+                    ItemType::Adr => boards::transition_adr(conn, item.id, to_column_id, user),
+                    ItemType::Document => unreachable!("documents have no board placement"),
                 }
-                ItemType::Initiative => {
-                    boards::transition_initiative(conn, item.id, to_column_id, user)
-                }
-                ItemType::Task => boards::transition_task(conn, item.id, to_column_id, user),
-                ItemType::Adr => boards::transition_adr(conn, item.id, to_column_id, user),
-                ItemType::Document => unreachable!("documents have no board placement"),
-            }
-            .map_err(map_board_error)?;
+                .map_err(map_board_error)?;
+                false
+            };
             crate::agent_triage::record(conn, &auth, item.id, triaged)?;
             // KAIROS-T-0371: a move into a column over its WIP limit.
             // KAIROS-T-0565: the open blockers of a task.
@@ -4224,13 +4247,18 @@ impl KairosMcp {
                     out.push_str(claim.trim_end());
                 }
             }
+            // KAIROS-T-0676: the owner that `claim: true` took.
+            if claimed {
+                out.push('\n');
+                out.push_str(crate::owners::owner_text(conn, item.id, item.item_type)?.trim_end());
+            }
             Ok(out)
         })
         .await
     }
 
     #[tool(
-        description = "Take a free TASK in Active (no claim): the claim names you, so the board shows who works it. Or become the owner of a STRATEGY or INITIATIVE that has none: the one person who answers for it. A task: you need `transition_items` on its board; a task that a different person holds is refused with CLAIMED and the holder's name (ask for `hand_off_item`). A strategy or initiative: you must be a person and a member of its board (a grant), or an org admin; an item with an owner is refused with the owner's name. The owner gives no extra right. Moving a task to Active gives you the claim too."
+        description = "Take a free TASK in Active (no claim): the claim names you, so the board shows who works it. Or become the owner of a STRATEGY or INITIATIVE that has none: the one person who answers for it. A task: you need `transition_items` on its board; a task that a different person holds is refused with CLAIMED and the holder's name (ask for `hand_off_item`). A strategy or initiative: you must be a person and a member of its board (a grant), or an org admin; an item with an owner is refused with the owner's name. The owner gives no extra right. Moving a task to Active gives you the claim too. `transition_item` with `claim: true` makes you the owner of an initiative in the same move."
     )]
     pub async fn claim_item(
         &self,
@@ -7024,6 +7052,51 @@ struct LoadedItem {
     created_by: Uuid,
     #[diesel(sql_type = SqlTimestamptz)]
     created_at: DateTime<Utc>,
+}
+
+/// KAIROS-T-0676: `transition_item` with `claim: true` on an initiative.
+/// The caller becomes the owner (the rules of `claim_item`), then the
+/// initiative moves, in one transaction: a refused move keeps no owner.
+/// A caller who is the owner already takes nothing. True when the caller
+/// took the owner.
+fn claim_and_move_initiative(
+    conn: &mut PgConnection,
+    slug: &str,
+    user: Uuid,
+    item: &ItemView,
+    to_column_id: Uuid,
+) -> Result<bool, ApiError> {
+    /// The error of the transaction: diesel needs `From<diesel::Error>`.
+    enum Failed {
+        Api(ApiError),
+        Db(diesel::result::Error),
+    }
+    impl From<diesel::result::Error> for Failed {
+        fn from(e: diesel::result::Error) -> Self {
+            Failed::Db(e)
+        }
+    }
+    conn.transaction::<_, Failed, _>(|conn| {
+        let owner = kairos_db::item_owners::owner_of(conn, item.id)?;
+        let take = owner.as_ref().is_none_or(|o| o.user_id != user);
+        if take {
+            crate::owners::claim(
+                conn,
+                slug,
+                user,
+                (item.id, item.item_type),
+                &item.short_code,
+            )
+            .map_err(Failed::Api)?;
+        }
+        boards::transition_initiative(conn, item.id, to_column_id, user)
+            .map_err(|e| Failed::Api(map_board_error(e)))?;
+        Ok(take)
+    })
+    .map_err(|e| match e {
+        Failed::Api(e) => e,
+        Failed::Db(e) => ApiError::internal(e),
+    })
 }
 
 /// How to retire an item that `cancel_item` does not take (KAIROS-T-0678).

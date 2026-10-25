@@ -1331,3 +1331,168 @@ async fn pages_publish_a_folder_and_a_tar_gz() {
 
     deployment.teardown();
 }
+
+/// The interpreter for the plugin hook: `/usr/bin/python3`, else `python3`
+/// on PATH. None when there is none.
+fn python3() -> Option<std::path::PathBuf> {
+    let fixed = Path::new("/usr/bin/python3");
+    if fixed.exists() {
+        return Some(fixed.to_path_buf());
+    }
+    std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|_| "python3".into())
+}
+
+/// KAIROS-T-0700 with KAIROS-T-0701 and KAIROS-T-0702, end to end: an ADR
+/// that another ADR amends (the edge goes from the amending ADR to the
+/// amended one) shows the amendment in `kairos adrs check` and in the
+/// output of the plugin hook `adr_context.py`, which runs the same binary.
+#[tokio::test]
+async fn an_amended_adr_shows_its_amendment_in_the_check_and_the_hook() {
+    let deployment = Deployment::boot("kairos_cli_t0700_amends_test", LOCAL_ONLY).await;
+    let base_url = deployment.base_url.clone();
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let config_dir = ConfigDir(scratch.path().join("kairos"));
+    let logged_in = login(config_dir.path(), &base_url, EMAIL, PASSWORD).await;
+    assert_eq!(logged_in.code, 0, "{}", logged_in.all());
+
+    let mut codes = Vec::new();
+    for title in ["Refunds are async", "Refund limits"] {
+        let created = run_cli(
+            config_dir.path(),
+            &[
+                "adrs", "create", "--board", "adrs", "--title", title, "--json",
+            ],
+            None,
+        )
+        .await;
+        assert_eq!(created.code, 0, "{}", created.all());
+        let item: serde_json::Value = serde_json::from_str(&created.stdout).expect("item JSON");
+        codes.push(item["short_code"].as_str().expect("code").to_string());
+    }
+    let (amended, amending) = (codes[0].clone(), codes[1].clone());
+    let linked = run_cli(
+        config_dir.path(),
+        &["link", &amending, "amends", &amended],
+        None,
+    )
+    .await;
+    assert_eq!(linked.code, 0, "{}", linked.all());
+
+    // A checkout that cites the amended ADR, wired to the deployment.
+    let repo = scratch.path().join("repo");
+    std::fs::create_dir_all(repo.join("src")).expect("src");
+    std::fs::create_dir_all(repo.join(".claude")).expect(".claude");
+    let git = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&repo)
+        .status()
+        .expect("git init");
+    assert!(git.success());
+    std::fs::write(
+        repo.join(".claude/kairos.local.md"),
+        format!("---\ndeployment_url: {base_url}\ntenant: {TENANT}\n---\n"),
+    )
+    .expect("wiring");
+    let file = repo.join("src/refund.rs");
+    std::fs::write(&file, format!("// {amended}: refunds.\nfn refund() {{}}\n")).expect("file");
+
+    // The binding of the checkout, not one of the shell that runs the test.
+    let project = [("CLAUDE_PROJECT_DIR", repo.to_str().unwrap())];
+    let text = run_cli_env(
+        config_dir.path(),
+        &["adrs", "check", repo.join("src").to_str().unwrap()],
+        None,
+        &project,
+    )
+    .await;
+    assert_eq!(text.code, 0, "{}", text.all());
+    assert!(
+        text.stdout
+            .contains(&format!("The ADR {amended} has amendments: {amending}.")),
+        "{}",
+        text.stdout
+    );
+    let json = run_cli_env(
+        config_dir.path(),
+        &[
+            "adrs",
+            "check",
+            repo.join("src").to_str().unwrap(),
+            "--json",
+        ],
+        None,
+        &project,
+    )
+    .await;
+    assert_eq!(json.code, 0, "{}", json.all());
+    let report: serde_json::Value = serde_json::from_str(&json.stdout).expect("report JSON");
+    let adr = report["adrs"]
+        .as_array()
+        .expect("adrs")
+        .iter()
+        .find(|adr| adr["code"] == amended.as_str())
+        .expect("the amended ADR");
+    assert_eq!(adr["amended_by"][0]["code"], amending.as_str(), "{report}");
+    assert_eq!(adr["amended_by"].as_array().unwrap().len(), 1, "{report}");
+
+    // The hook, with the built binary first on PATH.
+    let Some(python) = python3() else {
+        eprintln!("no python3: the hook part of this test is skipped");
+        deployment.teardown();
+        return;
+    };
+    let hook = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugin/hooks/adr_context.py");
+    let bin_dir = Path::new(env!("CARGO_BIN_EXE_kairos"))
+        .parent()
+        .expect("bin dir")
+        .to_path_buf();
+    let path = std::env::join_paths(std::iter::once(bin_dir).chain(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    )))
+    .expect("PATH");
+    let payload = serde_json::json!({
+        "tool_name": "Edit",
+        "session_id": "session-t0700",
+        "tool_input": {"file_path": file.to_str().unwrap()},
+    });
+    let mut child = tokio::process::Command::new(python)
+        .arg("-I")
+        .arg(&hook)
+        .env("PATH", path)
+        .env("KAIROS_CONFIG_DIR", config_dir.path())
+        .env("XDG_CONFIG_HOME", config_dir.path())
+        .env("HOME", config_dir.path())
+        .env("CLAUDE_PROJECT_DIR", &repo)
+        .env("KAIROS_ADR_STATE_DIR", scratch.path().join("adr-state"))
+        .env_remove("KAIROS_KEY")
+        .env_remove("KAIROS_MCP_KEY")
+        .env_remove("KAIROS_URL")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("running the hook");
+    let mut pipe = child.stdin.take().expect("stdin");
+    pipe.write_all(payload.to_string().as_bytes())
+        .await
+        .expect("payload");
+    drop(pipe);
+    let out = child.wait_with_output().await.expect("the hook ran");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{stdout}");
+    let answer: serde_json::Value = serde_json::from_str(&stdout).expect("hook JSON");
+    let context = answer["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .expect("context");
+    assert!(
+        context.contains(&format!("Amended by {amending} (Refund limits).")),
+        "{context}"
+    );
+
+    deployment.teardown();
+}

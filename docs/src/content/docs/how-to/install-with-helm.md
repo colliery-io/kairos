@@ -2,7 +2,7 @@
 title: "Install Kairos on Kubernetes with Helm"
 ---
 
-Get a Kairos 0.16.1 deployment serving on a cluster you already run.
+Get a Kairos 0.17.0 deployment serving on a cluster you already run.
 
 **Before you start**, have all four:
 
@@ -123,7 +123,7 @@ mounts the Swagger UI at `/api/docs`.
 
 ```sh
 helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
-  --version 0.16.1 -f my-values.yaml
+  --version 0.17.0 -f my-values.yaml
 ```
 
 `--version` is not optional in practice: the chart publishes no floating tag.
@@ -396,6 +396,71 @@ Changes that people and agents see:
 - JavaScript with `.mjs` or `.cjs` files, or with a `tsconfig.json` that has
   no `allowJs`, gets a SCIP index.
 - The image build of a release no longer fails on a race in its smoke test.
+
+### From 0.16.1 to 0.17.0
+
+These changes of 0.17.0 show after the upgrade. They apply to Compose too.
+
+Before the upgrade, stop every 0.16.1 server before a new one serves, as
+for 0.16. No test runs 0.16.1 servers and a 0.17.0 server together.
+
+2 migrations run, for each tenant:
+
+- `initiative_cancel_mark` removes the foreign key from
+  `task_cancellations.task_id` to `tasks`. The table now holds the cancel
+  mark of a task or of an initiative. It changes no row.
+- `request_keys` adds the empty table `request_keys` and 2 indexes on it.
+  It reads and changes no row of another table.
+
+- Locks: `task_cancellations` is a small table. The drop of the constraint
+  takes a short lock. No migration locks a large table.
+- Scans: no migration validates a constraint or builds an index with
+  `CONCURRENTLY`.
+
+Changes that people and agents see:
+
+- `cancel_item` cancels an initiative, as it cancels a task. The initiative
+  goes to the done column of its board with the mark "cancelled", and the
+  card shows the mark. The tool refuses a strategy, an ADR or a document. The
+  refusal names the route to retire it (KAIROS-A-0067).
+- `transition_item` takes `claim: true`. For an initiative with no owner,
+  the call makes you the owner and moves it in one step (KAIROS-A-0066).
+- A refused move names the full path to the target column, for example
+  "Discovery → Design → Ready → Decompose → Active". From a done column the
+  refusal names `reopen_item`.
+- 14 MCP write tools take an optional `request_key`. A second call with the
+  same key in 24 hours writes nothing and returns the first answer. For the
+  same key with other arguments, the tool refuses the call with
+  `REQUEST_KEY_REUSED` (KAIROS-A-0065). The retention pass deletes the keys after 24 hours.
+- The MCP tools accept a fixed list of aliases for some arguments, for
+  example `query` for `q` and `id` for `short_code`. The schema of each tool
+  lists them. Each other unknown argument is still refused.
+- A wrong type of argument names the field and the type, for example
+  `filter.entity_type must be a list of strings`.
+- The `link_items` description has the table of the allowed source and
+  target types. When the rules let the edge go in the other direction, the
+  refusal says to swap source and target.
+- When `add_team_member` or a grant cannot find a person, the refusal names
+  how a person becomes a member of the organization on this deployment.
+- `get_events` takes `unread: true`. A failed `edit_item` search that differs
+  only in whitespace quotes the exact text to send. An unknown team lists
+  the team slugs.
+- `kairos mcp-proxy` takes `--profile admin` or `--profile all`. To get the
+  admin tools in Claude Code, add a second server:
+  `claude mcp add --scope user kairos-admin -- kairos mcp-proxy --profile admin`.
+- The `kairos` MCP server of the plugin is now `kairos mcp-proxy`, so it
+  needs the `kairos` CLI on the PATH. The proxy has timeouts (connect 5 s,
+  request 60 s, `KAIROS_TIMEOUT`). It retries a read 2 times. It does not
+  retry a write. A 502, 503 or 504, a timeout or a reset gives a short
+  message with no HTML. The message says whether the server can have the write.
+- `config.toml` in the config folder binds a repository to a deployment and
+  its boards. `kairos config show`, `kairos config project` and
+  `kairos config path` read and write it.
+- `set_complexity` changes the complexity of an initiative after it is
+  created.
+- A code index session that starts in a folder above several checkouts lists
+  them and keeps several open. A `checkout` argument picks one for each
+  call.
 
 ## Trying it out without a database
 

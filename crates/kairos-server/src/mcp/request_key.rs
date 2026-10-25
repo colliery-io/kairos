@@ -176,6 +176,55 @@ mod tests {
         assert_ne!(a, d);
     }
 
+    /// KAIROS-T-0693: each tool of the server is in the table of
+    /// `kairos_client::mcp_tools`, each name of the table is a tool, and
+    /// the `request_key` of a tool agrees with its kind.
+    #[test]
+    fn each_tool_is_in_the_table_and_its_request_key_agrees_with_its_kind() {
+        use kairos_client::mcp_tools::{TOOLS, ToolKind, kind};
+        let tools = super::super::KairosMcp::tool_router().list_all();
+        let mut problems = Vec::new();
+        for tool in &tools {
+            let name = tool.name.as_ref();
+            let keyed = tool
+                .input_schema
+                .get("properties")
+                .and_then(|p| p.get("request_key"))
+                .is_some();
+            match kind(name) {
+                None => problems.push(format!(
+                    "{name}: the tool is not in kairos_client::mcp_tools::TOOLS. Add it \
+                     as Read, Idempotent or NotIdempotent."
+                )),
+                Some(ToolKind::NotIdempotent { unkeyed: None }) if !keyed => {
+                    problems.push(format!(
+                        "{name}: the write is not idempotent and has no request_key. Give \
+                         it a request_key (KAIROS-A-0065), or give the reason in the table."
+                    ))
+                }
+                Some(ToolKind::NotIdempotent { unkeyed: Some(_) }) if keyed => {
+                    problems.push(format!(
+                        "{name}: the tool has a request_key, and the table gives a reason \
+                         for no key. Remove the reason."
+                    ))
+                }
+                Some(ToolKind::Read | ToolKind::Idempotent) if keyed => problems.push(format!(
+                    "{name}: a read or an idempotent write has a request_key."
+                )),
+                Some(_) => {}
+            }
+        }
+        for (name, _) in TOOLS {
+            if !tools.iter().any(|tool| tool.name == *name) {
+                problems.push(format!(
+                    "{name}: the table names a tool that is not a tool."
+                ));
+            }
+        }
+        assert!(problems.is_empty(), "{}", problems.join("\n"));
+        assert_eq!(tools.len(), TOOLS.len());
+    }
+
     #[test]
     fn the_refusal_of_a_reused_key_names_the_fix() {
         let e = reused("key-one-1", "create_item", "2026-10-24T12:00:00Z");

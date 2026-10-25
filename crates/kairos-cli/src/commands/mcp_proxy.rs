@@ -37,11 +37,17 @@
 //! the first answer to a second call with the same key and writes nothing,
 //! so the retry is a replay. The error data says `"retry": "replay"` and
 //! names the key.
+//!
+//! KAIROS-T-0693: the reads and the tools that take a `request_key` come
+//! from the table `kairos_client::mcp_tools`, which a test of the server
+//! checks against `tools/list`.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use kairos_client::TokenProvider;
+// KAIROS-T-0693: the reads and the keyed writes come from one table.
+use kairos_client::mcp_tools;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, mpsc};
@@ -119,29 +125,6 @@ const UNAVAILABLE_WRITE: &str = "The deployment is unavailable or did not answer
 const UNAVAILABLE_NOT_SENT: &str = "The deployment is unavailable (maybe an upgrade). The \
      request did not get to it, so nothing was applied. Retry the request later.";
 
-/// The tools of the server that only read. A `tools/call` of one of them
-/// is safe to send again. A tool that is not in this list is a write.
-const READ_TOOLS: [&str; 18] = [
-    "whoami",
-    "my_boards",
-    "my_work",
-    "board_items",
-    "search",
-    "get_item",
-    "get_history",
-    "related_work",
-    "list_repositories",
-    "get_repository",
-    "list_members",
-    "get_events",
-    "list_metadata_definitions",
-    "list_templates",
-    "team_pages",
-    "board_flow",
-    "list_dispatch_rules",
-    "list_org_read_tokens",
-];
-
 /// The methods of MCP that only read.
 const READ_METHODS: [&str; 9] = [
     "initialize",
@@ -198,15 +181,20 @@ fn is_read(message: &Value) -> bool {
         Some("tools/call") => message
             .pointer("/params/name")
             .and_then(Value::as_str)
-            .is_some_and(|name| READ_TOOLS.contains(&name)),
+            .is_some_and(mcp_tools::is_read),
         Some(method) => READ_METHODS.contains(&method),
         None => false,
     }
 }
 
-/// The `request_key` of a `tools/call`, when its arguments carry one.
+/// The `request_key` of a `tools/call` of a tool that takes one, when its
+/// arguments carry one.
 fn request_key(message: &Value) -> Option<&str> {
     if message.get("method").and_then(Value::as_str) != Some("tools/call") {
+        return None;
+    }
+    let name = message.pointer("/params/name").and_then(Value::as_str)?;
+    if !mcp_tools::takes_request_key(name) {
         return None;
     }
     message
@@ -844,6 +832,12 @@ mod tests {
             "a batch with one write with no key is not sent again"
         );
         assert_eq!(Retry::of(&json!([])), Retry::None);
+        let unkeyed: Value = serde_json::from_str(&keyed_call("set_state", "key-0001")).unwrap();
+        assert_eq!(
+            Retry::of(&unkeyed),
+            Retry::None,
+            "a tool that takes no request_key is not sent again"
+        );
     }
 
     #[tokio::test]

@@ -96,9 +96,18 @@ def docs_build():
         It CANNOT see a text that the code puts in a variable first, the result texts
         of the MCP tools, the CLI texts and the GUI texts.
 
+        --refusals (KAIROS-T-0690) runs scripts/refusal-check.py: no refusal of the
+        server or of the CLI MCP servers is built from the text of a library (serde,
+        sqlx, reqwest, diesel, a foreign error, HTML), and each VALIDATION or
+        NOT_FOUND refusal has a `field` detail. Its baseline is
+        scripts/refusal-baseline.json. With --list it prints each finding; with
+        --next, the refusals that name no next call (for review, not a failure).
+
         --list      print every violation with its rule ID
         --baseline  rewrite the baseline from the current tree (lock in improvements)
         --code      check the texts of errors in the code, not the book
+        --refusals  check the refusals of the code (library text, `field`)
+        --next      with --refusals: list the refusals that name no next call
         """,
         risk_level="read_only",
     ),
@@ -124,8 +133,31 @@ def docs_build():
     is_flag=True,
     help="check the texts of errors in the Rust code, not the book",
 )
-def docs_ste(list_all=False, baseline=False, code=False):
+@angreal.argument(
+    name="refusals",
+    long="refusals",
+    takes_value=False,
+    is_flag=True,
+    help="check the refusals of the code: no library text, a field (KAIROS-T-0690)",
+)
+@angreal.argument(
+    name="next_call",
+    long="next",
+    takes_value=False,
+    is_flag=True,
+    help="with --refusals: list the refusals that name no next call",
+)
+def docs_ste(list_all=False, baseline=False, code=False, refusals=False, next_call=False):
     """Run scripts/ste-check.py. Pure Python, no services, no build."""
+    if refusals:
+        args = [sys.executable, str(PROJECT_ROOT / "scripts" / "refusal-check.py")]
+        if list_all:
+            args.append("--list")
+        if baseline:
+            args.append("--baseline")
+        if next_call:
+            args.append("--next")
+        return subprocess.run(args, cwd=str(PROJECT_ROOT)).returncode
     args = [sys.executable, str(PROJECT_ROOT / "scripts" / "ste-check.py")]
     if code:
         args.append("--code")

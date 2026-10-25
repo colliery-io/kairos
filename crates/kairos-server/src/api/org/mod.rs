@@ -108,7 +108,8 @@ pub fn validate_capabilities(capabilities: &[String]) -> Result<(), ApiError> {
     if capabilities.is_empty() {
         return Err(ApiError::validation(
             "The list capabilities is empty. Send one capability or more.",
-        ));
+        )
+        .with_details(json!({ "field": "capabilities" })));
     }
     for capability in capabilities {
         // KAIROS-T-0337: `manage_structure` is not a board capability. Its
@@ -118,13 +119,15 @@ pub fn validate_capabilities(capabilities: &[String]) -> Result<(), ApiError> {
                 "{capability:?} is not a board capability. An organization admin grants it \
                  with POST /api/structure-grants (on the organization or on one board), with \
                  `kairos grants add`, or with the MCP tool grant_capability."
-            )));
+            ))
+            .with_details(json!({ "field": "capabilities" })));
         }
         if !capability_vocabulary().any(|known| known == capability.as_str()) {
             return Err(ApiError::validation(format!(
                 "{capability:?} is not a capability. The capabilities are: {}.",
                 capability_vocabulary().collect::<Vec<_>>().join(", ")
-            )));
+            ))
+            .with_details(json!({ "field": "capabilities" })));
         }
     }
     Ok(())
@@ -177,7 +180,10 @@ pub fn load_board(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiE
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("No live board has the id {board_id}.")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("No live board has the id {board_id}."))
+                .with_details(json!({ "field": "board" }))
+        })
 }
 
 /// Load a live board by a reference, or 404 (COLLIERY-T-0265). The
@@ -188,22 +194,18 @@ pub fn load_board(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiE
 /// does not read the list of the boards. The write routes take the id only:
 /// a write can change the slug.
 pub fn load_board_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError> {
-    use kairos_db::schema::boards::dsl;
+    // KAIROS-T-0689: the forms of crate::references::BOARD_FORMS.
+    let reference = crate::references::text(reference);
+    // An id gets the refusal that names the id.
     if let Ok(board_id) = Uuid::parse_str(reference) {
         return load_board(conn, board_id);
     }
-    dsl::boards
-        .filter(dsl::slug.eq(reference))
-        .filter(dsl::deleted_at.is_null())
-        .select(Board::as_select())
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| {
-            ApiError::not_found(format!(
-                "No live board has the slug or the id {reference:?}."
-            ))
-        })
+    crate::references::board(conn, reference)?.ok_or_else(|| {
+        ApiError::not_found(format!(
+            "No live board has the slug or the id {reference:?}."
+        ))
+        .with_details(json!({ "field": "board" }))
+    })
 }
 
 /// How many LIVE workflow items (strategies/initiatives/tasks/ADRs) sit on
@@ -383,13 +385,19 @@ pub fn map_config_error(e: BoardError) -> ApiError {
     match e {
         BoardError::BoardNotFound(id) => {
             ApiError::not_found(format!("No live board has the id {id}."))
+                .with_details(json!({ "field": "board" }))
         }
         BoardError::ColumnNotFound(id) => {
             ApiError::not_found(format!("The column {id} does not exist."))
+                .with_details(json!({ "field": "column" }))
         }
         BoardError::TransitionNotFound { board_id, from, to } => ApiError::not_found(format!(
             "The board {board_id} has no transition from {from} to {to}."
-        )),
+        ))
+        .with_details(json!({
+            "field": "from_column_id",
+            "fields": ["from_column_id", "to_column_id"],
+        })),
         BoardError::Rule(rule) => map_column_rule_error(rule),
         // COLLIERY-T-0230: the caller left out the team of a delivery
         // board. That is a mistake in the request, so it is a 422 that says
@@ -517,7 +525,17 @@ fn map_column_rule_error(e: ColumnRuleError) -> ApiError {
         | ColumnRuleError::NegativePosition(_)
         | ColumnRuleError::ReorderLengthMismatch { .. }
         | ColumnRuleError::ReorderDuplicateColumn(_)
-        | ColumnRuleError::SelfTransition) => ApiError::validation(e.to_string()),
+        | ColumnRuleError::SelfTransition) => {
+            // KAIROS-T-0698: the field of the request that the rule refuses.
+            // A reorder comes from the position of a moved column.
+            let field = match &e {
+                ColumnRuleError::UnknownColumn(_) => "column",
+                ColumnRuleError::EmptyName => "name",
+                ColumnRuleError::SelfTransition => "to_column_id",
+                _ => "position",
+            };
+            ApiError::validation(e.to_string()).with_details(json!({ "field": field }))
+        }
     }
 }
 
@@ -539,12 +557,16 @@ pub fn map_grant_error(e: AbacError) -> ApiError {
             ..
         } => ApiError::not_found(format!(
             "The user {user_id} does not have the capability {capability:?} on this board."
-        )),
+        ))
+        .with_details(json!({ "field": "capability" })),
         AbacError::EmptyCapability => {
             ApiError::validation("The capability is empty. Send the name of a capability.")
+                .with_details(json!({ "field": "capability" }))
         }
         e @ AbacError::StructureAlreadyGranted { .. } => ApiError::conflict(e.to_string()),
-        e @ AbacError::StructureGrantNotFound(_) => ApiError::not_found(e.to_string()),
+        e @ AbacError::StructureGrantNotFound(_) => {
+            ApiError::not_found(e.to_string()).with_details(json!({ "field": "grant" }))
+        }
         AbacError::Database(e) => ApiError::internal(e),
     }
 }
@@ -562,7 +584,10 @@ pub fn require_user_exists(
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::validation(format!("The user {user_id} does not exist.")))
+        .ok_or_else(|| {
+            ApiError::validation(format!("The user {user_id} does not exist."))
+                .with_details(json!({ "field": "user" }))
+        })
 }
 
 #[cfg(test)]

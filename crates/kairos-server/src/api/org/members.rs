@@ -67,10 +67,18 @@ fn member_view(member: &OrganizationMember, user: &User) -> dto::OrgMember {
 /// id, an email or a user name, as `DELETE /api/teams/{id}/members/{user}`.
 /// A UUID is taken as it is, so a missing member is the 404 of
 /// [`load_membership`].
-fn member_by_ref(conn: &mut PgConnection, slug: &str, reference: &str) -> Result<Uuid, ApiError> {
+fn member_by_ref(
+    conn: &mut PgConnection,
+    slug: &str,
+    caller: Uuid,
+    reference: &str,
+) -> Result<Uuid, ApiError> {
     match Uuid::parse_str(reference.trim()) {
         Ok(id) => Ok(id),
-        Err(_) => Ok(super::structure_grants::resolve_member(conn, slug, reference, "user_id")?.id),
+        Err(_) => Ok(super::structure_grants::resolve_member(
+            conn, slug, caller, reference, "user_id",
+        )?
+        .id),
     }
 }
 
@@ -92,6 +100,7 @@ fn load_membership(
             ApiError::not_found(format!(
                 "The user {user_id} is not a member of this organization."
             ))
+            .with_details(serde_json::json!({ "field": "user" }))
         })
 }
 
@@ -291,6 +300,7 @@ pub(crate) async fn add_member(
                      login. Tell the person to log in one time. Then add the person.",
                     body.email
                 ))
+                .with_details(serde_json::json!({ "field": "email" }))
             })?;
             diesel::insert_into(organization_members::table)
                 .values(NewOrganizationMember {
@@ -355,7 +365,7 @@ pub(crate) async fn update_member(
             use kairos_db::schema::organization_members::dsl;
             use kairos_db::schema::users;
             require_capability(conn, &slug, None, user, MANAGE)?;
-            let target = member_by_ref(conn, &slug, &user_id)?;
+            let target = member_by_ref(conn, &slug, user, &user_id)?;
             let membership = load_membership(conn, org_id, target)?;
             if membership.role == OrgRole::Admin
                 && new_role != OrgRole::Admin
@@ -429,7 +439,7 @@ pub(crate) async fn remove_member(
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::organization_members::dsl;
             require_capability(conn, &slug, None, user, MANAGE)?;
-            let target = member_by_ref(conn, &slug, &user_id)?;
+            let target = member_by_ref(conn, &slug, user, &user_id)?;
             super::run_in_transaction(conn, |conn| {
                 let membership = load_membership(conn, org_id, target)?;
                 if membership.role == OrgRole::Admin && admin_count(conn, org_id)? <= 1 {

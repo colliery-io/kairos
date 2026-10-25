@@ -158,12 +158,17 @@ pub(crate) fn map_impact_error(e: ImpactError) -> ApiError {
         e @ ImpactError::AlreadyLinked { .. } => {
             ApiError::unprocessable("ALREADY_LINKED", e.to_string())
         }
-        e @ ImpactError::NotLinked { .. } => ApiError::not_found(e.to_string()),
+        e @ ImpactError::NotLinked { .. } => {
+            ApiError::not_found(e.to_string()).with_details(json!({ "field": "repository" }))
+        }
         e @ ImpactError::SubjectType { .. } => {
             ApiError::unprocessable("RELATIONSHIP_RULE", e.to_string())
         }
-        e @ (ImpactError::ItemNotFound(_) | ImpactError::RepositoryNotFound(_)) => {
-            ApiError::validation(e.to_string())
+        e @ ImpactError::ItemNotFound(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "short_code" }))
+        }
+        e @ ImpactError::RepositoryNotFound(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "repository" }))
         }
         ImpactError::Database(e) => ApiError::internal(e),
     }
@@ -208,6 +213,7 @@ pub(crate) fn remove(
             ApiError::not_found(format!(
                 "{short_code} does not impact the repository {repository:?}."
             ))
+            .with_details(json!({ "field": "repository" }))
         })?;
     impacts::unlink(conn, item_id, linked.repository_id, user).map_err(map_impact_error)?;
     Ok(linked)

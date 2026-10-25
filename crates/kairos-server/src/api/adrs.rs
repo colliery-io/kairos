@@ -175,10 +175,12 @@ pub(crate) async fn get_adr(
     post,
     path = "/api/adrs",
     tag = "adrs",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateAdrRequest,
     responses(
         (status = 201, description = "Created", body = dto::Adr),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "Unknown board/column/parent, a parent that is not a strategy, an initiative or a task, or bad date", body = dto::ErrorEnvelope),
     ),
 )]
@@ -186,8 +188,10 @@ pub(crate) async fn create_adr(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateAdrRequest>,
-) -> Result<(StatusCode, Json<dto::Adr>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Adr>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     // KAIROS-T-0150: slug or UUID; resolved in the closure below.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
     let decision_date = body
@@ -199,6 +203,7 @@ pub(crate) async fn create_adr(
                     "The value {value:?} of decision_date is not a date. Send the date as \
                      YYYY-MM-DD."
                 ))
+                .with_details(json!({ "field": "decision_date" }))
             })
         })
         .transpose()?;
@@ -208,56 +213,58 @@ pub(crate) async fn create_adr(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let board_id = opt_board_id_by_ref(conn, body.board_id.as_deref())?;
-            require_capability(conn, &slug, board_id, user, MANAGE)?;
-            // KAIROS-T-0591: the parent is checked before the first write.
-            let parent = body
-                .parent
-                .as_deref()
-                .map(|code| supported_item(conn, code))
-                .transpose()?;
-            // The ADR and its edge are one transaction: a refused edge
-            // leaves no ADR (COLLIERY-T-0227).
-            atomically(conn, |conn| {
-                let created = items::create_adr(
-                    conn,
-                    items::CreateAdr {
-                        board_id,
-                        column_id,
-                        title: &body.title,
-                        content: &body.content,
-                        decision_maker: body.decision_maker.as_deref(),
-                        decision_date,
-                    },
-                    user,
-                )
-                .map_err(map_item_error)?;
-                if let Some(parent) = &parent {
-                    // The link rule, by the function that
-                    // `POST /api/relationships` asks. The creator can edit
-                    // the new ADR, so the rule lets the creator through.
-                    require_edge_write(
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                let board_id = opt_board_id_by_ref(conn, body.board_id.as_deref())?;
+                require_capability(conn, &slug, board_id, user, MANAGE)?;
+                // KAIROS-T-0591: the parent is checked before the first write.
+                let parent = body
+                    .parent
+                    .as_deref()
+                    .map(|code| supported_item(conn, code))
+                    .transpose()?;
+                // The ADR and its edge are one transaction: a refused edge
+                // leaves no ADR (COLLIERY-T-0227).
+                atomically(conn, |conn| {
+                    let created = items::create_adr(
                         conn,
-                        role,
-                        user,
-                        RelationshipType::Supports.as_str(),
-                        parent.typed(),
-                        (created.id, ItemType::Adr),
-                    )?;
-                    kairos_db::graph::link_items(
-                        conn,
-                        parent.id,
-                        created.id,
-                        RelationshipType::Supports,
+                        items::CreateAdr {
+                            board_id,
+                            column_id,
+                            title: &body.title,
+                            content: &body.content,
+                            decision_maker: body.decision_maker.as_deref(),
+                            decision_date,
+                        },
                         user,
                     )
-                    .map_err(map_graph_error)?;
-                }
-                render(conn, created)
+                    .map_err(map_item_error)?;
+                    if let Some(parent) = &parent {
+                        // The link rule, by the function that
+                        // `POST /api/relationships` asks. The creator can edit
+                        // the new ADR, so the rule lets the creator through.
+                        require_edge_write(
+                            conn,
+                            role,
+                            user,
+                            RelationshipType::Supports.as_str(),
+                            parent.typed(),
+                            (created.id, ItemType::Adr),
+                        )?;
+                        kairos_db::graph::link_items(
+                            conn,
+                            parent.id,
+                            created.id,
+                            RelationshipType::Supports,
+                            user,
+                        )
+                        .map_err(map_graph_error)?;
+                    }
+                    render(conn, created)
+                })
             })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// The `parent` of an ADR create (KAIROS-T-0591): a live strategy,
@@ -392,12 +399,13 @@ pub(crate) async fn delete_adr(
     post,
     path = "/api/adrs/{short_code}/transition",
     tag = "adrs",
-    params(("short_code" = String, Path, description = "ADR short code")),
+    params(("short_code" = String, Path, description = "ADR short code"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::TransitionRequest,
     responses(
         (status = 200, description = "Transitioned (new column)", body = dto::Adr),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "Invalid transition (details.allowed_targets) or ITEM_NOT_ON_BOARD", body = dto::ErrorEnvelope),
     ),
 )]
@@ -406,24 +414,29 @@ pub(crate) async fn transition_adr(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::TransitionRequest>,
-) -> Result<Json<dto::Adr>, ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Adr>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let to_column_id = parse_uuid(&body.to_column_id, "to_column_id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let transitioned = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let adr = load(conn, &short_code, Liveness::LiveOnly)?;
-            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
-            // The creator of an item needs this capability as all others do,
-            // because a team controls its own plan (COLLIERY-T-0218).
-            require_capability(conn, &slug, adr.board_id, user, "transition_items")?;
-            boards::transition_adr(conn, adr.id, to_column_id, user).map_err(map_board_error)?;
-            crate::claims::note_wip(conn, to_column_id, &short_code)?;
-            let moved = load(conn, &short_code, Liveness::LiveOnly)?;
-            render(conn, moved)
+            crate::api::idempotency::run(conn, keyed, StatusCode::OK, |conn| {
+                let adr = load(conn, &short_code, Liveness::LiveOnly)?;
+                // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+                // The creator of an item needs this capability as all others do,
+                // because a team controls its own plan (COLLIERY-T-0218).
+                require_capability(conn, &slug, adr.board_id, user, "transition_items")?;
+                boards::transition_adr(conn, adr.id, to_column_id, user)
+                    .map_err(map_board_error)?;
+                crate::claims::note_wip(conn, to_column_id, &short_code)?;
+                let moved = load(conn, &short_code, Liveness::LiveOnly)?;
+                render(conn, moved)
+            })
         })
         .await?;
-    Ok(Json(transitioned))
+    Ok(transitioned)
 }

@@ -185,7 +185,8 @@ pub(crate) async fn remove_credential(
                 return Err(ApiError::not_found(format!(
                     "The repository {:?} has no read token.",
                     repo.slug
-                )));
+                ))
+                .with_details(json!({ "field": "repository" })));
             }
             status_of(conn, repo.id).map_err(ApiError::internal)
         })
@@ -230,6 +231,7 @@ pub(crate) async fn check_credential(
                             "The repository {:?} has no read token. Set one first.",
                             repo.slug
                         ))
+                        .with_details(json!({ "field": "repository" }))
                     })?;
                 Ok((repo, token))
             })

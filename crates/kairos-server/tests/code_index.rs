@@ -1278,7 +1278,13 @@ async fn the_opt_out_setting_refuses_an_unknown_value() {
         println!("code_index_build = {value:?}: {status} {text}");
         assert_eq!(status, 422, "{text}");
         assert!(text.contains("code_index_build"), "{text}");
-        assert!(text.contains(&format!("`{value}`")), "{text}");
+        // KAIROS-T-0697: the value and the values, in Kairos words.
+        let message = body["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains(&format!("{value:?}")), "{text}");
+        assert_eq!(
+            body["error"]["details"]["field"], "code_index_build",
+            "{text}"
+        );
     }
     // A value that is not a text: refused, with the field. (serde_json
     // classes this error as a syntax error, so the status is 400.)

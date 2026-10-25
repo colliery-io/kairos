@@ -30,6 +30,7 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use kairos_db::api_keys::NewApiKey;
 use kairos_db::models::enums::ActivityAction;
+use serde_json::json;
 use uuid::Uuid;
 
 use super::auth::{display_prefix, generate_key, hash_key};
@@ -101,7 +102,8 @@ pub(crate) async fn create_agent_key(
     }
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(ApiError::validation("The name is empty. Send a name."));
+        return Err(ApiError::validation("The name is empty. Send a name.")
+            .with_details(json!({ "field": "name" })));
     }
     let expires_at = resolve_expiry(&body, state.config.api_key_ttl_days, chrono::Utc::now())?;
 
@@ -217,7 +219,10 @@ pub(crate) async fn revoke_agent_key(
             let existing = kairos_db::api_keys::find_key(conn, key_id)
                 .map_err(ApiError::internal)?
                 .filter(|k| k.user_id == user)
-                .ok_or_else(|| ApiError::not_found(format!("You have no agent key {key_id}.")))?;
+                .ok_or_else(|| {
+                    ApiError::not_found(format!("You have no agent key {key_id}."))
+                        .with_details(json!({ "field": "key" }))
+                })?;
             if existing.revoked_at.is_some() {
                 return Err(ApiError::conflict(format!(
                     "You revoked the key {key_id} already."
@@ -283,7 +288,10 @@ pub(crate) async fn rotate_agent_key(
             let existing = kairos_db::api_keys::find_key(conn, key_id)
                 .map_err(ApiError::internal)?
                 .filter(|k| k.user_id == user)
-                .ok_or_else(|| ApiError::not_found(format!("You have no agent key {key_id}.")))?;
+                .ok_or_else(|| {
+                    ApiError::not_found(format!("You have no agent key {key_id}."))
+                        .with_details(json!({ "field": "key" }))
+                })?;
             rotate(conn, &slug, &existing, user, grace, "agent_key_rotate")
         })
         .await?;

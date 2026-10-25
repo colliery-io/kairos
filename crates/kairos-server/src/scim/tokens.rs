@@ -16,6 +16,7 @@ use kairos_db::models::enums::ActivityAction;
 use kairos_db::models::graph::NewActivityLogEntry;
 use kairos_db::scim::{NewScimToken, ScimToken};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use uuid::Uuid;
 
 use super::auth::{generate_token, hash_token};
@@ -135,7 +136,8 @@ pub(crate) async fn create_token(
 ) -> Result<(StatusCode, Json<ScimTokenCreatedResponse>), ApiError> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(ApiError::validation("The name is empty. Send a name."));
+        return Err(ApiError::validation("The name is empty. Send a name.")
+            .with_details(json!({ "field": "name" })));
     }
     let token = generate_token(&tenant.slug);
     let token_hash = hash_token(&token);
@@ -236,6 +238,7 @@ pub(crate) async fn revoke_token(
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| {
                     ApiError::not_found(format!("The SCIM token {token_id} does not exist."))
+                        .with_details(json!({ "field": "token" }))
                 })?;
             if existing.revoked_at.is_some() {
                 return Err(ApiError::conflict(format!(

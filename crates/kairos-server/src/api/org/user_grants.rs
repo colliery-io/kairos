@@ -129,7 +129,8 @@ fn require_org_member(
     if !member {
         return Err(ApiError::not_found(format!(
             "The user {user_id} is not a member of this organization."
-        )));
+        ))
+        .with_details(json!({ "field": "user" })));
     }
     require_user_exists(conn, user_id)
 }
@@ -269,37 +270,60 @@ struct CheckedChange {
 }
 
 /// 422 `VALIDATION` for a mistake in the change of one board. The details
-/// name the board.
-fn change_refusal(board: &Board, message: String, extra: serde_json::Value) -> ApiError {
-    let mut details = json!({ "board_id": board.id, "board_slug": board.slug });
-    if let (Some(details), Some(extra)) = (details.as_object_mut(), extra.as_object()) {
+/// name the field (`changes[i].grant` or `changes[i].revoke`) and the board.
+fn change_refusal(
+    board: &Board,
+    field: String,
+    message: String,
+    extra: serde_json::Value,
+) -> ApiError {
+    let mut error = ApiError::validation(message).with_details(json!({
+        "field": field,
+        "board_id": board.id,
+        "board_slug": board.slug,
+    }));
+    if let (Some(details), Some(extra)) = (error.details.as_object_mut(), extra.as_object()) {
         details.extend(extra.clone());
     }
-    ApiError::validation(message).with_details(details)
+    error
 }
 
 /// Check the form of one change against its board: no capability twice,
 /// no capability in `grant` and in `revoke`, each grant applies at the
 /// level of the board, each revoke is a name of the vocabulary.
-fn check_change(board: &Board, grant: &[String], revoke: &[String]) -> Result<(), ApiError> {
+fn check_change(
+    board: &Board,
+    index: usize,
+    grant: &[String],
+    revoke: &[String],
+) -> Result<(), ApiError> {
+    let grant_field = format!("changes[{index}].grant");
+    let revoke_field = format!("changes[{index}].revoke");
     if grant.is_empty() && revoke.is_empty() {
         return Err(change_refusal(
             board,
+            grant_field.clone(),
             format!(
                 "The change of the board {:?} has no capability in \"grant\" or in \
                  \"revoke\". Send one capability or more, or remove the change.",
                 board.slug
             ),
-            json!({}),
+            json!({ "fields": [grant_field, revoke_field] }),
         ));
     }
     let level = board.board_level.to_string();
     let applicable = capabilities_of_level(&level);
     let mut seen = BTreeSet::new();
-    for capability in grant.iter().chain(revoke) {
+    for (position, capability) in grant.iter().chain(revoke).enumerate() {
         if !seen.insert(capability.as_str()) {
+            let field = if position < grant.len() {
+                grant_field
+            } else {
+                revoke_field
+            };
             return Err(change_refusal(
                 board,
+                field,
                 format!(
                     "The change of the board {:?} has the capability {capability:?} two \
                      times. Send each capability one time, in \"grant\" or in \"revoke\".",
@@ -313,6 +337,7 @@ fn check_change(board: &Board, grant: &[String], revoke: &[String]) -> Result<()
         if !applicable.contains(&capability.as_str()) {
             return Err(change_refusal(
                 board,
+                grant_field,
                 format!(
                     "The capability {capability:?} does not apply on the board {:?}, a board \
                      of the level {level:?}. On that board, you can grant: {}.",
@@ -330,6 +355,7 @@ fn check_change(board: &Board, grant: &[String], revoke: &[String]) -> Result<()
         if !known(capability) {
             return Err(change_refusal(
                 board,
+                revoke_field,
                 format!(
                     "{capability:?} is not a capability. Kairos cannot revoke it on the board \
                      {:?}.",
@@ -350,7 +376,15 @@ fn name_board(error: ApiError, board: &Board) -> ApiError {
     );
     let mut changed = error;
     changed.message = message;
-    changed.with_details(json!({ "board_id": board.id, "board_slug": board.slug }))
+    // KAIROS-T-0698: keep the keys of the refusal (its field), and add the board.
+    if !changed.details.is_object() {
+        changed.details = json!({});
+    }
+    if let Some(details) = changed.details.as_object_mut() {
+        details.insert("board_id".to_owned(), json!(board.id));
+        details.insert("board_slug".to_owned(), json!(board.slug));
+    }
+    changed
 }
 
 /// Change the grants of one person on one or more boards, in ONE
@@ -416,12 +450,14 @@ pub(crate) async fn change_user_grants(
                 require_org_member(conn, org_id, target)?;
                 // Check each board before the first write.
                 let mut checked = Vec::with_capacity(body.changes.len());
-                for (change, board_id) in body.changes.into_iter().zip(board_ids) {
+                for (index, (change, board_id)) in
+                    body.changes.into_iter().zip(board_ids).enumerate()
+                {
                     let board = load_board(conn, board_id)?;
                     if !administers(conn, &slug, caller, &board)? {
                         return Err(board_not_administered(&board));
                     }
-                    check_change(&board, &change.grant, &change.revoke)?;
+                    check_change(&board, index, &change.grant, &change.revoke)?;
                     checked.push(CheckedChange {
                         board,
                         grant: change.grant,

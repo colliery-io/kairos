@@ -3,8 +3,8 @@ title: "MCP tools"
 ---
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-seventy-nine tools. A drift gate in the test suite
-asserts that `tools/list` returns these seventy-nine and no others. The same
+eighty tools. A drift gate in the test suite
+asserts that `tools/list` returns these eighty and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -23,7 +23,7 @@ organization.
 | URL | Profile | Tools |
 |---|---|---|
 | `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read: 48 tools. |
-| `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge: the other 31 tools. |
+| `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge, the count of the refusals: the other 32 tools. |
 | `/mcp?profile=all` | all | Each tool. |
 
 The profile changes the list, not the rights. Kairos runs a call to a tool
@@ -79,13 +79,13 @@ These hold for every tool.
 | Identity | Every tool runs as the authenticated principal — a human user or a service account — under the same attribute-based access control as the REST handlers. Archiving is not a permission boundary: whoever could read an item before it was archived can read it after. |
 | Item identity | Items are named by short code, e.g. `ACME-T-0012`, in every input and every output. Kairos changes a code in input to capital letters, so `acme-t-0012` finds `ACME-T-0012`. |
 | Retired codes | When an item gets a new short code, its old code is retired. Kairos does not issue a retired code again. A read tool (`get_item`, `get_history`, `search`) finds the item from a retired code and shows the current code. A write tool refuses a retired code for the item that it changes. The refusal is `NOT_FOUND`, and it gives the current code. A reference in a write follows a retired code: the `source` and the `target` of `link_items` and `unlink_items`, and the `parent` of `create_item`. The answer then has a line such as `COLLIERY-T-2430 is now SKADI-T-0577.` |
-| Board and team references | A `board`, `to_board`, `team` or `repository` argument accepts either a slug or a UUID. A `column` or `to_column` argument accepts either a column name, case-insensitively, or a UUID. |
+| References | Each kind of reference has one set of forms in each tool and in each filter (KAIROS-T-0689). A team (`team`, `from_team`, `filter.team`), a board (`board`, `to_board`, `filter.board`) and a repository (`repository`, `filter.repository`): a slug or a UUID. A column (`column`, `to_column`, `from_column`, `filter.column`): a column name in any case, or a UUID. A person (`user`, the `to` of `hand_off_item`, `filter.claimed_by`, `filter.created_by`, `filter.owned_by`): `me`, a user id, an email, a user name, or the name of a service account. An item: a short code. Kairos removes the blanks at the two ends of a reference. It refuses each other form: for example, a team by its name or its code prefix. |
 | Listing weight | Listings are compact: short code, title and key fields. Full markdown content arrives only from `get_item` and from `get_history` with a `version`. |
 | Parts of a list | A list can show a part of its rows. Then the list says how many rows come after it, and the `offset` of the next part: `2 more; offset 50.` Send that `offset` to get the next part. `search`, `get_history`, and the two lists of open work of `get_repository` say it this way. |
 | Errors | A refusal comes back as an MCP tool error whose text is `CODE: message`, the code being the same stable one as the REST API's error envelope. Where that code has structured `details`, a second line follows: `details: ` and the JSON object. See [Errors](../errors/) for what each code's `details` carries. The key `field` names the argument that the refusal is about, as it names the field of a REST body. |
 | Audit | Writes are recorded in the activity log by the same code path as the REST API. |
 | Notifications | While the caller has unread [notifications](#your-notifications), each answer (not a refusal) ends with a block: the 5 newest, then `More: call get_events` when there are more. The block stops when the caller marks them read. An agent key keeps its own read state, apart from the person. `get_events` itself has no block, because it lists them. A service account gets no notifications. |
-| Request keys | A write can be complete when its answer does not get to the client (a timeout, an upgrade). These tools take an optional `request_key`: `create_item`, `append_note`, `link_items`, `propose_edge`, `promote_note`, `transition_item`, `move_item`, `edit_item`, `add_repository`, `create_team`, `create_board`, `add_column`, `create_team_page`, `create_dispatch_rule`. The key is 8 to 128 characters of letters, digits, `.`, `_`, `:` and `-`; a UUID is a good key. Send a new key with each new request, and the same key when you retry it. A second call with the same key, by the same person and agent key, in 24 hours, writes nothing. It gives the answer of the first call, then the line `Replayed: the call with this request_key at <time> applied the write. Nothing new was written.` The same key with a different tool or different arguments is refused with `REQUEST_KEY_REUSED`. A refused call keeps no key, so its retry runs again (KAIROS-A-0065). |
+| Request keys | A write can be complete when its answer does not get to the client (a timeout, an upgrade). These tools take an optional `request_key`: `create_item`, `append_note`, `link_items`, `propose_edge`, `promote_note`, `transition_item`, `move_item`, `edit_item`, `add_repository`, `create_team`, `create_board`, `add_column`, `create_team_page`, `create_dispatch_rule`. The key is 8 to 128 characters of letters, digits, `.`, `_`, `:` and `-`; a UUID is a good key. Send a new key with each new request, and the same key when you retry it. A second call with the same key, by the same person and agent key, in 24 hours, writes nothing. It gives the answer of the first call, then the line `Replayed: the call with this request_key at <time> applied the write. Nothing new was written.` The same key with a different tool or different arguments is refused with `REQUEST_KEY_REUSED`. A refused call keeps no key, so its retry runs again (KAIROS-A-0065). When the deployment is unavailable, `kairos mcp-proxy` sends a call with a `request_key` again two times, as it does a read (KAIROS-T-0687), and the error data says `"retry": "replay"`. It also sends an idempotent write again two times: the sets, the patches and the replaces (`set_state`, `set_metadata`, `set_parent`, `mark_events_read` and the others that `kairos_client::mcp_tools` marks idempotent). A second call gives the same state, and the error data says `"retry": "idempotent"`; a retry of a `set_state` with `expected_updated_at` that the first send applied is refused with `CONFLICT` and the current state (KAIROS-T-0699). It does not send any other call with no key again. |
 | Claims | A task in Active has a [claim](../glossary/#claim): the person who works on it. A write to a task that a different person has the claim on succeeds and is recorded. The text of the tool then ends with a line: `Warning: Alice (agent) has the claim on ACME-T-0012 (since 2026-10-09T10:00:00Z). Your change is recorded.` A write by the person who has the claim, also with the agent key of the person, gets no warning. |
 
 ### Refusal codes
@@ -138,7 +138,16 @@ says `This tool has no arguments.`
 A call without an argument that the tool must have has a refusal of the same
 form: `VALIDATION: The call does not have the argument "short_code". This tool
 must have that argument. …`. An argument with the wrong JSON type is
-`VALIDATION` too, and the text gives the fault. See
+`VALIDATION` too. The text names the argument and the type that the tool
+must have. The tool can refuse a value of the correct type. Then the text
+gives the values or the form that the tool accepts, and the value of the call:
+
+```text
+VALIDATION: The value of within.mode must be one of these values: fast, slow. The call gives "quick".
+details: {"expected":"one of these values: fast, slow","field":"within.mode"}
+```
+
+A refusal does not contain the text of a library (KAIROS-T-0690). See
 [An input that a route does not accept](../errors/#an-input-that-a-route-does-not-accept)
 for the rule of the REST API.
 
@@ -199,9 +208,9 @@ these include `manage_adrs`.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `level` | string | no | all levels | One of `strategy`, `initiative`, `delivery`, `adr`. |
+| `board_level` | string | no | all levels | One of `strategy`, `initiative`, `delivery`, `adr`. The tool also accepts the name `level`. |
 
-Refuses: `VALIDATION` for a `level` outside that vocabulary.
+Refuses: `VALIDATION` for a `board_level` outside that vocabulary.
 
 ### `my_work`
 
@@ -1014,12 +1023,9 @@ are compact and grouped by type.
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `entity_type` | array of string | no | all | `strategy`, `initiative`, `task`, `document`, `adr`. Must not be an empty array. |
-| `board_id` | UUID string | no | — | Items on this board. A document is not a card, so this filter gives no document. Do not send with `board`. |
-| `board` | string | no | — | Items on this board, by slug or UUID. Do not send with `board_id`. |
-| `column_id` | UUID string | no | — | Items in this column. Do not send with `column`. |
-| `column` | string | no | — | Items in this column, by name (with `board`) or UUID. A name with no `board`, or a name the board does not have, is refused and the refusal lists the columns. Do not send with `column_id`. |
-| `team_id` | UUID string | no | — | Tasks of this team. Do not send with `team`. |
-| `team` | string | no | — | Tasks of this team, by slug or UUID. Do not send with `team_id`. |
+| `board` | string | no | — | Items on this board, by slug or UUID. A document is not a card, so this filter gives no document. The old name `board_id` is an alias. |
+| `column` | string | no | — | Items in this column, by name (with `board`) or UUID. A name with no `board`, or a name the board does not have, is refused and the refusal lists the columns. The old name `column_id` is an alias. |
+| `team` | string | no | — | Tasks of this team, by slug or UUID. The old name `team_id` is an alias. |
 | `repository` | string | no | — | The items of this repository: see below. Slug or UUID of a live repository. |
 | `task_type` | array of string | no | all | `task`, `bug`, `tech_debt`, `support`. Must not be an empty array. |
 | `work_class` | array of string | no | all | `planned`, `support`. Must not be an empty array. |
@@ -1058,7 +1064,7 @@ in a done column has no open blockers. `board_items` counts them the same way.
 - the documents that impact the repository
 - the ADRs that impact the repository
 
-The filter gives no strategy and no initiative. With `team_id`, `task_type` or
+The filter gives no strategy and no initiative. With `team`, `task_type` or
 `work_class`, only tasks match. `entity_type` makes the result smaller, as for
 each filter.
 
@@ -1092,7 +1098,8 @@ repository, so `impacts` is not a value of `relationships`. Use
 
 Refuses: `VALIDATION` for a blank `q`, an empty enum array, a blank metadata
 key, an inverted date range, an empty `metadata_missing` or a slug in it that
-names no definition, `board` with `board_id`, `team` with `team_id`, an
+names no definition, a field with its old name in the same filter (`board`
+with `board_id`, `team` with `team_id`, `column` with `column_id`), an
 unknown `board` or `team`, a person in `claimed_by`, `owned_by` or
 `created_by` that is not a member of the organization, a
 missing `traverse.depth`, a `depth` of 0 or above 10, an empty
@@ -1210,7 +1217,10 @@ both fields were already *readable* through `get_item`. They are accepted now.
 
 Refuses: `VALIDATION` for an unknown `item_type`; for a `task_type`,
 `work_class`, `complexity` or `bucket_type` outside its vocabulary; for a `decision_date` that is not `YYYY-MM-DD`; for a type-specific
-argument passed with the wrong `item_type`, naming the type it belongs to; for a
+argument passed with the wrong `item_type`, naming the type it belongs to, with
+the argument in `details.field` (the arguments of the table above with "Tasks
+only" and the like; a test keeps the table, the schema and the server equal,
+KAIROS-T-0691); for a
 document with no `board`, or whose parent is not a strategy, initiative or
 task; for a document with `repository`; for a `parent` relationship that the type rules do not allow, with the
 rule in the message; for a `parent` that does not name a live item; for an unknown template,
@@ -2574,7 +2584,7 @@ grant. On the ADR board of the team, the member also gets `manage_adrs`.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `team` | string | yes | — | The team. Slug or UUID. |
-| `user` | string | yes | — | A user id, an email, a user name, or the name of a service account. |
+| `user` | string | yes | — | `me`, a user id, an email, a user name, or the name of a service account. |
 
 Requires the organization admin role or `manage_structure` on the
 organization.
@@ -2600,7 +2610,7 @@ Grants one capability to a member of the organization.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `user` | string | yes | — | A user id, an email, a user name, or the name of a service account. |
+| `user` | string | yes | — | `me`, a user id, an email, a user name, or the name of a service account. |
 | `capability` | string | yes | — | A board capability or a glob of [the vocabulary](../capabilities/#the-grantable-vocabulary), or `manage_structure`. |
 | `board` | string | no | none | The board. Slug or UUID. A board capability needs it. For `manage_structure`, no `board` is a grant on the organization. |
 
@@ -2628,7 +2638,7 @@ organization admin.
 
 These tools do what the REST routes of teams and boards do (KAIROS-T-0443).
 Each tool calls the function of its route, so the gate is the same. A `user`
-is a user id, an email, a user name, or the name of a service account. A
+is `me`, a user id, an email, a user name, or the name of a service account. A
 `board` or a `team` is a slug or a UUID. A `column` is a name or a UUID.
 
 ### `update_team`
@@ -2729,8 +2739,8 @@ Allows or stops a move between two columns, as
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `board` | string | yes | — | Slug or UUID. |
-| `from` | string | yes | — | The column where the move starts. Name or UUID. |
-| `to` | string | yes | — | The column where the move ends. Name or UUID. |
+| `from_column` | string | yes | — | The column where the move starts. Name or UUID. The tool also accepts the name `from`. |
+| `to_column` | string | yes | — | The column where the move ends. Name or UUID. The tool also accepts the names `to` and `column`. |
 | `allowed` | boolean | yes | — | `true` adds the transition. `false` removes it. |
 
 Requires `configure_boards` on the board. Refuses: `DUPLICATE_TRANSITION`.
@@ -2758,7 +2768,7 @@ does.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `reference` | string | yes | — | Slug or UUID. |
+| `definition` | string | yes | — | Slug or UUID. The tool also accepts the name `reference`. |
 
 For organization admins only. Refuses: `DEFINITION_IN_USE` while an item has a
 value or a template has the field. The message names them.
@@ -2773,7 +2783,7 @@ Makes or changes a template, as `POST` and `PATCH /api/templates` do.
 | `name` | string | for a new one | no change | The name. |
 | `slug` | string | for a new one | no change | The slug. |
 | `content` | string | no | no change | The markdown of a new item of the template. |
-| `metadata` | array | no | no change | The fields: `definition_slug`, optional `default_value`, `required`. It replaces the list. |
+| `metadata` | array | no | no change | The fields: `definition` (the slug of a metadata definition; the old name `definition_slug` is an alias), optional `default_value`, `required`. It replaces the list. |
 
 For organization admins only.
 
@@ -2784,7 +2794,7 @@ keep their content and their metadata.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `reference` | string | yes | — | Slug or UUID. |
+| `template` | string | yes | — | Slug or UUID. The tool also accepts the name `reference`. |
 
 For organization admins only.
 
@@ -3157,7 +3167,7 @@ time. Requires `configure_boards` on the board.
 | `url` | string | no | — | The URL of a new target (`http` or `https`). |
 | `target_name` | string | no | `Agent runner` | The name of the new target. |
 | `task_type` | string | no | — | Only tasks of this type: `task`, `bug`, `tech_debt` or `support`. |
-| `metadata_slug` | string | no | — | Only tasks with this metadata. Send it with `metadata_value`. |
+| `definition` | string | no | — | Only tasks with this metadata: the slug of a definition. Send it with `metadata_value`. The old name `metadata_slug` is an alias. |
 | `metadata_value` | string | no | — | The value that matches. Case is not significant. |
 | `repository` | string | no | — | Only tasks of this repository: its slug or UUID. |
 
@@ -3288,6 +3298,45 @@ Refuses: `FORBIDDEN` for a person who is not an organization admin;
 `NOT_FOUND` for a host with no token.
 
 REST: `DELETE /api/org/read-tokens/{host}`.
+
+## The count of the refusals
+
+Kairos keeps one row for each tool call that ends in a tool error
+(KAIROS-T-0694, KAIROS-A-0068). The row has the tool, the code of the
+refusal and the `field` of its details. It also has the kind of the caller:
+`person`, `agent_key` or `service_account`. It has no argument value, no text
+of the refusal and no person. The retention pass deletes the rows after 90
+days. Kairos does not count the refusals of the REST API.
+
+### `refusal_counts`
+
+Gives the count of the refusals for each tool and code in a range of days,
+the highest first. Each row has the field that the refusals name most, and
+the count for each kind of caller. Use it to find the refusals that agents
+meet most. Only an organization admin.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `days` | integer | no | `7` | The number of days of the range, 1 to 90. |
+| `to` | string | no | now | The last day of the range, `YYYY-MM-DD` in UTC. The range includes that day. |
+| `limit` | integer | no | `20` | The number of rows, 1 to 100. |
+
+```text
+Refusals from 2026-10-18 16:00 UTC to 2026-10-25 16:00 UTC: 214 in all, in 31 pairs of tool and code. The top 2 of 31 pairs:
+
+| tool | code | count | field named most | person | agent key | service account |
+|---|---|---|---|---|---|---|
+| link_items | RELATIONSHIP_RULE | 41 | - | 3 | 38 | 0 |
+| create_item | VALIDATION | 29 | parent | 1 | 28 | 0 |
+```
+
+A range with no refusal gives `No refusals from <start> to <end>.`
+
+Refuses:
+
+- `FORBIDDEN` for a person who is not an organization admin;
+- `VALIDATION` for `days` or `limit` out of range, and for a `to` that is
+  not a date. `details.field` names the argument.
 
 ## Related reading
 

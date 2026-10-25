@@ -65,7 +65,10 @@ fn load(conn: &mut PgConnection, id: Uuid) -> Result<MetadataDefinition, ApiErro
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("The metadata definition {id} does not exist.")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("The metadata definition {id} does not exist."))
+                .with_details(json!({ "field": "definition" }))
+        })
 }
 
 /// The id of the definition that `reference` names, or 404
@@ -92,6 +95,7 @@ pub(crate) fn definition_by_ref(
             ApiError::not_found(format!(
                 "No metadata definition has the slug or the id {reference:?}."
             ))
+            .with_details(json!({ "field": "definition" }))
         })
 }
 
@@ -120,7 +124,8 @@ fn check_entity_types(entity_types: &[String]) -> Result<(), ApiError> {
                 "The value {entity_type:?} of entity_types is not an entity type. The \
                  entity types are: {}.",
                 ENTITY_TYPES.join(", ")
-            )));
+            ))
+            .with_details(json!({ "field": "entity_types" })));
         }
     }
     let mut deduped = entity_types.to_vec();
@@ -130,7 +135,8 @@ fn check_entity_types(entity_types: &[String]) -> Result<(), ApiError> {
         return Err(ApiError::validation(
             "The list entity_types has the same entity type two times. Send each entity \
              type one time.",
-        ));
+        )
+        .with_details(json!({ "field": "entity_types" })));
     }
     Ok(())
 }
@@ -177,12 +183,14 @@ fn check_option_rules(field_type: FieldType, options: &[String]) -> Result<(), A
         FieldType::Enum if options.is_empty() => Err(ApiError::validation(
             "A metadata definition of the type enum must have one value or more in \
              enum_options.",
-        )),
+        )
+        .with_details(json!({ "field": "enum_options" }))),
         FieldType::String | FieldType::Date if !options.is_empty() => {
             Err(ApiError::validation(format!(
                 "The request has enum_options, and the field_type is {field_type}. Only a \
                  definition of the type enum has enum_options."
-            )))
+            ))
+            .with_details(json!({ "field": "enum_options" })))
         }
         _ => Ok(()),
     }
@@ -222,10 +230,21 @@ fn replace_options(
 fn map_write_error(e: DieselError) -> ApiError {
     match e {
         DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, info) => {
+            // The two unique keys: `slug` on the definition, and the
+            // option value on its enum options.
+            let field = if info
+                .constraint_name()
+                .is_some_and(|name| name.contains("slug"))
+            {
+                "slug"
+            } else {
+                "enum_options"
+            };
             ApiError::validation(format!(
                 "The metadata definition is in conflict with a definition that exists: {}.",
                 info.message()
             ))
+            .with_details(json!({ "field": field }))
         }
         e => ApiError::internal(e),
     }
@@ -394,7 +413,8 @@ pub(crate) async fn list_definitions(
             "The value {entity_type:?} of entity_type is not an entity type. The entity \
              types are: {}.",
             ENTITY_TYPES.join(", ")
-        )));
+        ))
+        .with_details(json!({ "parameter": "entity_type" })));
     }
     let entity_type = query.entity_type;
     let envelope = state
@@ -589,7 +609,11 @@ pub(crate) fn update_definition_in(
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of name, slug, enum_options \
              and entity_types.",
-        ));
+        )
+        .with_details(json!({
+            "field": "name",
+            "fields": ["name", "slug", "enum_options", "entity_types"],
+        })));
     }
     if let Some(entity_types) = &body.entity_types {
         check_entity_types(entity_types)?;
@@ -602,7 +626,8 @@ pub(crate) fn update_definition_in(
                 "The request has enum_options, and the field_type is {}. Only a \
                  definition of the type enum has enum_options.",
                 existing.field_type
-            )));
+            ))
+            .with_details(json!({ "field": "enum_options" })));
         }
         check_option_rules(FieldType::Enum, options)?;
     }

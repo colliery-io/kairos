@@ -423,7 +423,8 @@ pub(crate) async fn rebuild_code_index(
     if !body.is_empty() {
         return Err(ApiError::validation(
             "This route takes no body. Send the POST with no content.",
-        ));
+        )
+        .with_details(json!({ "field": "body" })));
     }
     let instance = rebuild_instance(&state)?;
     let user = auth.user_id;
@@ -447,6 +448,7 @@ fn no_index(slug: &str, commit: &str) -> ApiError {
     ApiError::not_found(format!(
         "The repository {slug:?} has no code index of the commit {commit}."
     ))
+    .with_details(json!({ "field": "commit" }))
 }
 
 /// Each indexed commit of a repository, newest write first.
@@ -576,6 +578,7 @@ pub(crate) async fn upload_code_index(
                 "The body is not a code index file of this version of Kairos: {e} Send the \
                  file .kairos/index.db that `kairos index build` makes."
             ))
+            .with_details(json!({ "field": "body" }))
         })
     })
     .await
@@ -816,6 +819,7 @@ pub(crate) async fn nearest_code_index(
                 "The repository {slug:?} has no commit {commit}. Push the commit, then \
                      ask again."
             ))
+            .with_details(json!({ "parameter": "commit" }))
         })?
     };
     let nearest = state
@@ -841,7 +845,8 @@ pub(crate) async fn nearest_code_index(
         return Err(ApiError::not_found(format!(
             "No indexed commit is within {MAX_DISTANCE} commits at or below {commit}. Build \
              the index with `kairos index build`."
-        )));
+        ))
+        .with_details(json!({ "parameter": "commit" })));
     };
     Ok(Json(dto::NearestCodeIndex {
         from: commit,

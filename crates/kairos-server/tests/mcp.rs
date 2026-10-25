@@ -87,8 +87,8 @@ const TENANT: &str = "acme";
 
 /// How many tools `tools/list` returns, and the word the reference pages
 /// use for that number (COLLIERY-T-0220, COLLIERY-T-0266).
-const TOOL_COUNT: usize = 79;
-const TOOL_COUNT_WORD: &str = "seventy-nine";
+const TOOL_COUNT: usize = 80;
+const TOOL_COUNT_WORD: &str = "eighty";
 
 /// Every request carries a real `Host` header and the tenant resolves from
 /// its subdomain against the configured base domain — the S-0006 REQ-1.2
@@ -711,6 +711,8 @@ async fn mcp_endpoint_against_live_stack() {
         "list_org_read_tokens",
         "set_org_read_token",
         "remove_org_read_token",
+        // KAIROS-T-0694: the count of the refusals (an organization admin).
+        "refusal_counts",
         // KAIROS-T-0428: who decides the triage of intake on a board.
         "set_agent_triage",
         // KAIROS-T-0641: the policies of a board.
@@ -930,6 +932,7 @@ async fn mcp_endpoint_against_live_stack() {
             "seventy-four",
             "seventy-five",
             "seventy-eight",
+            "seventy-nine",
         ] {
             assert!(
                 !reference.contains(stale),
@@ -2708,7 +2711,7 @@ async fn mcp_endpoint_against_live_stack() {
     assert!(
         text.starts_with(
             "VALIDATION: The call has the field \"board_slug\" in filter. The object filter \
-             does not accept that field. The fields of filter are: entity_type, board_id, "
+             does not accept that field. The fields of filter are: entity_type, board, "
         ),
         "{text}"
     );
@@ -3227,7 +3230,8 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert_eq!(
         text,
-        "VALIDATION: No live repository has the slug \"nope\"."
+        "VALIDATION: No live repository has the slug \"nope\".\ndetails: \
+         {\"field\":\"repository\"}"
     );
     assert_eq!(refused["error"]["code"], "VALIDATION", "{refused}");
     assert_eq!(
@@ -3242,7 +3246,8 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(
-        text.starts_with("VALIDATION: The repository ") && text.ends_with("does not exist."),
+        text.starts_with("VALIDATION: The repository ")
+            && text.ends_with("does not exist.\ndetails: {\"field\":\"repository\"}"),
         "{text}"
     );
     assert_eq!(
@@ -3262,7 +3267,7 @@ async fn mcp_endpoint_against_live_stack() {
         text,
         format!(
             "VALIDATION: The initiative {other} is not a task. \
-             set_repository applies to tasks only."
+             set_repository applies to tasks only.\ndetails: {{\"field\":\"short_code\"}}"
         )
     );
     // A short code that names nothing, and one that names archived work:
@@ -3276,7 +3281,11 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert_eq!(
         text,
-        "NOT_FOUND: No live item has the short code \"ACME-T-9999\"."
+        format!(
+            "{}\ndetails: {}",
+            "NOT_FOUND: No live item has the short code \"ACME-T-9999\".",
+            r#"{"field":"short_code"}"#
+        )
     );
     let text = session
         .call_err(
@@ -3288,7 +3297,7 @@ async fn mcp_endpoint_against_live_stack() {
         text,
         format!(
             "NOT_FOUND: The item {task_code} is archived. A write needs a live item. Restore \
-             the item first with restore_item."
+             the item first with restore_item.\ndetails: {{\"field\":\"short_code\"}}"
         )
     );
 
@@ -3880,7 +3889,7 @@ async fn repository_tools_against_live_stack() {
     assert_eq!(
         text,
         "VALIDATION: The value \"bitbucket\" is not a value of forge. The values are: \
-         github, gitlab, other."
+         github, gitlab, other.\ndetails: {\"field\":\"forge\"}"
     );
     let text = alice_session
         .call_err(
@@ -4092,7 +4101,10 @@ async fn repository_tools_against_live_stack() {
             json!({"repository": "nope", "description": "x"}),
         )
         .await;
-    assert_eq!(text, "NOT_FOUND: No live repository has the slug \"nope\".");
+    assert_eq!(
+        text,
+        "NOT_FOUND: No live repository has the slug \"nope\".\ndetails: {\"field\":\"repository\"}"
+    );
     let text = alice_session
         .call_err(
             "update_repository",
@@ -4111,9 +4123,13 @@ async fn repository_tools_against_live_stack() {
         let text = alice_session.call_err("update_repository", arguments).await;
         assert_eq!(
             text,
-            "VALIDATION: The call has nothing to change. Send one or more of these \
-             arguments: description, default_branch, default_branch_source, repo_url, \
-             code_index_build, slug, team, forge_filters, issue_import_interval."
+            format!(
+                "{}\ndetails: {}",
+                "VALIDATION: The call has nothing to change. Send one or more of these \
+                 arguments: description, default_branch, default_branch_source, repo_url, \
+                 code_index_build, slug, team, forge_filters, issue_import_interval.",
+                r#"{"field":"description","fields":["description","default_branch","default_branch_source","repo_url","code_index_build","slug","team","forge_filters","issue_import_interval"]}"#
+            )
         );
     }
     // The values that the repository has: a success that writes nothing.
@@ -4857,6 +4873,11 @@ async fn triage_tools_against_live_stack() {
         )
         .await;
     assert!(text.contains("VALIDATION"), "{text}");
+    // KAIROS-T-0696: `board_id` is the old name of `filter.board`.
+    assert!(
+        text.contains("They are the same field") && text.contains("filter.board_id"),
+        "{text}"
+    );
     let text = session
         .call_err("search", json!({"filter": {"board": "no-such-board"}}))
         .await;

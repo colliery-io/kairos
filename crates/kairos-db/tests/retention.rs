@@ -741,15 +741,27 @@ fn retention_pass_removes_old_rows_and_expired_sessions() {
     .bind::<diesel::sql_types::Timestamptz, _>(now - Duration::hours(1))
     .execute(&mut conn)
     .expect("inserting request keys");
+    // KAIROS-T-0694: a refusal older than 90 days, and one in the window.
+    sql_query(
+        "INSERT INTO org_acme.tool_refusals (tool, code, field, caller_kind, created_at) VALUES \
+         ('get_item', 'NOT_FOUND', NULL, 'person', $1), \
+         ('get_item', 'NOT_FOUND', 'short_code', 'agent_key', $2)",
+    )
+    .bind::<diesel::sql_types::Timestamptz, _>(now - Duration::days(91))
+    .bind::<diesel::sql_types::Timestamptz, _>(now - Duration::days(89))
+    .execute(&mut conn)
+    .expect("inserting refusals");
 
     let mut steps = 0;
     let pass = run_retention_pass(&mut conn, &config, now, &mut || steps += 1).expect("pass");
     assert_eq!(
-        steps, 7,
+        steps, 8,
         "one tenant, then after the read and the unread notifications, the code \
-         indexes, the pool summaries, the webhook deliveries and the request keys"
+         indexes, the pool summaries, the webhook deliveries, the request keys and the \
+         refusals"
     );
     assert_eq!(pass.request_keys_deleted, 1, "the key past 24 hours");
+    assert_eq!(pass.tool_refusals_deleted, 1, "the refusal past 90 days");
     assert_eq!(pass.expired_sessions_deleted, 1);
     assert_eq!(pass.unused_summaries_deleted, 0);
     assert_eq!(pass.expired_auth_failures_deleted, 1);
@@ -770,6 +782,7 @@ fn retention_pass_removes_old_rows_and_expired_sessions() {
     let pass = run_retention_pass(&mut conn, &config, now, &mut || {}).expect("pass");
     assert_eq!(pass.expired_sessions_deleted, 0);
     assert_eq!(pass.request_keys_deleted, 0);
+    assert_eq!(pass.tool_refusals_deleted, 0);
     assert_eq!(pass.tenants.len(), 1);
     assert_eq!(pass.tenants[0].activity_log.rows_pruned, 0);
 
@@ -1556,7 +1569,7 @@ fn the_pass_removes_old_rows_of_the_other_tables_a_page_at_a_time() {
     let pass =
         run_retention_pass_with(&mut conn, &config, now, paging, &mut || steps += 1).expect("pass");
     assert!(pass.tenants.is_empty());
-    assert_eq!(steps, 6, "after each table");
+    assert_eq!(steps, 7, "after each table");
     assert_eq!(
         pass.code_indexes_deleted, 5,
         "main of repository one keeps 5"

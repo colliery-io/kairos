@@ -28,6 +28,7 @@ use kairos_client::types::ListEnvelope;
 use kairos_client::types_service_accounts::{OrgAgentKey, OrgAgentKeysQuery};
 use kairos_db::api_keys::PersonKey;
 use kairos_db::models::enums::ActivityAction;
+use serde_json::json;
 use uuid::Uuid;
 
 use super::routes::{DeletedResponse, log_activity, rfc3339};
@@ -185,6 +186,7 @@ pub(crate) async fn revoke_org_agent_key(
                             "No agent key has the id {key_id}. To revoke the key of a service \
                              account, use DELETE /api/service-accounts/{{id}}/keys/{{key_id}}."
                         ))
+                        .with_details(json!({ "field": "key" }))
                     })?;
                 if existing.key.revoked_at.is_some() {
                     return Err(ApiError::conflict(format!(

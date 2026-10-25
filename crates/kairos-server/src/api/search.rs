@@ -155,6 +155,7 @@ pub(crate) fn related_work_error(error: crate::embedding::RefreshError) -> ApiEr
     match error {
         RefreshError::Store(EmbeddingError::ItemNotFound(code)) => {
             ApiError::not_found(format!("No item has the short code {code:?}."))
+                .with_details(json!({ "field": "short_code" }))
         }
         other => ApiError::internal(other),
     }
@@ -196,7 +197,9 @@ pub(crate) async fn search(
     // Deserialize by hand: a fault of shape (an unknown field, a wrong
     // JSON type) is a 400 on this route, and a 422 on each other route
     // (COLLIERY-T-0249). The message names an unknown field.
-    let request: dto_search::SearchRequest = serde_json::from_value(body)
+    // KAIROS-T-0697: with the path of the fault, as the extractor of axum
+    // gives it, so the refusal names the field.
+    let request: dto_search::SearchRequest = serde_path_to_error::deserialize(body)
         .map_err(|e| crate::body::shape_error(StatusCode::BAD_REQUEST, &e.to_string()))?;
     let mut core = to_core(&request)?;
     let refs = FilterRefs::of(request.filter.as_ref())?;
@@ -390,19 +393,10 @@ impl FilterRefs {
             filter.repository_id = Some(repo.id);
         }
         if let Some(reference) = self.board.as_deref() {
-            use kairos_db::schema::boards;
-            let mut query = boards::table
-                .filter(boards::deleted_at.is_null())
-                .select(boards::id)
-                .into_boxed();
-            query = match Uuid::parse_str(reference) {
-                Ok(id) => query.filter(boards::id.eq(id)),
-                Err(_) => query.filter(boards::slug.eq(reference)),
-            };
-            let id: Uuid = query
-                .first(conn)
-                .optional()
-                .map_err(ApiError::internal)?
+            // KAIROS-T-0689: the forms of crate::references::BOARD_FORMS.
+            let reference = crate::references::text(reference);
+            let id: Uuid = crate::references::board(conn, reference)?
+                .map(|board| board.id)
                 .ok_or_else(|| {
                     field_invalid(
                         "filter.board",
@@ -416,6 +410,8 @@ impl FilterRefs {
         }
         if let Some(reference) = self.column.as_deref() {
             use kairos_db::schema::board_columns;
+            // KAIROS-T-0689: the forms of crate::references::COLUMN_FORMS.
+            let reference = crate::references::text(reference);
             // KAIROS-T-0552: a UUID stands alone; a name needs the board.
             let by_id = Uuid::parse_str(reference).ok();
             let Some(board_id) = filter.board_id else {
@@ -432,24 +428,19 @@ impl FilterRefs {
                     }
                 }
             };
-            let mut query = board_columns::table
+            let columns: Vec<(Uuid, String)> = board_columns::table
                 .filter(board_columns::board_id.eq(board_id))
                 .filter(board_columns::deleted_at.is_null())
-                .select(board_columns::id)
-                .into_boxed();
-            query = match by_id {
-                Some(id) => query.filter(board_columns::id.eq(id)),
-                None => query.filter(board_columns::name.eq(reference)),
-            };
-            let id: Option<Uuid> = query.first(conn).optional().map_err(ApiError::internal)?;
+                .order(board_columns::position.asc())
+                .select((board_columns::id, board_columns::name))
+                .load(conn)
+                .map_err(ApiError::internal)?;
+            let id = crate::references::column(
+                columns.iter().map(|(id, name)| (*id, name.as_str())),
+                reference,
+            );
             let Some(id) = id else {
-                let names: Vec<String> = board_columns::table
-                    .filter(board_columns::board_id.eq(board_id))
-                    .filter(board_columns::deleted_at.is_null())
-                    .order(board_columns::position.asc())
-                    .select(board_columns::name)
-                    .load(conn)
-                    .map_err(ApiError::internal)?;
+                let names: Vec<&str> = columns.iter().map(|(_, name)| name.as_str()).collect();
                 return Err(field_invalid(
                     "filter.column",
                     format!(
@@ -470,40 +461,27 @@ impl FilterRefs {
         conn: &mut diesel::pg::PgConnection,
         filter: &mut core_search::SearchFilter,
     ) -> Result<(), ApiError> {
-        use diesel::prelude::*;
         if let Some(reference) = self.team.as_deref() {
-            use kairos_db::schema::teams;
-            let mut query = teams::table
-                .filter(teams::deleted_at.is_null())
-                .select(teams::id)
-                .into_boxed();
-            query = match Uuid::parse_str(reference) {
-                Ok(id) => query.filter(teams::id.eq(id)),
-                Err(_) => query.filter(teams::slug.eq(reference)),
-            };
-            let id: Uuid = query
-                .first(conn)
-                .optional()
-                .map_err(ApiError::internal)?
-                .ok_or_else(|| {
-                    field_invalid(
-                        "filter.team",
-                        format!(
-                            "No live team has the slug or the id {reference:?}. Send the \
-                             slug or the id of a team of the organization."
-                        ),
-                    )
+            // KAIROS-T-0689: the one lookup of a team, and its refusal with
+            // the slugs (KAIROS-T-0685), for the field filter.team.
+            let team =
+                crate::api::org::repositories::resolve_team(conn, reference).map_err(|e| {
+                    if e.code == "VALIDATION" {
+                        field_invalid("filter.team", e.message)
+                    } else {
+                        e
+                    }
                 })?;
-            filter.team_id = Some(id);
+            filter.team_id = Some(team.id);
         }
         Ok(())
     }
 }
 
-/// The member that `reference` names (KAIROS-T-0488): `me` is the caller;
-/// else a user id, an email or a user name of a member of the organization
-/// `slug`. A person and a service account both count. A reference that
-/// names no member is a `VALIDATION` refusal that names the field and the
+/// The member that `reference` names (KAIROS-T-0488), in the forms of
+/// [`crate::references::PERSON_FORMS`] (KAIROS-T-0689): `me` is the caller.
+/// A person and a service account both count. A reference that names no
+/// member is a `VALIDATION` refusal that names the field and the
 /// reference.
 pub(crate) fn resolve_member(
     conn: &mut diesel::pg::PgConnection,
@@ -512,44 +490,32 @@ pub(crate) fn resolve_member(
     reference: &str,
     field: &str,
 ) -> Result<Uuid, ApiError> {
-    use diesel::prelude::*;
-    use kairos_db::schema::users;
-    let reference = reference.trim();
-    if reference.eq_ignore_ascii_case("me") {
+    if crate::references::text(reference).eq_ignore_ascii_case("me") {
         return Ok(caller);
     }
-    let found: Option<Uuid> = if let Ok(id) = reference.parse::<Uuid>() {
-        users::table
-            .filter(users::id.eq(id))
-            .select(users::id)
-            .first(conn)
-            .optional()
-    } else if reference.contains('@') {
-        users::table
-            .filter(users::email.eq(reference))
-            .select(users::id)
-            .first(conn)
-            .optional()
-    } else {
-        users::table
-            .filter(users::user_name.eq(reference))
-            .select(users::id)
-            .first(conn)
-            .optional()
+    let mut member = None;
+    for user in crate::references::people(conn, caller, reference)? {
+        if kairos_db::abac::is_org_member(conn, slug, user.id).map_err(ApiError::internal)? {
+            if member.is_some() {
+                return Err(field_invalid(
+                    field,
+                    format!(
+                        "More than one member of the organization has the name {reference:?}. \
+                         Send the id of the member."
+                    ),
+                ));
+            }
+            member = Some(user.id);
+        }
     }
-    .map_err(ApiError::internal)?;
-    let member = match found {
-        Some(id) => kairos_db::abac::is_org_member(conn, slug, id)
-            .map_err(ApiError::internal)?
-            .then_some(id),
-        None => None,
-    };
+    let reference = crate::references::text(reference);
     member.ok_or_else(|| {
         field_invalid(
             field,
             format!(
-                "No member of the organization has the id, the email or the user name \
-                 {reference:?} of {field}. Send me, or a member of the organization."
+                "No member of the organization has the id, the email, the user name or the \
+                 service-account name {reference:?} of {field}. Send me, or a member of the \
+                 organization."
             ),
         )
         .with_details(json!({ "field": field, "person": reference }))
@@ -769,9 +735,11 @@ fn sort_to_core(sort: &dto_search::SearchSort) -> Result<core_search::Sort, ApiE
 /// error's; `details.field` names the offending field (`details.fields`
 /// lists the alternatives for the at-least-one-capability rule), plus the
 /// typed extras the variant carries.
-fn map_validation_error(e: SearchValidationError) -> ApiError {
+pub(crate) fn map_validation_error(e: SearchValidationError) -> ApiError {
     let details = match &e {
-        SearchValidationError::NoCapability => json!({"fields": ["q", "filter", "traverse"]}),
+        SearchValidationError::NoCapability => {
+            json!({"field": "q", "fields": ["q", "filter", "traverse"]})
+        }
         SearchValidationError::BlankQuery => json!({"field": "q"}),
         SearchValidationError::EmptyEntityTypes => json!({"field": "filter.entity_type"}),
         SearchValidationError::EmptyTaskTypes => json!({"field": "filter.task_type"}),
@@ -799,7 +767,9 @@ fn map_validation_error(e: SearchValidationError) -> ApiError {
             json!({"field": "sort.field", "requires": "q"})
         }
     };
-    ApiError::new(StatusCode::BAD_REQUEST, "VALIDATION", e.to_string()).with_details(details)
+    // Each arm names `field`; the details keep the extras of the variant.
+    let field = details["field"].as_str().unwrap_or_default().to_string();
+    field_invalid(&field, e.to_string()).with_details(details)
 }
 
 /// [`SearchError`] → HTTP (module docs).
@@ -808,7 +778,8 @@ fn map_search_error(e: SearchError) -> ApiError {
         SearchError::Invalid(e) => map_validation_error(e),
         SearchError::TraverseRootNotFound { reference } => ApiError::not_found(format!(
             "The item {reference:?} of traverse.from does not exist."
-        )),
+        ))
+        .with_details(json!({ "field": "traverse.from" })),
         SearchError::UnknownMetadataDefinition(ref slug) => {
             field_invalid("filter.metadata_missing", e.to_string())
                 .with_details(json!({"field": "filter.metadata_missing", "slug": slug}))

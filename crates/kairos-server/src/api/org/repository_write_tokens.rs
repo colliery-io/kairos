@@ -194,7 +194,8 @@ pub(crate) async fn remove_write_token(
                 return Err(ApiError::not_found(format!(
                     "The repository {:?} has no write token.",
                     repo.slug
-                )));
+                ))
+                .with_details(json!({ "field": "repository" })));
             }
             write_back_of(conn, repo.id).map_err(ApiError::internal)
         })

@@ -172,10 +172,12 @@ pub(crate) async fn get_initiative(
     post,
     path = "/api/initiatives",
     tag = "initiatives",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateInitiativeRequest,
     responses(
         (status = 201, description = "Created", body = dto::Initiative),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "Unknown board/column/parent, a column that is not the entry column of the board, a parent that is not a strategy, or bad enum value", body = dto::ErrorEnvelope),
     ),
 )]
@@ -183,8 +185,10 @@ pub(crate) async fn create_initiative(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateInitiativeRequest>,
-) -> Result<(StatusCode, Json<dto::Initiative>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Initiative>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     // KAIROS-T-0150: slug or UUID; resolved in the closure below.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
     let complexity = body
@@ -203,61 +207,67 @@ pub(crate) async fn create_initiative(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let board_id = board_id_by_ref(conn, &body.board_id)?;
-            require_capability(conn, &slug, Some(board_id), user, MANAGE)?;
-            // KAIROS-T-0643 (Dylan, 2026-10-17): an initiative starts in the
-            // entry column of its board (Discovery). It reaches each other
-            // column by a move, so the board rules apply.
-            if let Some(column_id) = column_id {
-                let entry =
-                    kairos_db::boards::entry_column(conn, board_id).map_err(ApiError::internal)?;
-                if entry != Some(column_id) {
-                    return Err(ApiError::validation(
-                        "An initiative starts in the entry column of its board (Discovery). \
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                let board_id = board_id_by_ref(conn, &body.board_id)?;
+                require_capability(conn, &slug, Some(board_id), user, MANAGE)?;
+                // KAIROS-T-0643 (Dylan, 2026-10-17): an initiative starts in the
+                // entry column of its board (Discovery). It reaches each other
+                // column by a move, so the board rules apply.
+                if let Some(column_id) = column_id {
+                    let entry = kairos_db::boards::entry_column(conn, board_id)
+                        .map_err(ApiError::internal)?;
+                    if entry != Some(column_id) {
+                        return Err(ApiError::validation(
+                            "An initiative starts in the entry column of its board (Discovery). \
                          Leave out column_id, or send the entry column. Then move the \
                          initiative with a transition.",
-                    )
-                    .with_details(json!({ "field": "column_id" })));
+                        )
+                        .with_details(json!({ "field": "column_id" })));
+                    }
                 }
-            }
-            // KAIROS-T-0572: the parent is checked before the first write.
-            let parent = body
-                .parent
-                .as_deref()
-                .map(|code| {
-                    super::meta::relationships::parent_for_create(conn, code, ItemType::Initiative)
-                })
-                .transpose()?;
-            // The initiative and its parent edge are one transaction: a
-            // refused edge leaves no initiative (COLLIERY-T-0227).
-            super::atomically(conn, |conn| {
-                let created = items::create_initiative(
-                    conn,
-                    items::CreateInitiative {
-                        board_id,
-                        column_id,
-                        title: &body.title,
-                        content: &body.content,
-                        complexity,
-                        bucket_type,
-                    },
-                    user,
-                )
-                .map_err(map_item_error)?;
-                if let Some(parent) = &parent {
-                    super::meta::relationships::link_created_parent(
+                // KAIROS-T-0572: the parent is checked before the first write.
+                let parent = body
+                    .parent
+                    .as_deref()
+                    .map(|code| {
+                        super::meta::relationships::parent_for_create(
+                            conn,
+                            code,
+                            ItemType::Initiative,
+                        )
+                    })
+                    .transpose()?;
+                // The initiative and its parent edge are one transaction: a
+                // refused edge leaves no initiative (COLLIERY-T-0227).
+                super::atomically(conn, |conn| {
+                    let created = items::create_initiative(
                         conn,
-                        role,
+                        items::CreateInitiative {
+                            board_id,
+                            column_id,
+                            title: &body.title,
+                            content: &body.content,
+                            complexity,
+                            bucket_type,
+                        },
                         user,
-                        parent,
-                        (created.id, ItemType::Initiative),
-                    )?;
-                }
-                Ok(created.into_dto())
+                    )
+                    .map_err(map_item_error)?;
+                    if let Some(parent) = &parent {
+                        super::meta::relationships::link_created_parent(
+                            conn,
+                            role,
+                            user,
+                            parent,
+                            (created.id, ItemType::Initiative),
+                        )?;
+                    }
+                    Ok(created.into_dto())
+                })
             })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// Update initiative content (KAIROS-A-0004 optimistic concurrency).
@@ -390,12 +400,13 @@ pub(crate) async fn delete_initiative(
     post,
     path = "/api/initiatives/{short_code}/transition",
     tag = "initiatives",
-    params(("short_code" = String, Path, description = "Initiative short code")),
+    params(("short_code" = String, Path, description = "Initiative short code"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::TransitionRequest,
     responses(
         (status = 200, description = "Transitioned (new column)", body = dto::Initiative),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
         (status = 422, description = "Invalid transition; details.allowed_targets lists valid moves", body = dto::ErrorEnvelope),
     ),
 )]
@@ -404,33 +415,37 @@ pub(crate) async fn transition_initiative(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::TransitionRequest>,
-) -> Result<Json<dto::Initiative>, ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::Initiative>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let to_column_id = parse_uuid(&body.to_column_id, "to_column_id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let transitioned = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
-            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
-            // The creator of an item needs this capability as all others do,
-            // because a team controls its own plan (COLLIERY-T-0218).
-            require_capability(
-                conn,
-                &slug,
-                Some(initiative.board_id),
-                user,
-                "transition_items",
-            )?;
-            boards::transition_initiative(conn, initiative.id, to_column_id, user)
-                .map_err(map_board_error)?;
-            crate::claims::note_wip(conn, to_column_id, &short_code)?;
-            let item = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
-            crate::owners::attach_owner(conn, item)
+            crate::api::idempotency::run(conn, keyed, StatusCode::OK, |conn| {
+                let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
+                // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+                // The creator of an item needs this capability as all others do,
+                // because a team controls its own plan (COLLIERY-T-0218).
+                require_capability(
+                    conn,
+                    &slug,
+                    Some(initiative.board_id),
+                    user,
+                    "transition_items",
+                )?;
+                boards::transition_initiative(conn, initiative.id, to_column_id, user)
+                    .map_err(map_board_error)?;
+                crate::claims::note_wip(conn, to_column_id, &short_code)?;
+                let item = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
+                crate::owners::attach_owner(conn, item)
+            })
         })
         .await?;
-    Ok(Json(transitioned))
+    Ok(transitioned)
 }
 
 /// Set the complexity of an initiative, or clear it with `none`.
@@ -513,6 +528,7 @@ fn parse_complexity(value: &str) -> Result<Option<Complexity>, ApiError> {
              or {NO_COMPLEXITY} to clear it.",
             sizes.join(", ")
         ))
+        .with_details(json!({ "field": "complexity" }))
     })
 }
 

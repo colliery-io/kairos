@@ -170,7 +170,8 @@ pub async fn create_local_account(
     if email.is_empty() || !email.contains('@') {
         return Err(ApiError::validation(
             "The email is not an address. A person uses the email to log in.",
-        ));
+        )
+        .with_details(serde_json::json!({ "field": "email" })));
     }
     let display_name = body
         .display_name
@@ -403,5 +404,6 @@ fn require_member_of(
         .map_err(ApiError::internal)?;
     row.ok_or_else(|| {
         ApiError::not_found(format!("The user {user_id} is not in this organization."))
+            .with_details(serde_json::json!({ "field": "user" }))
     })
 }

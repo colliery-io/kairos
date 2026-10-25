@@ -197,6 +197,7 @@ fn load_column_of_board(
         .map_err(ApiError::internal)?
         .ok_or_else(|| {
             ApiError::not_found(format!("The board {board_id} has no column {column_id}."))
+                .with_details(json!({ "field": "column" }))
         })
 }
 
@@ -496,11 +497,12 @@ pub(crate) fn archive_completed_tasks(
     post,
     path = "/api/boards",
     tag = "boards",
+    params(("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateBoardRequest,
     responses(
         (status = 201, description = "Created, with the seeded configuration", body = dto::BoardDetail),
         (status = 403, description = "Not an org admin, and no manage_structure on the organization", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "A live board has the slug, or a live board of the same level has the prefix; details.board names it", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live board has the slug, or a live board of the same level has the prefix; details.board names it; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad level/team reference, a slug that does not have the form of a board slug, a code_prefix that is absent or does not match the rule, a delivery board with no team, a strategy or initiative board with a team, the prefix of a team ADR board that is not the prefix of the team, TEAM_HAS_DELIVERY_BOARD, or TEAM_HAS_ADR_BOARD", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -508,15 +510,21 @@ pub(crate) async fn create_board(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateBoardRequest>,
-) -> Result<(StatusCode, Json<dto::BoardDetail>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::BoardDetail>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let detail = state
         .blocking
-        .run(&tenant.slug, move |conn| create(conn, &slug, user, body))
+        .run(&tenant.slug, move |conn| {
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                create(conn, &slug, user, body)
+            })
+        })
         .await?;
-    Ok((StatusCode::CREATED, Json(detail)))
+    Ok(detail)
 }
 
 /// Create a board as `user`: the ONE implementation of `POST /api/boards`
@@ -551,7 +559,8 @@ pub(crate) fn create(
             return Err(ApiError::validation(format!(
                 "The team {team_id} is not in the organization. Send the id of a \
                  team of the organization as team_id."
-            )));
+            ))
+            .with_details(json!({ "field": "team_id" })));
         }
     }
     // COLLIERY-T-0255: a slug that a live board has is a 409 that
@@ -652,6 +661,10 @@ pub(crate) async fn update_board(
             "The request has no field to change. Send one or more of name, slug, team_id, \
              parent_gate, owner_gate and blockers_gate.",
         )
+        .with_details(json!({
+            "field": "name",
+            "fields": ["name", "slug", "team_id", "parent_gate", "owner_gate", "blockers_gate"],
+        }))
     };
     if body.name.is_none()
         && body.slug.is_none()
@@ -862,7 +875,11 @@ pub(crate) fn set_board_policy_as(
     if change.is_empty() {
         return Err(ApiError::validation(
             "The request has no policy to set. Send parent_gate, owner_gate or blockers_gate.",
-        ));
+        )
+        .with_details(json!({
+            "field": "parent_gate",
+            "fields": ["parent_gate", "owner_gate", "blockers_gate"],
+        })));
     }
     check_policies(&board, change)?;
     if apply_policies(conn, user, &board, change)? {
@@ -1640,12 +1657,13 @@ pub(crate) async fn list_columns(
     post,
     path = "/api/boards/{id}/columns",
     tag = "boards",
-    params(("id" = String, Path, description = "Board id (UUID)")),
+    params(("id" = String, Path, description = "Board id (UUID)"), ("Idempotency-Key" = Option<String>, Header, description = crate::api::idempotency::HEADER_DOC)),
     request_body = dto::CreateColumnRequest,
     responses(
         (status = 201, description = "Created", body = dto::BoardColumn),
         (status = 403, description = "Missing capability", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "DUPLICATE_COLUMN_NAME / DUPLICATE_COLUMN_POSITION / VALIDATION", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -1654,18 +1672,22 @@ pub(crate) async fn add_column(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
+    idempotency: crate::api::idempotency::IdempotencyKey,
     ApiJson(body): ApiJson<dto::CreateColumnRequest>,
-) -> Result<(StatusCode, Json<dto::BoardColumn>), ApiError> {
+) -> Result<crate::api::idempotency::Answer<dto::BoardColumn>, ApiError> {
+    let keyed = idempotency.bind(&body)?;
     let board_id = parse_uuid(&id, "id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            add_column_as(conn, &slug, user, board_id, &body.name, body.position)
+            crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                add_column_as(conn, &slug, user, board_id, &body.name, body.position)
+            })
         })
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok(created)
 }
 
 /// Add a column as `user`: the ONE implementation of
@@ -1756,7 +1778,11 @@ pub(crate) fn update_column_as(
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of name, position, is_done, \
              claims, keeps_claims and wip_limit.",
-        ));
+        )
+        .with_details(json!({
+            "field": "name",
+            "fields": ["name", "position", "is_done", "claims", "keeps_claims", "wip_limit"],
+        })));
     }
     if let Some(Some(limit)) = body.wip_limit
         && limit < 1
@@ -1775,7 +1801,8 @@ pub(crate) fn update_column_as(
     {
         return Err(ApiError::validation(format!(
             "The position {position} is not correct. A position is 0 or more."
-        )));
+        ))
+        .with_details(json!({ "field": "position" })));
     }
 
     // KAIROS-T-0268: only a value that is different from the value
@@ -2029,6 +2056,7 @@ pub(crate) async fn remove_transition(
                 ApiError::not_found(format!(
                     "The board {board_id} has no transition {transition_id}."
                 ))
+                .with_details(json!({ "field": "transition" }))
             })?;
             remove_transition_as(
                 conn,
@@ -2187,6 +2215,7 @@ pub(crate) async fn add_board_member(
             let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
+                user,
                 &body.user_id,
                 "user_id",
                 routes,
@@ -2256,7 +2285,7 @@ pub(crate) async fn replace_capabilities(
     let member = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let target = member_ref(conn, &slug, &target)?;
+            let target = member_ref(conn, &slug, user, &target)?;
             replace_as(conn, &slug, user, board_id, target, &body.capabilities)
         })
         .await?;
@@ -2266,11 +2295,16 @@ pub(crate) async fn replace_capabilities(
 /// The user of a `{user_id}` path segment (KAIROS-T-0443): a UUID as it is
 /// (a person who left the organization keeps grants that can be revoked),
 /// else an email or a user name of a member of the organization.
-fn member_ref(conn: &mut PgConnection, slug: &str, reference: &str) -> Result<Uuid, ApiError> {
+fn member_ref(
+    conn: &mut PgConnection,
+    slug: &str,
+    caller: Uuid,
+    reference: &str,
+) -> Result<Uuid, ApiError> {
     match Uuid::parse_str(reference.trim()) {
         Ok(id) => Ok(id),
         Err(_) => Ok(crate::api::org::structure_grants::resolve_member(
-            conn, slug, reference, "user_id",
+            conn, slug, caller, reference, "user_id",
         )?
         .id),
     }
@@ -2296,7 +2330,8 @@ pub(crate) fn replace_as(
     if current.is_empty() {
         return Err(ApiError::not_found(format!(
             "The user {target} is not a member of the board {board_id}."
-        )));
+        ))
+        .with_details(json!({ "field": "user" })));
     }
     let desired: BTreeSet<&str> = capabilities.iter().map(String::as_str).collect();
     let existing: BTreeSet<&str> = current.iter().map(String::as_str).collect();
@@ -2340,7 +2375,7 @@ pub(crate) async fn remove_board_member(
     let outcome = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let target = member_ref(conn, &slug, &target)?;
+            let target = member_ref(conn, &slug, user, &target)?;
             revoke_all_as(conn, &slug, user, board_id, target)
         })
         .await?;
@@ -2364,7 +2399,8 @@ pub(crate) fn revoke_all_as(
     if current.is_empty() {
         return Err(ApiError::not_found(format!(
             "The user {target} is not a member of the board {board_id}."
-        )));
+        ))
+        .with_details(json!({ "field": "user" })));
     }
     for capability in &current {
         abac::revoke_capability(conn, board_id, target, capability, user)

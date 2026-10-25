@@ -176,7 +176,9 @@ pub enum VerifyError {
         kid: String,
     },
     /// Signature/`iss`/`aud`/`exp` validation failed.
-    #[error("The token is not correct: {0}. Log in again.")]
+    /// KAIROS-T-0697: the reason in Kairos words, not the text of
+    /// jsonwebtoken.
+    #[error("The token is not correct: {}. Log in again.", jwt_reason(.0))]
     Invalid(#[from] jsonwebtoken::errors::Error),
     /// The token is valid but has no usable `email` claim.
     #[error("The token has no email claim. Ask for the scopes openid and email at the login.")]
@@ -199,6 +201,28 @@ pub enum VerifyError {
          with a password (POST /api/login), or set OIDC_ISSUER_URL."
     )]
     NoIssuer,
+}
+
+/// Why a token is not correct, in Kairos words (KAIROS-T-0697).
+fn jwt_reason(error: &jsonwebtoken::errors::Error) -> String {
+    use jsonwebtoken::errors::ErrorKind;
+    match error.kind() {
+        ErrorKind::ExpiredSignature => "it has expired".into(),
+        ErrorKind::ImmatureSignature => "it is not valid yet (nbf)".into(),
+        ErrorKind::InvalidSignature => "its signature is not correct".into(),
+        ErrorKind::InvalidIssuer => "its issuer (iss) is not the issuer of this deployment".into(),
+        ErrorKind::InvalidAudience => "its audience (aud) is not this deployment".into(),
+        ErrorKind::InvalidSubject => "its subject (sub) is not correct".into(),
+        ErrorKind::InvalidAlgorithm | ErrorKind::InvalidAlgorithmName => {
+            "its algorithm is not the algorithm of the key of the issuer".into()
+        }
+        ErrorKind::MissingRequiredClaim(claim) => format!("it has no {claim} claim"),
+        ErrorKind::InvalidToken
+        | ErrorKind::Base64(_)
+        | ErrorKind::Json(_)
+        | ErrorKind::Utf8(_) => "it is not a JWT".into(),
+        _ => "the server cannot check it".into(),
+    }
 }
 
 impl From<VerifyError> for ApiError {
@@ -1007,6 +1031,11 @@ BWKiTzkt91ge2HS8jjYZyPRxuojSqlQMbhlcJWYXEWjfEcHgo1Z8Iw/4TxU7oDzj
             VerifyError::Invalid(ref e)
                 if *e.kind() == jsonwebtoken::errors::ErrorKind::ExpiredSignature
         ));
+        // KAIROS-T-0697: the reason in Kairos words.
+        assert_eq!(
+            err.to_string(),
+            "The token is not correct: it has expired. Log in again."
+        );
     }
 
     #[tokio::test]
@@ -1020,6 +1049,10 @@ BWKiTzkt91ge2HS8jjYZyPRxuojSqlQMbhlcJWYXEWjfEcHgo1Z8Iw/4TxU7oDzj
             VerifyError::Invalid(ref e)
                 if *e.kind() == jsonwebtoken::errors::ErrorKind::InvalidAudience
         ));
+        assert_eq!(
+            err.to_string(),
+            "The token is not correct: its audience (aud) is not this deployment. Log in again."
+        );
     }
 
     /// KAIROS-T-0055: `OIDC_AUDIENCE` as a comma-separated list — a token

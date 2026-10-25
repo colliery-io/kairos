@@ -336,8 +336,14 @@ server after `kairos login`; a user-scope entry (`claude mcp add --scope user`) 
 but then disable one of the two servers so the session does not have the tools twice.
 When the deployment is unavailable (502, 503 or 504, a timeout, or a reset, for example
 during an upgrade), the proxy gives a plain error with `retryable: true` in its data. The
-proxy sends a read again two times. It does not send a write again: read the item to see if
-the write was applied before you retry it. `KAIROS_TIMEOUT` sets the request timeout in
+proxy sends a read again two times. It also sends a write with a `request_key` again two times:
+the server gives the first answer to the same key and writes nothing new, so the data says
+`"retry": "replay"`. It sends an idempotent write (a set, a patch or a replace, such as
+`set_state` or `set_metadata`, as `kairos_client::mcp_tools` marks it) again two times: a
+second call gives the same state, so the data says `"retry": "idempotent"`. A retry of a
+`set_state` with `expected_updated_at` that the first send applied is refused with
+`CONFLICT` and the current state. It does not send any other write with no key again: read
+the item to see if the write was applied before you retry it. `KAIROS_TIMEOUT` sets the request timeout in
 seconds (default 60).
 With an older `kairos`, or none on PATH, `bin/kairos-mcp` is an MCP server with no tools whose
 instructions say why, as `bin/kairos-code` does. Before #270 the server was HTTP at

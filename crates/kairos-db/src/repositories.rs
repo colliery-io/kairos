@@ -233,7 +233,9 @@ pub fn load_by_slug(conn: &mut PgConnection, slug: &str) -> Result<Repository, R
 }
 
 /// Resolve a repository reference as clients write it: a slug, or a UUID.
+/// The blanks at the two ends are not part of it (KAIROS-T-0689).
 pub fn resolve(conn: &mut PgConnection, reference: &str) -> Result<Repository, RepositoryError> {
+    let reference = reference.trim();
     match reference.parse::<Uuid>() {
         Ok(id) => load(conn, id),
         Err(_) => load_by_slug(conn, reference),

@@ -116,8 +116,9 @@ pub struct CreateDispatchRuleRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_type: Option<String>,
     /// Only tasks with this metadata: the slug of a definition. Send it
-    /// with `metadata_value`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// with `metadata_value`. KAIROS-T-0696: the server also accepts the
+    /// name `definition`, the name on MCP.
+    #[serde(default, alias = "definition", skip_serializing_if = "Option::is_none")]
     pub metadata_slug: Option<String>,
     /// The value of `metadata_slug` that matches.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -75,7 +75,7 @@ pub(crate) fn parse_kind(kind: &str, wording: CreateWording) -> Result<ItemType,
              adr or document.",
             wording.request
         ))
-        .with_details(serde_json::json!({ wording.details_key: "kind", "allowed": KINDS }))),
+        .with_details(serde_json::json!({ "field": "kind", "allowed": KINDS }))),
     }
 }
 
@@ -95,7 +95,7 @@ pub(crate) fn promote_note(
             "The {} has no {}. Send the slug or the id of the board that gets the new item.",
             wording.request, wording.board
         ))
-        .with_details(serde_json::json!({ wording.details_key: "board" })));
+        .with_details(serde_json::json!({ "field": "board" })));
     }
     // The mark on the note is an edit of the source item.
     require_item_edit(conn, role, user, source_id, source_type)?;
@@ -119,7 +119,8 @@ pub(crate) fn promote_note(
                 input.note_id,
                 ids.join(", ")
             )
-        }));
+        })
+        .with_details(serde_json::json!({ "field": "note_id" })));
     };
     let note_id = note.note_id();
     // KAIROS-T-0551, KAIROS-T-0630: a second promote would make a second

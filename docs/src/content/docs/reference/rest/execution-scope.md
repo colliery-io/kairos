@@ -52,13 +52,17 @@ Register a repository under its owning team (org admin, or a
 `manage_tasks` holder on that team's delivery board — self-serve for
 the team and its agents).
 
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
+
 Request body (required): `application/json`, [`CreateRepositoryRequest`](../schemas/#createrepositoryrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Repository`](../schemas/#repository) | Registered |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Neither org admin nor the owning team |
-| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Slug or (forge, name) already registered |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Slug or (forge, name) already registered; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Bad slug/forge, unknown team, or a field that does not have its form |
 
 ### `GET /api/repositories/{slug}`

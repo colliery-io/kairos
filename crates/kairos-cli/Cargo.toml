@@ -17,6 +17,8 @@ tokio = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# KAIROS-T-0690: the path of a fault in the arguments of a code tool.
+serde_path_to_error = "0.1.20"
 thiserror = { workspace = true }
 # ListEnvelope<T> carries a `T: ToSchema` bound (kairos-client derives
 # OpenAPI schemas from the shared DTOs), so generic helpers naming it need

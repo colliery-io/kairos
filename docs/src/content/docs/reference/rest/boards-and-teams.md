@@ -80,13 +80,17 @@ gives the types. A prefix that a live board of the same level has is a
 409 `CONFLICT`. The refusal names the prefix and the board that has it
 (`details.code_prefix`, `details.board`).
 
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
+
 Request body (required): `application/json`, [`CreateBoardRequest`](../schemas/#createboardrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`BoardDetail`](../schemas/#boarddetail) | Created, with the seeded configuration |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Not an org admin, and no manage_structure on the organization |
-| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | A live board has the slug, or a live board of the same level has the prefix; details.board names it |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | A live board has the slug, or a live board of the same level has the prefix; details.board names it; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Bad level/team reference, a slug that does not have the form of a board slug, a code_prefix that is absent or does not match the rule, a delivery board with no team, a strategy or initiative board with a team, the prefix of a team ADR board that is not the prefix of the team, TEAM_HAS_DELIVERY_BOARD, or TEAM_HAS_ADR_BOARD |
 
 ### `GET /api/boards/{id}`
@@ -331,6 +335,7 @@ Add a column (T-0010 rules: unique name and position). Requires
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Board id (UUID) |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`CreateColumnRequest`](../schemas/#createcolumnrequest)
 
@@ -339,6 +344,7 @@ Request body (required): `application/json`, [`CreateColumnRequest`](../schemas/
 | `201` | [`BoardColumn`](../schemas/#boardcolumn) | Created |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | DUPLICATE_COLUMN_NAME / DUPLICATE_COLUMN_POSITION / VALIDATION |
 
 ### `DELETE /api/boards/{id}/columns/{col_id}`
@@ -413,6 +419,7 @@ filter. Then Kairos sends one signed delivery to the target. Needs
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | The slug or the id (UUID) of the board |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`CreateDispatchRuleRequest`](../schemas/#createdispatchrulerequest)
 
@@ -421,6 +428,7 @@ Request body (required): `application/json`, [`CreateDispatchRuleRequest`](../sc
 | `201` | [`DispatchRule`](../schemas/#dispatchrule) | The rule |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing configure_boards |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board, target or repository |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | VALIDATION: an unknown column, task type or metadata definition |
 
 ### `DELETE /api/boards/{id}/dispatch-rules/{rule_id}`
@@ -919,13 +927,17 @@ board, and the server creates no team.
 `CONFLICT` that names that board. In each case the server creates no
 team.
 
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
+
 Request body (required): `application/json`, [`CreateTeamRequest`](../schemas/#createteamrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Team`](../schemas/#team) | Created; delivery_board_id names the team's new board |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Not an org admin, and no manage_structure on the organization |
-| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | A live team has the slug, a live board has the slug of the delivery board, or a live delivery board has the prefix |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | A live team has the slug, a live board has the slug of the delivery board, or a live delivery board has the prefix; or REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Bad team_type, the slug does not have the form of a slug, or the code_prefix is absent or does not match the rule |
 
 ### `GET /api/teams/by-slug/{slug}`
@@ -1186,6 +1198,7 @@ Create a page or folder (team member or org admin).
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | The slug or the id (UUID) of the team |
+| `Idempotency-Key` | header | no | `string`, nullable | Optional. A key that you choose for this write: 8 to 128 characters of letters, digits, '.', '_', ':' and '-' (a UUID is a good key). Send it when you may retry the request. For 24 hours, a request with the same key and the same arguments writes nothing and gives the first status and body again, with the header `Idempotent-Replayed: true`. The same key with other arguments is refused with REQUEST_KEY_REUSED (KAIROS-A-0065). |
 
 Request body (required): `application/json`, [`CreateTeamPageRequest`](../schemas/#createteampagerequest)
 
@@ -1194,6 +1207,7 @@ Request body (required): `application/json`, [`CreateTeamPageRequest`](../schema
 | `201` | [`TeamPage`](../schemas/#teampage) | Created |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Not a team member |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown team |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Bad kind/parent, sibling slug conflict, or content too large |
 
 ### `GET /api/teams/{id}/pages/{page_id}`

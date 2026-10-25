@@ -184,6 +184,7 @@ pub fn resolve_family_item(
             "{family:?} is not an entity family. The entity families are: strategies, \
              initiatives, tasks, documents, adrs."
         ))
+        .with_details(json!({ "field": "family" }))
     })?;
     let found = resolve_short_code(conn, short_code, liveness)?
         .filter(|(_, resolved)| *resolved == item_type);
@@ -221,11 +222,13 @@ pub fn enum_option_values(
 /// The KAIROS-A-0003 value check: `string` passes through, `date` must
 /// parse as `YYYY-MM-DD`, `enum` must be a member of the definition's
 /// `metadata_enum_options`. Failures are 422 `VALIDATION` naming the
-/// definition and (for enums) the allowed values.
+/// definition and (for enums) the allowed values. `field` is the path of
+/// the value in the request, for the `field` of the refusal.
 pub fn validate_metadata_value(
     conn: &mut PgConnection,
     definition: &MetadataDefinition,
     value: &str,
+    field: &str,
 ) -> Result<(), ApiError> {
     match definition.field_type {
         FieldType::String => Ok(()),
@@ -237,6 +240,7 @@ pub fn validate_metadata_value(
                      the date as YYYY-MM-DD.",
                     definition.slug
                 ))
+                .with_details(json!({ "field": field }))
             }),
         FieldType::Enum => {
             let allowed = enum_option_values(conn, definition.id)?;
@@ -248,7 +252,8 @@ pub fn validate_metadata_value(
                      are: {}.",
                     definition.slug,
                     allowed.join(", ")
-                )))
+                ))
+                .with_details(json!({ "field": field })))
             }
         }
     }
@@ -289,6 +294,7 @@ pub fn validated_metadata_ops(
                 ApiError::validation(format!(
                     "No metadata definition has the slug {definition_slug:?}."
                 ))
+                .with_details(json!({ "field": format!("values.{definition_slug}") }))
             })?;
 
         // KAIROS-T-0078: entity-type scoping is enforced on the write path, not
@@ -308,11 +314,13 @@ pub fn validated_metadata_ops(
                 "The metadata definition {definition_slug:?} does not apply to an item of \
                  the type {}.",
                 item_type.entity_type()
-            )));
+            ))
+            .with_details(json!({ "field": format!("values.{definition_slug}") })));
         }
 
         if let Some(value) = value {
-            validate_metadata_value(conn, &definition, value)?;
+            let field = format!("values.{definition_slug}");
+            validate_metadata_value(conn, &definition, value, &field)?;
         }
         ops.push((definition.id, value.clone()));
     }

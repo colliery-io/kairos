@@ -3,7 +3,7 @@ title: "Connect over MCP"
 ---
 
 Get an agent's MCP client talking to a Kairos deployment: one streamable-HTTP session
-against `/mcp`, authenticated, resolved to the right tenant, with the seventy-nine
+against `/mcp`, authenticated, resolved to the right tenant, with the eighty
 tools available.
 
 **Before you start:** you need a bearer token for a principal that is a **member
@@ -73,7 +73,7 @@ Tool output is **text**, in `result.content[]` entries of type `text` — short
 codes, `key: value` lines, compact listings. It is not JSON to deserialize.
 `whoami` returning your principal is the check that the whole chain works.
 
-`tools/list` returns one profile of the seventy-nine tools, frozen by name and
+`tools/list` returns one profile of the eighty tools, frozen by name and
 shape. Each one's arguments, defaults and refusals are in
 [MCP tools](../../reference/mcp-tools/).
 
@@ -151,7 +151,7 @@ tool again with that `offset`.
 
 ## Related
 
-- [MCP tools](../../reference/mcp-tools/) — all seventy-nine, with arguments and
+- [MCP tools](../../reference/mcp-tools/) — all eighty, with arguments and
   refusals
 - [Give an agent machine access](../give-an-agent-machine-access/)
 - [Connect the Claude Desktop app](../connect-claude-desktop/) — the same

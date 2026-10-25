@@ -147,6 +147,8 @@ const EXPECTED_TABLES: [&str; 72] = [
     "teams",
     "template_metadata",
     "templates",
+    // KAIROS-T-0694 (KAIROS-A-0068): the count of the MCP refusals.
+    "tool_refusals",
     // KAIROS-T-0384: the webhook targets, the deliveries and their tries.
     "webhook_deliveries",
     "webhook_delivery_tries",

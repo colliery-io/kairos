@@ -154,7 +154,7 @@ pub enum StoreError {
     #[error("the site store failed: {0}")]
     Io(#[from] object_store::Error),
     /// A local file of an upload could not be read.
-    #[error("the site store cannot read {path}: {source}")]
+    #[error("the site store cannot read {path}: {}", crate::error::io_words(.source))]
     Local {
         path: PathBuf,
         source: std::io::Error,

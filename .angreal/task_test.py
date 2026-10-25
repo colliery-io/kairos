@@ -280,6 +280,8 @@ def unit():
             os.path.join("scripts", "test_check_compose_settings.py"),
             os.path.join("scripts", "test_check_mcp_tools.py"),
             os.path.join("scripts", "test_check_migrations.py"),
+            # KAIROS-T-0690: the refusals of the code.
+            os.path.join("scripts", "test_refusal_check.py"),
         ],
         cwd=PROJECT_ROOT,
         check=False,

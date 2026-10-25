@@ -85,8 +85,6 @@ const NAMES: &[Name] = &[
     one("owned_by", "the person who owns the item"),
     one("template", "a template"),
     one("definition", "a metadata definition"),
-    one("definition_slug", "a metadata definition"),
-    one("metadata_slug", "a metadata definition"),
     one("page", "a team page or folder"),
     one("note_id", "a note of an item"),
     one("rule_id", "a dispatch rule"),
@@ -290,13 +288,10 @@ const SAME_MEANING: &[(&[&str], &str)] = &[
     ),
     (
         &["item_type", "entity_type", "entity_types", "kind"],
-        "The REST names are the same. The choice of one name waits for a decision \
-         (KAIROS-T-0696 note n-1: `entity_type` by count renames create_item.item_type).",
-    ),
-    (
-        &["definition", "definition_slug", "metadata_slug"],
-        "The REST names are the same. The count of the three names is a tie: the choice \
-         waits for a decision (KAIROS-T-0696 note n-1).",
+        "Decision of KAIROS-T-0696 (Dylan, 2026-10-25): `entity_type` (one value) and \
+         `entity_types` (a list) are one name. `item_type` names the type of the new item \
+         on create_item. `kind` is a choice of two (adr or document) on promote_note. The \
+         REST names are the same.",
     ),
 ];
 

@@ -407,6 +407,23 @@ async fn team_and_board_administration_over_mcp() {
             "DEFINITION_IN_USE",
         )
         .await;
+    // KAIROS-T-0696: `definition` is the name; `definition_slug` (above)
+    // is the old name, an alias. Both in one list is refused.
+    admin_mcp
+        .ok(
+            "save_template",
+            json!({"template": "spike",
+                   "metadata": [{"definition": "size", "default_value": "M"}]}),
+        )
+        .await;
+    admin_mcp
+        .refused(
+            "save_template",
+            json!({"template": "spike",
+                   "metadata": [{"definition": "size", "definition_slug": "size"}]}),
+            "metadata.definition_slug",
+        )
+        .await;
     admin_mcp
         .ok(
             "save_template",

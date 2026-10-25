@@ -198,9 +198,10 @@ pub struct CreateDispatchRuleParams {
     /// Only tasks of this type: task | bug | tech_debt | support.
     pub task_type: Option<String>,
     /// Only tasks with this metadata: the slug of a definition. Send it with
-    /// `metadata_value`.
-    pub metadata_slug: Option<String>,
-    /// The value of `metadata_slug` that matches (no case).
+    /// `metadata_value`. KAIROS-T-0696: the old name `metadata_slug` is an
+    /// alias.
+    pub definition: Option<String>,
+    /// The value of `definition` that matches (no case).
     pub metadata_value: Option<String>,
     /// Only tasks of this repository: its slug or UUID.
     pub repository: Option<String>,
@@ -1485,8 +1486,9 @@ pub struct DeleteTemplateParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct TemplateFieldParams {
-    /// The slug of a metadata definition.
-    pub definition_slug: String,
+    /// The slug of a metadata definition. KAIROS-T-0696: the old name
+    /// `definition_slug` is an alias.
+    pub definition: String,
     /// The default value.
     pub default_value: Option<String>,
     /// True: an item of the template must have a value.
@@ -2516,7 +2518,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Make a dispatch rule on a board: when a task that matches the filter enters `column` (event task.entered_column), or with `trigger: unblocked` when its last open blocker closes (event task.unblocked; `column` optional), Kairos sends one signed delivery to a webhook target. Send `target_id`, or `url` (and `target_name`) to make a target: the answer shows its secret once, for the receiver to check X-Kairos-Signature. Optional filter, each part must match: `task_type`, `metadata_slug` with `metadata_value`, `repository`. Needs configure_boards. Send a `request_key` when you may retry this call."
+        description = "Make a dispatch rule on a board: when a task that matches the filter enters `column` (event task.entered_column), or with `trigger: unblocked` when its last open blocker closes (event task.unblocked; `column` optional), Kairos sends one signed delivery to a webhook target. Send `target_id`, or `url` (and `target_name`) to make a target: the answer shows its secret once, for the receiver to check X-Kairos-Signature. Optional filter, each part must match: `task_type`, `definition` with `metadata_value`, `repository`. Needs configure_boards. Send a `request_key` when you may retry this call."
     )]
     pub async fn create_dispatch_rule(
         &self,
@@ -2571,7 +2573,7 @@ impl KairosMcp {
                         column: params.column.clone(),
                         target_id,
                         task_type: params.task_type.clone(),
-                        metadata_slug: params.metadata_slug.clone(),
+                        metadata_slug: params.definition.clone(),
                         metadata_value: params.metadata_value.clone(),
                         repository: params.repository.clone(),
                     },
@@ -5615,7 +5617,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content` and `metadata` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition_slug`, optional `default_value`, `required`. Organization admins only."
+        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content` and `metadata` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. Organization admins only."
     )]
     pub async fn save_template(
         &self,
@@ -5633,7 +5635,7 @@ impl KairosMcp {
                 fields
                     .into_iter()
                     .map(|field| dto::TemplateMetadataEntry {
-                        definition_slug: field.definition_slug,
+                        definition_slug: field.definition,
                         default_value: field.default_value,
                         required: field.required,
                     })

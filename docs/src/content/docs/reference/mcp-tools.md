@@ -2761,7 +2761,7 @@ Makes or changes a template, as `POST` and `PATCH /api/templates` do.
 | `name` | string | for a new one | no change | The name. |
 | `slug` | string | for a new one | no change | The slug. |
 | `content` | string | no | no change | The markdown of a new item of the template. |
-| `metadata` | array | no | no change | The fields: `definition_slug`, optional `default_value`, `required`. It replaces the list. |
+| `metadata` | array | no | no change | The fields: `definition` (the slug of a metadata definition; the old name `definition_slug` is an alias), optional `default_value`, `required`. It replaces the list. |
 
 For organization admins only.
 
@@ -3145,7 +3145,7 @@ time. Requires `configure_boards` on the board.
 | `url` | string | no | — | The URL of a new target (`http` or `https`). |
 | `target_name` | string | no | `Agent runner` | The name of the new target. |
 | `task_type` | string | no | — | Only tasks of this type: `task`, `bug`, `tech_debt` or `support`. |
-| `metadata_slug` | string | no | — | Only tasks with this metadata. Send it with `metadata_value`. |
+| `definition` | string | no | — | Only tasks with this metadata: the slug of a definition. Send it with `metadata_value`. The old name `metadata_slug` is an alias. |
 | `metadata_value` | string | no | — | The value that matches. Case is not significant. |
 | `repository` | string | no | — | Only tasks of this repository: its slug or UUID. |
 

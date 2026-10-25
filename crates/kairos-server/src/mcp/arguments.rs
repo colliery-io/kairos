@@ -115,7 +115,9 @@ pub(super) const ALIASES: &[(&str, &[&str])] = &[
     // `my_boards`, `delete_metadata_definition` and `delete_template`.
     ("from_column", &["from"]),
     ("board_level", &["level"]),
-    ("definition", &["reference"]),
+    // KAIROS-T-0696 (Dylan, 2026-10-25): one name for a metadata
+    // definition; `metadata_slug` is the old name on create_dispatch_rule.
+    ("definition", &["reference", "metadata_slug"]),
     ("template", &["reference"]),
     ("source", &["from"]),
     ("target", &["to"]),
@@ -126,7 +128,12 @@ pub(super) const ALIASES: &[(&str, &[&str])] = &[
 /// argument, the field, and its aliases. The search filter takes `board`,
 /// `team` and `column` (a slug, a name or a UUID); `board_id`, `team_id`
 /// and `column_id` are their old names, and REST still accepts them.
+///
+/// The argument is an object, or a list of objects: each entry gets the
+/// alias (`metadata[]` of save_template: `definition_slug` is the old name
+/// of `definition`).
 pub(super) const FIELD_ALIASES: &[(&str, &str, &[&str])] = &[
+    ("metadata", "definition", &["definition_slug"]),
     ("filter", "board", &["board_id"]),
     ("filter", "team", &["team_id"]),
     ("filter", "column", &["column_id"]),
@@ -175,24 +182,28 @@ fn with_names(mut arguments: JsonObject, names: &[String]) -> Result<JsonObject,
         if !names.iter().any(|n| n == object) {
             continue;
         }
-        let Some(Value::Object(fields)) = arguments.get_mut(*object) else {
-            continue;
+        let entries: Vec<&mut JsonObject> = match arguments.get_mut(*object) {
+            Some(Value::Object(fields)) => vec![fields],
+            Some(Value::Array(list)) => list.iter_mut().filter_map(Value::as_object_mut).collect(),
+            _ => continue,
         };
-        for alias in *aliases {
-            let Some(value) = fields.remove(*alias) else {
-                continue;
-            };
-            if fields.contains_key(*field) {
-                return Err(validation(format!(
-                    "The call has the field {field:?} and the field {alias:?} in {object}. \
-                     They are the same field. Send only one of them."
-                ))
-                .with_details(json!({
-                    "field": format!("{object}.{alias}"),
-                    "argument": format!("{object}.{field}"),
-                })));
+        for fields in entries {
+            for alias in *aliases {
+                let Some(value) = fields.remove(*alias) else {
+                    continue;
+                };
+                if fields.contains_key(*field) {
+                    return Err(validation(format!(
+                        "The call has the field {field:?} and the field {alias:?} in {object}. \
+                         They are the same field. Send only one of them."
+                    ))
+                    .with_details(json!({
+                        "field": format!("{object}.{alias}"),
+                        "argument": format!("{object}.{field}"),
+                    })));
+                }
+                fields.insert(field.to_string(), value);
             }
-            fields.insert(field.to_string(), value);
         }
     }
     Ok(arguments)
@@ -237,10 +248,13 @@ fn show_field_aliases(schema: &JsonObject, definitions: &mut JsonObject) {
 }
 
 /// The name in `$defs` of the object of a property: its `$ref`, also in an
-/// `anyOf` with `null`.
+/// `anyOf` with `null`, and the `$ref` of the entries of a list.
 fn reference_of(property: &Value) -> Option<String> {
     if let Some(reference) = property.get("$ref").and_then(Value::as_str) {
         return reference.strip_prefix("#/$defs/").map(str::to_string);
+    }
+    if let Some(found) = property.get("items").and_then(reference_of) {
+        return Some(found);
     }
     property
         .get("anyOf")
@@ -726,6 +740,29 @@ mod tests {
             err.details,
             json!({"field": "filter.board_id", "argument": "filter.board"})
         );
+        // A list of objects: each entry gets the alias.
+        #[derive(Debug, Deserialize, JsonSchema)]
+        #[schemars(crate = "rmcp::schemars")]
+        #[serde(deny_unknown_fields)]
+        #[allow(dead_code)]
+        struct Save {
+            metadata: Vec<Field>,
+        }
+        #[derive(Debug, Deserialize, JsonSchema)]
+        #[schemars(crate = "rmcp::schemars")]
+        #[serde(deny_unknown_fields)]
+        #[allow(dead_code)]
+        struct Field {
+            definition: String,
+        }
+        let Value::Object(call) =
+            json!({"metadata": [{"definition_slug": "size"}, {"definition": "risk"}]})
+        else {
+            unreachable!()
+        };
+        let saved = parse::<Save>(call).expect("the old name in a list is read");
+        assert_eq!(saved.metadata[0].definition, "size");
+        assert_eq!(saved.metadata[1].definition, "risk");
         // A tool with no `filter` argument does not rename.
         let err = refusal_of::<Read>(json!({"short_code": "A", "filter": {"board_id": "b"}}));
         assert_eq!(err.details["field"], "filter");
@@ -1092,6 +1129,21 @@ mod tests {
         assert_eq!(fields["board"]["x-aliases"], json!(["board_id"]));
         assert_eq!(fields["team"]["x-aliases"], json!(["team_id"]));
         assert_eq!(fields["column"]["x-aliases"], json!(["column_id"]));
+        // KAIROS-T-0696 (Dylan, 2026-10-25): one name for a definition.
+        let save = schema_of("save_template");
+        let entry = reference_of(&save["properties"]["metadata"]).expect("the $ref of metadata");
+        assert_eq!(
+            save["$defs"][&entry]["properties"]["definition"]["x-aliases"],
+            json!(["definition_slug"])
+        );
+        assert_eq!(
+            aliases("create_dispatch_rule", "definition"),
+            json!(["reference", "metadata_slug"])
+        );
+        assert_eq!(
+            aliases("delete_metadata_definition", "definition"),
+            json!(["reference", "metadata_slug"])
+        );
         assert!(
             fields["board"]["description"]
                 .as_str()
@@ -1115,7 +1167,7 @@ mod tests {
         assert_eq!(aliases("my_boards", "board_level"), json!(["level"]));
         assert_eq!(
             aliases("delete_metadata_definition", "definition"),
-            json!(["reference"])
+            json!(["reference", "metadata_slug"])
         );
         assert_eq!(aliases("delete_template", "template"), json!(["reference"]));
         // `hand_off_item` has an argument `to`: it is not an alias there.

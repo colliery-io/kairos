@@ -163,6 +163,12 @@ jobs:
       - name: Gate 5 — Simplified Technical English, the texts of the code
         run: angreal docs ste --code
 
+      # KAIROS-T-0690: no refusal is built from the text of a library, and a
+      # VALIDATION or NOT_FOUND refusal names its field.
+      # `scripts/refusal-baseline.json` is the ceiling. Pure Python, no build.
+      - name: Gate 5 — the refusals of the code
+        run: angreal docs ste --refusals
+
       # KAIROS-T-0496: deploy/docker-compose.yaml passes each setting that
       # the configuration reference documents, and deploy/.env.example names
       # each one. Pure Python, no build.
@@ -273,6 +279,7 @@ jobs:
           python -B -m unittest scripts/test_check_compose_settings.py
           python -B -m unittest scripts/test_check_mcp_tools.py
           python -B -m unittest scripts/test_check_migrations.py
+          python -B -m unittest scripts/test_refusal_check.py
 
   build-tests:
     name: build-tests

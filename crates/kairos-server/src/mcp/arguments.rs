@@ -303,19 +303,38 @@ fn argument_error(
     }
     let field = path_text(path);
     if field.is_empty() {
+        // KAIROS-T-0690: the words of the schema, not the text of `serde`.
+        let allowed = properties(schema);
         return validation(format!(
-            "The arguments are not correct for this tool: {serde_message}."
-        ));
+            "The arguments of this tool must be one object with these arguments: {}.",
+            allowed.join(", ")
+        ))
+        .with_details(json!({ "allowed": allowed }));
     }
-    // Only a fault of type gets the words of the schema. A value of the
-    // correct type that is not correct (an unknown variant, a bad UUID)
-    // keeps the message of `serde`, which says what is wrong.
+    // A fault of type gets the type of the schema. A value of the correct
+    // type that is not correct (an unknown variant, a bad UUID) gets the
+    // values or the format of the schema, and the value of the call
+    // (KAIROS-T-0690: never the text of `serde`).
     let given = value_at(call, path);
-    let expected = serde_message
-        .starts_with("invalid type:")
-        .then(|| schema_at(schema, path).and_then(|s| describe(schema, s)))
-        .flatten();
+    let wrong_type = serde_message.starts_with("invalid type:");
+    let expected = schema_at(schema, path).and_then(|s| {
+        if wrong_type {
+            describe(schema, s)
+        } else {
+            format_of(schema, s).or_else(|| describe(schema, s))
+        }
+    });
     match expected {
+        Some(expected) if !wrong_type => {
+            let mut message = format!("The value of {field} must be {expected}.");
+            if let Some(given) = given.filter(|g| g.is_string() || g.is_number()) {
+                let text = given.to_string();
+                if text.chars().count() <= 80 {
+                    message.push_str(&format!(" The call gives {text}."));
+                }
+            }
+            validation(message).with_details(json!({ "field": field, "expected": expected }))
+        }
         Some(expected) => {
             let mut message = format!("The value of {field} must be {expected}.");
             if let Some(given) = given {
@@ -332,9 +351,22 @@ fn argument_error(
             validation(message).with_details(json!({ "field": field, "expected": expected }))
         }
         None => validation(format!(
-            "The value of {field} is not correct: {serde_message}."
+            "The value of {field} is not a value that this tool accepts. The schema of the \
+             tool in tools/list gives the values."
         ))
         .with_details(json!({ "field": field })),
+    }
+}
+
+/// The format of a string of the schema in words: `a UUID`. `None` for a
+/// string with no format that the words help.
+fn format_of(root: &JsonObject, schema: &Value) -> Option<String> {
+    let schema = resolve(root, schema)?;
+    match schema.get("format")?.as_str()? {
+        "uuid" => Some("a UUID".into()),
+        "date" => Some("a date in the form YYYY-MM-DD".into()),
+        "date-time" => Some("an RFC 3339 timestamp".into()),
+        _ => None,
     }
 }
 
@@ -687,19 +719,43 @@ mod tests {
         );
     }
 
-    /// KAIROS-T-0674: a value of the correct type that is not correct keeps
-    /// the message of `serde`, after the path.
+    /// KAIROS-T-0674, KAIROS-T-0690: a value of the correct type that is
+    /// not correct gets the values of the schema and the value of the
+    /// call, with the path; not the text of `serde`.
     #[test]
-    fn a_wrong_value_keeps_the_message_of_serde_with_the_path() {
+    fn a_wrong_value_names_the_values_with_the_path() {
         let err = refusal_of::<Read>(
             json!({"short_code": "ACME-T-0001", "within": {"from": "a", "mode": "quick"}}),
         );
         assert_eq!(
             err.message,
-            "The value of within.mode is not correct: unknown variant `quick`, expected \
-             `fast` or `slow`."
+            "The value of within.mode must be one of these values: fast, slow. The call \
+             gives \"quick\"."
         );
-        assert_eq!(err.details, json!({"field": "within.mode"}));
+        assert_eq!(
+            err.details,
+            json!({"field": "within.mode", "expected": "one of these values: fast, slow"})
+        );
+        assert!(!err.message.contains("variant"), "{}", err.message);
+    }
+
+    /// KAIROS-T-0690: arguments that are not an object get the list of the
+    /// arguments, not the text of `serde`.
+    #[test]
+    fn arguments_that_are_not_an_object_get_the_list() {
+        let schema = schema_for_input::<Read>().expect("a schema");
+        let err = argument_error(
+            "invalid type: sequence, expected struct Read",
+            &[],
+            &json!([]),
+            &schema,
+        );
+        assert_eq!(
+            err.message,
+            "The arguments of this tool must be one object with these arguments: limit, \
+             short_code, within."
+        );
+        assert!(!err.message.contains("struct"), "{}", err.message);
     }
 
     #[test]

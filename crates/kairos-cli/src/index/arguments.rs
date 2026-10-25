@@ -50,13 +50,18 @@ fn parse<P>(arguments: JsonObject) -> Result<P, ToolError>
 where
     P: DeserializeOwned + JsonSchema + 'static,
 {
-    serde_json::from_value(Value::Object(arguments)).map_err(|e| {
+    serde_path_to_error::deserialize(Value::Object(arguments)).map_err(|e| {
         let schema = schema_for_input::<P>().unwrap_or_default();
-        argument_error(&e.to_string(), &schema)
+        let field = e.path().to_string();
+        argument_error(&e.inner().to_string(), &field, &schema)
     })
 }
 
-fn argument_error(serde_message: &str, schema: &JsonObject) -> ToolError {
+/// The refusal of arguments that the tool cannot read. `serde_message` is
+/// read for the name of an unknown or a missing argument only; the text of
+/// the refusal does not contain it (KAIROS-T-0690). `field` is the path of
+/// the fault (`.` for none).
+fn argument_error(serde_message: &str, field: &str, schema: &JsonObject) -> ToolError {
     let allowed: Vec<String> = schema
         .get("properties")
         .and_then(Value::as_object)
@@ -80,7 +85,14 @@ fn argument_error(serde_message: &str, schema: &JsonObject) -> ToolError {
             allowed: allowed.join(", "),
         };
     }
-    ToolError::BadArguments(serde_message.to_string())
+    if field.is_empty() || field == "." {
+        return ToolError::BadArguments {
+            allowed: allowed.join(", "),
+        };
+    }
+    ToolError::BadArgument {
+        field: field.to_string(),
+    }
 }
 
 /// The name between backticks after `start` at the start of a message of
@@ -153,6 +165,24 @@ mod tests {
             err.to_string(),
             "The call does not have the argument \"symbol\". This tool must have that \
              argument. The arguments of this tool are: file, symbol."
+        );
+    }
+
+    #[test]
+    fn a_wrong_value_names_the_argument_not_serde() {
+        // KAIROS-T-0690.
+        let err = refusal_of(json!({"symbol": 3}));
+        assert_eq!(
+            err.text(),
+            "VALIDATION: The value of symbol is not correct for this tool. The schema of the \
+             tool in tools/list gives its type.\n\
+             details: {\"field\":\"symbol\"}"
+        );
+        let schema = schema_for_input::<Read>().expect("a schema");
+        let err = argument_error("invalid type: sequence, expected struct Read", ".", &schema);
+        assert_eq!(
+            err.to_string(),
+            "The arguments of this tool must be one object with these arguments: file, symbol."
         );
     }
 

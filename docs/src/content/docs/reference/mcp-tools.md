@@ -138,7 +138,16 @@ says `This tool has no arguments.`
 A call without an argument that the tool must have has a refusal of the same
 form: `VALIDATION: The call does not have the argument "short_code". This tool
 must have that argument. …`. An argument with the wrong JSON type is
-`VALIDATION` too, and the text gives the fault. See
+`VALIDATION` too. The text names the argument and the type that the tool
+must have. The tool can refuse a value of the correct type. Then the text
+gives the values or the form that the tool accepts, and the value of the call:
+
+```text
+VALIDATION: The value of within.mode must be one of these values: fast, slow. The call gives "quick".
+details: {"expected":"one of these values: fast, slow","field":"within.mode"}
+```
+
+A refusal does not contain the text of a library (KAIROS-T-0690). See
 [An input that a route does not accept](../errors/#an-input-that-a-route-does-not-accept)
 for the rule of the REST API.
 

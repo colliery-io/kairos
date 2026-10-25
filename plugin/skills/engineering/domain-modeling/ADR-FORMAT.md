@@ -27,6 +27,16 @@ Status lives in the system, not the content: the ADR's board column tracks its l
 - The new ADR changes a part of the old one, and the rest stays in force: `link_items` (`amends`) from the new one to the old. Name the part in the new ADR ("amends rule 6 of KAIROS-A-0021"). `get_item` of the old ADR lists its amendments, oldest first.
 - The new ADR replaces all of the old one: `link_items` (`supersedes`) from the new one to the old.
 
+## Revisit when, and the commit at acceptance
+
+Three metadata values of an ADR tell `kairos adrs check` when the decision needs a new look (KAIROS-A-0070). Set them with `set_metadata` on the ADR:
+
+- `accepted_commit`: the commit of the main branch when the ADR moves to Decided (`git rev-parse --short origin/main`). Set it at that move, each time. The check then flags the ADR when the files that cite it changed by many lines since that commit.
+- `revisit_when`: one sentence, when the decision rests on a fact that can change: "when a second forge is added", "when the tenant count passes 100". Skip it when nothing foreseeable would change the decision.
+- `revisit_on`: a date (YYYY-MM-DD), only when the fact has a date: a contract end, a deprecation, a trial period. From that day the check flags the ADR.
+
+A flag is a reason to read the ADR again, not to change it. If the decision still holds, set a new `accepted_commit` or `revisit_on`. If it does not, write a new ADR that supersedes it.
+
 ## When to offer an ADR
 
 Offer an ADR when a reader of the code would get the decision wrong without it. The reader can be a person or a later agent. That includes:

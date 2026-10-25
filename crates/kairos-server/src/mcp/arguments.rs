@@ -21,6 +21,15 @@
 //! The name is `Parameters` because the macro `#[tool]` finds the type of
 //! the arguments by that name.
 //!
+//! # Aliases (KAIROS-T-0673)
+//!
+//! Agents guess the names of arguments (`query` for `q`, `id` for
+//! `short_code`). [`ALIASES`] is one fixed list of other names for each
+//! argument. The extractor changes an alias to the name of its argument
+//! before the parse, and the schema of the tool shows the aliases of each
+//! argument. Each other unknown argument is still refused. A guess that is
+//! not an alias can get a hint in the refusal ([`HINTS`]).
+//!
 //! # How the refusal gets to the agent
 //!
 //! An extractor of rmcp can only fail with an `ErrorData`. [`refusal`]
@@ -51,7 +60,11 @@ impl<P: JsonSchema> JsonSchema for Parameters<P> {
     }
 
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        P::json_schema(generator)
+        let mut schema = P::json_schema(generator);
+        if let Some(object) = schema.as_object_mut() {
+            show_aliases(object);
+        }
+        schema
     }
 }
 
@@ -74,12 +87,118 @@ fn parse<P>(arguments: JsonObject) -> Result<P, ApiError>
 where
     P: DeserializeOwned + JsonSchema + 'static,
 {
+    let schema = schema_for_input::<P>().unwrap_or_default();
+    let arguments = with_names(arguments, &properties(&schema))?;
     let call = Value::Object(arguments);
     serde_path_to_error::deserialize(&call).map_err(|e| {
-        let schema = schema_for_input::<P>().unwrap_or_default();
         let path: Vec<Step> = e.path().iter().filter_map(Step::of).collect();
         argument_error(&e.inner().to_string(), &path, &call, &schema)
     })
+}
+
+/// The other names of each argument (KAIROS-T-0673): the names that agents
+/// guess. The list is fixed: each name that is not here is refused.
+///
+/// An alias applies to a tool only when the tool has the argument, has no
+/// argument with the name of the alias, and no other argument of the tool
+/// has the same alias ([`aliases_of`]).
+pub(super) const ALIASES: &[(&str, &[&str])] = &[
+    ("short_code", &["code", "id", "item"]),
+    // The body of a note is `text`, the body of an item is `content`: each
+    // is an alias of the other.
+    ("text", &["note", "body", "content"]),
+    ("content", &["body", "text"]),
+    ("q", &["query"]),
+    ("to_column", &["to", "column"]),
+    ("source", &["from"]),
+    ("target", &["to"]),
+    ("relationship", &["relation", "edge_type"]),
+];
+
+/// Guesses that are not aliases, and the argument that the refusal names
+/// for each. `state` is not an alias of the body: `set_state` writes the
+/// state of a task, and a note written by error is worse than a refusal.
+const HINTS: &[(&str, &str)] = &[("state", "text"), ("state", "content")];
+
+/// The aliases of a tool that has the arguments `arguments`: each alias
+/// and the name of its argument.
+fn aliases_of(arguments: &[String]) -> Vec<(&'static str, &'static str)> {
+    let has = |name: &str| arguments.iter().any(|a| a == name);
+    let claims: Vec<(&'static str, &'static str)> = ALIASES
+        .iter()
+        .filter(|(argument, _)| has(argument))
+        .flat_map(|(argument, aliases)| aliases.iter().map(move |alias| (*alias, *argument)))
+        .filter(|(alias, _)| !has(alias))
+        .collect();
+    // An alias that two arguments of the tool claim is the alias of neither.
+    claims
+        .iter()
+        .filter(|(alias, _)| claims.iter().filter(|(a, _)| a == alias).count() == 1)
+        .copied()
+        .collect()
+}
+
+/// The arguments of the call with each alias changed to the name of its
+/// argument. A call that has an argument and its alias is refused.
+fn with_names(mut arguments: JsonObject, names: &[String]) -> Result<JsonObject, ApiError> {
+    for (alias, argument) in aliases_of(names) {
+        let Some(value) = arguments.remove(alias) else {
+            continue;
+        };
+        if arguments.contains_key(argument) {
+            return Err(validation(format!(
+                "The call has the argument {argument:?} and the argument {alias:?}. They \
+                 are the same argument. Send only one of them."
+            ))
+            .with_details(json!({ "field": alias, "argument": argument })));
+        }
+        arguments.insert(argument.to_string(), value);
+    }
+    Ok(arguments)
+}
+
+/// The aliases of each argument in the schema of the tool: in the
+/// description, and as the list `x-aliases`.
+fn show_aliases(schema: &mut JsonObject) {
+    let names = properties(schema);
+    let aliases = aliases_of(&names);
+    let Some(Value::Object(all)) = schema.get_mut("properties") else {
+        return;
+    };
+    for (name, property) in all.iter_mut() {
+        let of_this: Vec<&str> = aliases
+            .iter()
+            .filter(|(_, argument)| argument == name)
+            .map(|(alias, _)| *alias)
+            .collect();
+        let Some(property) = property.as_object_mut() else {
+            continue;
+        };
+        if of_this.is_empty() {
+            continue;
+        }
+        let list = of_this
+            .iter()
+            .map(|alias| format!("`{alias}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let note = format!("Other names that the tool accepts: {list}.");
+        let description = match property.get("description").and_then(Value::as_str) {
+            Some(text) if !text.is_empty() => format!("{text}\n{note}"),
+            _ => note,
+        };
+        property.insert("description".into(), Value::String(description));
+        property.insert("x-aliases".into(), json!(of_this));
+    }
+}
+
+/// The argument that a refusal of the argument `given` names, when the
+/// tool has one ([`HINTS`]).
+fn hint(given: &str, allowed: &[String]) -> Option<&'static str> {
+    HINTS
+        .iter()
+        .find(|(guess, argument)| *guess == given && allowed.iter().any(|a| a == argument))
+        .map(|(_, argument)| *argument)
 }
 
 /// One step of the path to a fault: a field of an object, or an entry of
@@ -137,6 +256,16 @@ fn argument_error(
             } else {
                 format!("The arguments of this tool are: {}.", allowed.join(", "))
             };
+            // KAIROS-T-0673: a known guess names the argument to use.
+            if let Some(right) = hint(&argument, &allowed) {
+                return validation(format!(
+                    "The call has the argument {argument:?}. This tool does not accept that \
+                     argument. Use the argument {right:?}. {known}"
+                ))
+                .with_details(
+                    json!({ "field": argument, "allowed": allowed, "did_you_mean": right }),
+                );
+            }
             return validation(format!(
                 "The call has the argument {argument:?}. This tool does not accept that \
                  argument. {known}"
@@ -599,5 +728,194 @@ mod tests {
              details: {\"allowed\":[],\"field\":\"team\"}"
         );
         assert!(tool_error_of(ErrorData::internal_error("no", None)).is_err());
+    }
+
+    #[derive(Debug, Deserialize, JsonSchema)]
+    #[schemars(crate = "rmcp::schemars")]
+    #[serde(deny_unknown_fields)]
+    #[allow(dead_code)]
+    struct Note {
+        /// The item's short code.
+        short_code: String,
+        text: String,
+    }
+
+    /// KAIROS-T-0673: an alias is the argument.
+    #[test]
+    fn an_alias_is_the_argument() {
+        let Value::Object(call) = json!({"id": "ACME-T-0001", "note": "Done."}) else {
+            unreachable!()
+        };
+        let note = parse::<Note>(call).expect("the aliases are accepted");
+        assert_eq!(note.short_code, "ACME-T-0001");
+        assert_eq!(note.text, "Done.");
+        for alias in ["code", "item"] {
+            let Value::Object(call) = json!({alias: "ACME-T-0002", "body": "x"}) else {
+                unreachable!()
+            };
+            assert_eq!(parse::<Note>(call).expect(alias).short_code, "ACME-T-0002");
+        }
+        let Value::Object(call) = json!({"short_code": "ACME-T-0003", "content": "y"}) else {
+            unreachable!()
+        };
+        assert_eq!(parse::<Note>(call).expect("content").text, "y");
+    }
+
+    /// KAIROS-T-0673: an argument and its alias in one call are refused.
+    #[test]
+    fn an_argument_and_its_alias_are_refused() {
+        let err = refusal_of::<Note>(
+            json!({"short_code": "ACME-T-0001", "id": "ACME-T-0002", "text": "x"}),
+        );
+        assert_eq!(err.code, "VALIDATION");
+        assert_eq!(
+            err.message,
+            "The call has the argument \"short_code\" and the argument \"id\". They are the \
+             same argument. Send only one of them."
+        );
+        assert_eq!(
+            err.details,
+            json!({"field": "id", "argument": "short_code"})
+        );
+    }
+
+    /// KAIROS-T-0673: a name that is not in the list is still refused.
+    #[test]
+    fn a_name_that_is_not_an_alias_is_refused() {
+        let err = refusal_of::<Note>(json!({"short_code": "ACME-T-0001", "message": "x"}));
+        assert_eq!(
+            err.message,
+            "The call has the argument \"message\". This tool does not accept that \
+             argument. The arguments of this tool are: short_code, text."
+        );
+    }
+
+    /// KAIROS-T-0673: `state` is not an alias of the body; the refusal
+    /// names the argument to use.
+    #[test]
+    fn a_guess_gets_a_hint() {
+        let err = refusal_of::<Note>(json!({"short_code": "ACME-T-0001", "state": "x"}));
+        assert_eq!(
+            err.message,
+            "The call has the argument \"state\". This tool does not accept that \
+             argument. Use the argument \"text\". The arguments of this tool are: \
+             short_code, text."
+        );
+        assert_eq!(err.details["did_you_mean"], "text");
+        // A tool with no body gets no hint.
+        let err = refusal_of::<Read>(json!({"short_code": "ACME-T-0001", "state": "x"}));
+        assert!(!err.message.contains("Use the argument"), "{}", err.message);
+    }
+
+    /// KAIROS-T-0673: an alias that is an argument of the tool, or that two
+    /// arguments claim, is not an alias of that tool.
+    #[test]
+    fn the_aliases_of_a_tool() {
+        let names = |all: &[&str]| all.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        let aliases = aliases_of(&names(&["short_code", "to"]));
+        assert_eq!(
+            aliases,
+            vec![
+                ("code", "short_code"),
+                ("id", "short_code"),
+                ("item", "short_code")
+            ]
+        );
+        let aliases = aliases_of(&names(&["short_code", "id"]));
+        assert!(!aliases.iter().any(|(alias, _)| *alias == "id"));
+        assert!(aliases.contains(&("code", "short_code")));
+        // `to` is claimed by `to_column` and by `target`: it is neither.
+        let aliases = aliases_of(&names(&["to_column", "target"]));
+        assert!(!aliases.iter().any(|(alias, _)| *alias == "to"));
+        assert!(aliases.contains(&("column", "to_column")));
+    }
+
+    /// KAIROS-T-0673: the schema shows the aliases of each argument.
+    #[test]
+    fn the_schema_shows_the_aliases() {
+        let schema = schema_for_input::<Parameters<Note>>().expect("a schema");
+        let text = &schema["properties"]["text"];
+        assert_eq!(text["x-aliases"], json!(["note", "body", "content"]));
+        assert_eq!(
+            text["description"],
+            "Other names that the tool accepts: `note`, `body`, `content`."
+        );
+        let short_code = &schema["properties"]["short_code"];
+        assert_eq!(short_code["x-aliases"], json!(["code", "id", "item"]));
+        assert_eq!(
+            short_code["description"],
+            "The item's short code.\nOther names that the tool accepts: `code`, `id`, `item`."
+        );
+    }
+
+    /// KAIROS-T-0673: the aliases of the tools of the server. Each guess of
+    /// the task is an alias of the tool where agents made it, and no alias
+    /// is claimed by two arguments of one tool.
+    #[test]
+    fn the_aliases_of_the_tools_of_the_server() {
+        let tools = super::super::KairosMcp::tool_router().list_all();
+        let schema_of = |name: &str| {
+            tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap_or_else(|| panic!("the tool {name}"))
+                .input_schema
+                .clone()
+        };
+        let aliases = |tool: &str, argument: &str| {
+            schema_of(tool)["properties"][argument]["x-aliases"].clone()
+        };
+        assert_eq!(
+            aliases("get_item", "short_code"),
+            json!(["code", "id", "item"])
+        );
+        assert_eq!(
+            aliases("append_note", "text"),
+            json!(["note", "body", "content"])
+        );
+        assert_eq!(aliases("create_item", "content"), json!(["body", "text"]));
+        assert_eq!(aliases("update_item", "content"), json!(["body", "text"]));
+        assert_eq!(
+            aliases("transition_item", "to_column"),
+            json!(["to", "column"])
+        );
+        assert_eq!(
+            aliases("transition_item", "short_code"),
+            json!(["code", "id", "item"])
+        );
+        assert_eq!(aliases("search", "q"), json!(["query"]));
+        assert_eq!(aliases("link_items", "source"), json!(["from"]));
+        assert_eq!(aliases("link_items", "target"), json!(["to"]));
+        assert_eq!(
+            aliases("link_items", "relationship"),
+            json!(["relation", "edge_type"])
+        );
+        // `hand_off_item` has an argument `to`: it is not an alias there.
+        assert_eq!(
+            aliases("hand_off_item", "short_code"),
+            json!(["code", "id", "item"])
+        );
+        for tool in &tools {
+            let names = properties(&tool.input_schema);
+            for (argument, list) in ALIASES {
+                if !names.iter().any(|n| n == argument) {
+                    continue;
+                }
+                for alias in *list {
+                    if names.iter().any(|n| n == alias) {
+                        continue;
+                    }
+                    let claims = ALIASES
+                        .iter()
+                        .filter(|(a, l)| names.iter().any(|n| n == a) && l.contains(alias))
+                        .count();
+                    assert_eq!(
+                        claims, 1,
+                        "{}: the alias {alias} is claimed {claims} times",
+                        tool.name
+                    );
+                }
+            }
+        }
     }
 }

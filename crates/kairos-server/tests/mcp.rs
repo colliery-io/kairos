@@ -2753,6 +2753,62 @@ async fn mcp_endpoint_against_live_stack() {
         .call_ok("get_item", json!({"short_code": movable}))
         .await;
     assert!(text.contains("board: web-delivery"), "{text}");
+    // KAIROS-T-0673: the aliases that agents guess are the arguments.
+    let text = session.call_ok("get_item", json!({"id": movable})).await;
+    assert!(text.contains("board: web-delivery"), "{text}");
+    session
+        .call_ok(
+            "append_note",
+            json!({"code": movable, "note": "A note by its alias."}),
+        )
+        .await;
+    let text = session.call_ok("get_item", json!({"item": movable})).await;
+    assert!(text.contains("A note by its alias."), "{text}");
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({"item_type": "task", "title": "Body by alias", "board": "platform-delivery",
+                   "body": "The body by its alias."}),
+        )
+        .await;
+    let aliased = extract_code(&text, "ACME-T-");
+    let text = session
+        .call_ok("get_item", json!({"short_code": aliased}))
+        .await;
+    assert!(text.contains("The body by its alias."), "{text}");
+    let text = session
+        .call_ok("transition_item", json!({"item": aliased, "to": "Todo"}))
+        .await;
+    assert!(text.contains("-> Todo"), "{text}");
+    session
+        .call_ok(
+            "link_items",
+            json!({"from": aliased, "to": movable, "relation": "blocks"}),
+        )
+        .await;
+    let text = session
+        .call_ok("get_item", json!({"short_code": movable}))
+        .await;
+    assert!(text.contains(&aliased), "{text}");
+    let text = session
+        .call_ok("search", json!({"query": "Body by alias"}))
+        .await;
+    assert!(text.contains(&aliased), "{text}");
+    // An argument and its alias in one call are refused, and a guess that
+    // is not an alias gets a hint.
+    let text = session
+        .call_err("get_item", json!({"short_code": movable, "id": movable}))
+        .await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call has the argument \"short_code\" and the argument \"id\"."
+        ),
+        "{text}"
+    );
+    let text = session
+        .call_err("append_note", json!({"short_code": movable, "state": "x"}))
+        .await;
+    assert!(text.contains("Use the argument \"text\"."), "{text}");
     // COLLIERY-T-0219: the open tasks of the repository, before web links
     // a task to it.
     let open_tasks = |text: &str| -> i64 {

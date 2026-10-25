@@ -421,7 +421,7 @@ Changes that people and agents see:
 
 - `cancel_item` cancels an initiative, as it cancels a task. The initiative
   goes to the done column of its board with the mark "cancelled", and the
-  card shows the mark. A strategy, an ADR or a document is refused, and the
+  card shows the mark. The tool refuses a strategy, an ADR or a document. The
   refusal names the route to retire it (KAIROS-A-0067).
 - `transition_item` takes `claim: true`. For an initiative with no owner,
   the call makes you the owner and moves it in one step (KAIROS-A-0066).
@@ -429,17 +429,17 @@ Changes that people and agents see:
   "Discovery → Design → Ready → Decompose → Active". From a done column the
   refusal names `reopen_item`.
 - 14 MCP write tools take an optional `request_key`. A second call with the
-  same key in 24 hours writes nothing and returns the first answer. The same
-  key with other arguments is refused with `REQUEST_KEY_REUSED`
-  (KAIROS-A-0065). The retention pass deletes the keys after 24 hours.
+  same key in 24 hours writes nothing and returns the first answer. For the
+  same key with other arguments, the tool refuses the call with
+  `REQUEST_KEY_REUSED` (KAIROS-A-0065). The retention pass deletes the keys after 24 hours.
 - The MCP tools accept a fixed list of aliases for some arguments, for
   example `query` for `q` and `id` for `short_code`. The schema of each tool
   lists them. Each other unknown argument is still refused.
 - A wrong type of argument names the field and the type, for example
   `filter.entity_type must be a list of strings`.
 - The `link_items` description has the table of the allowed source and
-  target types. A refused edge that is allowed in the other direction says
-  to swap source and target.
+  target types. When the rules let the edge go in the other direction, the
+  refusal says to swap source and target.
 - When `add_team_member` or a grant cannot find a person, the refusal names
   how a person becomes a member of the organization on this deployment.
 - `get_events` takes `unread: true`. A failed `edit_item` search that differs
@@ -452,7 +452,7 @@ Changes that people and agents see:
   needs the `kairos` CLI on the PATH. The proxy has timeouts (connect 5 s,
   request 60 s, `KAIROS_TIMEOUT`). It retries a read 2 times. It does not
   retry a write. A 502, 503 or 504, a timeout or a reset gives a short
-  message that says whether the write is applied, with no HTML.
+  message with no HTML. The message says whether the server can have the write.
 - `config.toml` in the config folder binds a repository to a deployment and
   its boards. `kairos config show`, `kairos config project` and
   `kairos config path` read and write it.

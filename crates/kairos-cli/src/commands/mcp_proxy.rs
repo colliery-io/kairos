@@ -29,8 +29,14 @@
 //! read "refused" for a write that the server had applied. A 502, 503 or
 //! 504, a timeout and a reset now give one plain message, with
 //! `retryable: true` in the error data. A read is safe to send again, so the
-//! proxy retries it with a backoff. A write is not retried: the server has
-//! no request key yet (KAIROS-T-0681), and a second send can apply it twice.
+//! proxy retries it with a backoff. A write with no `request_key` is not
+//! retried: a second send can apply it twice.
+//!
+//! KAIROS-T-0687: a write that carries a `request_key` (KAIROS-T-0681,
+//! KAIROS-A-0065) is retried with the backoff of a read. The server gives
+//! the first answer to a second call with the same key and writes nothing,
+//! so the retry is a replay. The error data says `"retry": "replay"` and
+//! names the key.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -101,7 +107,8 @@ struct Upstream {
     backoff: Vec<Duration>,
 }
 
-/// The waits before the retries of a read: two retries.
+/// The waits before the retries of a read, and of a write with a
+/// `request_key`: two retries.
 const READ_BACKOFF: [Duration; 2] = [Duration::from_millis(250), Duration::from_secs(1)];
 
 /// The message of a write when the deployment is unavailable.
@@ -194,6 +201,52 @@ fn is_read(message: &Value) -> bool {
             .is_some_and(|name| READ_TOOLS.contains(&name)),
         Some(method) => READ_METHODS.contains(&method),
         None => false,
+    }
+}
+
+/// The `request_key` of a `tools/call`, when its arguments carry one.
+fn request_key(message: &Value) -> Option<&str> {
+    if message.get("method").and_then(Value::as_str) != Some("tools/call") {
+        return None;
+    }
+    message
+        .pointer("/params/arguments/request_key")
+        .and_then(Value::as_str)
+        .filter(|key| !key.is_empty())
+}
+
+/// How the proxy may send a message again when the deployment is
+/// unavailable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Retry {
+    /// A read: safe to send again.
+    Read,
+    /// A write with a `request_key`: a second send is a replay, and writes
+    /// nothing new (KAIROS-A-0065).
+    Replay,
+    /// A write with no key: never sent again.
+    None,
+}
+
+impl Retry {
+    fn of(message: &Value) -> Self {
+        if is_read(message) {
+            return Retry::Read;
+        }
+        let safe = |m: &Value| is_read(m) || request_key(m).is_some();
+        let replay = match message {
+            Value::Array(batch) => !batch.is_empty() && batch.iter().all(safe),
+            message => request_key(message).is_some(),
+        };
+        if replay { Retry::Replay } else { Retry::None }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Retry::Read => "read",
+            Retry::Replay => "replay",
+            Retry::None => "none",
+        }
     }
 }
 
@@ -323,12 +376,19 @@ impl Upstream {
             }
         };
         let id = message.get("id").cloned();
-        let read = is_read(&message);
+        let retry = Retry::of(&message);
+        let key = request_key(&message).map(str::to_string);
+        let read = retry == Retry::Read;
         let mut attempts = 1;
+        // True when an attempt before the last got to the deployment.
+        let mut sent_before = false;
         let failure = loop {
             match self.post(line).await {
                 Ok(lines) => return lines,
-                Err(Failure::Unavailable { .. }) if read && attempts <= self.backoff.len() => {
+                Err(Failure::Unavailable { sent, .. })
+                    if retry != Retry::None && attempts <= self.backoff.len() =>
+                {
+                    sent_before |= sent;
                     tokio::time::sleep(self.backoff[attempts - 1]).await;
                     attempts += 1;
                 }
@@ -346,24 +406,34 @@ impl Upstream {
                 status,
                 sent,
             } => {
-                let message = if read {
-                    format!(
+                let sent_any = sent || sent_before;
+                let message = match retry {
+                    Retry::Read => format!(
                         "The deployment is unavailable or did not answer (maybe an upgrade). \
                          The proxy sent this read {attempts} times. Retry it later."
-                    )
-                } else if sent {
-                    UNAVAILABLE_WRITE.to_string()
-                } else {
-                    UNAVAILABLE_NOT_SENT.to_string()
+                    ),
+                    Retry::Replay => format!(
+                        "The deployment is unavailable or did not answer (maybe an upgrade). \
+                         The proxy sent this write {attempts} times with the same \
+                         request_key. Send it again later with the same request_key: if the \
+                         server applied the write, it gives the first answer and writes \
+                         nothing new."
+                    ),
+                    Retry::None if sent => UNAVAILABLE_WRITE.to_string(),
+                    Retry::None => UNAVAILABLE_NOT_SENT.to_string(),
                 };
-                let applied = if read || !sent { "no" } else { "unknown" };
-                let data = json!({
+                let applied = if read || !sent_any { "no" } else { "unknown" };
+                let mut data = json!({
                     "retryable": true,
                     "cause": cause,
                     "status": status,
                     "attempts": attempts,
                     "write_applied": applied,
+                    "retry": retry.as_str(),
                 });
+                if let Some(key) = key {
+                    data["request_key"] = json!(key);
+                }
                 (message, Some(data))
             }
         };
@@ -748,11 +818,91 @@ mod tests {
         serde_json::from_str(&lines[0]).unwrap()
     }
 
+    fn keyed_call(name: &str, key: &str) -> String {
+        json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {"short_code": "ACME-T-0001", "request_key": key}}}).to_string()
+    }
+
+    #[test]
+    fn a_write_with_a_request_key_is_a_replay() {
+        let call = |name: &str| json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}});
+        let keyed: Value = serde_json::from_str(&keyed_call("create_item", "key-0001")).unwrap();
+        assert_eq!(Retry::of(&call("get_item")), Retry::Read);
+        assert_eq!(Retry::of(&keyed), Retry::Replay);
+        assert_eq!(request_key(&keyed), Some("key-0001"));
+        assert_eq!(Retry::of(&call("create_item")), Retry::None);
+        let empty: Value = serde_json::from_str(&keyed_call("create_item", "")).unwrap();
+        assert_eq!(Retry::of(&empty), Retry::None, "an empty key is no key");
+        let not_a_string = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "create_item", "arguments": {"request_key": 7}}});
+        assert_eq!(Retry::of(&not_a_string), Retry::None);
+        assert_eq!(
+            Retry::of(&json!([call("get_item"), keyed.clone()])),
+            Retry::Replay
+        );
+        assert_eq!(
+            Retry::of(&json!([keyed, call("append_note")])),
+            Retry::None,
+            "a batch with one write with no key is not sent again"
+        );
+        assert_eq!(Retry::of(&json!([])), Retry::None);
+    }
+
+    #[tokio::test]
+    async fn a_write_with_a_request_key_is_retried_after_a_reset() {
+        let (endpoint, hits) = stub(Stub::ResetThenOk).await;
+        let out = answer(
+            proxy(endpoint)
+                .forward(&keyed_call("create_item", "key-reset-01"))
+                .await,
+        );
+        assert_eq!(out["result"]["ok"], true, "{out}");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_write_with_a_request_key_is_sent_three_times_and_the_data_says_replay() {
+        let (endpoint, hits) = stub(Stub::Html503).await;
+        let out = answer(
+            proxy(endpoint)
+                .forward(&keyed_call("append_note", "key-503-0001"))
+                .await,
+        );
+        let message = out["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("sent this write 3 times with the same request_key"),
+            "{message}"
+        );
+        assert!(message.contains("writes nothing new"), "{message}");
+        let data = &out["error"]["data"];
+        assert_eq!(data["retry"], "replay");
+        assert_eq!(data["request_key"], "key-503-0001");
+        assert_eq!(data["attempts"], 3);
+        assert_eq!(data["write_applied"], "unknown");
+        assert_eq!(data["retryable"], true);
+        assert_eq!(hits.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn a_write_with_a_request_key_and_no_connection_was_not_applied() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let out = answer(
+            proxy(format!("http://{addr}/mcp"))
+                .forward(&keyed_call("create_item", "key-conn-001"))
+                .await,
+        );
+        assert_eq!(out["error"]["data"]["retry"], "replay");
+        assert_eq!(out["error"]["data"]["attempts"], 3);
+        assert_eq!(out["error"]["data"]["write_applied"], "no");
+    }
+
     #[tokio::test]
     async fn a_503_html_page_on_a_write_is_a_plain_message_and_is_not_retried() {
         let (endpoint, hits) = stub(Stub::Html503).await;
         let out = answer(proxy(endpoint).forward(&call("create_item")).await);
         assert_eq!(out["error"]["message"], UNAVAILABLE_WRITE);
+        assert_eq!(out["error"]["data"]["retry"], "none");
+        assert!(out["error"]["data"].get("request_key").is_none());
         assert_eq!(out["error"]["data"]["retryable"], true);
         assert_eq!(out["error"]["data"]["status"], 503);
         assert_eq!(out["error"]["data"]["write_applied"], "unknown");
@@ -807,6 +957,7 @@ mod tests {
         let out = answer(proxy(endpoint).forward(&call("search")).await);
         let message = out["error"]["message"].as_str().unwrap();
         assert!(message.contains("sent this read 3 times"), "{message}");
+        assert_eq!(out["error"]["data"]["retry"], "read");
         assert_eq!(out["error"]["data"]["retryable"], true);
         assert_eq!(out["error"]["data"]["write_applied"], "no");
         assert_eq!(hits.load(Ordering::SeqCst), 3);

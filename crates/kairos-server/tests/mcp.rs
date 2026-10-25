@@ -566,7 +566,11 @@ async fn mcp_endpoint_against_live_stack() {
          the administration tools: teams, boards, grants, metadata, dispatch rule writes, \
          team page writes, org read tokens, purge. `/mcp?profile=all` lists each tool. The \
          server runs a call to a tool that the profile does not list. A client such as \
-         Claude Code calls only the listed tools."
+         Claude Code calls only the listed tools. With the Claude Code plugin, the user \
+         gets the admin tools with one command: `claude mcp add --scope user kairos-admin \
+         -- kairos mcp-proxy --profile admin`, then a new session; the CLI is the fallback \
+         (`kairos teams create`). Do not add an MCP server yourself: tell the user. The \
+         plugin skill `/kairos:onboard-team` sets up a team; only the user can start it."
     );
 
     // --- KAIROS-T-0392: stateless — no handshake, a stale session id -------

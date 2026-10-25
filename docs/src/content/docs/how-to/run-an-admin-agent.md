@@ -97,7 +97,9 @@ configuration.
 The four tools below are in the admin profile of the MCP server. The URL of
 the server is `<deployment>/mcp?profile=admin`, not `/mcp`
 ([Profiles](../../reference/mcp-tools/#profiles)). The plugin's own server
-lists the work profile, which has none of them.
+lists the work profile, which has none of them. To add the admin profile to
+Claude Code with the plugin, run
+`claude mcp add --scope user kairos-admin -- kairos mcp-proxy --profile admin`.
 
 ## 5. Let the agent work
 

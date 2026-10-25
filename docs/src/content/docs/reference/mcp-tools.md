@@ -54,7 +54,15 @@ The work tools:
   `list_dispatch_rules`;
 - a code index build: `rebuild_code_index`.
 
-To administer from Claude Code, add a second server with the admin profile:
+To administer from Claude Code with the plugin, add a second server with the
+admin profile. It uses the credential of the plugin server: `kairos login`, or an
+agent key in `KAIROS_KEY` or `KAIROS_MCP_KEY`.
+
+```sh
+claude mcp add --scope user kairos-admin -- kairos mcp-proxy --profile admin
+```
+
+Without the `kairos` CLI, add the HTTP server with an agent key:
 
 ```sh
 claude mcp add --scope user --transport http kairos-admin \

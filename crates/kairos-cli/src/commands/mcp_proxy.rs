@@ -20,6 +20,10 @@
 //! answers gets a JSON-RPC error with the reason, so the client shows it
 //! and does not wait.
 //!
+//! KAIROS-T-0680: `--profile admin|all` forwards to `/mcp?profile=admin` or
+//! `/mcp?profile=all`, so a second server of the proxy gives the
+//! administration tools with the same credential (also a `kairos login`).
+//!
 //! KAIROS-T-0682: a deployment that is down (an upgrade) answered a raw
 //! HTML 503 page, or reset the connection, or did not answer, and the agent
 //! read "refused" for a write that the server had applied. A 502, 503 or
@@ -50,6 +54,30 @@ pub struct McpProxyArgs {
     /// Tenant slug override (defaults to the project config, then the tenant cached at login)
     #[arg(long)]
     pub tenant: Option<String>,
+    /// The tool profile of the server: work (the default), admin (the administration tools) or all (each tool)
+    #[arg(long, value_enum, default_value_t = Profile::Work)]
+    pub profile: Profile,
+}
+
+/// The tool profiles of `/mcp` (KAIROS-T-0454).
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Profile {
+    /// The tools of the daily work: `/mcp`.
+    Work,
+    /// The administration tools: `/mcp?profile=admin`.
+    Admin,
+    /// Each tool: `/mcp?profile=all`.
+    All,
+}
+
+/// The MCP endpoint of a deployment for a profile.
+fn endpoint(deployment: &str, profile: Profile) -> String {
+    let base = format!("{}/mcp", credentials::normalize_url(deployment));
+    match profile {
+        Profile::Work => base,
+        Profile::Admin => format!("{base}?profile=admin"),
+        Profile::All => format!("{base}?profile=all"),
+    }
 }
 
 /// The header of the session of the Streamable HTTP transport.
@@ -241,7 +269,7 @@ fn connect(args: McpProxyArgs) -> Result<Upstream, CliError> {
     };
     let timeout = kairos_client::timeout_from_env()?.unwrap_or(kairos_client::DEFAULT_TIMEOUT);
     Upstream::new(
-        format!("{}/mcp", credentials::normalize_url(&deployment)),
+        endpoint(&deployment, args.profile),
         credential,
         tenant,
         timeout,
@@ -538,6 +566,22 @@ mod tests {
     }
 
     #[test]
+    fn the_profile_chooses_the_endpoint() {
+        assert_eq!(
+            endpoint("https://k.example/", Profile::Work),
+            "https://k.example/mcp"
+        );
+        assert_eq!(
+            endpoint("https://k.example", Profile::Admin),
+            "https://k.example/mcp?profile=admin"
+        );
+        assert_eq!(
+            endpoint("https://k.example", Profile::All),
+            "https://k.example/mcp?profile=all"
+        );
+    }
+
+    #[test]
     fn an_html_body_of_a_refusal_is_not_shown() {
         let text = refusal(
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
@@ -548,6 +592,30 @@ mod tests {
             text,
             "The Kairos deployment at https://k/mcp refused the request with 500 Internal Server Error."
         );
+    }
+
+    #[test]
+    fn the_profile_flag_takes_work_admin_and_all() {
+        use clap::Parser;
+        #[derive(clap::Parser)]
+        struct Cli {
+            #[command(flatten)]
+            args: McpProxyArgs,
+        }
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| c.args.profile);
+        assert_eq!(parse(&["kairos"]).unwrap(), Profile::Work);
+        assert_eq!(
+            parse(&["kairos", "--profile", "admin"]).unwrap(),
+            Profile::Admin
+        );
+        assert_eq!(
+            parse(&["kairos", "--profile", "all"]).unwrap(),
+            Profile::All
+        );
+        let refused = parse(&["kairos", "--profile", "every"])
+            .unwrap_err()
+            .to_string();
+        assert!(refused.contains("work, admin, all"), "{refused}");
     }
 
     #[test]

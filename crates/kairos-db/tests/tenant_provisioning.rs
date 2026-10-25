@@ -45,7 +45,7 @@ static SCRATCH_DB: scratch::ScratchName =
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 70] = [
+const EXPECTED_TABLES: [&str; 71] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -116,6 +116,8 @@ const EXPECTED_TABLES: [&str; 70] = [
     "repository_forge_filters",
     // KAIROS-T-0386: the write token of a repository.
     "repository_write_tokens",
+    // KAIROS-T-0681 (KAIROS-A-0065): the request keys of the MCP writes.
+    "request_keys",
     // COLLIERY-T-3100: the retired short codes.
     "retired_codes",
     "scim_tokens",

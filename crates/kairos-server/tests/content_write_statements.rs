@@ -217,6 +217,7 @@ async fn content_writes_move_the_content_once_against_live_stack() {
         search: search.into(),
         replace: replace.into(),
         replace_all: false,
+        request_key: None,
     };
     type Run<'a> =
         Box<dyn Fn(&mut PgConnection) -> Result<String, kairos_server::error::ApiError> + 'a>;
@@ -285,6 +286,7 @@ async fn content_writes_move_the_content_once_against_live_stack() {
                     &AppendNoteParams {
                         short_code: code.clone(),
                         text: "A note for @robin.".into(),
+                        request_key: None,
                     },
                 )
             }),

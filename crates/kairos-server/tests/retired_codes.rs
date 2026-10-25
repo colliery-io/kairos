@@ -537,7 +537,7 @@ async fn a_retired_code_finds_its_item_and_names_the_current_code() {
         text,
         format!(
             "NOT_FOUND: The item {other} is archived. A write needs a live item. Restore the \
-             item first with restore_item."
+             item first with restore_item.\ndetails: {{\"field\":\"short_code\"}}"
         )
     );
     let (status, body) = request(
@@ -566,7 +566,7 @@ async fn a_retired_code_finds_its_item_and_names_the_current_code() {
         text,
         format!(
             "VALIDATION: The target {other} is archived. A write needs a live item. Restore \
-             the item first with restore_item."
+             the item first with restore_item.\ndetails: {{\"field\":\"target\"}}"
         )
     );
 

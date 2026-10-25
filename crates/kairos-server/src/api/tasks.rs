@@ -70,7 +70,20 @@ pub(crate) fn map_repository_error(e: repositories::RepositoryError) -> ApiError
     use repositories::RepositoryError as E;
     match e {
         E::Database(e) => ApiError::internal(e),
-        other => ApiError::validation(other.to_string()),
+        nothing @ E::NothingToRouteBy => ApiError::validation(nothing.to_string())
+            .with_details(json!({ "field": "board", "fields": ["board", "team"] })),
+        other => {
+            let field = match &other {
+                E::InvalidField(fault) => fault.field,
+                E::SlugTaken(_) => "slug",
+                E::AlreadyRegistered { .. } => "repo_full_name",
+                E::TeamNotFound(_) | E::NoDeliveryBoard { .. } | E::TeamNotBoardTeam { .. } => {
+                    "team"
+                }
+                _ => "repository",
+            };
+            ApiError::validation(other.to_string()).with_details(json!({ "field": field }))
+        }
     }
 }
 
@@ -1341,7 +1354,8 @@ pub(crate) fn purge(
     let Some((task_id, board_id, archived_at)) = found else {
         return Err(ApiError::not_found(format!(
             "No task has the code {short_code}. Send the current code of the task."
-        )));
+        ))
+        .with_details(json!({ "field": "short_code" })));
     };
     require_capability(conn, slug, Some(board_id), user, kairos_core::abac::PURGE)?;
     if archived_at.is_none() {
@@ -1359,7 +1373,9 @@ pub(crate) fn purge(
     let triaged =
         crate::agent_triage::check(conn, auth, task_id, crate::agent_triage::TriageMove::Cancel)?;
     let purged = kairos_db::purge::purge_task(conn, task_id, user).map_err(|e| match e {
-        kairos_db::purge::PurgeError::TaskNotFound(_) => ApiError::not_found(e.to_string()),
+        kairos_db::purge::PurgeError::TaskNotFound(_) => {
+            ApiError::not_found(e.to_string()).with_details(json!({ "field": "short_code" }))
+        }
         kairos_db::purge::PurgeError::Database(db) => ApiError::internal(db),
     })?;
     crate::agent_triage::record(conn, auth, task_id, triaged)?;

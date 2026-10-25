@@ -295,10 +295,15 @@ pub(crate) fn map_link_error(e: GraphError) -> ApiError {
         e @ GraphError::ParentExists { .. } => {
             parent_exists(e, "set_parent: PUT /api/<family>/<short_code>/parent")
         }
-        e @ (GraphError::SelfLink(_) | GraphError::ItemNotFound(_)) => {
-            ApiError::validation(e.to_string())
+        e @ GraphError::SelfLink(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "target" }))
         }
-        e @ GraphError::NotLinked { .. } => ApiError::not_found(e.to_string()),
+        e @ GraphError::ItemNotFound(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "short_code" }))
+        }
+        e @ GraphError::NotLinked { .. } => {
+            ApiError::not_found(e.to_string()).with_details(json!({ "field": "relationship" }))
+        }
         GraphError::Database(e) => ApiError::internal(e),
     }
 }
@@ -598,7 +603,8 @@ pub(crate) fn change_parent(
         return Err(ApiError::validation(format!(
             "A {item_type} has no parent. An initiative has a strategy as its parent, and a \
              task has an initiative.{supports}"
-        )));
+        ))
+        .with_details(json!({ "field": "short_code" })));
     }
     atomically(conn, |conn| {
         let new_parent = parent
@@ -731,6 +737,7 @@ pub(crate) async fn delete_relationship(
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| {
                     ApiError::not_found(format!("The relationship {id} does not exist."))
+                        .with_details(json!({ "field": "relationship" }))
                 })?;
             // KAIROS-T-0111: removing an edge is gated exactly like writing
             // it. COLLIERY-T-0228: by the link rule. COLLIERY-T-0235: but
@@ -738,10 +745,12 @@ pub(crate) async fn delete_relationship(
             let source_type =
                 crate::api::resolve_item_type(conn, edge.source_id)?.ok_or_else(|| {
                     ApiError::not_found(format!("The relationship {id} does not exist."))
+                        .with_details(json!({ "field": "relationship" }))
                 })?;
             let target_type =
                 crate::api::resolve_item_type(conn, edge.target_id)?.ok_or_else(|| {
                     ApiError::not_found(format!("The relationship {id} does not exist."))
+                        .with_details(json!({ "field": "relationship" }))
                 })?;
             // COLLIERY-T-0235: the rule of the remove and the delete, in
             // one transaction, by the ONE function that MCP

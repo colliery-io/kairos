@@ -90,12 +90,12 @@ fn query_rejection(rejection: &QueryRejection) -> ApiError {
     // message: `limit: invalid digit found in string`. KAIROS-T-0697: the
     // refusal says what the value must be, in Kairos words ([`Fault`]).
     match message.split_once(": ") {
-        Some((parameter, fault)) if is_name(parameter) => ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "VALIDATION",
-            Fault::of(fault).sentence(&format!("the query parameter {parameter:?}"), "request"),
-        )
-        .with_details(json!({ "parameter": parameter })),
+        Some((parameter, fault)) if is_name(parameter) => {
+            let what = format!("the query parameter {parameter:?}");
+            let text = Fault::of(fault).sentence(&what, "request");
+            ApiError::new(StatusCode::BAD_REQUEST, "VALIDATION", text)
+                .with_details(json!({ "parameter": parameter }))
+        }
         _ => ApiError::new(
             StatusCode::BAD_REQUEST,
             "VALIDATION",

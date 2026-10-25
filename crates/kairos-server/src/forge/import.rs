@@ -267,7 +267,8 @@ pub fn target(
             "The repository {} has the forge `other`. Only a github repository or a gitlab \
              repository has issues to import.",
             repository.slug
-        )));
+        ))
+        .with_details(json!({ "field": "repository" })));
     }
     let connection = kairos_db::forge::find_connection_for_repository(conn, repository.id)
         .map_err(crate::api::org::forge::map_error)?;
@@ -292,6 +293,7 @@ pub fn target(
                 "The URL of the repository {} has no host.",
                 repository.slug
             ))
+            .with_details(json!({ "field": "repo_url" }))
         })?,
         _ => github_api.to_string(),
     };

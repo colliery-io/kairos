@@ -196,7 +196,8 @@ pub(crate) async fn issue_import(
                     "The repository {} has no import of open issues. Start one: POST \
                      /api/repositories/{}/import-issues, or set issue_import_interval.",
                     repository.slug, repository.slug
-                )));
+                ))
+                .with_details(json!({ "field": "repository" })));
             }
             let record = kairos_db::issue_sync::record_count(conn, repository.id)
                 .map_err(ApiError::internal)?;
@@ -223,9 +224,11 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
     match e {
         RepositoryError::NotFound(id) => {
             ApiError::not_found(format!("No live repository has the id {id}."))
+                .with_details(json!({ "field": "repository" }))
         }
         RepositoryError::SlugNotFound(slug) => {
             ApiError::not_found(format!("No live repository has the slug {slug:?}."))
+                .with_details(json!({ "field": "repository" }))
         }
         // COLLIERY-T-0265: the refusal names the field, so that a form
         // shows it below the field `Slug`. KAIROS-T-0268: the text (of
@@ -247,11 +250,13 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
         )),
         RepositoryError::TeamNotFound(id) => {
             ApiError::validation(format!("The team {id} is not in the organization."))
+                .with_details(json!({ "field": "team" }))
         }
         RepositoryError::NoDeliveryBoard { team, count } => ApiError::validation(format!(
             "The team {team} has {count} live delivery boards. A team must have one live \
              delivery board."
-        )),
+        ))
+        .with_details(json!({ "field": "team" })),
         RepositoryError::InUse {
             id,
             tasks,
@@ -262,10 +267,11 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
              Remove each link and each connection. Then delete the repository."
         )),
         RepositoryError::Database(e) => ApiError::internal(e),
-        routing
-        @ (RepositoryError::TeamNotBoardTeam { .. } | RepositoryError::NothingToRouteBy) => {
-            ApiError::validation(routing.to_string())
+        routing @ RepositoryError::TeamNotBoardTeam { .. } => {
+            ApiError::validation(routing.to_string()).with_details(json!({ "field": "team_id" }))
         }
+        routing @ RepositoryError::NothingToRouteBy => ApiError::validation(routing.to_string())
+            .with_details(json!({ "field": "board_id", "fields": ["board_id", "team_id"] })),
     }
 }
 
@@ -286,7 +292,8 @@ pub(crate) fn resolve_team(conn: &mut PgConnection, reference: &str) -> Result<T
         .limit(TEAM_SLUGS_IN_REFUSAL + 1)
         .load(conn)
         .map_err(ApiError::internal)?;
-    Err(ApiError::validation(unknown_team_text(reference, &slugs)))
+    Err(ApiError::validation(unknown_team_text(reference, &slugs))
+        .with_details(json!({ "field": "team" })))
 }
 
 /// How many team slugs the refusal of an unknown team lists at most.
@@ -494,7 +501,23 @@ pub(crate) fn change(
             "The request has no field to change. Send one or more of slug, repo_url, \
              default_branch, default_branch_source, team, description, code_index_build, \
              code_index_summaries, site_enabled, issue_import_interval and forge_filters.",
-        ));
+        )
+        .with_details(json!({
+            "field": "slug",
+            "fields": [
+                "slug",
+                "repo_url",
+                "default_branch",
+                "default_branch_source",
+                "team",
+                "description",
+                "code_index_build",
+                "code_index_summaries",
+                "site_enabled",
+                "issue_import_interval",
+                "forge_filters"
+            ]
+        })));
     }
     // KAIROS-T-0670: the interval of the issue import. Org admin only, as
     // the manual import. The form and the limits are checked before
@@ -1012,7 +1035,11 @@ pub(crate) async fn list_repositories(
                 return Err(ApiError::validation(
                     "The parameters forge and name go together. Send the two, or send \
                      none of them.",
-                ));
+                )
+                .with_details(json!({
+                    "parameter": if query.forge.is_some() { "name" } else { "forge" },
+                    "parameters": ["forge", "name"]
+                })));
             }
             let team_id = query
                 .team

@@ -60,17 +60,25 @@ fn body_rejection(rejection: &JsonRejection) -> ApiError {
         JsonRejection::JsonDataError(e) => {
             shape_error(StatusCode::UNPROCESSABLE_ENTITY, &innermost(e))
         }
-        JsonRejection::JsonSyntaxError(e) => ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "VALIDATION",
-            not_json(&innermost(e)),
-        ),
+        // serde_json classes some faults of a value as syntax (a custom
+        // deserializer that gets the wrong type): a message with the path
+        // of a field is a fault of that field, with the status 400.
+        JsonRejection::JsonSyntaxError(e) => {
+            let message = innermost(e);
+            match split_path(&message) {
+                (Some(_), _) => shape_error(StatusCode::BAD_REQUEST, &message),
+                (None, _) => {
+                    ApiError::new(StatusCode::BAD_REQUEST, "VALIDATION", not_json(&message))
+                }
+            }
+        }
         JsonRejection::MissingJsonContentType(_) => ApiError::new(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "VALIDATION",
             "The request has a body, and the header `Content-Type` is not `application/json`. \
              Send the body as JSON with that header.",
-        ),
+        )
+        .with_details(json!({ "field": "Content-Type", "header": "Content-Type" })),
         // The body did not arrive: too large, or the connection failed.
         other => ApiError::new(other.status(), "VALIDATION", other.body_text()),
     }
@@ -219,24 +227,22 @@ impl Fault {
             .map_or(fault, |(text, _)| text)
             .trim();
         let mut out = Fault::default();
-        if let Some(rest) = fault.strip_prefix("unknown variant `") {
-            if let Some((value, values)) = rest.split_once('`') {
-                out.value = Some(value.to_string());
-                out.values = values
-                    .split('`')
-                    .skip(1)
-                    .step_by(2)
-                    .map(str::to_string)
-                    .collect();
-                return out;
-            }
+        if let Some(rest) = fault.strip_prefix("unknown variant `")
+            && let Some((value, values)) = rest.split_once('`')
+        {
+            out.value = Some(value.to_string());
+            out.values = values
+                .split('`')
+                .skip(1)
+                .step_by(2)
+                .map(str::to_string)
+                .collect();
+            return out;
         }
-        for (prefix, takes_given) in [("invalid type: ", true), ("invalid value: ", true)] {
+        for prefix in ["invalid type: ", "invalid value: "] {
             if let Some(rest) = fault.strip_prefix(prefix) {
                 if let Some((given, expected)) = rest.rsplit_once(", expected ") {
-                    if takes_given {
-                        out.given = given_words(given);
-                    }
+                    out.given = given_words(given);
                     out.expected = type_words(expected);
                 }
                 return out;

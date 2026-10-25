@@ -1761,7 +1761,7 @@ impl KairosMcp {
                         "Send `team` or `board`, not both. `team` lists the members of a team. \
                          `board` lists the members of a board and their capabilities.",
                     )
-                    .with_details(json!({ "arguments": ["team", "board"] })));
+                    .with_details(json!({ "field": "team", "arguments": ["team", "board"] })));
                 }
                 (Some(reference), None) => {
                     let team = team_by_ref(conn, reference)?;
@@ -2241,7 +2241,7 @@ impl KairosMcp {
             // would be fetched and then silently never rendered.
             let mut columns = board_columns_including_removed(conn, board.id, liveness)?;
             if let Some(wanted) = &params.column {
-                let target = resolve_column(&columns, wanted)?;
+                let target = resolve_column(&columns, wanted, "column")?;
                 columns.retain(|c| c.id == target);
             }
             let repository = params
@@ -2907,7 +2907,8 @@ impl KairosMcp {
                     "The value {entity_type:?} of entity_type is not an entity type. The entity \
                      types are: {}.",
                     ENTITY_TYPES.join(", ")
-                )));
+                ))
+                .with_details(json!({ "field": "entity_type", "allowed": ENTITY_TYPES })));
             }
             let rows: Vec<MetadataDefinition> = definitions::table
                 .order(definitions::slug.asc())
@@ -2975,7 +2976,8 @@ impl KairosMcp {
             {
                 return Err(ApiError::not_found(format!(
                     "The organization has no template with the slug {slug:?}."
-                )));
+                ))
+                .with_details(json!({ "field": "slug" })));
             }
             let mut out = String::from("# Templates\n");
             for row in rows {
@@ -3057,6 +3059,7 @@ impl KairosMcp {
                         "{} has no version {version} in its history.",
                         item.short_code
                     ))
+                    .with_details(json!({ "field": "version" }))
                 })?;
                 return Ok(format!(
                     "# {} v{version} — {title}\n\n{content}\n",
@@ -3145,7 +3148,10 @@ impl KairosMcp {
                     return Err(ApiError::validation(format!(
                         "You can propose only a parent edge or a blocks edge. {other:?} \
                          is not one of them."
-                    )));
+                    ))
+                    .with_details(
+                        json!({ "field": "relationship", "allowed": ["parent", "blocks"] }),
+                    ));
                 }
             };
             let source = load_item(conn, &params.source, Liveness::LiveOnly)?;
@@ -3248,7 +3254,8 @@ impl KairosMcp {
             && let Err(e) = core_search::validate(&request)
         {
             // Invalid requests never cost a connection checkout.
-            return Ok(tool_error(ApiError::validation(e.to_string())));
+            // KAIROS-T-0698: the details of REST, with the field.
+            return Ok(tool_error(crate::api::search::map_validation_error(e)));
         }
         self.run_tool(&tenant, move |conn| {
             // KAIROS-T-0107, KAIROS-T-0368: the slug-or-UUID repository,
@@ -3256,7 +3263,8 @@ impl KairosMcp {
             // filter here — then validate.
             if !refs.is_empty() {
                 refs.resolve_into(conn, &slug, caller, &mut request)?;
-                core_search::validate(&request).map_err(|e| ApiError::validation(e.to_string()))?;
+                core_search::validate(&request)
+                    .map_err(crate::api::search::map_validation_error)?;
             }
             let results = search::execute_search(conn, &request).map_err(map_search_error)?;
             // KAIROS-T-0561: the board, the column, the claim, the open
@@ -3463,7 +3471,8 @@ impl KairosMcp {
                      different owner board. Use transition_item to move an item between \
                      the columns of its board.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let to_board = to_board.ok_or_else(|| {
                 ApiError::validation(format!(
@@ -3564,7 +3573,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not a task. set_repository applies to tasks only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             // The same gate as PUT /api/tasks/{short_code}/repository, and
             // at the same point: before the repository is resolved. A caller
@@ -3675,7 +3685,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not a task. set_work_class applies to tasks only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let (Some(board_id), Some(before)) = (item.board_id, item.work_class) else {
                 return Err(ApiError::internal("a task has a board and a lane"));
@@ -3719,7 +3730,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not an initiative. set_complexity applies to initiatives only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let (before, updated) = crate::api::initiatives::change_complexity(
                 conn,
@@ -3835,7 +3847,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not a document. set_lifecycle applies to documents only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let (before, updated) = crate::api::documents::change_lifecycle(
                 conn,
@@ -3877,7 +3890,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The {} {} is not a task. set_state applies to tasks only.",
                     item.item_type, item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             let body = kairos_client::types::SetTaskStateRequest {
                 branch: params.branch,
@@ -4045,7 +4059,15 @@ impl KairosMcp {
                     "The call has nothing to change. Send one or more of these arguments: \
                      description, default_branch, default_branch_source, repo_url, \
                      code_index_build, slug, team, forge_filters, issue_import_interval.",
-                ));
+                )
+                .with_details(json!({
+                    "field": "description",
+                    "fields": [
+                        "description", "default_branch", "default_branch_source", "repo_url",
+                        "code_index_build", "slug", "team", "forge_filters",
+                        "issue_import_interval",
+                    ],
+                })));
             }
             // KAIROS-T-0430: refuse an unknown value, and name it.
             let default_branch_source = params
@@ -4232,7 +4254,7 @@ impl KairosMcp {
                 &item,
             )?;
             let columns = board_columns(conn, board_id)?;
-            let to_column_id = resolve_column(&columns, &params.to_column)?;
+            let to_column_id = resolve_column(&columns, &params.to_column, "to_column")?;
             // KAIROS-T-0676: `claim: true` takes the owner of an initiative
             // in the move. A task gets its claim from the move itself.
             let claim = params.claim.unwrap_or(false);
@@ -4491,7 +4513,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "The parameter label applies to the relationship external only, not to {:?}.",
                     params.relationship
-                )));
+                ))
+                .with_details(json!({ "field": "label" })));
             }
             // COLLIERY-T-0269: the target of `impacts` is a repository.
             if params.relationship == kairos_db::impacts::RELATIONSHIP {
@@ -4694,7 +4717,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(
                     "Send preview=true to see the cascade, or confirm=true to archive. Do not \
                      send both.",
-                ));
+                )
+                .with_details(json!({ "field": "preview", "fields": ["preview", "confirm"] })));
             }
             if preview {
                 let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
@@ -4705,7 +4729,8 @@ impl KairosMcp {
                     "delete_item must have confirm=true. The call archives the item and \
                      each descendant that a parent edge connects to it. A restore brings \
                      each one back. Send preview=true to see the cascade first.",
-                ));
+                )
+                .with_details(json!({ "field": "confirm" })));
             }
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             // KAIROS-T-0537: an archive of intake is a triage (won't do).
@@ -4769,7 +4794,8 @@ impl KairosMcp {
                 return Err(ApiError::validation(format!(
                     "{} is not archived, so the server cannot restore it.",
                     item.short_code
-                )));
+                ))
+                .with_details(json!({ "field": "short_code" })));
             }
             crate::api::require_item_archive(conn, role, user, item.id, item.item_type)?;
             match items::restore_item(conn, item.item_type, item.id, user)
@@ -5837,7 +5863,8 @@ impl KairosMcp {
             if params.parent.is_some() && params.to_root == Some(true) {
                 return Err(ApiError::validation(
                     "The call has parent and to_root. Send one of them.",
-                ));
+                )
+                .with_details(json!({ "field": "to_root", "fields": ["parent", "to_root"] })));
             }
             let team = team_by_ref(conn, &params.team)?;
             let pages = crate::api::org::team_pages::list_as(conn, team.id)?;
@@ -5855,7 +5882,8 @@ impl KairosMcp {
                 if params.slug.is_some() {
                     return Err(ApiError::validation(
                         "A document or an ADR has no slug in the tree. Send parent, to_root or position.",
-                    ));
+                    )
+                    .with_details(json!({ "field": "slug" })));
                 }
                 let position = params.position.unwrap_or_else(|| {
                     pages
@@ -6005,6 +6033,7 @@ fn page_by_ref<'a>(
              or the id of a page. The path of the charter is \"charter\". team_pages gives \
              the tree."
         ))
+        .with_details(json!({ "field": "page" }))
     })
 }
 
@@ -6158,9 +6187,10 @@ pub fn edit_item_text(
     params: &EditItemParams,
 ) -> Result<String, ApiError> {
     if params.search.is_empty() {
-        return Err(ApiError::validation(
-            "The argument search is empty. Send the text to find.",
-        ));
+        return Err(
+            ApiError::validation("The argument search is empty. Send the text to find.")
+                .with_details(json!({ "field": "search" })),
+        );
     }
     // One retry on a version race (S-0006 edit_item semantics):
     // the read-modify-write below re-reads on the second attempt.
@@ -6174,7 +6204,8 @@ pub fn edit_item_text(
                 item.short_code,
                 item.version,
                 whitespace_hint(&item.content, &params.search)
-            )));
+            ))
+            .with_details(json!({ "field": "search" })));
         }
         if occurrences > 1 && !params.replace_all {
             return Err(ApiError::validation(format!(
@@ -6182,7 +6213,8 @@ pub fn edit_item_text(
                      times is {occurrences}. Send replace_all=true, or send a longer \
                      text that is there one time.",
                 item.short_code
-            )));
+            ))
+            .with_details(json!({ "field": "search", "occurrences": occurrences })));
         }
         let new_content = if params.replace_all {
             item.content.replace(&params.search, &params.replace)
@@ -7002,9 +7034,11 @@ fn no_item(short_code: &str, liveness: Liveness) -> ApiError {
     match liveness {
         Liveness::LiveOnly => {
             ApiError::not_found(format!("No live item has the short code {short_code:?}."))
+                .with_details(json!({ "field": "short_code" }))
         }
         Liveness::IncludeArchived => {
             ApiError::not_found(format!("No item has the short code {short_code:?}."))
+                .with_details(json!({ "field": "short_code" }))
         }
     }
 }
@@ -7420,7 +7454,7 @@ fn board_columns_including_removed(
 
 /// Resolve a column reference ([`crate::references::COLUMN_FORMS`]) against
 /// a board's columns; failure names the available columns (agent-corrective).
-fn resolve_column(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError> {
+fn resolve_column(columns: &[BoardColumn], reference: &str, field: &str) -> Result<Uuid, ApiError> {
     if let Some(id) =
         crate::references::column(columns.iter().map(|c| (c.id, c.name.as_str())), reference)
     {
@@ -7431,7 +7465,8 @@ fn resolve_column(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiE
     Err(ApiError::validation(format!(
         "This board has no column {reference:?}. The columns are: {}.",
         names.join(", ")
-    )))
+    ))
+    .with_details(json!({ "field": field, "allowed": names })))
 }
 
 /// One compact row of a board listing.
@@ -7966,6 +8001,7 @@ fn parse_relationship(value: &str) -> Result<RelationshipType, ApiError> {
             allowed.join(", "),
             relationship_hint(value)
         ))
+        .with_details(json!({ "field": "relationship", "allowed": allowed }))
     })
 }
 
@@ -8569,10 +8605,16 @@ fn map_link_error(e: GraphError) -> ApiError {
         e @ GraphError::ParentExists { .. } => {
             crate::api::meta::relationships::parent_exists(e, "set_parent")
         }
-        e @ (GraphError::SelfLink(_) | GraphError::ItemNotFound(_)) => {
-            ApiError::validation(e.to_string())
+        // KAIROS-T-0698: the end of the edge that is at fault: the target
+        // of a self-link; for an item that is not there or an edge that
+        // is not there, both ends.
+        e @ GraphError::SelfLink(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "target" }))
         }
-        e @ GraphError::NotLinked { .. } => ApiError::not_found(e.to_string()),
+        e @ GraphError::ItemNotFound(_) => ApiError::validation(e.to_string())
+            .with_details(json!({ "field": "target", "fields": ["source", "target"] })),
+        e @ GraphError::NotLinked { .. } => ApiError::not_found(e.to_string())
+            .with_details(json!({ "field": "target", "fields": ["source", "target"] })),
         GraphError::Database(e) => ApiError::internal(e),
     }
 }
@@ -8834,13 +8876,15 @@ fn default_board_for(conn: &mut PgConnection, level: BoardLevel) -> Result<Board
         1 => Ok(candidates.into_iter().next().expect("len checked")),
         0 => Err(ApiError::validation(format!(
             "The organization has no live {level} board. Make the board, or send `board`."
-        ))),
+        ))
+        .with_details(json!({ "field": "board" }))),
         _ => {
             let slugs: Vec<&str> = candidates.iter().map(|b| b.slug.as_str()).collect();
             Err(ApiError::validation(format!(
                 "The organization has more than one {level} board. Send `board` as one of: {}.",
                 slugs.join(", ")
-            )))
+            ))
+            .with_details(json!({ "field": "board", "allowed": slugs })))
         }
     }
 }
@@ -8872,11 +8916,13 @@ fn resolve_template(conn: &mut PgConnection, reference: &str) -> Result<Uuid, Ap
         1 => Ok(by_name.into_iter().next().expect("len checked").id),
         0 => Err(ApiError::validation(format!(
             "No template has the id, the slug or the name {reference:?}."
-        ))),
+        ))
+        .with_details(json!({ "field": "template" }))),
         _ => Err(ApiError::validation(format!(
             "More than one template has the name {reference:?}. Send the id or the slug \
              of the template."
-        ))),
+        ))
+        .with_details(json!({ "field": "template" }))),
     }
 }
 
@@ -8978,7 +9024,11 @@ fn create_item_impl(
             return Err(ApiError::validation(format!(
                 "{other:?} is not an item type. The item types are: strategy, initiative, \
                  task, document, adr."
-            )));
+            ))
+            .with_details(json!({
+                "field": "item_type",
+                "allowed": ["strategy", "initiative", "task", "document", "adr"],
+            })));
         }
     };
     reject_type_only_fields(params, item_type)?;
@@ -9139,7 +9189,9 @@ fn create_item_impl(
                 parent_type,
                 item_type,
             )
-            .map_err(|e| ApiError::validation(e.to_string()))?;
+            .map_err(|e| {
+                ApiError::validation(e.to_string()).with_details(json!({ "field": "parent" }))
+            })?;
             Ok::<_, ApiError>((parent, relationship))
         })
         .transpose()?;
@@ -9226,6 +9278,7 @@ fn create_item_impl(
                             "The value {value:?} of decision_date is not a date. Send the \
                              date as YYYY-MM-DD."
                         ))
+                        .with_details(json!({ "field": "decision_date" }))
                     })
                 })
                 .transpose()?;
@@ -9543,11 +9596,14 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
 /// the traverse-root 404 or a real failure).
 fn map_search_error(e: SearchError) -> ApiError {
     match e {
-        SearchError::Invalid(e) => ApiError::validation(e.to_string()),
-        SearchError::UnknownMetadataDefinition(_) => ApiError::validation(e.to_string()),
+        SearchError::Invalid(e) => crate::api::search::map_validation_error(e),
+        SearchError::UnknownMetadataDefinition(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "filter.metadata" }))
+        }
         SearchError::TraverseRootNotFound { reference } => ApiError::not_found(format!(
             "The item {reference:?} of traverse.from does not exist."
-        )),
+        ))
+        .with_details(json!({ "field": "traverse.from" })),
         SearchError::Database(e) => ApiError::internal(e),
     }
 }

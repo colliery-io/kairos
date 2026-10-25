@@ -60,7 +60,7 @@ pub(super) fn keyed_call<P: Keyed>(
             "The request_key must have 8 to 128 characters. Use only letters, digits, \
              '.', '_', ':' and '-'. A UUID is a good key.",
         )
-        .with_details(json!({"argument": "request_key"})));
+        .with_details(json!({"field": "request_key", "argument": "request_key"})));
     }
     Ok(Some(KeyedCall {
         caller: Caller {

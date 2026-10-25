@@ -303,7 +303,8 @@ fn relay_params<'a>(
         other => {
             return Err(ApiError::validation(format!(
                 "The server does not accept the grant_type {other:?}. Send authorization_code or refresh_token."
-            )));
+            ))
+            .with_details(serde_json::json!({ "field": "grant_type" })));
         }
     }
     Ok(params)
@@ -366,7 +367,7 @@ fn form_refusal(fault: axum::extract::rejection::FormRejection) -> ApiError {
             "The request must have the header Content-Type: \
              application/x-www-form-urlencoded. Send the form with that header.",
         )
-        .with_details(serde_json::json!({ "header": "Content-Type" })),
+        .with_details(serde_json::json!({ "field": "Content-Type", "header": "Content-Type" })),
         FormRejection::FailedToDeserializeForm(_)
         | FormRejection::FailedToDeserializeFormBody(_) => {
             let field = crate::body::missing_field(&crate::body::innermost(&fault))

@@ -203,6 +203,7 @@ pub(crate) async fn create_adr(
                     "The value {value:?} of decision_date is not a date. Send the date as \
                      YYYY-MM-DD."
                 ))
+                .with_details(json!({ "field": "decision_date" }))
             })
         })
         .transpose()?;

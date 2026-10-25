@@ -155,6 +155,7 @@ pub(crate) fn related_work_error(error: crate::embedding::RefreshError) -> ApiEr
     match error {
         RefreshError::Store(EmbeddingError::ItemNotFound(code)) => {
             ApiError::not_found(format!("No item has the short code {code:?}."))
+                .with_details(json!({ "field": "short_code" }))
         }
         other => ApiError::internal(other),
     }
@@ -734,9 +735,11 @@ fn sort_to_core(sort: &dto_search::SearchSort) -> Result<core_search::Sort, ApiE
 /// error's; `details.field` names the offending field (`details.fields`
 /// lists the alternatives for the at-least-one-capability rule), plus the
 /// typed extras the variant carries.
-fn map_validation_error(e: SearchValidationError) -> ApiError {
+pub(crate) fn map_validation_error(e: SearchValidationError) -> ApiError {
     let details = match &e {
-        SearchValidationError::NoCapability => json!({"fields": ["q", "filter", "traverse"]}),
+        SearchValidationError::NoCapability => {
+            json!({"field": "q", "fields": ["q", "filter", "traverse"]})
+        }
         SearchValidationError::BlankQuery => json!({"field": "q"}),
         SearchValidationError::EmptyEntityTypes => json!({"field": "filter.entity_type"}),
         SearchValidationError::EmptyTaskTypes => json!({"field": "filter.task_type"}),
@@ -764,7 +767,9 @@ fn map_validation_error(e: SearchValidationError) -> ApiError {
             json!({"field": "sort.field", "requires": "q"})
         }
     };
-    ApiError::new(StatusCode::BAD_REQUEST, "VALIDATION", e.to_string()).with_details(details)
+    // Each arm names `field`; the details keep the extras of the variant.
+    let field = details["field"].as_str().unwrap_or_default().to_string();
+    field_invalid(&field, e.to_string()).with_details(details)
 }
 
 /// [`SearchError`] → HTTP (module docs).
@@ -773,7 +778,8 @@ fn map_search_error(e: SearchError) -> ApiError {
         SearchError::Invalid(e) => map_validation_error(e),
         SearchError::TraverseRootNotFound { reference } => ApiError::not_found(format!(
             "The item {reference:?} of traverse.from does not exist."
-        )),
+        ))
+        .with_details(json!({ "field": "traverse.from" })),
         SearchError::UnknownMetadataDefinition(ref slug) => {
             field_invalid("filter.metadata_missing", e.to_string())
                 .with_details(json!({"field": "filter.metadata_missing", "slug": slug}))

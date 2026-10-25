@@ -197,6 +197,7 @@ fn load_column_of_board(
         .map_err(ApiError::internal)?
         .ok_or_else(|| {
             ApiError::not_found(format!("The board {board_id} has no column {column_id}."))
+                .with_details(json!({ "field": "column" }))
         })
 }
 
@@ -558,7 +559,8 @@ pub(crate) fn create(
             return Err(ApiError::validation(format!(
                 "The team {team_id} is not in the organization. Send the id of a \
                  team of the organization as team_id."
-            )));
+            ))
+            .with_details(json!({ "field": "team_id" })));
         }
     }
     // COLLIERY-T-0255: a slug that a live board has is a 409 that
@@ -659,6 +661,10 @@ pub(crate) async fn update_board(
             "The request has no field to change. Send one or more of name, slug, team_id, \
              parent_gate, owner_gate and blockers_gate.",
         )
+        .with_details(json!({
+            "field": "name",
+            "fields": ["name", "slug", "team_id", "parent_gate", "owner_gate", "blockers_gate"],
+        }))
     };
     if body.name.is_none()
         && body.slug.is_none()
@@ -869,7 +875,11 @@ pub(crate) fn set_board_policy_as(
     if change.is_empty() {
         return Err(ApiError::validation(
             "The request has no policy to set. Send parent_gate, owner_gate or blockers_gate.",
-        ));
+        )
+        .with_details(json!({
+            "field": "parent_gate",
+            "fields": ["parent_gate", "owner_gate", "blockers_gate"],
+        })));
     }
     check_policies(&board, change)?;
     if apply_policies(conn, user, &board, change)? {
@@ -1768,7 +1778,11 @@ pub(crate) fn update_column_as(
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of name, position, is_done, \
              claims, keeps_claims and wip_limit.",
-        ));
+        )
+        .with_details(json!({
+            "field": "name",
+            "fields": ["name", "position", "is_done", "claims", "keeps_claims", "wip_limit"],
+        })));
     }
     if let Some(Some(limit)) = body.wip_limit
         && limit < 1
@@ -1787,7 +1801,8 @@ pub(crate) fn update_column_as(
     {
         return Err(ApiError::validation(format!(
             "The position {position} is not correct. A position is 0 or more."
-        )));
+        ))
+        .with_details(json!({ "field": "position" })));
     }
 
     // KAIROS-T-0268: only a value that is different from the value
@@ -2041,6 +2056,7 @@ pub(crate) async fn remove_transition(
                 ApiError::not_found(format!(
                     "The board {board_id} has no transition {transition_id}."
                 ))
+                .with_details(json!({ "field": "transition" }))
             })?;
             remove_transition_as(
                 conn,
@@ -2314,7 +2330,8 @@ pub(crate) fn replace_as(
     if current.is_empty() {
         return Err(ApiError::not_found(format!(
             "The user {target} is not a member of the board {board_id}."
-        )));
+        ))
+        .with_details(json!({ "field": "user" })));
     }
     let desired: BTreeSet<&str> = capabilities.iter().map(String::as_str).collect();
     let existing: BTreeSet<&str> = current.iter().map(String::as_str).collect();
@@ -2382,7 +2399,8 @@ pub(crate) fn revoke_all_as(
     if current.is_empty() {
         return Err(ApiError::not_found(format!(
             "The user {target} is not a member of the board {board_id}."
-        )));
+        ))
+        .with_details(json!({ "field": "user" })));
     }
     for capability in &current {
         abac::revoke_capability(conn, board_id, target, capability, user)

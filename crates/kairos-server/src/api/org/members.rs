@@ -100,6 +100,7 @@ fn load_membership(
             ApiError::not_found(format!(
                 "The user {user_id} is not a member of this organization."
             ))
+            .with_details(serde_json::json!({ "field": "user" }))
         })
 }
 
@@ -299,6 +300,7 @@ pub(crate) async fn add_member(
                      login. Tell the person to log in one time. Then add the person.",
                     body.email
                 ))
+                .with_details(serde_json::json!({ "field": "email" }))
             })?;
             diesel::insert_into(organization_members::table)
                 .values(NewOrganizationMember {

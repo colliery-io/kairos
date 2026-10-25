@@ -431,17 +431,15 @@ pub(crate) fn create(
         board: board_field,
         parent: parent_field,
     } = wording;
+    // Each surface sends `field` (KAIROS-T-0561).
+    debug_assert_eq!(details_key, "field");
     let Some(board) = input.board.map(str::trim).filter(|board| !board.is_empty()) else {
         return Err(ApiError::validation(format!(
             "The {request} has no {board_field}. Each document must have an owner board. \
              Send {board_field}: the slug or the id of the board that owns the document. \
              The code of the document gets the prefix of that board."
         ))
-        .with_details(serde_json::Value::Object(
-            [(details_key.to_string(), json!("board"))]
-                .into_iter()
-                .collect(),
-        )));
+        .with_details(json!({ "field": "board" })));
     };
     let board = board_by_ref(conn, board)?;
     let parent = input
@@ -458,7 +456,8 @@ pub(crate) fn create(
                 return Err(ApiError::validation(format!(
                     "The item {parent_code:?} of {parent_field} has the type {parent_type}. \
                      The parent of a document is a strategy, an initiative, or a task."
-                )));
+                ))
+                .with_details(json!({ "field": parent_field })));
             }
             Ok((parent, parent_id, parent_type))
         })
@@ -601,11 +600,11 @@ pub(crate) fn board_is_required(details_key: &str, name: &str) -> ApiError {
         "Each document has an owner board, and you cannot remove it. Send {name}: the \
          slug or the id of the new owner board."
     ))
-    .with_details(serde_json::Value::Object(
-        [(details_key.to_string(), json!(name))]
-            .into_iter()
-            .collect(),
-    ))
+    .with_details({
+        // Each caller sends `field` (KAIROS-T-0561).
+        debug_assert_eq!(details_key, "field");
+        json!({ "field": name })
+    })
 }
 
 /// THE CHANGE OF THE OWNER of a document (COLLIERY-T-0269): change the
@@ -737,7 +736,10 @@ fn load_by_id(conn: &mut PgConnection, id: Uuid) -> Result<Document, ApiError> {
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("The document {id} does not exist.")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("The document {id} does not exist."))
+                .with_details(json!({ "field": "short_code" }))
+        })
 }
 
 /// The board of a [`dto::SetDocumentBoardRequest`], or of the argument of

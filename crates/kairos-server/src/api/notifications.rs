@@ -60,10 +60,12 @@ pub(crate) fn reader_for(
 
 /// Parse `ids` as notifications of the person of `reader`. An id that is
 /// not a UUID, or not a notification of the person, is refused and named.
+/// `field` names the input of the ids in a refusal.
 fn notification_ids(
     conn: &mut diesel::pg::PgConnection,
     reader: &Reader,
     ids: &[String],
+    field: &str,
 ) -> Result<Vec<Uuid>, ApiError> {
     let mut parsed = Vec::with_capacity(ids.len());
     let mut bad = Vec::new();
@@ -81,7 +83,8 @@ fn notification_ids(
             "You have no notification with the id {}. Kairos changed nothing. \
              get_events and GET /api/me/notifications give the ids.",
             bad.join(", ")
-        )));
+        ))
+        .with_details(serde_json::json!({ "field": field })));
     }
     Ok(parsed)
 }
@@ -104,9 +107,13 @@ pub(crate) fn list_for(
             return Err(ApiError::validation(
                 "Send `before` or `read_before`, not both. `before` gives the next page of \
                  the unread notifications. `read_before` gives the next page of the read ones.",
-            ));
+            )
+            .with_details(serde_json::json!({
+                "field": "before",
+                "fields": ["before", "read_before"],
+            })));
         }
-        let id = notification_ids(conn, reader, &[read_before.to_string()])?[0];
+        let id = notification_ids(conn, reader, &[read_before.to_string()], "read_before")?[0];
         let items = kairos_db::notifications::read_page(conn, reader, id, LIST_READ_PAGE)
             .map_err(ApiError::internal)?
             .ok_or_else(|| {
@@ -121,7 +128,7 @@ pub(crate) fn list_for(
         return Ok((items, unread));
     }
     let before = match before {
-        Some(id) => notification_ids(conn, reader, &[id.to_string()])?
+        Some(id) => notification_ids(conn, reader, &[id.to_string()], "before")?
             .first()
             .copied(),
         None => None,
@@ -152,21 +159,23 @@ pub(crate) fn mark_for(
     let all = all == Some(true);
     let changed = match (ids, all, up_to) {
         (Some(_), true, _) => {
-            return Err(ApiError::validation(
-                "Send `ids` or `all: true` with `up_to`, not both.",
-            ));
+            return Err(
+                ApiError::validation("Send `ids` or `all: true` with `up_to`, not both.")
+                    .with_details(serde_json::json!({ "field": "ids", "fields": ["ids", "all"] })),
+            );
         }
         (Some(_), false, Some(_)) => {
-            return Err(ApiError::validation(
-                "`up_to` goes with `all: true`, not with `ids`.",
-            ));
+            return Err(
+                ApiError::validation("`up_to` goes with `all: true`, not with `ids`.")
+                    .with_details(serde_json::json!({ "field": "up_to" })),
+            );
         }
         (Some(ids), false, None) => {
-            let parsed = notification_ids(conn, reader, &ids)?;
+            let parsed = notification_ids(conn, reader, &ids, "ids")?;
             kairos_db::notifications::mark_read(conn, reader, Mark::Ids(&parsed))
         }
         (None, true, Some(up_to)) => {
-            let parsed = notification_ids(conn, reader, &[up_to])?;
+            let parsed = notification_ids(conn, reader, &[up_to], "up_to")?;
             kairos_db::notifications::mark_read(conn, reader, Mark::UpTo(parsed[0]))
         }
         (None, true, None) => {
@@ -174,13 +183,15 @@ pub(crate) fn mark_for(
                 "`all: true` needs `up_to`: the id of the newest notification that you read. \
                  get_events gives it first. Kairos marks that one and each older one, and no \
                  newer one.",
-            ));
+            )
+            .with_details(serde_json::json!({ "field": "up_to" })));
         }
         (None, false, _) => {
             return Err(ApiError::validation(
                 "Send `ids`, the ids of your notifications. Or send `all: true` with `up_to`, \
                  the id of the newest notification that you read.",
-            ));
+            )
+            .with_details(serde_json::json!({ "field": "ids", "fields": ["ids", "all"] })));
         }
     }
     .map_err(ApiError::internal)?;
@@ -399,7 +410,25 @@ pub(crate) async fn update_notification_settings(
              kinds: hand_off, blocker_cleared, blocked_again, cancelled, blocker_cancelled, \
              mention, p0_bug, delivery_failing, agent_key_revoked, claim_dropped, claim_stale, \
              key_expiring, proposal_decided.",
-        ));
+        )
+        .with_details(serde_json::json!({
+            "field": "hand_off",
+            "fields": [
+                "hand_off",
+                "blocker_cleared",
+                "blocked_again",
+                "cancelled",
+                "blocker_cancelled",
+                "mention",
+                "p0_bug",
+                "delivery_failing",
+                "agent_key_revoked",
+                "claim_dropped",
+                "claim_stale",
+                "key_expiring",
+                "proposal_decided",
+            ],
+        })));
     }
     let user = auth.user_id;
     let settings = state

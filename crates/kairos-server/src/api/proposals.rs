@@ -47,14 +47,18 @@ pub fn router() -> Router<AppState> {
 pub(crate) fn map_proposal_error(e: kairos_db::proposals::ProposalError) -> ApiError {
     use kairos_db::proposals::ProposalError as P;
     match e {
-        P::NotFound(id) => ApiError::not_found(format!("The edge proposal {id} does not exist.")),
+        P::NotFound(id) => ApiError::not_found(format!("The edge proposal {id} does not exist."))
+            .with_details(serde_json::json!({ "field": "id" })),
         // Not a failure the caller should retry around: the work was done.
         P::AlreadyPending => ApiError::conflict(e.to_string()),
         P::AlreadyDecided { .. } => ApiError::conflict(e.to_string()),
         P::TooManyPending { .. } => ApiError::conflict(e.to_string()),
         P::NotApprover { ref boards } => not_approver(&e.to_string(), boards),
-        P::NotProposable(_) => ApiError::validation(e.to_string()),
-        P::Graph(inner) => ApiError::validation(inner.to_string()),
+        P::NotProposable(_) => ApiError::validation(e.to_string())
+            .with_details(serde_json::json!({ "field": "relationship" })),
+        // Only a confirm links an edge: the proposal of `id` is refused.
+        P::Graph(inner) => ApiError::validation(inner.to_string())
+            .with_details(serde_json::json!({ "field": "id" })),
         P::Database(inner) => ApiError::internal(inner),
         P::Abac(inner) => ApiError::internal(inner),
     }
@@ -134,8 +138,11 @@ pub(crate) async fn list(
     let proposals = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let item = kairos_db::embeddings::item_by_short_code(conn, &short_code)
-                .map_err(|e| ApiError::not_found(e.to_string()))?;
+            let item =
+                kairos_db::embeddings::item_by_short_code(conn, &short_code).map_err(|e| {
+                    ApiError::not_found(e.to_string())
+                        .with_details(serde_json::json!({ "field": "short_code" }))
+                })?;
             let rows = kairos_db::proposals::pending_for_item(conn, item.id)
                 .map_err(ApiError::internal)?;
             rows.into_iter()

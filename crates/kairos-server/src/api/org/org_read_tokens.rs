@@ -121,7 +121,7 @@ pub(crate) fn remove(
         return Err(ApiError::not_found(format!(
             "The organization has no read token for {host:?}."
         ))
-        .with_details(json!({ "host": host })));
+        .with_details(json!({ "field": "host", "host": host })));
     }
     list(conn)
 }

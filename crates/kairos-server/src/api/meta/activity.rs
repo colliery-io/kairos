@@ -213,6 +213,7 @@ pub(crate) async fn get_activity(
                         "The value {value:?} of since is not a timestamp. Send an RFC \
                          3339 timestamp."
                     ))
+                    .with_details(serde_json::json!({ "parameter": "since" }))
                 })
         })
         .transpose()?;

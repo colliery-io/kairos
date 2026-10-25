@@ -528,6 +528,7 @@ fn parse_complexity(value: &str) -> Result<Option<Complexity>, ApiError> {
              or {NO_COMPLEXITY} to clear it.",
             sizes.join(", ")
         ))
+        .with_details(json!({ "field": "complexity" }))
     })
 }
 

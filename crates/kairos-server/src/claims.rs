@@ -720,7 +720,8 @@ pub fn hand_off_targets(
 /// [`ClaimError`] → HTTP.
 pub fn map_claim_error(e: ClaimError) -> ApiError {
     match e {
-        ClaimError::TaskNotFound(_) => ApiError::not_found(e.to_string()),
+        ClaimError::TaskNotFound(_) => ApiError::not_found(e.to_string())
+            .with_details(serde_json::json!({ "field": "short_code" })),
         ClaimError::NotInClaimsColumn { .. } => {
             ApiError::unprocessable("NOT_CLAIMABLE", e.to_string())
         }
@@ -731,7 +732,9 @@ pub fn map_claim_error(e: ClaimError) -> ApiError {
             holder_id, since, ..
         } => ApiError::new(axum::http::StatusCode::CONFLICT, "CLAIMED", e.to_string())
             .with_details(serde_json::json!({ "holder_id": holder_id, "since": since })),
-        ClaimError::NotAPerson(_) => ApiError::validation(e.to_string()),
+        ClaimError::NotAPerson(_) => {
+            ApiError::validation(e.to_string()).with_details(serde_json::json!({ "field": "user" }))
+        }
         ClaimError::Database(db) => ApiError::internal(db),
     }
 }

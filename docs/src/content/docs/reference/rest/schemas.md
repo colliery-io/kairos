@@ -2456,11 +2456,11 @@ The `filter` capability. Fields are AND with each other; array values are OR wit
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `board` | `string`, nullable | no | Restrict to items on this board, by slug or UUID (KAIROS-T-0368). Not with `board_id`. |
-| `board_id` | `string`, nullable | no | Restrict to items on this board (UUID; excludes documents, which do not live on boards). Not with `board`. |
+| `board` | `string`, nullable | no | Restrict to items on this board, by slug or UUID (KAIROS-T-0368; excludes documents, which do not live on boards). Not with `board_id`. |
+| `board_id` | `string`, nullable | no | The old name of `board` (KAIROS-T-0696): a UUID only. Kairos still accepts it; send `board`. Not with `board`. |
 | `claimed_by` | `string`, nullable | no | Only the tasks that this person has the claim on (KAIROS-T-0488): a user id, an email, a user name, or `me` for the caller. A claim that an agent key of the person made counts. Other entity types are excluded. An unknown person is refused. |
 | `column` | `string`, nullable | no | Restrict to items in this board column, by name (with `board`) or UUID (KAIROS-T-0552). Not with `column_id`. |
-| `column_id` | `string`, nullable | no | Restrict to items in this board column (UUID; excludes documents). Not with `column`. |
+| `column_id` | `string`, nullable | no | The old name of `column` (KAIROS-T-0696): a UUID only. Kairos still accepts it; send `column`. Not with `column`. |
 | `created_after` | `string`, nullable | no | Only items created strictly after this instant (RFC 3339). |
 | `created_before` | `string`, nullable | no | Only items created strictly before this instant (RFC 3339). |
 | `created_by` | `string`, nullable | no | Only the items that this person created (KAIROS-T-0488): a user id, an email, a user name, or `me`. An unknown person is refused. |
@@ -2472,8 +2472,8 @@ The `filter` capability. Fields are AND with each other; array values are OR wit
 | `owned_by` | `string`, nullable | no | Only the strategies and the initiatives that this person owns (KAIROS-T-0488): a user id, an email, a user name, or `me`. Other entity types are excluded. An unknown person is refused. |
 | `repository` | `string`, nullable | no | Restrict to the items of this repository (slug or UUID of a live repository — KAIROS-T-0115 made every repository reference on the wire the same shape; the old name `repository_id` is refused, COLLIERY-T-0259). The items of a repository are the tasks that link to it, and the documents and the ADRs that impact it (COLLIERY-T-0269). Strategies and initiatives are excluded. With `team_id`, `task_type` or `work_class`, only tasks match. |
 | `task_type` | `array`, nullable | no | Restrict to tasks of these types (`task|bug|tech_debt|support`; excludes non-task entities). |
-| `team` | `string`, nullable | no | Restrict to tasks of this team, by slug or UUID (KAIROS-T-0368). Not with `team_id`. |
-| `team_id` | `string`, nullable | no | Restrict to tasks assigned to this team (UUID; task-level attribute, other entity types are excluded). |
+| `team` | `string`, nullable | no | Restrict to tasks of this team, by slug or UUID (KAIROS-T-0368; a task-level attribute, other entity types are excluded). Not with `team_id`. |
+| `team_id` | `string`, nullable | no | The old name of `team` (KAIROS-T-0696): a UUID only. Kairos still accepts it; send `team`. Not with `team`. |
 | `updated_after` | `string`, nullable | no | Only items last changed strictly after this instant (RFC 3339, `updated_at`; KAIROS-T-0368). |
 | `updated_before` | `string`, nullable | no | Only items last changed strictly before this instant (RFC 3339, `updated_at`; KAIROS-T-0368). "Untouched for 90 days" is now minus 90 days. |
 | `work_class` | `array`, nullable | no | Restrict to tasks in these Planned/Support lanes (`planned|support`, KAIROS-T-0077; task-level attribute, other entity types are excluded). |

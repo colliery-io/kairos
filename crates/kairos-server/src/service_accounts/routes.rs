@@ -19,6 +19,7 @@ use kairos_db::models::User;
 use kairos_db::models::enums::ActivityAction;
 use kairos_db::models::graph::NewActivityLogEntry;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use uuid::Uuid;
 
 use super::auth::{display_prefix, generate_key, hash_key};
@@ -498,7 +499,8 @@ pub(crate) async fn create_service_account(
 ) -> Result<(StatusCode, Json<ServiceAccountView>), ApiError> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(ApiError::validation("The name is empty. Send a name."));
+        return Err(ApiError::validation("The name is empty. Send a name.")
+            .with_details(json!({ "field": "name" })));
     }
     let user = auth.user_id;
     let org_id = tenant.org_id;
@@ -585,6 +587,7 @@ pub(crate) async fn delete_service_account(
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| {
                     ApiError::not_found(format!("The service account {sa_id} does not exist."))
+                        .with_details(json!({ "field": "service_account" }))
                 })?;
             kairos_db::service_accounts::delete_service_account(conn, org_id, sa_id)
                 .map_err(ApiError::internal)?;
@@ -636,7 +639,8 @@ pub(crate) async fn create_key(
     let sa_id = parse_uuid(&id, "id")?;
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(ApiError::validation("The name is empty. Send a name."));
+        return Err(ApiError::validation("The name is empty. Send a name.")
+            .with_details(json!({ "field": "name" })));
     }
     // KAIROS-T-0536: a scope is for an agent key. A service account has its
     // grants and no more.
@@ -664,6 +668,7 @@ pub(crate) async fn create_key(
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| {
                     ApiError::not_found(format!("The service account {sa_id} does not exist."))
+                        .with_details(json!({ "field": "service_account" }))
                 })?;
             let row = kairos_db::api_keys::create_key(
                 conn,
@@ -733,6 +738,7 @@ pub(crate) async fn list_keys(
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| {
                     ApiError::not_found(format!("The service account {sa_id} does not exist."))
+                        .with_details(json!({ "field": "service_account" }))
                 })?;
             kairos_db::api_keys::list_keys(conn, sa_id).map_err(ApiError::internal)
         })
@@ -779,12 +785,14 @@ pub(crate) async fn revoke_key(
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| {
                     ApiError::not_found(format!("The service account {sa_id} does not exist."))
+                        .with_details(json!({ "field": "service_account" }))
                 })?;
             let existing = kairos_db::api_keys::find_key(conn, key_id)
                 .map_err(ApiError::internal)?
                 .filter(|k| k.user_id == sa_id)
                 .ok_or_else(|| {
                     ApiError::not_found(format!("The service account {sa_id} has no key {key_id}."))
+                        .with_details(json!({ "field": "key" }))
                 })?;
             if existing.revoked_at.is_some() {
                 return Err(ApiError::conflict(format!(
@@ -850,12 +858,14 @@ pub(crate) async fn rotate_key(
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| {
                     ApiError::not_found(format!("The service account {sa_id} does not exist."))
+                        .with_details(json!({ "field": "service_account" }))
                 })?;
             let existing = kairos_db::api_keys::find_key(conn, key_id)
                 .map_err(ApiError::internal)?
                 .filter(|k| k.user_id == sa_id)
                 .ok_or_else(|| {
                     ApiError::not_found(format!("The service account {sa_id} has no key {key_id}."))
+                        .with_details(json!({ "field": "key" }))
                 })?;
             rotate(conn, &slug, &existing, user, grace, "api_key_rotate")
         })

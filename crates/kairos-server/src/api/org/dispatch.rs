@@ -256,7 +256,8 @@ fn target_of(
         _ => Err(ApiError::not_found(format!(
             "The board {} has no webhook target with the id {id}.",
             board.slug
-        ))),
+        ))
+        .with_details(json!({ "field": "target_id" }))),
     }
 }
 
@@ -343,7 +344,10 @@ pub fn enable_target_as(
     let target = target_of(conn, &board, target_id)?;
     let (target, redelivered) = db::enable_target(conn, target.id)
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found("The webhook target is gone."))?;
+        .ok_or_else(|| {
+            ApiError::not_found("The webhook target is gone.")
+                .with_details(json!({ "field": "target_id" }))
+        })?;
     let mut view = target_view(&target, true);
     view.redelivered = Some(redelivered.len() as i64);
     Ok(view)
@@ -410,7 +414,10 @@ pub fn test_target_as(
     });
     let delivery = db::queue_delivery(conn, target.id, "ping", None, None, &data)
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found("The webhook target is gone."))?;
+        .ok_or_else(|| {
+            ApiError::not_found("The webhook target is gone.")
+                .with_details(json!({ "field": "target_id" }))
+        })?;
     Ok(delivery_views(conn, vec![delivery])?.remove(0))
 }
 
@@ -605,7 +612,8 @@ pub fn delete_rule_as(
             return Err(ApiError::not_found(format!(
                 "The board {} has no dispatch rule with the id {id}.",
                 board.slug
-            )));
+            ))
+            .with_details(json!({ "field": "rule_id" })));
         }
     };
     dispatch::delete_rule(conn, board.id, id).map_err(ApiError::internal)?;

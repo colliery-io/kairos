@@ -72,7 +72,10 @@ fn load_team(conn: &mut PgConnection, team_id: Uuid) -> Result<Team, ApiError> {
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("No live team has the id {team_id}.")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("No live team has the id {team_id}."))
+                .with_details(serde_json::json!({ "field": "team" }))
+        })
 }
 
 /// The id of the live team that `reference` names, or 404
@@ -94,6 +97,7 @@ pub(crate) fn team_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uu
             ApiError::not_found(format!(
                 "No live team has the slug or the id {reference:?}."
             ))
+            .with_details(serde_json::json!({ "field": "team" }))
         })
 }
 
@@ -235,8 +239,10 @@ pub(crate) async fn get_team_by_slug(
                 .first(conn)
                 .optional()
                 .map_err(ApiError::internal)?;
-            let team =
-                team.ok_or_else(|| ApiError::not_found(format!("No team has the slug {slug:?}.")))?;
+            let team = team.ok_or_else(|| {
+                ApiError::not_found(format!("No team has the slug {slug:?}."))
+                    .with_details(serde_json::json!({ "field": "team" }))
+            })?;
             let board = delivery_board_of(conn, team.id)?;
             Ok(team_to_dto(team, board))
         })
@@ -606,7 +612,11 @@ pub(crate) fn update_as(
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of name, slug, team_type \
              and site_enabled.",
-        ));
+        )
+        .with_details(serde_json::json!({
+            "field": "name",
+            "fields": ["name", "slug", "team_type", "site_enabled"],
+        })));
     }
     let team_type = body
         .team_type
@@ -1023,7 +1033,8 @@ pub(crate) fn remove_member_as(
     if deleted == 0 {
         return Err(ApiError::not_found(format!(
             "The user {target} is not a member of the team {team_id}."
-        )));
+        ))
+        .with_details(serde_json::json!({ "field": "user" })));
     }
     log_team_activity(
         conn,

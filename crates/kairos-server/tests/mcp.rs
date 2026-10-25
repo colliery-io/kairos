@@ -3230,7 +3230,8 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert_eq!(
         text,
-        "VALIDATION: No live repository has the slug \"nope\"."
+        "VALIDATION: No live repository has the slug \"nope\".\ndetails: \
+         {\"field\":\"repository\"}"
     );
     assert_eq!(refused["error"]["code"], "VALIDATION", "{refused}");
     assert_eq!(
@@ -3245,7 +3246,8 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(
-        text.starts_with("VALIDATION: The repository ") && text.ends_with("does not exist."),
+        text.starts_with("VALIDATION: The repository ")
+            && text.ends_with("does not exist.\ndetails: {\"field\":\"repository\"}"),
         "{text}"
     );
     assert_eq!(
@@ -3265,7 +3267,7 @@ async fn mcp_endpoint_against_live_stack() {
         text,
         format!(
             "VALIDATION: The initiative {other} is not a task. \
-             set_repository applies to tasks only."
+             set_repository applies to tasks only.\ndetails: {{\"field\":\"short_code\"}}"
         )
     );
     // A short code that names nothing, and one that names archived work:
@@ -3279,7 +3281,11 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert_eq!(
         text,
-        "NOT_FOUND: No live item has the short code \"ACME-T-9999\"."
+        format!(
+            "{}\ndetails: {}",
+            "NOT_FOUND: No live item has the short code \"ACME-T-9999\".",
+            r#"{"field":"short_code"}"#
+        )
     );
     let text = session
         .call_err(
@@ -3291,7 +3297,7 @@ async fn mcp_endpoint_against_live_stack() {
         text,
         format!(
             "NOT_FOUND: The item {task_code} is archived. A write needs a live item. Restore \
-             the item first with restore_item."
+             the item first with restore_item.\ndetails: {{\"field\":\"short_code\"}}"
         )
     );
 
@@ -3883,7 +3889,7 @@ async fn repository_tools_against_live_stack() {
     assert_eq!(
         text,
         "VALIDATION: The value \"bitbucket\" is not a value of forge. The values are: \
-         github, gitlab, other."
+         github, gitlab, other.\ndetails: {\"field\":\"forge\"}"
     );
     let text = alice_session
         .call_err(
@@ -4095,7 +4101,10 @@ async fn repository_tools_against_live_stack() {
             json!({"repository": "nope", "description": "x"}),
         )
         .await;
-    assert_eq!(text, "NOT_FOUND: No live repository has the slug \"nope\".");
+    assert_eq!(
+        text,
+        "NOT_FOUND: No live repository has the slug \"nope\".\ndetails: {\"field\":\"repository\"}"
+    );
     let text = alice_session
         .call_err(
             "update_repository",
@@ -4114,9 +4123,13 @@ async fn repository_tools_against_live_stack() {
         let text = alice_session.call_err("update_repository", arguments).await;
         assert_eq!(
             text,
-            "VALIDATION: The call has nothing to change. Send one or more of these \
-             arguments: description, default_branch, default_branch_source, repo_url, \
-             code_index_build, slug, team, forge_filters, issue_import_interval."
+            format!(
+                "{}\ndetails: {}",
+                "VALIDATION: The call has nothing to change. Send one or more of these \
+                 arguments: description, default_branch, default_branch_source, repo_url, \
+                 code_index_build, slug, team, forge_filters, issue_import_interval.",
+                r#"{"field":"description","fields":["description","default_branch","default_branch_source","repo_url","code_index_build","slug","team","forge_filters","issue_import_interval"]}"#
+            )
         );
     }
     // The values that the repository has: a success that writes nothing.

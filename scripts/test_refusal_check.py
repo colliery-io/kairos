@@ -82,6 +82,20 @@ fn f() -> Result<(), ApiError> {
         refusals = found(source)
         self.assertEqual([r["field"] for r in refusals], [False, True, False, True])
 
+    def test_a_parameter_a_header_and_a_fault_count_as_a_field(self):
+        """KAIROS-T-0698: `parameter` for a query parameter and `header`
+        for a header (errors.md); KAIROS-T-0697: `fault.details(...)`."""
+        source = """
+fn f() -> Result<(), ApiError> {
+    Err(ApiError::validation("Bad limit.").with_details(json!({ "parameter": "limit" })))?;
+    Err(ApiError::validation("No type.").with_details(json!({ "header": "Content-Type" })))?;
+    Err(ApiError::new(s, "VALIDATION", m).with_details(fault.details(path)))?;
+    Err(ApiError::validation("Bad.").with_details(json!({ "argument": "x" })))
+}
+"""
+        refusals = found(source)
+        self.assertEqual([r["field"] for r in refusals], [True, True, True, False])
+
     def test_a_test_module_is_not_read(self):
         source = """
 #[cfg(test)]

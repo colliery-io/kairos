@@ -78,6 +78,7 @@ pub(crate) async fn get_history(
                         ApiError::not_found(format!(
                             "{short_code} has no version {version} in its history."
                         ))
+                        .with_details(serde_json::json!({ "parameter": "version" }))
                     })?;
                 let snapshot: dto::HistorySnapshot = snapshot.into_dto();
                 return serde_json::to_value(snapshot).map_err(ApiError::internal);

@@ -22,7 +22,8 @@ The rules:
          serde, sqlx, reqwest or diesel, or an HTML body.
   FIELD  A VALIDATION or NOT_FOUND refusal (`ApiError::validation`,
          `ApiError::not_found`, the helper `validation(`) has no
-         `.with_details(...)` with `field`.
+         `.with_details(...)` with `field` (or `parameter` for a query
+         parameter, `header` for a header, KAIROS-T-0698).
 
 BASELINED, as `ste-check.py`: `scripts/refusal-baseline.json` holds the
 count per file and rule, and the check fails only when a count gets higher.
@@ -161,6 +162,11 @@ def literal_texts(literals, start, end):
     return " ".join(value for s, _, value in literals if start <= s < end)
 
 
+# The keys of `details` that name the input of a refusal, and the helpers
+# that add one.
+FIELD_DETAIL = re.compile(r'"(?:field|parameter|header)"|\bfault\.details\(')
+
+
 def has_field_detail(source, close, literals):
     """Whether `.with_details(... "field" ...)` follows the call that ends at
     `close`."""
@@ -171,7 +177,9 @@ def has_field_detail(source, close, literals):
     open_paren = close + 1 + found.end() - 1
     end = ste.call_end(source, open_paren, literals)
     # KAIROS-T-0697: `fault.details(...)` of `body::Fault` gives `field`.
-    return re.search(r'"field"|\bfault\.details\(', source[open_paren:end]) is not None
+    # KAIROS-T-0698: a query parameter is `parameter` and a header is
+    # `header` (the conventions of input.rs and of the Idempotency-Key).
+    return re.search(FIELD_DETAIL, source[open_paren:end]) is not None
 
 
 def refusals(rel, source):

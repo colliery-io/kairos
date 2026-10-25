@@ -1316,6 +1316,9 @@ pub struct RetentionPass {
     /// The request keys past their window of 24 hours that the pass
     /// deleted in all the tenants (KAIROS-T-0681).
     pub request_keys_deleted: u64,
+    /// The rows of the MCP refusals older than 90 days that the pass
+    /// deleted in all the tenants (KAIROS-T-0694).
+    pub tool_refusals_deleted: u64,
 }
 
 impl RetentionPass {
@@ -1351,8 +1354,9 @@ impl RetentionPass {
 /// no use. So does the delete of the rows of the login throttle whose
 /// window and lockout ended (KAIROS-T-0377), of the read notifications
 /// (KAIROS-T-0381), of the unread notifications, the old code indexes and
-/// the old webhook deliveries (KAIROS-T-0638), and of the unused summaries
-/// of the code-index pools (KAIROS-T-0378). `progress` is called before
+/// the old webhook deliveries (KAIROS-T-0638), of the unused summaries
+/// of the code-index pools (KAIROS-T-0378), of the request keys
+/// (KAIROS-T-0681) and of the MCP refusals (KAIROS-T-0694). `progress` is called before
 /// each tenant and after each delete of a tenant table.
 ///
 /// The pass is a periodic job of the job queue of the server
@@ -1409,6 +1413,8 @@ pub fn run_retention_pass_with(
     progress();
     let request_keys = delete_old_request_keys(conn, now, paging)?;
     progress();
+    let refusals = delete_old_tool_refusals(conn, now, paging)?;
+    progress();
     Ok(RetentionPass {
         mode: config.mode,
         tenants,
@@ -1420,6 +1426,24 @@ pub fn run_retention_pass_with(
         unused_summaries_deleted: summaries,
         webhook_deliveries_deleted: deliveries,
         request_keys_deleted: request_keys,
+        tool_refusals_deleted: refusals,
+    })
+}
+
+/// Delete, in each tenant, the rows of the MCP refusals made more than
+/// [`crate::tool_refusals::KEEP_DAYS`] days before `now` (KAIROS-T-0694,
+/// KAIROS-A-0068). In each mode, also `off`. Not archived. Returns the
+/// count.
+fn delete_old_tool_refusals(
+    conn: &mut PgConnection,
+    now: DateTime<Utc>,
+    paging: SweepPaging,
+) -> Result<u64, RetentionError> {
+    let cutoff = now - crate::tool_refusals::keep();
+    in_each_tenant(conn, |conn| {
+        Ok(delete_in_pages(conn, paging.batch, |conn, limit| {
+            crate::tool_refusals::delete_before(conn, cutoff, limit)
+        })?)
     })
 }
 

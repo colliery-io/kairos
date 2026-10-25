@@ -14,7 +14,7 @@ use rmcp::model::{
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, tool_handler};
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::app::AppState;
@@ -190,6 +190,11 @@ impl ServerHandler for KairosMcp {
         let slot = ride_along
             .as_ref()
             .map(|(auth, _)| RideAlong::new(auth.user_id, auth.agent_key));
+        // KAIROS-T-0694: the tool and the caller of a refusal, for its count.
+        let tool_name = request.name.to_string();
+        let refusal_caller = Self::caller(&context)
+            .ok()
+            .map(|(auth, tenant)| (auth.user_id, auth.agent_key, tenant.slug));
         let call = ToolCallContext::new(self, request, context);
         // KAIROS-T-0359: a write to a task that a different person has the
         // claim on gets a warning line (`crate::claims`).
@@ -199,7 +204,7 @@ impl ServerHandler for KairosMcp {
             RIDE_ALONG.scope(slot.clone(), self.tool_router.call(call)),
         ))
         .await;
-        match result {
+        let outcome = match result {
             Ok(mut result) => {
                 if result.is_error != Some(true) && !warnings.is_empty() {
                     let lines: Vec<String> = warnings.iter().map(|w| w.mcp_text()).collect();
@@ -249,7 +254,13 @@ impl ServerHandler for KairosMcp {
                 Ok(result)
             }
             Err(e) => super::arguments::tool_error_of(e),
+        };
+        if let (Ok(result), Some(caller)) = (&outcome, refusal_caller)
+            && result.is_error == Some(true)
+        {
+            self.record_refusal(&tool_name, result, caller).await;
         }
+        outcome
     }
 
     fn get_info(&self) -> ServerInfo {
@@ -261,6 +272,60 @@ impl ServerHandler for KairosMcp {
             )
             .with_instructions(INSTRUCTIONS)
     }
+}
+
+impl KairosMcp {
+    /// KAIROS-T-0694 (KAIROS-A-0068): write the row of a refused call: the
+    /// tool, the code and the `field` of the text of the tool error, and
+    /// the kind of the caller. A failed write is logged; the answer stands.
+    async fn record_refusal(
+        &self,
+        tool: &str,
+        result: &CallToolResult,
+        (user_id, agent_key, slug): (Uuid, Option<Uuid>, String),
+    ) {
+        let text = match result.content.first() {
+            Some(ContentBlock::Text(text)) => text.text.clone(),
+            _ => return,
+        };
+        let Some((code, field)) = refusal_parts(&text) else {
+            return;
+        };
+        let tool = tool.to_string();
+        let written = self
+            .state
+            .blocking
+            .run(&slug, move |conn| {
+                kairos_db::tool_refusals::record(
+                    conn,
+                    &tool,
+                    &code,
+                    field.as_deref(),
+                    user_id,
+                    agent_key,
+                )
+                .map_err(ApiError::internal)
+            })
+            .await;
+        if let Err(e) = written {
+            tracing::warn!(error = %e.message, "the count of a refusal was not written");
+        }
+    }
+}
+
+/// The code and the `field` of the text of a tool error (`CODE: message`,
+/// then an optional `details: {...}` line). `None` for a text that does
+/// not start with a code.
+pub(super) fn refusal_parts(text: &str) -> Option<(String, Option<String>)> {
+    let (code, _) = text.split_once(": ")?;
+    if code.is_empty() || !code.bytes().all(|b| b.is_ascii_uppercase() || b == b'_') {
+        return None;
+    }
+    let field = text
+        .rsplit_once("\ndetails: ")
+        .and_then(|(_, details)| serde_json::from_str::<Value>(details.lines().next()?).ok())
+        .and_then(|details| details.get("field")?.as_str().map(str::to_string));
+    Some((code.to_string(), field))
 }
 
 /// The instructions of `initialize`. KAIROS-T-0691: a unit test in
@@ -309,4 +374,30 @@ pub(super) fn tool_error_text(e: &ApiError) -> String {
 /// (REQ-1.6).
 pub(super) fn tool_text(text: impl Into<String>) -> CallToolResult {
     CallToolResult::success(vec![ContentBlock::text(text)])
+}
+
+#[cfg(test)]
+mod t0694_tests {
+    use super::refusal_parts;
+
+    #[test]
+    fn the_code_and_the_field_of_a_tool_error() {
+        assert_eq!(
+            refusal_parts(
+                "VALIDATION: The call has the argument \"colour\".\n\
+                 details: {\"allowed\":[\"title\"],\"field\":\"colour\"}"
+            ),
+            Some(("VALIDATION".into(), Some("colour".into())))
+        );
+        assert_eq!(
+            refusal_parts("NOT_FOUND: No item has the short code ACME-T-0009."),
+            Some(("NOT_FOUND".into(), None))
+        );
+        assert_eq!(
+            refusal_parts("FORBIDDEN: No.\ndetails: {\"capability\":\"manage_tasks\"}"),
+            Some(("FORBIDDEN".into(), None))
+        );
+        assert_eq!(refusal_parts("The server stopped: no."), None);
+        assert_eq!(refusal_parts("no code"), None);
+    }
 }

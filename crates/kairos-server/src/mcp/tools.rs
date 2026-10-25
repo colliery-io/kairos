@@ -3,7 +3,7 @@
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
 //! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
 //! (COLLIERY-T-0220), and `add_repository` and `update_repository`
-//! (COLLIERY-T-0266); later tasks added more (79 in all, in the profiles
+//! (COLLIERY-T-0266); later tasks added more (80 in all, in the profiles
 //! of `profiles.rs`, KAIROS-T-0454) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
@@ -271,6 +271,22 @@ pub struct WebhookTargetParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct ListOrgReadTokensParams {}
+
+/// `refusal_counts` (KAIROS-T-0694).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct RefusalCountsParams {
+    /// The number of days of the range, 1 to 90 (default 7). The range
+    /// ends at `until`.
+    pub days: Option<i64>,
+    /// The last day of the range, YYYY-MM-DD in UTC; the range includes
+    /// that day. Default: now.
+    pub until: Option<String>,
+    /// The number of rows, 1 to 100 (default 20): the pairs of tool and
+    /// code with the most refusals.
+    pub top: Option<i64>,
+}
 
 /// `set_org_read_token` (KAIROS-T-0431).
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1495,7 +1511,7 @@ pub struct SaveTemplateParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (79; the list of each profile is asserted in tests/mcp.rs)
+// The tools (80; the list of each profile is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -2833,6 +2849,32 @@ impl KairosMcp {
                     .unwrap_or_else(|_| params.host.clone()),
                 org_read_tokens_text(&left)
             ))
+        })
+        .await
+    }
+
+    // KAIROS-T-0694 (KAIROS-A-0068): the count of the refusals.
+    #[tool(
+        description = "The count of the MCP refusals for each tool and code in a range of days, the highest first: the field that the refusals name most, and the count for each kind of caller (person, agent key, service account). Kairos keeps one row for each tool call that ends in a tool error, with no argument value, for 90 days. `days` is 1 to 90 (default 7), `until` is the last day of the range, YYYY-MM-DD in UTC (default now), and `top` is 1 to 100 rows (default 20). Only an organization admin."
+    )]
+    pub async fn refusal_counts(
+        &self,
+        Parameters(params): Parameters<RefusalCountsParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (_, tenant) = Self::caller(&context)?;
+        if let Err(e) = crate::api::meta::require_org_admin(&tenant) {
+            return Ok(tool_error(e));
+        }
+        let range = match refusal_range(&params, chrono::Utc::now()) {
+            Ok(range) => range,
+            Err(e) => return Ok(tool_error(e)),
+        };
+        self.run_tool(&tenant, move |conn| {
+            let (since, until, top) = range;
+            let counts =
+                kairos_db::tool_refusals::counts(conn, since, until).map_err(ApiError::internal)?;
+            Ok(refusal_counts_text(since, until, top, &counts))
         })
         .await
     }
@@ -9808,6 +9850,91 @@ fn ride_along_text(unread: &kairos_db::notifications::Unread) -> Option<String> 
          have acted on them.\n",
     );
     Some(out)
+}
+
+/// The range and the row count of `refusal_counts` (KAIROS-T-0694):
+/// `days` days that end at the end of the day `until`, or at `now`.
+fn refusal_range(
+    params: &RefusalCountsParams,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<
+    (
+        chrono::DateTime<chrono::Utc>,
+        chrono::DateTime<chrono::Utc>,
+        usize,
+    ),
+    ApiError,
+> {
+    let days = params.days.unwrap_or(7);
+    if !(1..=kairos_db::tool_refusals::KEEP_DAYS).contains(&days) {
+        return Err(ApiError::validation(format!(
+            "The value {days} of days is not in the range. Send a number of days from 1 to {}.",
+            kairos_db::tool_refusals::KEEP_DAYS
+        ))
+        .with_details(json!({ "field": "days" })));
+    }
+    let top = params.top.unwrap_or(20);
+    if !(1..=100).contains(&top) {
+        return Err(ApiError::validation(format!(
+            "The value {top} of top is not in the range. Send a number of rows from 1 to 100."
+        ))
+        .with_details(json!({ "field": "top" })));
+    }
+    let until = match params.until.as_deref() {
+        None => now,
+        Some(text) => {
+            let day = chrono::NaiveDate::parse_from_str(text.trim(), "%Y-%m-%d").map_err(|_| {
+                ApiError::validation(format!(
+                    "The value {text:?} of until is not a date. Send a date in the form \
+                     YYYY-MM-DD, for example 2026-10-25."
+                ))
+                .with_details(json!({ "field": "until" }))
+            })?;
+            (day + chrono::Duration::days(1))
+                .and_hms_opt(0, 0, 0)
+                .expect("midnight")
+                .and_utc()
+        }
+    };
+    Ok((until - chrono::Duration::days(days), until, top as usize))
+}
+
+/// The answer of `refusal_counts`: one line, then a table of the top rows.
+fn refusal_counts_text(
+    since: chrono::DateTime<chrono::Utc>,
+    until: chrono::DateTime<chrono::Utc>,
+    top: usize,
+    counts: &[kairos_db::tool_refusals::Count],
+) -> String {
+    let when = |t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%d %H:%M UTC").to_string();
+    if counts.is_empty() {
+        return format!("No refusals from {} to {}.", when(since), when(until));
+    }
+    let total: i64 = counts.iter().map(|c| c.count).sum();
+    let shown = counts.len().min(top);
+    let mut out = format!(
+        "Refusals from {} to {}: {total} in all, in {} pairs of tool and code. The top \
+         {shown} of {} pairs:\n\n\
+         | tool | code | count | field named most | person | agent key | service account |\n\
+         |---|---|---|---|---|---|---|",
+        when(since),
+        when(until),
+        counts.len(),
+        counts.len(),
+    );
+    for c in &counts[..shown] {
+        out.push_str(&format!(
+            "\n| {} | {} | {} | {} | {} | {} | {} |",
+            c.tool,
+            c.code,
+            c.count,
+            c.top_field.as_deref().unwrap_or("-"),
+            c.person,
+            c.agent_key,
+            c.service_account
+        ));
+    }
+    out
 }
 
 #[cfg(test)]

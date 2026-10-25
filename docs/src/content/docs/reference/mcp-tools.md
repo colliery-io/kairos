@@ -3,8 +3,8 @@ title: "MCP tools"
 ---
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-seventy-nine tools. A drift gate in the test suite
-asserts that `tools/list` returns these seventy-nine and no others. The same
+eighty tools. A drift gate in the test suite
+asserts that `tools/list` returns these eighty and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -23,7 +23,7 @@ organization.
 | URL | Profile | Tools |
 |---|---|---|
 | `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read: 48 tools. |
-| `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge: the other 31 tools. |
+| `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge, the count of the refusals: the other 32 tools. |
 | `/mcp?profile=all` | all | Each tool. |
 
 The profile changes the list, not the rights. Kairos runs a call to a tool
@@ -3278,6 +3278,45 @@ Refuses: `FORBIDDEN` for a person who is not an organization admin;
 `NOT_FOUND` for a host with no token.
 
 REST: `DELETE /api/org/read-tokens/{host}`.
+
+## The count of the refusals
+
+Kairos keeps one row for each tool call that ends in a tool error
+(KAIROS-T-0694, KAIROS-A-0068). The row has the tool, the code of the
+refusal and the `field` of its details. It also has the kind of the caller:
+`person`, `agent_key` or `service_account`. It has no argument value, no text
+of the refusal and no person. The retention pass deletes the rows after 90
+days. Kairos does not count the refusals of the REST API.
+
+### `refusal_counts`
+
+Gives the count of the refusals for each tool and code in a range of days,
+the highest first. Each row has the field that the refusals name most, and
+the count for each kind of caller. Use it to find the refusals that agents
+meet most. Only an organization admin.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `days` | integer | no | `7` | The number of days of the range, 1 to 90. |
+| `until` | string | no | now | The last day of the range, `YYYY-MM-DD` in UTC. The range includes that day. |
+| `top` | integer | no | `20` | The number of rows, 1 to 100. |
+
+```text
+Refusals from 2026-10-18 16:00 UTC to 2026-10-25 16:00 UTC: 214 in all, in 31 pairs of tool and code. The top 2 of 31 pairs:
+
+| tool | code | count | field named most | person | agent key | service account |
+|---|---|---|---|---|---|---|
+| link_items | RELATIONSHIP_RULE | 41 | - | 3 | 38 | 0 |
+| create_item | VALIDATION | 29 | parent | 1 | 28 | 0 |
+```
+
+A range with no refusal gives `No refusals from <start> to <end>.`
+
+Refuses:
+
+- `FORBIDDEN` for a person who is not an organization admin;
+- `VALIDATION` for `days` or `top` out of range, and for an `until` that is
+  not a date. `details.field` names the argument.
 
 ## Related reading
 

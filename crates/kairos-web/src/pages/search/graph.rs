@@ -16,7 +16,7 @@
 //! - `blocks` is the ONLY drawn arrow, in two styles (COLLIERY-T-0233):
 //!   an open blocker, and a resolved one, where an end of the edge is in
 //!   a done column (the COLLIERY-T-0214 rule). The legend names both;
-//! - `supports`/`informs`/`supersedes` live in the side panel, which is
+//! - `supports`/`informs`/`supersedes`/`amends` live in the side panel, which is
 //!   suppressed when empty;
 //! - depth 2 by default; `+N` badges expand in place (merge, no remount);
 //! - refocus pushes a history entry and extends the `?trail=` breadcrumb,
@@ -196,12 +196,12 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                 };
 
                 // ---- side panel rows ---------------------------------------
-                // supports/informs/supersedes, and the `blocks` edges with an
+                // supports/informs/supersedes/amends, and the `blocks` edges with an
                 // end that is a group header (not a node).
                 let mut panel_rows: Vec<PanelRow> = Vec::new();
                 for edge in edges
                     .iter()
-                    .filter(|e| matches!(e.relationship.as_str(), "supports" | "informs" | "supersedes"))
+                    .filter(|e| matches!(e.relationship.as_str(), "supports" | "informs" | "supersedes" | "amends"))
                 {
                     let (Some(source), Some(target)) =
                         (by_id(&edge.source_id), by_id(&edge.target_id))
@@ -318,7 +318,7 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                         {(!panel_rows.is_empty()).then(|| view! {
                             <Panel
                                 title="Supporting material"
-                                caption="documents & ADRs — supports · informs · supersedes; \
+                                caption="documents & ADRs — supports · informs · supersedes · amends; \
                                          blocks to or from a group"
                             >
                                 <Stack gap="xs">

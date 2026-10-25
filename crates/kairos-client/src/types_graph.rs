@@ -54,7 +54,7 @@ pub struct GraphEdge {
     pub source_id: String,
     /// Target entity id (UUID).
     pub target_id: String,
-    /// `parent|supports|informs|supersedes|blocks`.
+    /// `parent|supports|informs|supersedes|amends|blocks`.
     pub relationship: String,
     /// Minimum view depth at which BOTH endpoints are visible.
     pub depth: i32,

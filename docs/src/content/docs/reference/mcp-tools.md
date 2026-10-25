@@ -760,6 +760,16 @@ URI in angle brackets. A reference with no label shows the URI only.
 - external: <https://example.com/design>
 ```
 
+An ADR that another ADR [amends](../glossary/#relationship) has the line
+`amended by`. It lists the amending ADRs in the order of the edges, oldest
+first. Read the decision, then each change in turn. The amending ADR has the
+line `amends` (KAIROS-A-0069):
+
+```text
+- amended by: ACME-A-0066 — A move of an initiative takes its owner only when the caller asks with claim: true
+- amends: ACME-A-0042 — An initiative moves to Active only with an owner
+```
+
 A task in Active has the line `claim`. A task in Active with no claim has the
 line too:
 
@@ -1059,7 +1069,7 @@ one call:
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `from` | string | yes | — | The starting item's short code. |
-| `relationships` | array of string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`. Must not be empty. |
+| `relationships` | array of string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `amends`, `blocks`. Must not be empty. |
 | `direction` | string | yes | — | `outbound`, `inbound`, `both`. |
 | `depth` | integer | no in the schema | — | 1–10. Optional in the schema, but a traversal without it is refused: the field is deliberately not defaulted so that a missing depth is a typed refusal rather than a silent choice. |
 
@@ -2012,12 +2022,17 @@ Creates a relationship edge between two items.
 |---|---|---|---|---|
 | `source` | string | yes | — | Source item's short code. The edge runs source to target. |
 | `target` | string | yes | — | Target item's short code. For `impacts`: the slug or the UUID of a repository. For `external`: a URI. |
-| `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`, `impacts`, `external`. |
+| `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `amends`, `blocks`, `impacts`, `external`. |
 | `label` | string | no | — | For `external` only: the label of the reference, at most 200 characters. |
 
 The types of the two items must agree with this table (KAIROS-T-0677). The
 description of the tool has the same table, and a test compares it with the
 rules of the server.
+
+`amends`: the source ADR changes a part of the target ADR, and the rest of the
+target stays in force. `supersedes`: the source ADR replaces all of the target
+(KAIROS-A-0069). A `parent`, a `blocks` or an `amends` edge must not make a
+cycle.
 
 | relationship | source | target |
 |---|---|---|
@@ -2027,6 +2042,7 @@ rules of the server.
 | `informs` | document, adr | strategy, initiative, task |
 | `informs` | task | task |
 | `supersedes` | adr | adr |
+| `amends` | adr | adr |
 | `blocks` | strategy, initiative, task | strategy, initiative, task |
 | `impacts` | document, adr | repository (slug or UUID) |
 | `external` | any item | URI (`http`, `https` or `mailto`) |
@@ -2042,7 +2058,7 @@ A `relationship` that is not in the vocabulary is `VALIDATION`. For a value
 that agents often send, the refusal names the nearest relationship:
 
 ```text
-VALIDATION: The value "relates_to" is not a value of relationship. The values are: parent, supports, informs, supersedes, blocks, impacts, external. For a reference to a document or an adr, or from a task to a task, use informs. For work that must wait for other work, use blocks.
+VALIDATION: The value "relates_to" is not a value of relationship. The values are: parent, supports, informs, supersedes, amends, blocks, impacts, external. For a reference to a document or an adr, or from a task to a task, use informs. For work that must wait for other work, use blocks.
 ```
 
 The [link rule](../capabilities/#who-can-write-relationships) applies. The
@@ -2150,7 +2166,7 @@ Removes a relationship edge. The arguments and the link rule are those of
 |---|---|---|---|---|
 | `source` | string | yes | — | Source item's short code. |
 | `target` | string | yes | — | Target item's short code. For `impacts`: the slug or the UUID of a repository. For `external`: the URI of the reference. |
-| `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`, `impacts`, `external`. |
+| `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `amends`, `blocks`, `impacts`, `external`. |
 
 To remove a `supports` edge of a document, the caller must be able to edit
 the document. The right to edit the source is not sufficient.
@@ -2289,8 +2305,8 @@ Refuses: `VALIDATION` for a relationship outside `parent`/`blocks`;
 identical proposal is already waiting, or when the item already holds ten
 undecided ones — decide some rather than adding more.
 
-Only `parent` and `blocks` are proposable. `supports`, `informs` and `supersedes`
-are editorial, cheap to undo, and remain a person's to draw with
+Only `parent` and `blocks` are proposable. `supports`, `informs`, `supersedes`
+and `amends` are editorial, cheap to undo, and remain a person's to draw with
 [`link_items`](#link_items).
 
 ## Archiving and deleting

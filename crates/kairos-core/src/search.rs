@@ -355,6 +355,8 @@ pub enum SearchRelationship {
     Informs,
     /// `'supersedes'` (ADR → ADR).
     Supersedes,
+    /// `'amends'` (ADR → ADR, KAIROS-A-0069).
+    Amends,
     /// `'blocks'` (workflow item → workflow item).
     Blocks,
 }
@@ -367,6 +369,7 @@ impl SearchRelationship {
             SearchRelationship::Supports => "supports",
             SearchRelationship::Informs => "informs",
             SearchRelationship::Supersedes => "supersedes",
+            SearchRelationship::Amends => "amends",
             SearchRelationship::Blocks => "blocks",
         }
     }

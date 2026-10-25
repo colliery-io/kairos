@@ -1282,12 +1282,15 @@ fn relationship_label(relationship: &str, outgoing: bool) -> (usize, String) {
         ("informs", true) => Some((7, "informs")),
         ("supersedes", false) => Some((8, "superseded by")),
         ("supersedes", true) => Some((9, "supersedes")),
+        // KAIROS-A-0069: the amendments in the order of the edges.
+        ("amends", false) => Some((10, "amended by")),
+        ("amends", true) => Some((11, "amends")),
         _ => None,
     };
     match known {
         Some((rank, label)) => (rank, label.to_string()),
-        None if outgoing => (10, relationship.to_string()),
-        None => (10, format!("{relationship} (from)")),
+        None if outgoing => (12, relationship.to_string()),
+        None => (12, format!("{relationship} (from)")),
     }
 }
 
@@ -2945,6 +2948,8 @@ mod tests {
         assert_eq!(relationship_label("supports", false).1, "supports");
         assert_eq!(relationship_label("informs", false).1, "informed by");
         assert_eq!(relationship_label("supersedes", false).1, "superseded by");
+        assert_eq!(relationship_label("amends", false).1, "amended by");
+        assert_eq!(relationship_label("amends", true).1, "amends");
     }
 
     /// KAIROS-T-0591: the metadata and the external references of `show`.

@@ -225,7 +225,7 @@ enum Command {
     #[command(subcommand)]
     Templates(commands::meta::TemplatesCommand),
     /// Make a relationship: parent, blocks, informs, supports, supersedes,
-    /// impacts (a repository) or external (a URI)
+    /// amends, impacts (a repository) or external (a URI)
     Link(commands::links::LinkArgs),
     /// Remove a relationship that `kairos link` makes
     Unlink(commands::links::UnlinkArgs),

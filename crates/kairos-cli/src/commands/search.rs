@@ -97,7 +97,7 @@ pub struct SearchArgs {
     #[arg(long, value_name = "UUID")]
     pub from_id: Option<String>,
     /// Traverse: relationship types to follow, repeatable:
-    /// parent|supports|informs|supersedes|blocks (required with --from)
+    /// parent|supports|informs|supersedes|amends|blocks (required with --from)
     #[arg(long, value_name = "REL")]
     pub relationships: Vec<String>,
     /// Traverse: edge direction: outbound|inbound|both (defaults to
@@ -320,7 +320,7 @@ impl SearchArgs {
         if self.relationships.is_empty() {
             return Err(CliError::Failure(
                 "A traversal needs one --relationships or more. The values are: parent, \
-                 supports, informs, supersedes, blocks."
+                 supports, informs, supersedes, amends, blocks."
                     .to_string(),
             ));
         }

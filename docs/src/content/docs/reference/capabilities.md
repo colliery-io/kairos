@@ -462,7 +462,7 @@ create of a `blocks` edge needs the target: see
 
 | Relationship | Who can write it |
 |---|---|
-| `parent`, `supports`, `informs`, `supersedes` | A principal who can edit the source **or** the target: its creator, **or** a holder of `manage_<type>` on its authorization board, **or** an organization admin |
+| `parent`, `supports`, `informs`, `supersedes`, `amends` | A principal who can edit the source **or** the target: its creator, **or** a holder of `manage_<type>` on its authorization board, **or** an organization admin |
 | Create `blocks` | A principal who can edit the target, the blocked item. With the source only, the call makes a proposal |
 | Remove `blocks` | A principal who can edit the source **or** the target |
 

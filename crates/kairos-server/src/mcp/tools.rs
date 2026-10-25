@@ -486,7 +486,7 @@ pub struct SearchFilterParams {
 pub struct SearchTraverseParams {
     /// The starting item's short code (e.g. "ACME-S-0001").
     pub from: String,
-    /// Relationship types to follow: parent | supports | informs | supersedes | blocks.
+    /// Relationship types to follow: parent | supports | informs | supersedes | amends | blocks.
     pub relationships: Vec<String>,
     /// Edge direction: outbound | inbound | both.
     pub direction: String,
@@ -1016,7 +1016,7 @@ pub struct LinkItemsParams {
     /// Target item's short code. For `impacts`: the slug or the UUID of a
     /// repository. For `external`: a URI (http, https or mailto).
     pub target: String,
-    /// parent | supports | informs | supersedes | blocks | impacts | external.
+    /// parent | supports | informs | supersedes | amends | blocks | impacts | external.
     pub relationship: String,
     /// For `external` only: the label of the reference, at most 200
     /// characters ("RFC: zen as the policy engine, accepted 2026-10-05").
@@ -1038,7 +1038,7 @@ pub struct UnlinkItemsParams {
     /// Target item's short code. For `impacts`: the slug or the UUID of a
     /// repository. For `external`: the URI of the reference.
     pub target: String,
-    /// parent | supports | informs | supersedes | blocks | impacts | external.
+    /// parent | supports | informs | supersedes | amends | blocks | impacts | external.
     pub relationship: String,
 }
 
@@ -4410,7 +4410,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create an edge between two items by short code. The edge goes from `source` to `target`. The types of the two items must agree with this table; a `parent` or a `blocks` edge must not make a cycle.\n\n| relationship | source | target |\n|---|---|---|\n| parent | strategy | initiative |\n| parent | initiative | task |\n| supports | strategy, initiative, task | document, adr |\n| informs | document, adr | strategy, initiative, task |\n| informs | task | task |\n| supersedes | adr | adr |\n| blocks | strategy, initiative, task | strategy, initiative, task |\n| impacts | document, adr | repository (slug or UUID) |\n| external | any item | URI (http, https or mailto) |\n\nThere is no other relationship (no `relates_to`). `supports` goes from the work to the document that supports it. `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it. Send a `request_key` when you may retry this call."
+        description = "Create an edge between two items by short code. The edge goes from `source` to `target`. The types of the two items must agree with this table; a `parent`, a `blocks` or an `amends` edge must not make a cycle.\n\n| relationship | source | target |\n|---|---|---|\n| parent | strategy | initiative |\n| parent | initiative | task |\n| supports | strategy, initiative, task | document, adr |\n| informs | document, adr | strategy, initiative, task |\n| informs | task | task |\n| supersedes | adr | adr |\n| amends | adr | adr |\n| blocks | strategy, initiative, task | strategy, initiative, task |\n| impacts | document, adr | repository (slug or UUID) |\n| external | any item | URI (http, https or mailto) |\n\nThere is no other relationship (no `relates_to`). `supports` goes from the work to the document that supports it. `amends`: the source ADR changes a part of the target ADR; `supersedes`: it replaces all of it (KAIROS-A-0069). `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it. Send a `request_key` when you may retry this call."
     )]
     pub async fn link_items(
         &self,
@@ -7943,6 +7943,10 @@ fn relationship_hint(value: &str) -> &'static str {
         "supported_by" => " Use supports, and swap source and target.",
         "superseded_by" | "replaced_by" => " Use supersedes, and swap source and target.",
         "replaces" => " Use supersedes.",
+        "amended_by" => " Use amends, and swap source and target.",
+        "amend" | "amendment" => {
+            " Use amends: an adr changes a part of another adr. Use supersedes when it replaces all of it."
+        }
         "child_of" => " Use parent, and swap source and target: the source is the parent.",
         "child" | "parent_of" | "contains" | "has_child" => {
             " Use parent. The source is the parent, and the target is the child."
@@ -8437,6 +8441,7 @@ fn relationship_lines(
             RelationshipType::Supports => push("supporting docs", entry),
             RelationshipType::Informs => push("informs", entry),
             RelationshipType::Supersedes => push("supersedes", entry),
+            RelationshipType::Amends => push("amends", entry),
             RelationshipType::Blocks => push(blocks_label, entry),
         }
     }
@@ -8447,6 +8452,9 @@ fn relationship_lines(
             RelationshipType::Supports => push("supports", entry),
             RelationshipType::Informs => push("informed by", entry),
             RelationshipType::Supersedes => push("superseded by", entry),
+            // KAIROS-A-0069 rule 4: the amendments in the order of the
+            // edges, oldest first (`neighbors_of` orders by `created_at`).
+            RelationshipType::Amends => push("amended by", entry),
             RelationshipType::Blocks => push(blocked_by_label, entry),
         }
     }
@@ -9481,7 +9489,7 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
                         enum_field(
                             r,
                             "traverse.relationships",
-                            "parent, supports, informs, supersedes, blocks",
+                            "parent, supports, informs, supersedes, amends, blocks",
                         )
                     })
                     .collect::<Result<Vec<core_search::SearchRelationship>, _>>()?,
@@ -10645,10 +10653,23 @@ mod t0677_tests {
         assert!(text.contains("swap source and target"), "{text}");
         let text = refusal("block");
         assert!(text.ends_with("Use blocks."), "{text}");
+        // KAIROS-A-0069: amends, and the other direction.
+        let text = refusal("amended_by");
+        assert!(
+            text.ends_with("Use amends, and swap source and target."),
+            "{text}"
+        );
+        let text = refusal("amend");
+        assert!(
+            text.contains("Use amends") && text.contains("Use supersedes"),
+            "{text}"
+        );
         // A value with no near relationship gets the list only.
         let text = refusal("is_about");
         assert!(
-            text.ends_with("parent, supports, informs, supersedes, blocks, impacts, external."),
+            text.ends_with(
+                "parent, supports, informs, supersedes, amends, blocks, impacts, external."
+            ),
             "{text}"
         );
     }

@@ -240,12 +240,14 @@ text_enum! {
 }
 
 text_enum! {
-    /// `item_relationships.relationship` (KAIROS-A-0001 graph edge types).
+    /// `item_relationships.relationship` (KAIROS-A-0001 graph edge types;
+    /// `amends` is KAIROS-A-0069).
     RelationshipType {
         Parent => "parent",
         Supports => "supports",
         Informs => "informs",
         Supersedes => "supersedes",
+        Amends => "amends",
         Blocks => "blocks",
     }
 }
@@ -400,7 +402,14 @@ mod tests {
     fn relationship_type_round_trip_and_rejection() {
         assert_text_enum!(
             RelationshipType,
-            ["parent", "supports", "informs", "supersedes", "blocks"]
+            [
+                "parent",
+                "supports",
+                "informs",
+                "supersedes",
+                "amends",
+                "blocks"
+            ]
         );
     }
 

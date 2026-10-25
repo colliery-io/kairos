@@ -165,7 +165,7 @@ pub struct SearchTraverse {
     /// `short_code`/`id`.
     pub from: SearchTraverseFrom,
     /// Relationship types to follow (non-empty;
-    /// `parent|supports|informs|supersedes|blocks`).
+    /// `parent|supports|informs|supersedes|amends|blocks`).
     pub relationships: Vec<String>,
     /// Edge direction(s) to walk (`outbound|inbound|both`).
     pub direction: String,

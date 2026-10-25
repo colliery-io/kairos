@@ -232,6 +232,7 @@ fn relationship_str(relationship: RelationshipType) -> &'static str {
         RelationshipType::Supports => "supports",
         RelationshipType::Informs => "informs",
         RelationshipType::Supersedes => "supersedes",
+        RelationshipType::Amends => "amends",
         RelationshipType::Blocks => "blocks",
     }
 }
@@ -606,6 +607,7 @@ mod tests {
         assert!(!is_proposable(RelationshipType::Supports));
         assert!(!is_proposable(RelationshipType::Informs));
         assert!(!is_proposable(RelationshipType::Supersedes));
+        assert!(!is_proposable(RelationshipType::Amends));
     }
 
     #[test]

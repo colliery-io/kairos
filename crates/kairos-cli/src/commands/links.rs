@@ -6,7 +6,7 @@
 //! ACME-I-0001 parent ACME-T-0002` makes ACME-I-0001 the parent of
 //! ACME-T-0002. The relationships:
 //!
-//! - `parent`, `blocks`, `informs`, `supports`, `supersedes`: an edge
+//! - `parent`, `blocks`, `informs`, `supports`, `supersedes`, `amends`: an edge
 //!   between two items (`POST /api/relationships`). The server applies the
 //!   matrix of the edge types, the cycle check and the link rule.
 //! - `impacts`: from a document or an ADR to a repository (slug or UUID).
@@ -43,6 +43,8 @@ pub enum LinkRelationship {
     Supports,
     /// The source ADR replaces the target ADR
     Supersedes,
+    /// The source ADR changes a part of the target ADR (KAIROS-A-0069)
+    Amends,
     /// The source (a document or an ADR) is about the target repository
     /// (slug or UUID). It gives no right
     Impacts,
@@ -60,6 +62,7 @@ impl LinkRelationship {
             Self::Informs => "informs",
             Self::Supports => "supports",
             Self::Supersedes => "supersedes",
+            Self::Amends => "amends",
             Self::Impacts => "impacts",
             Self::External => "external",
         }
@@ -76,12 +79,13 @@ impl LinkRelationship {
                   - informs: SOURCE informs TARGET.\n\
                   - supports: TARGET (a document or an ADR) supports SOURCE.\n\
                   - supersedes: SOURCE (an ADR) replaces TARGET (an ADR).\n\
+                  - amends: SOURCE (an ADR) changes a part of TARGET (an ADR).\n\
                   - impacts: SOURCE (a document or an ADR) is about the repository TARGET \
                   (slug or UUID).\n\
                   - external: TARGET is a URI (http, https or mailto), with an optional \
                   --label.\n\n\
                   The server checks the types of the two items, and refuses a cycle of \
-                  parent or blocks. You must be able to edit one of the two items. An item \
+                  parent, blocks or amends. You must be able to edit one of the two items. An item \
                   has one parent: `set-parent` replaces it.")]
 pub struct LinkArgs {
     /// Short code of the source item (any type)
@@ -150,6 +154,7 @@ fn edge_meaning(relationship: LinkRelationship, source: &str, target: &str) -> S
         LinkRelationship::Informs => format!("{source} informs {target}."),
         LinkRelationship::Supports => format!("{target} supports {source}."),
         LinkRelationship::Supersedes => format!("{source} replaces {target}."),
+        LinkRelationship::Amends => format!("{source} changes a part of {target}."),
         LinkRelationship::Impacts => format!("{source} is about the repository {target}."),
         LinkRelationship::External => format!("{source} links to {target}."),
     }
@@ -405,6 +410,7 @@ mod tests {
             ("informs", LinkRelationship::Informs),
             ("supports", LinkRelationship::Supports),
             ("supersedes", LinkRelationship::Supersedes),
+            ("amends", LinkRelationship::Amends),
             ("impacts", LinkRelationship::Impacts),
             ("external", LinkRelationship::External),
         ] {
@@ -466,6 +472,10 @@ mod tests {
         assert!(
             made_line(LinkRelationship::Supersedes, "ACME-A-0002", "ACME-A-0001")
                 .ends_with("ACME-A-0002 replaces ACME-A-0001.")
+        );
+        assert!(
+            made_line(LinkRelationship::Amends, "ACME-A-0003", "ACME-A-0001")
+                .ends_with("ACME-A-0003 changes a part of ACME-A-0001.")
         );
         assert!(
             made_line(LinkRelationship::Impacts, "ACME-D-0001", "web")

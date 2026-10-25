@@ -456,7 +456,8 @@ In the text output, the command prints three more lists before the content
 
 An empty list prints `-`. The labels of `relationships` are `parent`,
 `child`, `blocked by`, `blocks`, `supported by`, `supports`, `informed by`,
-`informs`, `superseded by` and `supersedes`. A neighbour has the marks
+`informs`, `superseded by`, `supersedes`, `amended by` and `amends`. A
+neighbour has the marks
 `[archived]`, `[cancelled]` or `[done]`. For example:
 
 ```text
@@ -1119,7 +1120,7 @@ kairos link <SOURCE> <RELATIONSHIP> <TARGET> [--label <TEXT>] [OPTIONS]
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<SOURCE>` | string | required | The short code of the source item. |
-| `<RELATIONSHIP>` | relationship | required | `parent`, `blocks`, `informs`, `supports`, `supersedes`, `impacts` or `external`. |
+| `<RELATIONSHIP>` | relationship | required | `parent`, `blocks`, `informs`, `supports`, `supersedes`, `amends`, `impacts` or `external`. |
 | `<TARGET>` | string | required | The short code of the target item. For `impacts`, a repository (slug or UUID). For `external`, a URI. |
 | `--label` | string | none | The label of an external reference, at most 200 characters. Only with `external`. |
 
@@ -1133,11 +1134,12 @@ The command makes a relationship of an item (KAIROS-T-0591). `<SOURCE>` and
 | `informs` | document, ADR or task | strategy, initiative or task | The source informs the target. A task informs a task only. |
 | `supports` | strategy, initiative or task | document or ADR | The target supports the source. |
 | `supersedes` | ADR | ADR | The source replaces the target. |
+| `amends` | ADR | ADR | The source changes a part of the target (KAIROS-A-0069). |
 | `impacts` | document or ADR | repository | The source is about the repository. It gives no right. |
 | `external` | each type | URI | The item links to a document outside Kairos. |
 
-The server checks the types of the two ends, and refuses a cycle of `parent`
-or `blocks`. You must be able to edit one of the two items. For `impacts` and
+The server checks the types of the two ends, and refuses a cycle of `parent`,
+`blocks` or `amends`. You must be able to edit one of the two items. For `impacts` and
 `external`, you must be able to edit the source. An item has one parent. To
 change it, use [`set-parent`](#initiatives-set-parent-tasks-set-parent).
 
@@ -1312,7 +1314,7 @@ Traversal:
 |---|---|---|---|
 | `--from <SHORT_CODE>` | string | none | Starting entity, by short code. |
 | `--from-id <UUID>` | UUID | none | Starting entity, by id. |
-| `--relationships <REL>` | `parent` \| `supports` \| `informs` \| `supersedes` \| `blocks` | required with `--from` or `--from-id` | Relationship types to follow. Repeatable. |
+| `--relationships <REL>` | `parent` \| `supports` \| `informs` \| `supersedes` \| `amends` \| `blocks` | required with `--from` or `--from-id` | Relationship types to follow. Repeatable. |
 | `--direction <DIRECTION>` | `outbound` \| `inbound` \| `both` | `outbound` | Edge direction. |
 | `--depth <N>` | integer 1–10 | required with `--from` or `--from-id` | Maximum traversal depth. |
 

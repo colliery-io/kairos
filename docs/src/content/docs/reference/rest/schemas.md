@@ -1354,6 +1354,7 @@ An initiative on a board or in a search (KAIROS-T-0602).
 | `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live (KAIROS-A-0020). |
 | `board_id` | `string` | yes | Board the initiative sits on (UUID). |
 | `bucket_type` | `string`, nullable | no | Bucket kind (`tech_debt|bug|ad_hoc`), set iff `is_bucket`. |
+| `cancellation` | [`TaskCancellation`](#taskcancellation), nullable | no |  |
 | `column_id` | `string` | yes | Current column (UUID). |
 | `complexity` | `string`, nullable | no | T-shirt sizing (`xs|s|m|l|xl`). |
 | `content` | `string`, nullable | no | Markdown content. Only with `fields=full` on the board route. A card has no notes (KAIROS-T-0630): the read of the item gives them. |

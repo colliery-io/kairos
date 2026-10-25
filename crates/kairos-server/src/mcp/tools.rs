@@ -47,7 +47,7 @@ use rmcp::model::CallToolResult;
 use rmcp::schemars::JsonSchema;
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, tool, tool_router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -174,7 +174,7 @@ pub struct ListDispatchRulesParams {
 }
 
 /// `create_dispatch_rule` (KAIROS-T-0385).
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct CreateDispatchRuleParams {
@@ -204,6 +204,11 @@ pub struct CreateDispatchRuleParams {
     pub metadata_value: Option<String>,
     /// Only tasks of this repository: its slug or UUID.
     pub repository: Option<String>,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// `set_agent_triage` (KAIROS-T-0428).
@@ -363,7 +368,7 @@ pub struct GetHistoryParams {
 }
 
 /// Parameters for `propose_edge` (KAIROS-T-0192).
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct ProposeEdgeParams {
@@ -376,6 +381,11 @@ pub struct ProposeEdgeParams {
     /// Why you think so, in your own words. Kept verbatim and shown to whoever
     /// decides, so write what convinced you rather than a label.
     pub why: String,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// Parameters for `related_work` (KAIROS-T-0191).
@@ -494,7 +504,7 @@ pub struct SearchSortParams {
     pub order: String,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct CreateItemParams {
@@ -546,6 +556,11 @@ pub struct CreateItemParams {
     // states a human cannot. The absence is documented in the tool description
     // rather than left silent, because an agent reading the schema cannot ask
     // whether a missing field is a restriction or an omission.
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -563,7 +578,7 @@ pub struct UpdateItemParams {
     pub version: i32,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct EditItemParams {
@@ -577,6 +592,11 @@ pub struct EditItemParams {
     /// be unique, otherwise the edit is rejected as ambiguous).
     #[serde(default)]
     pub replace_all: bool,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// Parameters for `get_events` (KAIROS-T-0382, KAIROS-T-0550).
@@ -588,6 +608,11 @@ pub struct GetEventsParams {
     /// page. The page has the unread ones older than it, and no read ones.
     #[serde(default)]
     pub before: Option<String>,
+    /// `true`: only the unread notifications, with no read ones
+    /// (KAIROS-T-0683). The first page names the newest unread id, to send
+    /// as `up_to` to `mark_events_read`.
+    #[serde(default)]
+    pub unread: Option<bool>,
 }
 
 /// `my_work` has no arguments (KAIROS-T-0489).
@@ -612,7 +637,7 @@ pub struct MarkEventsReadParams {
     pub up_to: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct AppendNoteParams {
@@ -620,9 +645,14 @@ pub struct AppendNoteParams {
     pub short_code: String,
     /// The markdown text of the note.
     pub text: String,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct TransitionItemParams {
@@ -631,9 +661,20 @@ pub struct TransitionItemParams {
     /// Target column, by name (e.g. "In Progress") or UUID, on the item's
     /// own board.
     pub to_column: String,
+    /// Initiatives: `true` makes you the owner in the same move, as
+    /// `claim_item` does, so that the board policy owner_gate lets the
+    /// move to Active through. A task gets your claim from a move to Active
+    /// with no flag. Default false.
+    #[serde(default)]
+    pub claim: Option<bool>,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct MoveItemParams {
@@ -653,6 +694,11 @@ pub struct MoveItemParams {
     /// document needs `to_board` for a rename.
     #[serde(default)]
     pub rename: bool,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// Parameters for `set_repository` (COLLIERY-T-0220).
@@ -726,7 +772,7 @@ pub struct SetLifecycleParams {
 }
 
 /// Parameters for `promote_note` (KAIROS-T-0505).
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct PromoteNoteParams {
@@ -742,6 +788,11 @@ pub struct PromoteNoteParams {
     /// The title of the new item. Default: the first line of the note.
     #[serde(default)]
     pub title: Option<String>,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// `None` when the field is absent, `Some(None)` for `null`, `Some(Some(v))`
@@ -796,7 +847,7 @@ pub struct ItemTeamParams {
 
 /// Parameters for `add_repository` (COLLIERY-T-0266). The names are those
 /// of the body of `POST /api/repositories`.
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct AddRepositoryParams {
@@ -821,6 +872,11 @@ pub struct AddRepositoryParams {
     /// `get_repository`: the task runner, the tests, the rules for a
     /// branch.
     pub description: Option<String>,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// Parameters for `update_repository` (COLLIERY-T-0266). KAIROS-T-0443 added
@@ -951,7 +1007,7 @@ pub struct ClaimItemParams {
     pub short_code: String,
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct LinkItemsParams {
@@ -966,6 +1022,11 @@ pub struct LinkItemsParams {
     /// characters ("RFC: zen as the policy engine, accepted 2026-10-05").
     #[serde(default)]
     pub label: Option<String>,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1020,9 +1081,10 @@ pub struct DeleteItemParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct CancelItemParams {
-    /// The task's short code. The task must not be in a done column.
+    /// The short code of the task or the initiative. It must not be in a
+    /// done column.
     pub short_code: String,
-    /// Why the task is cancelled. Must not be empty.
+    /// Why the item is cancelled. Must not be empty.
     pub reason: String,
 }
 
@@ -1063,7 +1125,7 @@ pub struct ArchiveCompletedParams {
 
 /// Parameters for `create_team` (KAIROS-T-0337). The names are those of the
 /// body of `POST /api/teams`, and `adr_board`.
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct CreateTeamParams {
@@ -1084,11 +1146,16 @@ pub struct CreateTeamParams {
     /// team gets its delivery board only, as with REST and the CLI
     /// (KAIROS-T-0448).
     pub adr_board: Option<bool>,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// Parameters for `create_board` (KAIROS-T-0337). The names are those of
 /// the body of `POST /api/boards`, with `team` for `team_id`.
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct CreateBoardParams {
@@ -1107,6 +1174,11 @@ pub struct CreateBoardParams {
     /// capital letters or digits. The ADR board of a team takes the prefix
     /// of the team.
     pub code_prefix: String,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// Parameters for `add_team_member` (KAIROS-T-0337).
@@ -1173,7 +1245,7 @@ pub struct TeamPagesParams {
 }
 
 /// Parameters for `create_team_page` (KAIROS-T-0434).
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct CreateTeamPageParams {
@@ -1192,6 +1264,11 @@ pub struct CreateTeamPageParams {
     pub content: Option<String>,
     /// The position among its siblings. The default is after the last one.
     pub position: Option<i32>,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// Parameters for `edit_team_page` (KAIROS-T-0434).
@@ -1270,7 +1347,7 @@ pub struct SetBoardCapabilitiesParams {
 }
 
 /// Parameters for `add_column` (KAIROS-T-0443).
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct AddColumnParams {
@@ -1281,6 +1358,11 @@ pub struct AddColumnParams {
     /// The position of the new column, from 0 (the first). Default: the
     /// last.
     pub position: Option<i32>,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 /// Parameters for `update_column` (KAIROS-T-0443). The names are those of
@@ -1440,6 +1522,29 @@ impl KairosMcp {
             Ok(text) => Ok(tool_text(text)),
             Err(e) => Ok(tool_error(e)),
         }
+    }
+
+    /// [`Self::run_tool`] for a tool that takes a `request_key`
+    /// (KAIROS-T-0681): with a key, the write runs under it, in one
+    /// transaction; a refused key is a tool error.
+    async fn run_keyed_tool<F>(
+        &self,
+        tenant: &TenantContext,
+        keyed: Result<Option<super::request_key::KeyedCall>, ApiError>,
+        f: F,
+    ) -> Result<CallToolResult, ErrorData>
+    where
+        F: FnOnce(&mut PgConnection) -> Result<String, ApiError> + Send + 'static,
+    {
+        let keyed = match keyed {
+            Ok(keyed) => keyed,
+            Err(e) => return Ok(tool_error(e)),
+        };
+        self.run_tool(tenant, move |conn| match keyed {
+            Some(keyed) => keyed.run(conn, f),
+            None => f(conn),
+        })
+        .await
     }
 
     #[tool(
@@ -2390,7 +2495,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Make a dispatch rule on a board: when a task that matches the filter enters `column` (event task.entered_column), or with `trigger: unblocked` when its last open blocker closes (event task.unblocked; `column` optional), Kairos sends one signed delivery to a webhook target. Send `target_id`, or `url` (and `target_name`) to make a target: the answer shows its secret once, for the receiver to check X-Kairos-Signature. Optional filter, each part must match: `task_type`, `metadata_slug` with `metadata_value`, `repository`. Needs configure_boards."
+        description = "Make a dispatch rule on a board: when a task that matches the filter enters `column` (event task.entered_column), or with `trigger: unblocked` when its last open blocker closes (event task.unblocked; `column` optional), Kairos sends one signed delivery to a webhook target. Send `target_id`, or `url` (and `target_name`) to make a target: the answer shows its secret once, for the receiver to check X-Kairos-Signature. Optional filter, each part must match: `task_type`, `metadata_slug` with `metadata_value`, `repository`. Needs configure_boards. Send a `request_key` when you may retry this call."
     )]
     pub async fn create_dispatch_rule(
         &self,
@@ -2401,7 +2506,8 @@ impl KairosMcp {
         let (user, slug) = (auth.user_id, tenant.slug.clone());
         let key = self.state.config.secrets_key.clone();
         let allow_private = self.state.config.webhooks.allow_private;
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "create_dispatch_rule", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             use crate::api::org::dispatch as d;
             use kairos_client::types_dispatch as dto;
             crate::api::org::run_in_transaction(conn, |conn| {
@@ -2974,7 +3080,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Propose a `parent` or `blocks` edge between two items. The proposal is not an edge until someone confirms it. Use it when `related_work` shows a real dependency, and say why: the reason is shown to who decides. A holder of `approve_proposals` on the board of one of the two items confirms or rejects it, or an organization admin. The holder can be you, your agent key or a service account. The answer names the two boards."
+        description = "Propose a `parent` or `blocks` edge between two items. The proposal is not an edge until someone confirms it. Use it when `related_work` shows a real dependency, and say why: the reason is shown to who decides. A holder of `approve_proposals` on the board of one of the two items confirms or rejects it, or an organization admin. The holder can be you, your agent key or a service account. The answer names the two boards. Send a `request_key` when you may retry this call."
     )]
     pub async fn propose_edge(
         &self,
@@ -2983,7 +3089,8 @@ impl KairosMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "propose_edge", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             let relationship = match params.relationship.as_str() {
                 "parent" => kairos_db::models::enums::RelationshipType::Parent,
                 "blocks" => kairos_db::models::enums::RelationshipType::Blocks,
@@ -3129,7 +3236,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy, initiative, task, document or ADR. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks only: `repository`, an optional link that chooses no board; the board decides the team. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives only: `complexity`, and `bucket_type`, which makes a bucket; `set_complexity` changes the complexity later. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code."
+        description = "Create a work item: strategy, initiative, task, document or ADR. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks only: `repository`, an optional link that chooses no board; the board decides the team. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives only: `complexity`, and `bucket_type`, which makes a bucket; `set_complexity` changes the complexity later. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code. Send a `request_key` when you may retry this call."
     )]
     pub async fn create_item(
         &self,
@@ -3142,7 +3249,8 @@ impl KairosMcp {
         // COLLIERY-T-0227: one transaction for the item and its edge. Each
         // service opens a transaction of its own, which becomes a savepoint
         // in this one, so an edge that fails takes the item with it.
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "create_item", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             atomically(conn, |conn| {
                 create_item_impl(conn, &tenant_ctx, user, &params)
             })
@@ -3168,7 +3276,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Targeted server-side edit of an item's content: exact search/replace applied to the CURRENT version (retries once on a concurrent-edit race). Fails if `search` is not found, or is ambiguous when replace_all is false. You can edit an item that you created, or with `manage_<type>` on its board."
+        description = "Targeted server-side edit of an item's content: exact search/replace applied to the CURRENT version (retries once on a concurrent-edit race). Fails if `search` is not found, or is ambiguous when replace_all is false. When the text differs only in whitespace, the refusal quotes the exact text to send. You can edit an item that you created, or with `manage_<type>` on its board. Send a `request_key` when you may retry this call."
     )]
     pub async fn edit_item(
         &self,
@@ -3178,7 +3286,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let role = tenant.role;
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "edit_item", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             edit_item_text(conn, role, user, &params)
         })
         .await
@@ -3186,7 +3295,7 @@ impl KairosMcp {
 
     // KAIROS-T-0367: a note in one call, with no version and no anchor.
     #[tool(
-        description = "Append a note to an item. The note gets the next id, and `get_item` shows it after the content under a heading with the date and your name: `## Note n-3 (2026-10-11, Robin)`. The result names the id: cite it as `note n-3 on ACME-T-0012`. Send no version and no anchor text. A note is not part of the content: it writes no version, and an edit of the content does not change it. Two notes at the same time both stay. The text is markdown, and headings are allowed. Use it to record work, a finding or a decision on an item. You can append to an item that you created, or with `manage_<type>` on its board."
+        description = "Append a note to an item. The note gets the next id, and `get_item` shows it after the content under a heading with the date and your name: `## Note n-3 (2026-10-11, Robin)`. The result names the id: cite it as `note n-3 on ACME-T-0012`. Send no version and no anchor text. A note is not part of the content: it writes no version, and an edit of the content does not change it. Two notes at the same time both stay. The text is markdown, and headings are allowed. Use it to record work, a finding or a decision on an item. You can append to an item that you created, or with `manage_<type>` on its board. Send a `request_key` when you may retry this call."
     )]
     pub async fn append_note(
         &self,
@@ -3196,7 +3305,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let role = tenant.role;
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "append_note", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             append_note_text(conn, role, user, &params)
         })
         .await
@@ -3223,7 +3333,7 @@ impl KairosMcp {
     // KAIROS-T-0382: the notifications of the person of the key. The read
     // state is of the caller (KAIROS-T-0550): the agent key, or the person.
     #[tool(
-        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board. Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
+        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board. Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `unread: true` gives only the unread ones, and names the newest unread id to send as `up_to` to `mark_events_read`. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
     )]
     pub async fn get_events(
         &self,
@@ -3235,14 +3345,19 @@ impl KairosMcp {
         self.run_tool(&tenant, move |conn| {
             let reader = crate::api::notifications::reader_for(conn, user, key)?;
             let before = params.before.as_deref();
-            let (items, unread) = crate::api::notifications::list_for(conn, &reader, before, None)?;
-            Ok(events_text(&items, unread, before.is_some()))
+            let (mut items, unread) =
+                crate::api::notifications::list_for(conn, &reader, before, None)?;
+            let unread_only = params.unread.unwrap_or(false);
+            if unread_only {
+                items.retain(|n| n.read_at.is_none());
+            }
+            Ok(events_text(&items, unread, before.is_some(), unread_only))
         })
         .await
     }
 
     #[tool(
-        description = "Mark your notifications read: `ids` (the ids that `get_events` gives), or `all: true` with `up_to` (the id of the newest notification that you read). `all` marks that one and each older unread one, and no newer one; `all` without `up_to` is refused. A read with an agent key is the key's: the person's bell keeps its own state. A read notification no longer comes at the end of each answer. An id that is not one of your notifications is refused and named, and nothing changes."
+        description = "Mark your notifications read: `ids` (the ids that `get_events` gives), or `all: true` with `up_to` (the id of the newest notification that you read: `get_events` with `unread: true` names it). `all` marks that one and each older unread one, and no newer one; `all` without `up_to` is refused. A read with an agent key is the key's: the person's bell keeps its own state. A read notification no longer comes at the end of each answer. An id that is not one of your notifications is refused and named, and nothing changes."
     )]
     pub async fn mark_events_read(
         &self,
@@ -3275,7 +3390,7 @@ impl KairosMcp {
     // of a move: the capability on the board that the item leaves and on
     // the board that it goes to, and nothing for the creator.
     #[tool(
-        description = "Move a TASK to another team's delivery board, or a DOCUMENT to another owner board (`to_board`: slug or UUID), instead of recreating it. A task lands in the target's entry column and gets its team; it keeps its repository. Needs `manage_tasks` (a document: `manage_documents`) on both boards; creating the item gives no right. `rename: true` gives the item the next code of the target board; the old code is retired, still finds the item, and is replaced once in the text of items. Between columns of one board, use `transition_item`."
+        description = "Move a TASK to another team's delivery board, or a DOCUMENT to another owner board (`to_board`: slug or UUID), instead of recreating it. A task lands in the target's entry column and gets its team; it keeps its repository. Needs `manage_tasks` (a document: `manage_documents`) on both boards; creating the item gives no right. `rename: true` gives the item the next code of the target board; the old code is retired, still finds the item, and is replaced once in the text of items. Between columns of one board, use `transition_item`. Send a `request_key` when you may retry this call."
     )]
     pub async fn move_item(
         &self,
@@ -3285,7 +3400,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "move_item", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             let to_board = crate::api::documents::board_to_set(params.to_board.as_deref());
             if item.item_type == ItemType::Document {
@@ -3591,7 +3707,7 @@ impl KairosMcp {
 
     // KAIROS-T-0505: a note becomes a draft ADR or document.
     #[tool(
-        description = "Turn a note into a draft ADR or document in one call: `short_code` of the item, `note_id` as `get_item` lists it (n-3), `kind` adr | document, `board` (slug or UUID) that gets the new item, optional `title` (default: the first line of the note). The new item has the text of the note and a line `From note n-3 on CODE (author, date)`; it `supports` the item when the item is a strategy, an initiative or a task. The note gets the mark `Promoted to <code>`. A note is promoted one time only: a second promote is refused with CONFLICT and the code. Needs the edit rule on the item and the right to create on the board (manage_adrs or manage_documents)."
+        description = "Turn a note into a draft ADR or document in one call: `short_code` of the item, `note_id` as `get_item` lists it (n-3), `kind` adr | document, `board` (slug or UUID) that gets the new item, optional `title` (default: the first line of the note). The new item has the text of the note and a line `From note n-3 on CODE (author, date)`; it `supports` the item when the item is a strategy, an initiative or a task. The note gets the mark `Promoted to <code>`. A note is promoted one time only: a second promote is refused with CONFLICT and the code. Needs the edit rule on the item and the right to create on the board (manage_adrs or manage_documents). Send a `request_key` when you may retry this call."
     )]
     pub async fn promote_note(
         &self,
@@ -3602,7 +3718,8 @@ impl KairosMcp {
         let user = auth.user_id;
         let slug = tenant.slug.clone();
         let role = tenant.role;
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "promote_note", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             let promoted = atomically(conn, |conn| {
                 crate::promote::promote_note(
@@ -3803,7 +3920,7 @@ impl KairosMcp {
     // `POST /api/repositories`: the two call one function
     // (`crate::api::org::repositories::add`).
     #[tool(
-        description = "Add a repository to the directory (once: call `list_repositories` first). `forge`: github, gitlab or other. `repo_full_name`: the name on the forge (owner/repo for github; group/…/project for gitlab), no .git. `repo_url`: absolute http or https, no credentials. `team` (slug or UUID): the one owner team. Optional: `slug` (default from the full name: acme/payments-api gives acme-payments-api), `default_branch` (set by hand; with none the code index follows the forge), `description` (how to work in it: task runner, tests, branch rules). Needs membership of the owner team, or the org admin role. `set_repository` links a task; `update_repository` changes the slug and the owner team; `delete_repository` (admin profile) removes it."
+        description = "Add a repository to the directory (once: call `list_repositories` first). `forge`: github, gitlab or other. `repo_full_name`: the name on the forge (owner/repo for github; group/…/project for gitlab), no .git. `repo_url`: absolute http or https, no credentials. `team` (slug or UUID): the one owner team. Optional: `slug` (default from the full name: acme/payments-api gives acme-payments-api), `default_branch` (set by hand; with none the code index follows the forge), `description` (how to work in it: task runner, tests, branch rules). Needs membership of the owner team, or the org admin role. `set_repository` links a task; `update_repository` changes the slug and the owner team; `delete_repository` (admin profile) removes it. Send a `request_key` when you may retry this call."
     )]
     pub async fn add_repository(
         &self,
@@ -3813,7 +3930,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "add_repository", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             let added = crate::api::org::repositories::add(
                 conn,
                 &slug,
@@ -4021,7 +4139,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move an item to another column on its board (`to_column` is a column name or UUID). An invalid move fails with the allowed target columns enumerated — pick one and retry. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`."
+        description = "Move an item to another column on its board (`to_column` is a column name or UUID). A move goes one column at a time, along a transition of the board. When you do not know the columns, call `my_boards` first: it gives the columns of each board and the moves between them (`get_item` gives the next columns of the item). An invalid move fails with the allowed target columns enumerated, and the path to the target when one goes there (`path`): call transition_item for each step. A done task leaves its done column only by `reopen_item`. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. A move of an INITIATIVE does not set its owner, and the board policy owner_gate refuses a move to Active with no owner (OWNER_REQUIRED). Send `claim: true` to become the owner in the same move (the rules of `claim_item` apply), or call `claim_item` first. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`. Send a `request_key` when you may retry this call."
     )]
     pub async fn transition_item(
         &self,
@@ -4031,7 +4149,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "transition_item", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             let (board_id, from_column_id) = match (item.board_id, item.column_id) {
                 (Some(board_id), Some(column_id)) => (board_id, column_id),
@@ -4067,6 +4186,17 @@ impl KairosMcp {
             )?;
             let columns = board_columns(conn, board_id)?;
             let to_column_id = resolve_column(&columns, &params.to_column)?;
+            // KAIROS-T-0676: `claim: true` takes the owner of an initiative
+            // in the move. A task gets its claim from the move itself.
+            let claim = params.claim.unwrap_or(false);
+            if claim && !matches!(item.item_type, ItemType::Initiative | ItemType::Task) {
+                return Err(ApiError::validation(format!(
+                    "{} is a {}. The argument claim takes an initiative or a task. To become \
+                     the owner of a {}, call claim_item. Then move it.",
+                    item.short_code, item.item_type, item.item_type
+                ))
+                .with_details(json!({ "field": "claim" })));
+            }
             let mut triaged = None;
             if item.item_type == ItemType::Task {
                 // KAIROS-T-0428: an agent's triage of intake.
@@ -4079,18 +4209,24 @@ impl KairosMcp {
                 crate::claims::note(conn, item.id, user)?;
             }
 
-            match item.item_type {
-                ItemType::Strategy => {
-                    boards::transition_strategy(conn, item.id, to_column_id, user)
+            let claimed = if claim && item.item_type == ItemType::Initiative {
+                // One transaction: a refused move keeps no owner.
+                claim_and_move_initiative(conn, &slug, user, &item, to_column_id)?
+            } else {
+                match item.item_type {
+                    ItemType::Strategy => {
+                        boards::transition_strategy(conn, item.id, to_column_id, user)
+                    }
+                    ItemType::Initiative => {
+                        boards::transition_initiative(conn, item.id, to_column_id, user)
+                    }
+                    ItemType::Task => boards::transition_task(conn, item.id, to_column_id, user),
+                    ItemType::Adr => boards::transition_adr(conn, item.id, to_column_id, user),
+                    ItemType::Document => unreachable!("documents have no board placement"),
                 }
-                ItemType::Initiative => {
-                    boards::transition_initiative(conn, item.id, to_column_id, user)
-                }
-                ItemType::Task => boards::transition_task(conn, item.id, to_column_id, user),
-                ItemType::Adr => boards::transition_adr(conn, item.id, to_column_id, user),
-                ItemType::Document => unreachable!("documents have no board placement"),
-            }
-            .map_err(map_board_error)?;
+                .map_err(map_board_error)?;
+                false
+            };
             crate::agent_triage::record(conn, &auth, item.id, triaged)?;
             // KAIROS-T-0371: a move into a column over its WIP limit.
             // KAIROS-T-0565: the open blockers of a task.
@@ -4121,13 +4257,18 @@ impl KairosMcp {
                     out.push_str(claim.trim_end());
                 }
             }
+            // KAIROS-T-0676: the owner that `claim: true` took.
+            if claimed {
+                out.push('\n');
+                out.push_str(crate::owners::owner_text(conn, item.id, item.item_type)?.trim_end());
+            }
             Ok(out)
         })
         .await
     }
 
     #[tool(
-        description = "Take a free TASK in Active (no claim): the claim names you, so the board shows who works it. Or become the owner of a STRATEGY or INITIATIVE that has none: the one person who answers for it. A task: you need `transition_items` on its board; a task that a different person holds is refused with CLAIMED and the holder's name (ask for `hand_off_item`). A strategy or initiative: you must be a person and a member of its board (a grant), or an org admin; an item with an owner is refused with the owner's name. The owner gives no extra right. Moving a task to Active gives you the claim too."
+        description = "Take a free TASK in Active (no claim): the claim names you, so the board shows who works it. Or become the owner of a STRATEGY or INITIATIVE that has none: the one person who answers for it. A task: you need `transition_items` on its board; a task that a different person holds is refused with CLAIMED and the holder's name (ask for `hand_off_item`). A strategy or initiative: you must be a person and a member of its board (a grant), or an org admin; an item with an owner is refused with the owner's name. The owner gives no extra right. Moving a task to Active gives you the claim too. `transition_item` with `claim: true` makes you the owner of an initiative in the same move."
     )]
     pub async fn claim_item(
         &self,
@@ -4269,7 +4410,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create an edge between two items by short code: parent, supports, informs, supersedes or blocks (type rules and cycles are checked). `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it."
+        description = "Create an edge between two items by short code. The edge goes from `source` to `target`. The types of the two items must agree with this table; a `parent` or a `blocks` edge must not make a cycle.\n\n| relationship | source | target |\n|---|---|---|\n| parent | strategy | initiative |\n| parent | initiative | task |\n| supports | strategy, initiative, task | document, adr |\n| informs | document, adr | strategy, initiative, task |\n| informs | task | task |\n| supersedes | adr | adr |\n| blocks | strategy, initiative, task | strategy, initiative, task |\n| impacts | document, adr | repository (slug or UUID) |\n| external | any item | URI (http, https or mailto) |\n\nThere is no other relationship (no `relates_to`). `supports` goes from the work to the document that supports it. `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it. Send a `request_key` when you may retry this call."
     )]
     pub async fn link_items(
         &self,
@@ -4279,7 +4420,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let tenant_ctx = tenant.clone();
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "link_items", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             // KAIROS-T-0508: the target of `external` is a URI.
             if params.relationship == kairos_db::external_refs::RELATIONSHIP {
                 let source = require_live_typed(conn, &params.source, "source")?;
@@ -4623,7 +4765,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Cancel a TASK the team will not do, with a `reason`: it moves to the done column with the mark \"cancelled\", from any column (the transition rules do not apply), and its claim ends. `reopen_item` brings it back and removes the mark. Needs `transition_items` on its board. An empty reason, or a task already done (TASK_DONE), is refused. An agent's cancel of intake is refused with AGENT_TRIAGE_OFF while the board lets a person decide."
+        description = "Cancel a TASK or an INITIATIVE that the team will not do, with a `reason`: it moves to the done column of its board with the mark \"cancelled\", from any column (the transition rules do not apply). The board and `get_item` show `[cancelled]`. A task: its claim ends, and `reopen_item` brings it back and removes the mark. An initiative: its owner stays, and it has no reopen; it stays in the done column. Needs `transition_items` on its board. An empty reason, or an item already done (TASK_DONE, INITIATIVE_DONE), is refused. An agent's cancel of intake is refused with AGENT_TRIAGE_OFF while the board lets a person decide. To retire a different type: a strategy or an ADR, move it with `transition_item` and write the reason with `append_note`; a document, `set_lifecycle` archived."
     )]
     pub async fn cancel_item(
         &self,
@@ -4635,13 +4777,36 @@ impl KairosMcp {
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-            let Some(board_id) = item.board_id.filter(|_| item.item_type == ItemType::Task) else {
+            let cancellable = matches!(item.item_type, ItemType::Task | ItemType::Initiative);
+            let Some(board_id) = item.board_id.filter(|_| cancellable) else {
                 return Err(ApiError::validation(format!(
-                    "{} is a {}. You can cancel only a task.",
-                    item.short_code, item.item_type
+                    "{} is a {}. You can cancel only a task or an initiative. {}",
+                    item.short_code,
+                    item.item_type,
+                    retire_route(item.item_type)
                 ))
                 .with_details(serde_json::json!({ "field": "short_code" })));
             };
+            // KAIROS-T-0678: an initiative has no claim and no intake.
+            if item.item_type == ItemType::Initiative {
+                let cancelled = crate::cancel::cancel_initiative(
+                    conn,
+                    &slug,
+                    item.id,
+                    board_id,
+                    &params.reason,
+                    user,
+                )?;
+                return Ok(format!(
+                    "Cancelled {}: {} -> {}.\nReason: {}\nAn initiative has no reopen: it \
+                     stays in {}.",
+                    cancelled.short_code,
+                    cancelled.from_column,
+                    cancelled.to_column,
+                    cancelled.mark.reason,
+                    cancelled.to_column
+                ));
+            }
             // KAIROS-T-0456: a cancel is a triage of intake (won't do).
             let triaged = crate::agent_triage::check(
                 conn,
@@ -4777,7 +4942,7 @@ impl KairosMcp {
     // REST route, so the gate and the refusals are those of REST: an
     // organization admin, or a grant of `manage_structure` at the scope.
     #[tool(
-        description = "Create a team and its delivery board ({slug}-delivery). `code_prefix`: a capital letter then 1 to 9 capitals or digits (OPS gives OPS-T-0001); it never changes. Optional: `team_type` (stream_aligned by default, platform, enabling, complicated_subsystem), `adr_board: true` to also make its ADR board ({slug}-adrs). The new board has no members: use `add_team_member` and `grant_capability`. Needs the org admin role or `manage_structure` on the organization."
+        description = "Create a team and its delivery board ({slug}-delivery). `code_prefix`: a capital letter then 1 to 9 capitals or digits (OPS gives OPS-T-0001); it never changes. Optional: `team_type` (stream_aligned by default, platform, enabling, complicated_subsystem), `adr_board: true` to also make its ADR board ({slug}-adrs). The new board has no members: use `add_team_member` and `grant_capability`. Needs the org admin role or `manage_structure` on the organization. Send a `request_key` when you may retry this call."
     )]
     pub async fn create_team(
         &self,
@@ -4787,7 +4952,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "create_team", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             atomically(conn, |conn| {
                 let team = crate::api::org::teams::create(
                     conn,
@@ -4831,7 +4997,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a board: an ADR board (`board_level: adr`; with `team`, that team's ADR board, with its prefix), a strategy or initiative board, or the delivery board of a team that has none. `slug` matches ^[a-z][a-z0-9_-]{1,62}$; `code_prefix` is a capital letter then 1 to 9 capitals or digits, fixed. It gets the default columns and transitions of its level. Needs the org admin role or `manage_structure` on the organization."
+        description = "Create a board: an ADR board (`board_level: adr`; with `team`, that team's ADR board, with its prefix), a strategy or initiative board, or the delivery board of a team that has none. `slug` matches ^[a-z][a-z0-9_-]{1,62}$; `code_prefix` is a capital letter then 1 to 9 capitals or digits, fixed. It gets the default columns and transitions of its level. Needs the org admin role or `manage_structure` on the organization. Send a `request_key` when you may retry this call."
     )]
     pub async fn create_board(
         &self,
@@ -4841,7 +5007,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "create_board", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             let team = params
                 .team
                 .as_deref()
@@ -4885,13 +5052,15 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
+        let routes = crate::api::org::structure_grants::SignInRoutes::of(&self.state.config);
         self.run_tool(&tenant, move |conn| {
             let team = team_by_ref(conn, &params.team)?;
-            let target = crate::api::org::structure_grants::resolve_member(
+            let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
                 &params.user,
                 "user",
+                routes,
             )?;
             let member =
                 crate::api::org::teams::add_member_as(conn, &slug, user, team.id, target.id)?;
@@ -4914,6 +5083,7 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
+        let routes = crate::api::org::structure_grants::SignInRoutes::of(&self.state.config);
         self.run_tool(&tenant, move |conn| {
             if params.capability == kairos_core::abac::MANAGE_STRUCTURE {
                 let grant = crate::api::org::structure_grants::grant(
@@ -4922,6 +5092,7 @@ impl KairosMcp {
                     user,
                     &params.user,
                     params.board.as_deref(),
+                    routes,
                 )?;
                 let scope = match &grant.board_slug {
                     Some(board) => format!("on the board {board}"),
@@ -4941,11 +5112,12 @@ impl KairosMcp {
                 .with_details(json!({ "field": "board" })));
             };
             let board = board_by_ref(conn, board)?;
-            let target = crate::api::org::structure_grants::resolve_member(
+            let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
                 &params.user,
                 "user",
+                routes,
             )?;
             let member = crate::api::org::boards::grant_as(
                 conn,
@@ -5095,7 +5267,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Add a column to a board, as POST /api/boards/{id}/columns does. `position` is from 0 (the first); the default is the last. The new column has no transition: add them with set_transition. `board` is a slug or UUID. Requires `configure_boards` on the board."
+        description = "Add a column to a board, as POST /api/boards/{id}/columns does. `position` is from 0 (the first); the default is the last. The new column has no transition: add them with set_transition. `board` is a slug or UUID. Requires `configure_boards` on the board. Send a `request_key` when you may retry this call."
     )]
     pub async fn add_column(
         &self,
@@ -5105,7 +5277,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let slug = tenant.slug.clone();
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "add_column", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             let board = board_by_ref(conn, &params.board)?;
             let position = match params.position {
                 Some(position) => position,
@@ -5494,7 +5667,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a page or a folder in the team page of a team, as POST /api/teams/{id}/pages does. `kind` is page or folder: a folder holds folders and pages, a page holds nothing. `parent` is the folder (a path of slugs or a UUID); omit it for the root. `slug` comes from the title when you omit it. `content` is the markdown of a page. Requires membership of the team, or the organization admin role."
+        description = "Create a page or a folder in the team page of a team, as POST /api/teams/{id}/pages does. `kind` is page or folder: a folder holds folders and pages, a page holds nothing. `parent` is the folder (a path of slugs or a UUID); omit it for the root. `slug` comes from the title when you omit it. `content` is the markdown of a page. Requires membership of the team, or the organization admin role. Send a `request_key` when you may retry this call."
     )]
     pub async fn create_team_page(
         &self,
@@ -5504,7 +5677,8 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let gate = tenant.clone();
-        self.run_tool(&tenant, move |conn| {
+        let keyed = super::request_key::keyed_call(&auth, "create_team_page", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
             let team = team_by_ref(conn, &params.team)?;
             let pages = crate::api::org::team_pages::list_as(conn, team.id)?;
             let parent_id = match &params.parent {
@@ -5937,8 +6111,10 @@ pub fn edit_item_text(
         let occurrences = item.content.matches(&params.search).count();
         if occurrences == 0 {
             return Err(ApiError::validation(format!(
-                "The text of search is not in {} (version {}).",
-                item.short_code, item.version
+                "The text of search is not in {} (version {}).{}",
+                item.short_code,
+                item.version,
+                whitespace_hint(&item.content, &params.search)
             )));
         }
         if occurrences > 1 && !params.replace_all {
@@ -5973,6 +6149,74 @@ pub fn edit_item_text(
         }
     }
     unreachable!("edit_item loop returns within two attempts");
+}
+
+/// KAIROS-T-0684: the spans of `content` that are equal to `search` when
+/// each run of whitespace in the two texts counts as one space. The spans
+/// are byte ranges of `content`, in order, with no overlap.
+fn whitespace_matches(content: &str, search: &str) -> Vec<std::ops::Range<usize>> {
+    // The normal form of a text: each whitespace run is one space. For
+    // each char of the normal form, the byte range of `content` that it
+    // stands for.
+    fn normal(text: &str) -> (String, Vec<std::ops::Range<usize>>) {
+        let mut out = String::new();
+        let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
+        for (at, ch) in text.char_indices() {
+            let end = at + ch.len_utf8();
+            if ch.is_whitespace() {
+                if out.ends_with(' ') && spans.last().is_some_and(|s| s.end == at) {
+                    if let Some(last) = spans.last_mut() {
+                        last.end = end;
+                    }
+                    continue;
+                }
+                out.push(' ');
+            } else {
+                out.push(ch);
+            }
+            spans.push(at..end);
+        }
+        (out, spans)
+    }
+    let (text, spans) = normal(content);
+    let (needle, _) = normal(search);
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    // The char index of each byte offset of the normal form.
+    let starts: Vec<usize> = text.char_indices().map(|(at, _)| at).collect();
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = text[from..].find(&needle) {
+        let begin = from + offset;
+        let end = begin + needle.len();
+        let first = starts.partition_point(|&at| at < begin);
+        let last = starts.partition_point(|&at| at < end) - 1;
+        found.push(spans[first].start..spans[last].end);
+        from = end;
+    }
+    found
+}
+
+/// KAIROS-T-0684: the end of the refusal of a `search` that is not in the
+/// content, when a text that differs only in whitespace is there. Empty
+/// when there is no such text.
+fn whitespace_hint(content: &str, search: &str) -> String {
+    let found = whitespace_matches(content, search);
+    match found.as_slice() {
+        [] => String::new(),
+        [one] => format!(
+            " A text that differs only in whitespace is in the content one time. Send this \
+             exact text as search: {:?}.",
+            &content[one.clone()]
+        ),
+        [first, ..] => format!(
+            " A text that differs only in whitespace is in the content {} times. The first \
+             is {:?}. Send the exact text, with more text around it to make it unique.",
+            found.len(),
+            &content[first.clone()]
+        ),
+    }
 }
 
 /// The answer text of `append_note`.
@@ -6127,15 +6371,18 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
             facts.column_claims,
         ));
     }
-    // KAIROS-T-0362: the cancel mark and its reason.
-    if item.item_type == ItemType::Task {
-        if let (Some(at), Some(by), Some(reason)) = (
+    // KAIROS-T-0362: the cancel mark and its reason. KAIROS-T-0678: an
+    // initiative too.
+    if matches!(item.item_type, ItemType::Task | ItemType::Initiative)
+        && let (Some(at), Some(by), Some(reason)) = (
             facts.cancelled_at,
             &facts.cancelled_by_name,
             &facts.cancel_reason,
-        ) {
-            out.push_str(&crate::cancel::cancel_line(at, by, reason));
-        }
+        )
+    {
+        out.push_str(&crate::cancel::cancel_line(at, by, reason));
+    }
+    if item.item_type == ItemType::Task {
         // KAIROS-T-0506: the live state of the task.
         if let Some((state, name)) = facts.state(item.id) {
             out.push_str(&crate::task_state::state_line_of(&state, name, Utc::now()));
@@ -6887,6 +7134,62 @@ struct LoadedItem {
     created_at: DateTime<Utc>,
 }
 
+/// KAIROS-T-0676: `transition_item` with `claim: true` on an initiative.
+/// The caller becomes the owner (the rules of `claim_item`), then the
+/// initiative moves, in one transaction: a refused move keeps no owner.
+/// A caller who is the owner already takes nothing. True when the caller
+/// took the owner.
+fn claim_and_move_initiative(
+    conn: &mut PgConnection,
+    slug: &str,
+    user: Uuid,
+    item: &ItemView,
+    to_column_id: Uuid,
+) -> Result<bool, ApiError> {
+    /// The error of the transaction: diesel needs `From<diesel::Error>`.
+    enum Failed {
+        Api(ApiError),
+        Db(diesel::result::Error),
+    }
+    impl From<diesel::result::Error> for Failed {
+        fn from(e: diesel::result::Error) -> Self {
+            Failed::Db(e)
+        }
+    }
+    conn.transaction::<_, Failed, _>(|conn| {
+        let owner = kairos_db::item_owners::owner_of(conn, item.id)?;
+        let take = owner.as_ref().is_none_or(|o| o.user_id != user);
+        if take {
+            crate::owners::claim(
+                conn,
+                slug,
+                user,
+                (item.id, item.item_type),
+                &item.short_code,
+            )
+            .map_err(Failed::Api)?;
+        }
+        boards::transition_initiative(conn, item.id, to_column_id, user)
+            .map_err(|e| Failed::Api(map_board_error(e)))?;
+        Ok(take)
+    })
+    .map_err(|e| match e {
+        Failed::Api(e) => e,
+        Failed::Db(e) => ApiError::internal(e),
+    })
+}
+
+/// How to retire an item that `cancel_item` does not take (KAIROS-T-0678).
+fn retire_route(item_type: ItemType) -> &'static str {
+    match item_type {
+        ItemType::Document => "To retire a document, call set_lifecycle with archived.",
+        _ => {
+            "To retire it, move it to its done column with transition_item, and write the \
+             reason with append_note."
+        }
+    }
+}
+
 /// `require_capability` for a MOVE (`transition_item`, `move_item`), with
 /// one explanation added. When the refused caller CREATED this item as a
 /// request and it is still in the entry column, the refusal explains the
@@ -7615,10 +7918,42 @@ fn parse_relationship(value: &str) -> Result<RelationshipType, ApiError> {
         allowed.push(kairos_db::impacts::RELATIONSHIP.to_string());
         allowed.push(kairos_db::external_refs::RELATIONSHIP.to_string());
         ApiError::validation(format!(
-            "The value {value:?} is not a value of relationship. The values are: {}.",
-            allowed.join(", ")
+            "The value {value:?} is not a value of relationship. The values are: {}.{}",
+            allowed.join(", "),
+            relationship_hint(value)
         ))
     })
+}
+
+/// KAIROS-T-0677: the nearest relationship for a value that agents guess.
+/// An empty text for a value with no near relationship.
+fn relationship_hint(value: &str) -> &'static str {
+    let normal = value.trim().to_ascii_lowercase().replace(['-', ' '], "_");
+    match normal.as_str() {
+        "relates_to" | "related_to" | "relates" | "related" | "relation" | "references"
+        | "refers_to" | "see_also" | "mentions" => {
+            " For a reference to a document or an adr, or from a task to a task, use informs. \
+             For work that must wait for other work, use blocks."
+        }
+        "depends_on" | "blocked_by" | "requires" | "needs" | "waits_for" | "after" => {
+            " For work that must wait for other work, use blocks: the source is the item that \
+             must be done first, and the target waits."
+        }
+        "informed_by" => " Use informs, and swap source and target.",
+        "supported_by" => " Use supports, and swap source and target.",
+        "superseded_by" | "replaced_by" => " Use supersedes, and swap source and target.",
+        "replaces" => " Use supersedes.",
+        "child_of" => " Use parent, and swap source and target: the source is the parent.",
+        "child" | "parent_of" | "contains" | "has_child" => {
+            " Use parent. The source is the parent, and the target is the child."
+        }
+        "block" | "blocking" => " Use blocks.",
+        "inform" => " Use informs.",
+        "support" => " Use supports.",
+        "supersede" => " Use supersedes.",
+        "impact" => " Use impacts.",
+        _ => "",
+    }
 }
 
 /// One line of a document or an ADR in a section of `get_repository`
@@ -9388,16 +9723,30 @@ fn events_text(
     items: &[kairos_db::notifications::Notification],
     unread: i64,
     page: bool,
+    unread_only: bool,
 ) -> String {
     let unread_items: Vec<_> = items.iter().filter(|n| n.read_at.is_none()).collect();
     if items.is_empty() {
         return if page {
             format!("# Your notifications ({unread} unread)\nNo older unread ones.\n")
+        } else if unread_only {
+            "# Your notifications (0 unread)\nNo unread ones.\n".to_string()
         } else {
             "# Your notifications\n(none)\n".to_string()
         };
     }
     let mut out = format!("# Your notifications ({unread} unread)\n");
+    // KAIROS-T-0683: the newest unread id first, ready for `up_to`.
+    if unread_only
+        && !page
+        && let Some(newest) = unread_items.first()
+    {
+        out.push_str(&format!(
+            "Newest unread id: \"{}\". Send it as `up_to` with `all: true` to \
+             mark_events_read.\n\n",
+            newest.id
+        ));
+    }
     let mut read_heading = false;
     for n in items {
         if n.read_at.is_some() && !read_heading {
@@ -10063,6 +10412,285 @@ mod t0561_tests {
             empty_page_text("(none)", 51, 100),
             "(none at offset 100: the list has 51)\n"
         );
+    }
+}
+
+#[cfg(test)]
+mod t0683_tests {
+    //! KAIROS-T-0683: `get_events` with `unread: true`.
+
+    use super::events_text;
+    use kairos_db::notifications::Notification;
+    use uuid::Uuid;
+
+    fn notification(n: u128, read: bool) -> Notification {
+        Notification {
+            id: Uuid::from_u128(n),
+            kind: "mention".into(),
+            item_id: None,
+            short_code: Some(format!("ACME-T-{n:04}")),
+            entity_type: None,
+            title: None,
+            text: format!("Robin mentioned you ({n})"),
+            actor_id: None,
+            created_at: chrono::Utc::now(),
+            read_at: read.then(chrono::Utc::now),
+        }
+    }
+
+    #[test]
+    fn the_unread_list_names_the_newest_id_first() {
+        let items = [notification(2, false), notification(1, false)];
+        let text = events_text(&items, 2, false, true);
+        let newest = Uuid::from_u128(2);
+        assert!(
+            text.starts_with(&format!(
+                "# Your notifications (2 unread)\nNewest unread id: \"{newest}\". Send it as \
+                 `up_to` with `all: true` to mark_events_read.\n\n"
+            )),
+            "{text}"
+        );
+        assert!(!text.contains("## Read"), "{text}");
+    }
+
+    #[test]
+    fn no_unread_ones() {
+        assert_eq!(
+            events_text(&[], 0, false, true),
+            "# Your notifications (0 unread)\nNo unread ones.\n"
+        );
+    }
+
+    #[test]
+    fn the_default_list_has_no_newest_line() {
+        let items = [notification(2, false), notification(1, true)];
+        let text = events_text(&items, 1, false, false);
+        assert!(!text.contains("Newest unread id"), "{text}");
+        assert!(text.contains("## Read"), "{text}");
+    }
+}
+
+impl super::request_key::Keyed for CreateItemParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for AppendNoteParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for LinkItemsParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for ProposeEdgeParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for PromoteNoteParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for TransitionItemParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for MoveItemParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for EditItemParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for AddRepositoryParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for CreateTeamParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for CreateBoardParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for AddColumnParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for CreateTeamPageParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for CreateDispatchRuleParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+#[cfg(test)]
+mod t0677_tests {
+    //! KAIROS-T-0677: the table of `link_items` and the hints of its
+    //! refusals.
+
+    use super::{KairosMcp, parse_relationship};
+    use kairos_core::graph::{Relationship, check_link};
+    use kairos_core::short_code::ItemType;
+    use std::collections::BTreeSet;
+
+    /// The rows of the table in the description, as `(relationship,
+    /// sources, targets)`.
+    fn table_rows(description: &str) -> Vec<(String, Vec<String>, Vec<String>)> {
+        let list = |cell: &str| -> Vec<String> {
+            cell.split(',')
+                .map(|part| part.trim().to_string())
+                .collect()
+        };
+        description
+            .lines()
+            .filter(|line| line.starts_with("| ") && !line.starts_with("| relationship"))
+            .map(|line| {
+                let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+                assert_eq!(cells.len(), 3, "a row has three cells: {line}");
+                (cells[0].to_string(), list(cells[1]), list(cells[2]))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_description_table_is_the_matrix_of_check_link() {
+        let tool = KairosMcp::link_items_tool_attr();
+        let description = tool.description.expect("a description").to_string();
+        let rows = table_rows(&description);
+
+        let mut from_table = BTreeSet::new();
+        let mut named = BTreeSet::new();
+        for (relationship, sources, targets) in &rows {
+            named.insert(relationship.clone());
+            if Relationship::ALL.iter().all(|r| r.as_str() != relationship) {
+                continue;
+            }
+            for source in sources {
+                for target in targets {
+                    from_table.insert((relationship.clone(), source.clone(), target.clone()));
+                }
+            }
+        }
+
+        let mut from_code = BTreeSet::new();
+        for &relationship in Relationship::ALL {
+            for &source in ItemType::ALL {
+                for &target in ItemType::ALL {
+                    if check_link(relationship, source, target).is_ok() {
+                        from_code.insert((
+                            relationship.to_string(),
+                            source.to_string(),
+                            target.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(from_table, from_code, "{description}");
+
+        // Each relationship that the tool takes has a row.
+        let expected: BTreeSet<String> = Relationship::ALL
+            .iter()
+            .map(|r| r.to_string())
+            .chain(["impacts".to_string(), "external".to_string()])
+            .collect();
+        assert_eq!(named, expected);
+    }
+
+    fn refusal(value: &str) -> String {
+        parse_relationship(value).unwrap_err().message
+    }
+
+    #[test]
+    fn an_unknown_relationship_names_the_nearest_one() {
+        let text = refusal("relates_to");
+        assert!(
+            text.contains("use informs") && text.contains("use blocks"),
+            "{text}"
+        );
+        let text = refusal("depends_on");
+        assert!(text.contains("use blocks"), "{text}");
+        let text = refusal("child_of");
+        assert!(text.contains("swap source and target"), "{text}");
+        let text = refusal("block");
+        assert!(text.ends_with("Use blocks."), "{text}");
+        // A value with no near relationship gets the list only.
+        let text = refusal("is_about");
+        assert!(
+            text.ends_with("parent, supports, informs, supersedes, blocks, impacts, external."),
+            "{text}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod t0684_tests {
+    //! KAIROS-T-0684: the whitespace hint of `edit_item`.
+    use super::{whitespace_hint, whitespace_matches};
+
+    #[test]
+    fn a_run_of_whitespace_matches_one_space() {
+        let content = "## Done when\n\n- The  table is there.\n- Tests.";
+        let found = whitespace_matches(content, "- The table is\tthere.");
+        assert_eq!(found.len(), 1);
+        assert_eq!(&content[found[0].clone()], "- The  table is there.");
+        // A search across lines.
+        let found = whitespace_matches(content, "Done when - The table");
+        assert_eq!(&content[found[0].clone()], "Done when\n\n- The  table");
+    }
+
+    #[test]
+    fn the_hint_quotes_the_exact_text() {
+        let content = "Line one.\n  Line two.";
+        assert_eq!(
+            whitespace_hint(content, "Line one. Line two."),
+            " A text that differs only in whitespace is in the content one time. Send this \
+             exact text as search: \"Line one.\\n  Line two.\"."
+        );
+    }
+
+    #[test]
+    fn more_than_one_and_none() {
+        let content = "a  b and a\tb";
+        let hint = whitespace_hint(content, "a b");
+        assert!(hint.contains("2 times"), "{hint}");
+        assert!(hint.contains("\"a  b\""), "{hint}");
+        assert_eq!(whitespace_hint(content, "no such text"), "");
+        // Non-ASCII text keeps char bounds.
+        let content = "Größe:  10 µm";
+        let found = whitespace_matches(content, "Größe: 10 µm");
+        assert_eq!(&content[found[0].clone()], content);
     }
 }
 

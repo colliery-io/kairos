@@ -241,6 +241,7 @@ impl IntoCard<cards::InitiativeCard> for Initiative {
             owner: None,
             entered_column_at: None,
             notes_count: None,
+            cancellation: None,
             snippet: None,
         }
     }
@@ -267,6 +268,7 @@ impl IntoCard<cards::InitiativeCard> for InitiativeCardRow {
             owner: None,
             entered_column_at: None,
             notes_count: None,
+            cancellation: None,
             snippet: None,
         }
     }

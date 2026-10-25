@@ -359,6 +359,7 @@ fn board_rules_lifecycle() {
             from,
             to,
             allowed_targets,
+            ..
         }) => {
             assert_eq!(from.name, "Review");
             assert_eq!(to.name, "Draft");

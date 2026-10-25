@@ -31,10 +31,8 @@ stdio). Each is described below.
   `kairos keys create` or on the Agent keys page and puts it in `KAIROS_MCP_KEY`, with the
   deployment URL in `KAIROS_URL`, for the `kairos` server of the plugin (below); the key acts as that person
   (KAIROS-A-0024). Do not share a service-account key for Claude Code. That server lists
-  the work profile of the MCP tools; the administration tools (teams, boards, grants,
-  dispatch rule writes, team page writes) need a second server at `$KAIROS_URL/mcp?profile=admin`,
-  which the plugin does not ship: the user adds it (`onboard-team` gives the recipe; see the
-  Profiles section of the MCP tools reference).
+  the work profile of the MCP tools; for the administration tools, see "The admin tools"
+  below.
 - `workflow/` — `grill-initiative` (an interview that writes each settled answer into the
   initiative or strategy at once, and never moves it), `to-initiative`, `decompose`,
   `grill-decomposition` (reviews the open tasks of an initiative as a set before a Ralph loop),
@@ -313,10 +311,35 @@ deployments in one Claude Code, with no `.mcp.json` and no direnv. The credentia
 `kairos login`, which the proxy refreshes. An OAuth deployment therefore works through the plugin
 server after `kairos login`; a user-scope entry (`claude mcp add --scope user`) still works,
 but then disable one of the two servers so the session does not have the tools twice.
+When the deployment is unavailable (502, 503 or 504, a timeout, or a reset, for example
+during an upgrade), the proxy gives a plain error with `retryable: true` in its data. The
+proxy sends a read again two times. It does not send a write again: read the item to see if
+the write was applied before you retry it. `KAIROS_TIMEOUT` sets the request timeout in
+seconds (default 60).
 With an older `kairos`, or none on PATH, `bin/kairos-mcp` is an MCP server with no tools whose
 instructions say why, as `bin/kairos-code` does. Before #270 the server was HTTP at
 `${KAIROS_URL}/mcp`, and `/mcp` showed it as failed when `KAIROS_URL` was not set.
 The hooks match the tools of both names (`mcp__kairos__*` and `mcp__plugin_kairos_kairos__*`).
+
+### The admin tools
+
+The `kairos` server of the plugin lists the work profile of the MCP tools. The administration
+tools (teams, boards, columns and transitions, grants, metadata, dispatch rule writes, team page
+writes, org read tokens, purge) are in the admin profile, `/mcp?profile=admin`. Claude Code calls
+only the tools that a server lists. To get the admin tools, add a second proxy with the admin
+profile, one time for each user, then start a new session:
+
+```sh
+claude mcp add --scope user kairos-admin -- kairos mcp-proxy --profile admin
+```
+
+It uses the same deployment and credential as the plugin server: `kairos login`, or an agent key
+in `KAIROS_KEY` or `KAIROS_MCP_KEY`. Its tools are `mcp__kairos-admin__*`. `--profile all` lists
+each tool. The plugin does not ship this server, so a session that does no administration does
+not get the text of the admin tools. To remove it: `claude mcp remove --scope user kairos-admin`.
+Without the server, the CLI does the same work with the same login (`kairos teams create`,
+`kairos boards`, `kairos teams members`, `kairos teams pages`). The skill `onboard-team`
+(user-invoked: only the user can start it, with `/kairos:onboard-team`) uses these tools.
 
 ## The connection belongs to the user
 

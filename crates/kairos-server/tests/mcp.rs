@@ -566,7 +566,11 @@ async fn mcp_endpoint_against_live_stack() {
          the administration tools: teams, boards, grants, metadata, dispatch rule writes, \
          team page writes, org read tokens, purge. `/mcp?profile=all` lists each tool. The \
          server runs a call to a tool that the profile does not list. A client such as \
-         Claude Code calls only the listed tools."
+         Claude Code calls only the listed tools. With the Claude Code plugin, the user \
+         gets the admin tools with one command: `claude mcp add --scope user kairos-admin \
+         -- kairos mcp-proxy --profile admin`, then a new session; the CLI is the fallback \
+         (`kairos teams create`). Do not add an MCP server yourself: tell the user. The \
+         plugin skill `/kairos:onboard-team` sets up a team; only the user can start it."
     );
 
     // --- KAIROS-T-0392: stateless — no handshake, a stale session id -------
@@ -1170,6 +1174,20 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(text.contains("VALIDATION"), "{text}");
     assert!(text.contains("The text of search is not in"), "{text}");
+    assert!(!text.contains("whitespace"), "{text}");
+    // KAIROS-T-0684: a search that differs only in whitespace gets the
+    // exact text of the item.
+    let text = session
+        .call_err(
+            "edit_item",
+            json!({"short_code": task_code, "search": "drifts  under\nload", "replace": "x"}),
+        )
+        .await;
+    assert!(
+        text.contains("A text that differs only in whitespace is in the content one time.")
+            && text.contains("Send this exact text as search: \"drifts under load\"."),
+        "{text}"
+    );
 
     let text = session
         .call_ok(
@@ -2686,10 +2704,23 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"q": "cache", "filter": {"board_slug": "platform-delivery"}}),
         )
         .await;
+    // KAIROS-T-0674: the refusal names the object and gives its fields.
     assert!(
         text.starts_with(
-            "VALIDATION: The call has the argument \"board_slug\". This tool does not accept \
-             that argument. The arguments of this tool are: entity_type, board_id, "
+            "VALIDATION: The call has the field \"board_slug\" in filter. The object filter \
+             does not accept that field. The fields of filter are: entity_type, board_id, "
+        ),
+        "{text}"
+    );
+    // KAIROS-T-0674: a string where the tool must have a list names the
+    // path, the type, and the list to send.
+    let text = session
+        .call_err("search", json!({"filter": {"entity_type": "document"}}))
+        .await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The value of filter.entity_type must be a list of strings. The call \
+             gives a string. For example: [\"document\"]."
         ),
         "{text}"
     );
@@ -2736,6 +2767,62 @@ async fn mcp_endpoint_against_live_stack() {
         .call_ok("get_item", json!({"short_code": movable}))
         .await;
     assert!(text.contains("board: web-delivery"), "{text}");
+    // KAIROS-T-0673: the aliases that agents guess are the arguments.
+    let text = session.call_ok("get_item", json!({"id": movable})).await;
+    assert!(text.contains("board: web-delivery"), "{text}");
+    session
+        .call_ok(
+            "append_note",
+            json!({"code": movable, "note": "A note by its alias."}),
+        )
+        .await;
+    let text = session.call_ok("get_item", json!({"item": movable})).await;
+    assert!(text.contains("A note by its alias."), "{text}");
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({"item_type": "task", "title": "Body by alias", "board": "platform-delivery",
+                   "body": "The body by its alias."}),
+        )
+        .await;
+    let aliased = extract_code(&text, "ACME-T-");
+    let text = session
+        .call_ok("get_item", json!({"short_code": aliased}))
+        .await;
+    assert!(text.contains("The body by its alias."), "{text}");
+    let text = session
+        .call_ok("transition_item", json!({"item": aliased, "to": "Todo"}))
+        .await;
+    assert!(text.contains("-> Todo"), "{text}");
+    session
+        .call_ok(
+            "link_items",
+            json!({"from": aliased, "to": movable, "relation": "blocks"}),
+        )
+        .await;
+    let text = session
+        .call_ok("get_item", json!({"short_code": movable}))
+        .await;
+    assert!(text.contains(&aliased), "{text}");
+    let text = session
+        .call_ok("search", json!({"query": "Body by alias"}))
+        .await;
+    assert!(text.contains(&aliased), "{text}");
+    // An argument and its alias in one call are refused, and a guess that
+    // is not an alias gets a hint.
+    let text = session
+        .call_err("get_item", json!({"short_code": movable, "id": movable}))
+        .await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call has the argument \"short_code\" and the argument \"id\"."
+        ),
+        "{text}"
+    );
+    let text = session
+        .call_err("append_note", json!({"short_code": movable, "state": "x"}))
+        .await;
+    assert!(text.contains("Use the argument \"text\"."), "{text}");
     // COLLIERY-T-0219: the open tasks of the repository, before web links
     // a task to it.
     let open_tasks = |text: &str| -> i64 {
@@ -3477,6 +3564,8 @@ async fn repository_tools_against_live_stack() {
             "forge",
             "repo_full_name",
             "repo_url",
+            // KAIROS-T-0681: a retry of the add is safe with a key.
+            "request_key",
             "slug",
             "team"
         ]
@@ -3844,7 +3933,7 @@ async fn repository_tools_against_live_stack() {
         text.starts_with(
             "VALIDATION: The call has the argument \"owner\". This tool does not accept \
              that argument. The arguments of this tool are: slug, forge, repo_full_name, \
-             repo_url, default_branch, team, description.\ndetails: "
+             repo_url, default_branch, team, description, request_key.\ndetails: "
         ),
         "{text}"
     );

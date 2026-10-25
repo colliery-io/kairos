@@ -185,7 +185,7 @@
   },
   "crates/kairos-server/src/mcp/tools.rs": {
     "LIB": 0,
-    "FIELD": 41
+    "FIELD": 40
   },
   "crates/kairos-server/src/middleware/auth.rs": {
     "LIB": 1,

@@ -113,7 +113,7 @@ impl<S: Send + Sync> FromRequestParts<S> for IdempotencyKey {
 }
 
 fn invalid(message: &str) -> ApiError {
-    ApiError::validation(message).with_details(json!({"header": HEADER}))
+    ApiError::validation(message).with_details(json!({"field": HEADER, "header": HEADER}))
 }
 
 /// A keyed request: the key and the fingerprint of its arguments.

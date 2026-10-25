@@ -789,6 +789,82 @@ fn references_in_file(world: &mut CliWorld, name: String, file: String) {
     world.call("references", json!({"symbol": name, "file": file}));
 }
 
+// KAIROS-T-0703: the places that cite an ADR.
+
+#[given(expr = "an index of the polyglot fixture, where 2 files cite {string}")]
+fn an_index_with_citations(world: &mut CliWorld, code: String) {
+    world.copy_fixture();
+    fs::write(world.root().join("src/main.rs"), MAIN_RS).expect("write src/main.rs");
+    fs::write(
+        world.root().join("src/decisions.rs"),
+        format!(
+            "/// A retried write is safe: {code}.\n\
+             pub fn retry_write() -> u32 {{\n\
+             \x20   // The key is kept for 24 hours ({code}).\n\
+             \x20   24\n\
+             }}\n"
+        ),
+    )
+    .expect("write src/decisions.rs");
+    fs::write(
+        world.root().join("migrations/002_keys.sql"),
+        format!(
+            "-- {code}: one row for each caller and key.\nCREATE TABLE request_keys (key TEXT);\n"
+        ),
+    )
+    .expect("write the migration");
+    world.build_index();
+}
+
+#[when(expr = "an agent calls references for {string}")]
+fn references_of(world: &mut CliWorld, name: String) {
+    world.call("references", json!({"symbol": name}));
+}
+
+#[then(
+    expr = "the result has the {int} places that cite {string} by file, each with its line, its context and its symbol"
+)]
+fn the_citing_places(world: &mut CliWorld, count: usize, code: String) {
+    let text = world.text();
+    assert!(
+        text.starts_with(&format!(
+            "{count} places cite {code} in 2 files: 1 doc, 2 comment."
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains("\nmigrations/002_keys.sql:\n- line 1: comment, at the top of the file"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\nsrc/decisions.rs:\n- line 1: doc, about retry_write\n- line 3: comment, about retry_write"),
+        "{text}"
+    );
+}
+
+#[then("the call is refused, because an ADR short code takes no file")]
+fn refused_for_a_code(world: &mut CliWorld) {
+    let result = world.result();
+    assert!(result.is_error, "the call was not refused: {}", result.text);
+    assert!(result.text.starts_with("VALIDATION: "), "{}", result.text);
+    assert!(
+        result.text.contains("an ADR short code takes no `file`"),
+        "{}",
+        result.text
+    );
+}
+
+#[then(expr = "the result says that no place cites {string}")]
+fn no_place_cites(world: &mut CliWorld, code: String) {
+    let text = world.text();
+    assert!(
+        text.starts_with(&format!(
+            "No place in the code of this checkout cites {code}."
+        )),
+        "{text}"
+    );
+}
+
 #[when("an agent calls references with an argument that the tool does not have")]
 fn references_with_unknown_argument(world: &mut CliWorld) {
     world.call("references", json!({"symbol": "Queue", "verbose": true}));

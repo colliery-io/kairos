@@ -610,6 +610,7 @@ pub(crate) async fn upload_code_index(
                     summary_keys: keys.len() as i32,
                     vector_model: split.vector_model,
                     created_by: Some(user),
+                    citations: crate::code_index::cited_codes(&split.citations),
                 },
                 &pool,
                 &keys,

@@ -1361,7 +1361,42 @@ symbol as `symbol` does.
 - `limit` is the most uses to show, from 1 to 1000. The default is 100.
 
 The uses are part of the index since schema version 7. Kairos refuses an
-index of an earlier version. Run `kairos index --full`, or take a new base
+index of an earlier version.
+
+### The code tools: the places that cite an ADR
+
+The index records each ADR short code in a comment, a doc string or the
+name of a test. Give an ADR short code to the tool `references` as `symbol`
+(for example `KAIROS-A-0065`). The result gives each place that cites the
+ADR, by file, with its line, its context and its symbol.
+`kairos index references KAIROS-A-0065` gives the same text.
+
+- An ADR short code is a board prefix, `-A-` and a number of 4 digits or
+  more. A code that is part of a longer word is not a citation.
+- The context `doc` is a doc comment or a Python doc string. In Rust, a doc
+  comment is `///`, `//!`, `/** */` or `/*! */`. In TypeScript and
+  JavaScript, it is a `/**` comment. In Go, it is a comment on the line
+  above a declaration.
+- The context `comment` is each other comment. In SQL, a comment is `--`
+  or `/* */`. In Terraform, it is `#`, `//` or `/* */`.
+- The context `test` is the name of a test in snake case:
+  `retry_is_safe_kairos_a_0065` cites `KAIROS-A-0065`.
+- A code in a string that is not a doc string is not a citation.
+- The symbol of a citation is the smallest symbol that holds it. A doc
+  comment above an item has the item as its symbol. A citation outside
+  each symbol is at the top of the file.
+- With an ADR short code, the tool takes no `file`, `line` or `possible`.
+  It refuses them.
+
+`get_repository` lists the ADRs that the code cites, in the section "ADRs
+that the code cites". The list comes from the newest code index of the
+default branch. Each line has the ADR, its column, and the count of its
+places and of its files. For a code that no ADR of the organization has,
+the line says so.
+
+The citations are part of the index since schema version 8. A base index
+of an earlier version has no citations: the next build of the repository
+reads them. Run `kairos index --full` to build a local index again. Run `kairos index --full`, or take a new base
 index from Kairos. A CLI refuses an index of a later version: the index comes
 from a newer server or CLI. Run `kairos self-update`, or run `kairos index
 --full` with this CLI.

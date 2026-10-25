@@ -15,6 +15,8 @@
 //! - [`Index::references`]: each use of a symbol: the SCIP uses of a Rust
 //!   symbol (a type, a field, an import, a call), and the calls by name of
 //!   the other languages (KAIROS-T-0419).
+//! - [`Index::adr_citations`]: each place that cites an ADR, and
+//!   [`Index::cited_adrs`]: each ADR that the code cites (KAIROS-T-0703).
 //! - [`Index::paths`]: the 3 shortest chains of `certain` calls from one
 //!   symbol to another, with other steps (COLLIERY-T-2531).
 //! - [`Index::module_map`]: the folders of source files with their
@@ -25,6 +27,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use kairos_embed::EmbeddingProvider;
 use rusqlite::{OptionalExtension, Row, params};
 
+use crate::citations::CitedAdr;
 use crate::summary::model_name;
 use crate::{Index, IndexError, SUMMARIZED_KINDS};
 
@@ -179,6 +182,20 @@ pub enum Coverage {
     /// The calls only: the language has no SCIP run, or the index has no
     /// SCIP data for it.
     CallsOnly,
+}
+
+/// One place that cites an ADR (KAIROS-T-0703).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdrCitation {
+    pub file: String,
+    /// From 1.
+    pub line: u32,
+    /// From 1, in characters.
+    pub col: u32,
+    /// `comment`, `doc` or `test`.
+    pub context: String,
+    /// The symbol that the citation is about. `None` at the top of a file.
+    pub symbol: Option<SymbolInfo>,
 }
 
 /// What `references` gives.
@@ -894,6 +911,40 @@ impl Index {
             uses,
             coverage,
         })
+    }
+
+    /// The places that cite the ADR `code` (KAIROS-T-0703), by file, line
+    /// and column. The code is compared as it is written: `KAIROS-A-0065`.
+    pub fn adr_citations(&self, code: &str) -> Result<Vec<AdrCitation>, IndexError> {
+        let enclosing_columns = SYMBOL_COLUMNS.replace("f.path", "sf.path");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT f.path, c.line, c.col, c.context, {enclosing_columns}
+             FROM adr_citations c JOIN files f ON f.id = c.file_id
+             LEFT JOIN symbols s ON s.id = c.symbol_id
+             LEFT JOIN files sf ON sf.id = s.file_id
+             LEFT JOIN summaries m ON m.key = s.summary_key
+             WHERE c.code = ?1
+             ORDER BY f.path, c.line, c.col"
+        ))?;
+        let rows = stmt.query_map([code], |r| {
+            Ok(AdrCitation {
+                file: r.get(0)?,
+                line: r.get(1)?,
+                col: r.get(2)?,
+                context: r.get(3)?,
+                symbol: match r.get::<_, Option<i64>>(4)? {
+                    Some(_) => Some(symbol_info(r, 4)?),
+                    None => None,
+                },
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Each ADR that the code cites (KAIROS-T-0703), with the count of its
+    /// places and of its files, by code.
+    pub fn cited_adrs(&self) -> Result<Vec<CitedAdr>, IndexError> {
+        crate::citations::cited(&self.conn)
     }
 
     /// The shortest chains of `certain` calls from the symbol `from` to the

@@ -49,6 +49,7 @@ pub fn extract(content: &str, test_file: bool) -> FileExtract {
     }
     FileExtract {
         symbols,
+        citations: crate::citations::in_sql(content),
         ..FileExtract::default()
     }
 }
@@ -129,7 +130,7 @@ fn statement(content: &str, start: usize, end: usize) -> Statement<'_> {
 }
 
 /// A dollar quote at the start of `rest`: `$$` or `$tag$`.
-fn dollar_tag(rest: &str) -> Option<String> {
+pub(crate) fn dollar_tag(rest: &str) -> Option<String> {
     if !rest.starts_with('$') {
         return None;
     }

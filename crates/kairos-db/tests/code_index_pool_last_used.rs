@@ -133,6 +133,7 @@ fn the_pool_records_which_rows_an_index_used() {
             summary_keys: 1,
             vector_model: Some("det/m/1".into()),
             created_by: None,
+            citations: Vec::new(),
         },
         &[row],
         &["a".to_string()],

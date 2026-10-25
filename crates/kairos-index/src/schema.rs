@@ -2,7 +2,7 @@
 //! index").
 //!
 //! - The structure: `files`, `symbols`, `edges`, `edge_candidates`,
-//!   `scip_covered`, `refs` and `refs_files`. A build deletes and writes it again.
+//!   `scip_covered`, `refs`, `refs_files` and `adr_citations`. A build deletes and writes it again.
 //! - The summary pool: `summaries` and `pool_meta`. A build of the structure
 //!   keeps it. `symbols.summary_key`, `files.summary_key` and `modules` link
 //!   the structure to the pool; the summarizer writes them (COLLIERY-T-1850).
@@ -31,6 +31,10 @@
 //! that have SCIP uses. Also `symbol_text` (KAIROS-T-0423), the FTS5 table of
 //! the text rank of the search (see `text`).
 //!
+//! Version 8 (KAIROS-T-0703): `adr_citations`, each ADR short code in a
+//! comment, a doc string or the name of a test, with its place and its
+//! symbol.
+//!
 //! An index of an earlier version is refused.
 //!
 //! `PRAGMA user_version` holds the schema version.
@@ -40,7 +44,7 @@ use rusqlite::Connection;
 use crate::IndexError;
 
 /// The schema version that this code writes and reads.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 const SCHEMA: &str = r#"
 -- One row for each file of the tree, with the decision of the file rules.
@@ -148,6 +152,21 @@ CREATE TABLE refs_files (
     file_id INTEGER PRIMARY KEY REFERENCES files (id) ON DELETE CASCADE,
     pending INTEGER NOT NULL CHECK (pending IN (0, 1))
 ) STRICT;
+
+-- The ADR citations of the code (KAIROS-T-0703): each ADR short code in a
+-- comment, a doc string or the name of a test (see citations). symbol_id:
+-- the smallest symbol that holds the citation, or the item that a doc
+-- comment documents. NULL at the top of a file.
+CREATE TABLE adr_citations (
+    id        INTEGER PRIMARY KEY,
+    file_id   INTEGER NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+    code      TEXT    NOT NULL,             -- as KAIROS-A-0065
+    symbol_id INTEGER REFERENCES symbols (id) ON DELETE CASCADE,
+    line      INTEGER NOT NULL,             -- from 1
+    col       INTEGER NOT NULL,             -- from 1, in characters
+    context   TEXT    NOT NULL CHECK (context IN ('comment', 'doc', 'test'))
+) STRICT;
+CREATE INDEX adr_citations_code ON adr_citations (code);
 
 -- The summary pool (COLLIERY-T-1850). The key is a hash of what made the
 -- summary: the tree hash and the callee signatures of a symbol, the path and

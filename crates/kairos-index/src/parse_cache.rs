@@ -25,13 +25,14 @@ use sha2::{Digest, Sha256};
 
 use crate::IndexError;
 use crate::calls::{CallSite, Import};
+use crate::citations::Citation;
 use crate::extract::{self, Extracted, FileExtract};
 use crate::schema::SCHEMA_VERSION;
 
 /// Change this number when the parse of a file gives a different result
 /// with no change to the crate version, for example in a branch that changes
 /// the extraction.
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 
 /// The table of the cache. `CREATE ... IF NOT EXISTS`, because an index of
 /// the current schema version can be from before the cache.
@@ -77,6 +78,8 @@ struct Entry {
     package: Option<String>,
     #[serde(default)]
     imports: Vec<Import>,
+    /// The ADR citations (KAIROS-T-0703, version 5).
+    citations: Vec<Citation>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -121,6 +124,7 @@ pub(crate) fn encode(found: &FileExtract) -> Result<Vec<u8>, IndexError> {
         macro_ranges: found.macro_ranges.clone(),
         package: found.package.clone(),
         imports: found.imports.clone(),
+        citations: found.citations.clone(),
     };
     serde_json::to_vec(&entry).map_err(|e| IndexError::ParseCache(e.to_string()))
 }
@@ -165,6 +169,7 @@ pub(crate) fn decode(
         macro_ranges: entry.macro_ranges,
         package: entry.package,
         imports: entry.imports,
+        citations: entry.citations,
     })
 }
 

@@ -86,6 +86,18 @@ Feature: The CLI and the code tools
     When an agent calls references for "Report" in "python/polyglot/report.py"
     Then the result has the 2 calls, and it says that it has the calls only for python code
 
+  # KAIROS-T-0703: references takes an ADR short code, and gives each place
+  # that cites the ADR.
+  Scenario: references gives each place that cites an ADR
+    Given an index of the polyglot fixture, where 2 files cite "KAIROS-A-0065"
+    When an agent calls references for "KAIROS-A-0065"
+    Then the result has the 3 places that cite "KAIROS-A-0065" by file, each with its line, its context and its symbol
+    And "kairos index references KAIROS-A-0065" gives the same text
+    When an agent calls references for "KAIROS-A-0065" in "src/queue.rs"
+    Then the call is refused, because an ADR short code takes no file
+    When an agent calls references for "KAIROS-A-0999"
+    Then the result says that no place cites "KAIROS-A-0999"
+
   Scenario: An unknown argument of references is refused
     When an agent calls references with an argument that the tool does not have
     Then the call is refused, and the error names the argument

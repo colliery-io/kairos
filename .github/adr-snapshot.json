@@ -1,4 +1,478 @@
 {
   "kairos_adr_snapshot": 1,
-  "adrs": []
+  "adrs": [
+    {
+      "code": "KAIROS-A-0001",
+      "found": true,
+      "current_code": "KAIROS-A-0001",
+      "title": "Relational Data Model with Graph-Based Relationships",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0002",
+      "found": true,
+      "current_code": "KAIROS-A-0002",
+      "title": "Configurable Board Columns and Transitions",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0003",
+      "found": true,
+      "current_code": "KAIROS-A-0003",
+      "title": "Template System with Reusable Typed Metadata",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0004",
+      "found": true,
+      "current_code": "KAIROS-A-0004",
+      "title": "Content Versioning with Optimistic Concurrency",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0005",
+      "found": true,
+      "current_code": "KAIROS-A-0005",
+      "title": "API Design - Resource-Oriented with Graph Query",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0006",
+      "found": true,
+      "current_code": "KAIROS-A-0006",
+      "title": "ABAC Authorization - Board-Scoped Capabilities with Whitelist",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0007",
+      "found": true,
+      "current_code": "KAIROS-A-0007",
+      "title": "Unified Search Endpoint with Composable Query",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0009",
+      "found": true,
+      "current_code": "KAIROS-A-0009",
+      "title": "Rust Implementation Stack - Axum + Diesel",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0010",
+      "found": true,
+      "current_code": "KAIROS-A-0010",
+      "title": "OIDC Authentication Integration - Keycloak",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0011",
+      "found": true,
+      "current_code": "KAIROS-A-0011",
+      "title": "Kairos MCP Server - Remote HTTP on the API Service",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0012",
+      "found": true,
+      "current_code": "KAIROS-A-0012",
+      "title": "Testing and Verification Strategy",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0013",
+      "found": true,
+      "current_code": "KAIROS-A-0013",
+      "title": "Deployment and Operations Baseline",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0014",
+      "found": true,
+      "current_code": "KAIROS-A-0014",
+      "title": "Skills Plugin Architecture",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0015",
+      "found": true,
+      "current_code": "KAIROS-A-0015",
+      "title": "V1 Client Architecture - CLI and Leptos GUI",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0016",
+      "found": true,
+      "current_code": "KAIROS-A-0016",
+      "title": "Identity as an External Concern - BYO OIDC plus SCIM Provisioning",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0017",
+      "found": true,
+      "current_code": "KAIROS-A-0017",
+      "title": "Service-account principals with native API keys",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0018",
+      "found": true,
+      "current_code": "KAIROS-A-0018",
+      "title": "Two Status Vocabularies - Board Position for Work, Editorial Lifecycle for Documents",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0019",
+      "found": true,
+      "current_code": "KAIROS-A-0019",
+      "title": "Repositories as First-Class Execution Scope - Tickets Issued and Executed per Repo, Planned per Board",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0020",
+      "found": true,
+      "current_code": "KAIROS-A-0020",
+      "title": "Archived means hidden by default, not gone",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0021",
+      "found": true,
+      "current_code": "KAIROS-A-0021",
+      "title": "Semantic retrieval for agents: local embeddings, pgvector, and proposals rather than assertions",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0024",
+      "found": true,
+      "current_code": "KAIROS-A-0024",
+      "title": "Each person has an agent key of their own, so a change made by an agent names the person who is responsible",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0025",
+      "found": true,
+      "current_code": "KAIROS-A-0025",
+      "title": "People, not teams, work strategies and initiatives: board membership gives edit and move, one owner per item as a claim",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0026",
+      "found": true,
+      "current_code": "KAIROS-A-0026",
+      "title": "A strategy or initiative board has a team, as a delivery board does",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0027",
+      "found": true,
+      "current_code": "KAIROS-A-0027",
+      "title": "Code index builds run in a separate worker process, not in the API server",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0028",
+      "found": true,
+      "current_code": "KAIROS-A-0028",
+      "title": "Forge webhooks create support items from opened issues",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0029",
+      "found": true,
+      "current_code": "KAIROS-A-0029",
+      "title": "The task state is written as a patch, and a change of the claim clears the next step",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0030",
+      "found": true,
+      "current_code": "KAIROS-A-0030",
+      "title": "A free task in a claims column is taken by a claim, not only by a move",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0031",
+      "found": true,
+      "current_code": "KAIROS-A-0031",
+      "title": "The exit codes of the CLI: 0, 1, 2, 3 and 64, and an error as the API envelope with --json",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0032",
+      "found": true,
+      "current_code": "KAIROS-A-0032",
+      "title": "The claim of a task is the fourth fact of the edit rule, for an edit and not for an archive",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0034",
+      "found": true,
+      "current_code": "KAIROS-A-0034",
+      "title": "A Blocked column keeps the claim of a task and gives none",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0037",
+      "found": true,
+      "current_code": "KAIROS-A-0037",
+      "title": "A claim goes only to a person who can move the task",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0038",
+      "found": true,
+      "current_code": "KAIROS-A-0038",
+      "title": "A cancelled blocker is unresolved, not done",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0040",
+      "found": true,
+      "current_code": "KAIROS-A-0040",
+      "title": "A task moves to Active only while its initiative is active, by a board policy",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0042",
+      "found": true,
+      "current_code": "KAIROS-A-0042",
+      "title": "An initiative moves to Active only with an owner, by a board policy, and starts in Discovery",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0045",
+      "found": true,
+      "current_code": "KAIROS-A-0045",
+      "title": "A request timeout on /api and /mcp, and one JWKS fetch per minute",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0046",
+      "found": true,
+      "current_code": "KAIROS-A-0046",
+      "title": "The push policy: an agent pushes the feature branch of its task and opens a draft PR; a merge, a release and a tag need the user's go",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0048",
+      "found": true,
+      "current_code": "KAIROS-A-0048",
+      "title": "A done task comes back by a reopen, and a done task does not move to another board",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0049",
+      "found": true,
+      "current_code": "KAIROS-A-0049",
+      "title": "The precise event kinds come in addition to the coarse kinds, and an archive cascade sends one event for each item",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0052",
+      "found": true,
+      "current_code": "KAIROS-A-0052",
+      "title": "A purge needs an archived task and the capability purge, which membership does not imply",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0053",
+      "found": true,
+      "current_code": "KAIROS-A-0053",
+      "title": "A move of a task with open blockers warns, and the board policy blockers_gate refuses it",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0054",
+      "found": true,
+      "current_code": "KAIROS-A-0054",
+      "title": "Notes are rows of item_notes, not sections of the content",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0056",
+      "found": true,
+      "current_code": "KAIROS-A-0056",
+      "title": "A person other than the proposer decides an edge proposal, once (amends KAIROS-A-0021 rule 6)",
+      "status": "Draft",
+      "superseded_by": [
+        {
+          "code": "KAIROS-A-0060",
+          "title": "The approve_proposals grant decides who confirms or rejects an edge proposal (supersedes the decider rule of KAIROS-A-0056)"
+        }
+      ],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0057",
+      "found": true,
+      "current_code": "KAIROS-A-0057",
+      "title": "One JSON envelope for each CLI list: items, total, next_offset",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0058",
+      "found": true,
+      "current_code": "KAIROS-A-0058",
+      "title": "The CLI takes the checksum of a self-update from the published release, not from the server",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0060",
+      "found": true,
+      "current_code": "KAIROS-A-0060",
+      "title": "The approve_proposals grant decides who confirms or rejects an edge proposal (supersedes the decider rule of KAIROS-A-0056)",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0062",
+      "found": true,
+      "current_code": "KAIROS-A-0062",
+      "title": "A migration takes no long lock on a large table: NOT VALID then VALIDATE, CONCURRENTLY outside a transaction, a lock timeout",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0063",
+      "found": true,
+      "current_code": "KAIROS-A-0063",
+      "title": "An agent key has a scope; a new key gets each capability but purge and manage_structure; an old key keeps no limit",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0065",
+      "found": true,
+      "current_code": "KAIROS-A-0065",
+      "title": "A request_key makes a retried MCP write safe: one row per caller and key for 24 hours, written in the transaction of the write",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0066",
+      "found": true,
+      "current_code": "KAIROS-A-0066",
+      "title": "A move of an initiative takes its owner only when the caller asks with claim: true",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0067",
+      "found": true,
+      "current_code": "KAIROS-A-0067",
+      "title": "An initiative can be cancelled as a task is, and its mark is kept with the marks of tasks",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0069",
+      "found": true,
+      "current_code": "KAIROS-A-0069",
+      "title": "An ADR that changes part of another ADR amends it; an ADR that replaces all of it supersedes it",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0070",
+      "found": true,
+      "current_code": "KAIROS-A-0070",
+      "title": "\"Revisit when\" and the commit at acceptance are system metadata of an ADR, and the ADR check flags a stale ADR",
+      "status": "Decided",
+      "superseded_by": [],
+      "amended_by": []
+    }
+  ]
 }

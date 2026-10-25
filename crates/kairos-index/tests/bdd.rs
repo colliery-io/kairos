@@ -4226,7 +4226,7 @@ const CITING_FILES: &[(&str, &str)] = &[
          /// A retried write is safe: KAIROS-A-0065.\n\
          pub fn retry_write() -> &'static str {\n\
          \x20   // The key is kept for 24 hours (KAIROS-A-0065, COLLIERY-A-0023).\n\
-         \x20   \"KAIROS-A-0999 is data, not a citation\"\n\
+         \x20   \"ACME-A-0999 is data, not a citation\"\n\
          }\n\
          \n\
          #[cfg(test)]\n\
@@ -4244,14 +4244,14 @@ const CITING_FILES: &[(&str, &str)] = &[
         "\"\"\"\nThe retry rules of KAIROS-A-0065.\n\"\"\"\n\n\
          def retry():\n\
          \x20   \"\"\"Retry a write, as KAIROS-A-0065 says.\"\"\"\n\
-         \x20   return \"KAIROS-A-0999\"\n",
+         \x20   return \"ACME-A-0999\"\n",
     ),
     (
         "web/src/retry.ts",
         "/**\n * Retry a write: KAIROS-A-0065.\n */\n\
          export function retryWrite(): string {\n\
          \x20 // KAIROS-A-0065: the key is kept.\n\
-         \x20 return \"KAIROS-A-0999\";\n\
+         \x20 return \"ACME-A-0999\";\n\
          }\n",
     ),
     (
@@ -4259,7 +4259,7 @@ const CITING_FILES: &[(&str, &str)] = &[
         "package greet\n\n\
          // Retry retries a write, as KAIROS-A-0065 says.\n\
          func Retry() string {\n\
-         \treturn \"KAIROS-A-0999\"\n\
+         \treturn \"ACME-A-0999\"\n\
          }\n",
     ),
     (
@@ -4272,7 +4272,7 @@ const CITING_FILES: &[(&str, &str)] = &[
     (
         "migrations/002_keys/up.sql",
         "-- KAIROS-A-0065: one row for each caller and key.\n\
-         CREATE TABLE request_keys (key TEXT NOT NULL, note TEXT DEFAULT 'KAIROS-A-0999');\n",
+         CREATE TABLE request_keys (key TEXT NOT NULL, note TEXT DEFAULT 'ACME-A-0999');\n",
     ),
 ];
 

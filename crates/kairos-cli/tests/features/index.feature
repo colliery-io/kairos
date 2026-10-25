@@ -95,8 +95,8 @@ Feature: The CLI and the code tools
     And "kairos index references KAIROS-A-0065" gives the same text
     When an agent calls references for "KAIROS-A-0065" in "src/queue.rs"
     Then the call is refused, because an ADR short code takes no file
-    When an agent calls references for "KAIROS-A-0999"
-    Then the result says that no place cites "KAIROS-A-0999"
+    When an agent calls references for "ACME-A-0999"
+    Then the result says that no place cites "ACME-A-0999"
 
   Scenario: An unknown argument of references is refused
     When an agent calls references with an argument that the tool does not have

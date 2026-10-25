@@ -21,7 +21,7 @@ Feature: The ADR citations of the code
       | web/src/retry.ts:5           | comment | retryWrite                     |
     And the code cites "KAIROS-A-0065" in 11 places and 6 files
     And the code cites "COLLIERY-A-0023" in 1 place and 1 file
-    But no place cites "KAIROS-A-0999", because a code in a string is not a citation
+    But no place cites "ACME-A-0999", because a code in a string is not a citation
 
   Scenario: An update reads the citations of a changed file again
     Given the polyglot fixture with ADR citations in each language

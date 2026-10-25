@@ -414,7 +414,7 @@ mod tests {
         assert!(codes_in("KAIROS-T-0065").is_empty());
         assert!(codes_in("kairos-A-0065").is_empty());
         assert!(codes_in("-A-0065").is_empty());
-        assert_eq!(codes_in("(KAIROS-A-12345)")[0].1, "KAIROS-A-12345");
+        assert_eq!(codes_in("(ACME-A-12345)")[0].1, "ACME-A-12345");
     }
 
     #[test]

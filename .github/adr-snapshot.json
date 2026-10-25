@@ -457,6 +457,15 @@
       "amended_by": []
     },
     {
+      "code": "KAIROS-A-0068",
+      "found": true,
+      "current_code": "KAIROS-A-0068",
+      "title": "The count of MCP refusals is a tenant table tool_refusals, kept 90 days",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
+    },
+    {
       "code": "KAIROS-A-0069",
       "found": true,
       "current_code": "KAIROS-A-0069",

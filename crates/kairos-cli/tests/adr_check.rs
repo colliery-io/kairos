@@ -117,6 +117,15 @@ impl Stub {
     fn hits(&self) -> usize {
         self.log.lock().unwrap().len()
     }
+
+    fn graph_hits(&self) -> usize {
+        self.log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|path| path.contains("/graph"))
+            .count()
+    }
 }
 
 /// A temp folder with a checkout and a config folder.
@@ -287,7 +296,7 @@ fn a_saved_snapshot_gives_the_same_report_with_no_deployment() {
     );
     assert_eq!(online.status.code(), Some(1));
     let hits = stub.hits();
-    assert_eq!(hits, 5, "one read for each ADR");
+    assert_eq!(stub.graph_hits(), 5, "one graph read for each ADR");
 
     let offline = sandbox.run(&["adrs", "check", "--json", "--snapshot", snapshot], &[]);
     assert_eq!(offline.status.code(), Some(1), "{}", stderr(&offline));
@@ -353,4 +362,103 @@ fn a_refused_key_exits_2_and_a_missing_path_exits_1() {
         "{}",
         stderr(&output)
     );
+}
+
+/// The metadata of an ADR (KAIROS-A-0070) on the stub.
+fn metadata(stub: &Stub, code: &str, values: &[(&str, &str)]) {
+    let values: Vec<Value> = values
+        .iter()
+        .map(|(slug, value)| {
+            json!({"definition_id": "d", "slug": slug, "name": slug, "field_type": "string",
+                   "value": value})
+        })
+        .collect();
+    stub.route(
+        &format!("/api/adrs/{code}/metadata"),
+        200,
+        json!({"short_code": code, "values": values}),
+    );
+}
+
+fn git(dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "-c",
+            "user.name=Robin",
+            "-c",
+            "user.email=robin@example.com",
+        ])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// KAIROS-T-0705: an ADR whose citing files changed much since its
+/// accepted_commit, or whose revisit date has passed, gets a warning.
+#[test]
+fn a_stale_adr_and_a_passed_revisit_date_give_warnings() {
+    let sandbox = Sandbox::new();
+    let stub = Stub::start();
+    let repo = sandbox.repo();
+    git(&repo, &["init", "-q"]);
+    sandbox.write(
+        "src/refund.rs",
+        "// ACME-A-0001: refunds.\nfn refund() {}\n",
+    );
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "one"]);
+    let commit = git(&repo, &["rev-parse", "--short", "HEAD"]);
+    let body: String = (0..60).map(|n| format!("fn f{n}() {{}}\n")).collect();
+    sandbox.write(
+        "src/refund.rs",
+        &format!("// ACME-A-0001: refunds.\n{body}"),
+    );
+    stub.adr("ACME-A-0001", "ACME-A-0001", "Decided", false, &[]);
+    metadata(
+        &stub,
+        "ACME-A-0001",
+        &[
+            ("accepted_commit", &commit),
+            ("revisit_on", "2020-01-01"),
+            ("revisit_when", "a second forge"),
+        ],
+    );
+
+    let output = sandbox.run_stub(&stub, &["adrs", "check"]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "warnings exit 0: {}",
+        stderr(&output)
+    );
+    let text = stdout(&output);
+    assert!(
+        text.contains("src/refund.rs:1: ACME-A-0001 warn: The revisit date 2020-01-01"),
+        "{text}"
+    );
+    assert!(text.contains("Revisit when: a second forge"), "{text}");
+    assert!(
+        text.contains(&format!("changed by 61 lines since the commit {commit}")),
+        "{text}"
+    );
+
+    let output = sandbox.run_stub(&stub, &["adrs", "check", "--json", "--stale-lines", "100"]);
+    let report = json_of(&output);
+    let reasons: Vec<&str> = report["citations"][0]["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["reason"].as_str().unwrap())
+        .collect();
+    assert_eq!(reasons, vec!["revisit_due"]);
+    assert_eq!(report["adrs"][0]["accepted_commit"], json!(commit));
+    assert_eq!(report["adrs"][0]["revisit_when"], "a second forge");
 }

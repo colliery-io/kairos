@@ -152,7 +152,13 @@ ON CONFLICT (board_level) DO NOTHING;
 INSERT INTO public.system_metadata_definitions (name, slug, field_type) VALUES
     ('Priority', 'priority', 'enum'),
     ('Complexity', 'complexity', 'enum'),
-    ('Document Type', 'document_type', 'enum')
+    ('Document Type', 'document_type', 'enum'),
+    -- KAIROS-T-0705, KAIROS-A-0070: when to look at an ADR again, and the
+    -- main commit when it was accepted. The tenant migration
+    -- `adr_revisit_metadata` adds them to the tenants that exist.
+    ('Revisit when', 'revisit_when', 'string'),
+    ('Revisit on', 'revisit_on', 'date'),
+    ('Accepted commit', 'accepted_commit', 'string')
 ON CONFLICT (slug) DO NOTHING;
 
 -- KAIROS-T-0078 entity-type scopes: no rows = applies to all types.
@@ -167,7 +173,10 @@ FROM (VALUES
     ('complexity', 'strategy'),
     ('complexity', 'task'),
     ('complexity', 'document'),
-    ('complexity', 'adr')
+    ('complexity', 'adr'),
+    ('revisit_when', 'adr'),
+    ('revisit_on', 'adr'),
+    ('accepted_commit', 'adr')
 ) AS s(slug, entity_type)
 JOIN public.system_metadata_definitions d ON d.slug = s.slug
 ON CONFLICT DO NOTHING;
@@ -396,11 +405,24 @@ pub fn provision_tenant_from(
                 .get_result(conn)?;
             count as usize
         };
-        let metadata_definitions_copied = sql_query(
+        // KAIROS-T-0705: the tenant migration `adr_revisit_metadata` makes
+        // three system definitions, and it runs before this copy. The copy
+        // skips them, and the count is the count of the system definitions
+        // that the tenant has.
+        sql_query(
             "INSERT INTO metadata_definitions (name, slug, field_type, is_system_default) \
-             SELECT name, slug, field_type, true FROM public.system_metadata_definitions",
+             SELECT name, slug, field_type, true FROM public.system_metadata_definitions \
+             ON CONFLICT (slug) DO NOTHING",
         )
         .execute(conn)?;
+        let metadata_definitions_copied = {
+            use crate::schema::metadata_definitions::dsl;
+            let count: i64 = dsl::metadata_definitions
+                .filter(dsl::is_system_default.eq(true))
+                .count()
+                .get_result(conn)?;
+            count as usize
+        };
         sql_query(
             "INSERT INTO metadata_enum_options (metadata_definition_id, value, position) \
              SELECT md.id, seo.value, seo.position \

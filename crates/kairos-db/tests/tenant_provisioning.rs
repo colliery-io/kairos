@@ -470,9 +470,10 @@ fn tenant_provisioning_lifecycle() {
         "A-0003 ships 6 system templates, and COLLIERY-T-0269 one"
     );
     assert_eq!(
-        report.metadata_definitions_copied, 3,
+        report.metadata_definitions_copied, 6,
         "A-0003 ships 3 system metadata definitions (KAIROS-T-0078 retired \
-         'Document status' — lifecycle is a documents column)"
+         'Document status' — lifecycle is a documents column), and \
+         KAIROS-A-0070 adds 3 for ADRs"
     );
 
     // Every S-0004 tenant table / view / sequence / index exists in org_acme.
@@ -797,7 +798,14 @@ fn tenant_provisioning_lifecycle() {
              WHERE is_system_default AND slug <> $1",
             "__none__",
         ),
-        ["complexity", "document_type", "priority"]
+        [
+            "accepted_commit",
+            "complexity",
+            "document_type",
+            "priority",
+            "revisit_on",
+            "revisit_when"
+        ]
     );
     // KAIROS-T-0078: entity-type scopes travel with the definitions —
     // document_type is documents-only, complexity excludes initiatives.
@@ -811,11 +819,14 @@ fn tenant_provisioning_lifecycle() {
             "__none__",
         ),
         [
+            "accepted_commit:adr",
             "complexity:adr",
             "complexity:document",
             "complexity:strategy",
             "complexity:task",
             "document_type:document",
+            "revisit_on:adr",
+            "revisit_when:adr",
         ]
     );
     assert_eq!(

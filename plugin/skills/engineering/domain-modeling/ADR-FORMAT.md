@@ -24,6 +24,16 @@ Only include these when they add genuine value. Most ADRs won't need them.
 
 Status lives in the system, not the content: the ADR's board column tracks its lifecycle, and revisiting a decision means creating a new ADR and `link_items` (`supersedes`) from the new one to the old — never rewriting the old one.
 
+## Revisit when, and the commit at acceptance
+
+Three metadata values of an ADR tell `kairos adrs check` when the decision needs a new look (KAIROS-A-0070). Set them with `set_metadata` on the ADR:
+
+- `accepted_commit`: the commit of the main branch when the ADR moves to Decided (`git rev-parse --short origin/main`). Set it at that move, each time. The check then flags the ADR when the files that cite it changed by many lines since that commit.
+- `revisit_when`: one sentence, when the decision rests on a fact that can change: "when a second forge is added", "when the tenant count passes 100". Skip it when nothing foreseeable would change the decision.
+- `revisit_on`: a date (YYYY-MM-DD), only when the fact has a date: a contract end, a deprecation, a trial period. From that day the check flags the ADR.
+
+A flag is a reason to read the ADR again, not to change it. If the decision still holds, set a new `accepted_commit` or `revisit_on`. If it does not, write a new ADR that supersedes it.
+
 ## When to offer an ADR
 
 All three of these must be true:

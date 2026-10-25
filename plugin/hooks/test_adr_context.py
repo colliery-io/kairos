@@ -197,6 +197,23 @@ class GivesTheAdrs(AdrContextCase):
         text = self.context(self.run_hook(self.payload(file_path="a.md")))
         self.assertIn("- OLD-A-0001 (now ACME-A-0009) [Decided]: Old ARCHIVED.", text)
 
+    def test_the_revisit_condition_is_shown(self):
+        self.write("r.md", "ACME-A-0001\n")
+        self.set_report(
+            {
+                "adrs": [
+                    state(
+                        "ACME-A-0001",
+                        "T",
+                        revisit_when="a second forge",
+                        revisit_on="2026-12-01",
+                    )
+                ]
+            }
+        )
+        text = self.context(self.run_hook(self.payload(file_path="r.md")))
+        self.assertIn("  Revisit when: a second forge (on 2026-12-01).", text)
+
     def test_a_long_list_is_cut(self):
         codes = [f"ACME-A-{n:04d}" for n in range(1, 16)]
         self.write("many.md", " ".join(codes))
@@ -284,8 +301,10 @@ class FailsOpen(AdrContextCase):
 class Pure(unittest.TestCase):
     def test_cited_codes_match_the_scanner_of_the_cli(self):
         self.assertEqual(
-            adr_context.cited_codes("KAIROS-A-0031, (ACME-A-0002) KAIROS-A-0031 K8S-A-0001"),
-            ["KAIROS-A-0031", "ACME-A-0002", "K8S-A-0001"],
+            adr_context.cited_codes(
+                "KAIROS-A-0031, (ACME-A-0002) KAIROS-A-0031 K8S-A-0001 K-A-0031"
+            ),
+            ["KAIROS-A-0031", "ACME-A-0002", "K8S-A-0001", "K-A-0031"],
         )
         for text in (
             "KAIROS-T-0031",
@@ -294,7 +313,7 @@ class Pure(unittest.TestCase):
             "KAIROS-A-0031x",
             "xKAIROS-A-0031",
             "_KAIROS-A-0031",
-            "K-A-0031",
+            "x-KAIROS-A-0031",
             "1KAIROS-A-0031",
             None,
         ):

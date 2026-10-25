@@ -1063,11 +1063,19 @@ kairos adrs check [PATH]... [OPTIONS]
 | `--prefix <PREFIX>` | string | all | Check only the codes with this prefix, for example `KAIROS`. More than one is allowed. |
 | `--snapshot <FILE>` | path | none | Read the states of the ADRs from this file, not from the deployment. |
 | `--save-snapshot <FILE>` | path | none | Write the states of the cited ADRs to this file, for a later `--snapshot`. |
+| `--stale-lines <N>` | integer | 50 | Flag an ADR when the files that cite it changed by this count of lines (added and removed) since its `accepted_commit`. |
 
 Finds each ADR short code (for example `KAIROS-A-0031`) in the files of the
 paths. Gives a finding for each citation. The walk skips the files that git
 ignores and the hidden folders. It also skips a file that is not UTF-8 or is
-larger than 2 MiB. A code is an upper-case prefix, `-A-`, and four digits or more.
+larger than 2 MiB.
+
+A code is an upper-case prefix, `-A-`, and four digits or more. A letter, a
+digit, `_` or `-` just before the code makes it part of a longer word. A
+letter, a digit or `_` just after the code does the same. The
+check reads each text of a file, also the strings and the prose. It does not
+read the snake-case names of tests (`retry_kairos_a_0065`), as the code index
+does.
 
 | Finding | Severity | Meaning |
 |---|---|---|
@@ -1077,16 +1085,25 @@ larger than 2 MiB. A code is an upper-case prefix, `-A-`, and four digits or mor
 | `superseded` | warn | An ADR supersedes the cited ADR. The finding names the successor. |
 | `ended_column` | warn | The ADR is in the column Superseded, Rejected or Deprecated, and no ADR supersedes it. |
 | `retired_code` | warn | The citation uses a retired code. The finding names the current code. |
+| `revisit_due` | warn | The `revisit_on` date of the ADR is today or earlier. The finding gives `revisit_when`. |
+| `stale_code` | warn | The files that cite the ADR changed by `--stale-lines` lines or more since its `accepted_commit`. The finding names each file with its count. |
 | `amended` | info | ADRs amend the cited ADR. The finding names them. |
+| `commit_unknown` | info | The checkout does not have the `accepted_commit` of the ADR, so the check cannot compare. |
 
 The text output gives one line for each finding, `FILE:LINE: CODE SEVERITY:
 MESSAGE`, and then the counts. A citation of a live ADR gives no line.
 
-The states come from the deployment: the CLI reads the item graph of each cited
-ADR once. With `--snapshot`, they come from a file that `--save-snapshot`
-wrote, and the command needs no deployment and no key. Use this in CI: CI must
-not have a key of a deployment. With no deployment and no `--snapshot`, the
-CLI skips the check: it says so on stderr and exits with 0.
+The states come from the deployment. The CLI reads the item graph of each cited
+ADR once. It also reads the metadata of each live ADR: `revisit_when`,
+`revisit_on` and `accepted_commit` (KAIROS-A-0070).
+
+With `--snapshot`, the states come from a file that `--save-snapshot` wrote.
+Then the command needs no deployment and no key. Use this in CI: CI must not
+have a key of a deployment. With no deployment and no `--snapshot`, the CLI
+skips the check: it says so on stderr and exits with 0.
+
+For `stale_code`, the CLI runs `git diff --numstat <accepted_commit> -- <file>`
+in the folder of each citing file. The diff is local, also with `--snapshot`.
 
 The exit code is 0 when no citation fails, also with warnings or a skipped
 check. It is 1 when a citation fails, and 2 for an error of the login. With

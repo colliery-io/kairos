@@ -44,9 +44,11 @@ import index_update  # noqa: E402  (checkout_of, is_below, is_wired, project_dir
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit")
 SESSION_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
 # The same codes as the scanner of `kairos adrs check`: an upper-case
-# prefix of two characters or more, `-A-`, four digits or more, with no
-# letter, digit or `_` next to it.
-ADR_CODE = re.compile(r"(?<![A-Za-z0-9_])([A-Z][A-Z0-9]+-A-[0-9]{4,})(?![A-Za-z0-9_])")
+# prefix (a letter, then letters or digits), `-A-`, four digits or more. A
+# letter, a digit, `_` or `-` just before it, or a letter, a digit or `_`
+# just after it, makes it part of a longer word.
+# shared with kairos_index::is_adr_code (KAIROS-T-0703)
+ADR_CODE = re.compile(r"(?<![A-Za-z0-9_-])([A-Z][A-Z0-9]*-A-[0-9]{4,})(?![A-Za-z0-9_])")
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_ADRS = 12
 CHECK_SECONDS = 8
@@ -214,6 +216,11 @@ def adr_line(code, state):
     amendments = refs_text(state.get("amended_by"))
     if amendments:
         line += f"\n  Amended by {amendments}."
+    # KAIROS-A-0070: when to look at the ADR again.
+    when, on = state.get("revisit_when"), state.get("revisit_on")
+    if isinstance(when, str) and when or isinstance(on, str) and on:
+        line += f"\n  Revisit when: {when or 'no condition'}"
+        line += f" (on {on})." if on else "."
     return line
 
 

@@ -96,6 +96,9 @@ pub struct CheckArgs {
     /// Write the states of the cited ADRs to this file, for a later --snapshot
     #[arg(long, value_name = "FILE")]
     pub save_snapshot: Option<PathBuf>,
+    /// Flag an ADR when the files that cite it changed by this count of lines (added plus removed) since its accepted_commit
+    #[arg(long, value_name = "N", default_value_t = STALE_LINES)]
+    pub stale_lines: u64,
     #[command(flatten)]
     pub common: Common,
 }
@@ -115,7 +118,14 @@ pub struct Citation {
 
 /// The ADR short codes in `text`, with their 1-based line: an upper-case
 /// prefix (a letter, then letters or digits), `-A-`, then four digits or
-/// more. A letter, a digit or `_` next to the code makes it no code.
+/// more. A letter, a digit, `_` or `-` just before the code, or a letter, a
+/// digit or `_` just after it, makes it part of a longer word.
+///
+/// The check reads each text of a file: code, comments, strings and prose.
+/// The code index (KAIROS-T-0703) reads the comments, the doc strings and
+/// the snake-case names of tests (`retry_kairos_a_0065`); this scan does
+/// not read the names of tests.
+// shared with kairos_index::is_adr_code (KAIROS-T-0703)
 pub fn scan_text(text: &str) -> Vec<(usize, String)> {
     let mut found = Vec::new();
     for (index, line) in text.lines().enumerate() {
@@ -129,14 +139,14 @@ pub fn scan_text(text: &str) -> Vec<(usize, String)> {
             {
                 start -= 1;
             }
-            // The prefix starts with a letter and has two characters or more.
+            // The prefix starts with an upper-case letter.
             while start < at && !bytes[start].is_ascii_uppercase() {
                 start += 1;
             }
-            if at - start < 2 {
+            if start == at {
                 continue;
             }
-            if start > 0 && is_word_byte(bytes[start - 1]) {
+            if start > 0 && (is_word_byte(bytes[start - 1]) || bytes[start - 1] == b'-') {
                 continue;
             }
             let mut end = at + 3;
@@ -262,6 +272,18 @@ pub struct AdrState {
     /// The ADRs that amend this one, in the order of their codes.
     #[serde(default)]
     pub amended_by: Vec<AdrRef>,
+    /// The metadata `revisit_when` (KAIROS-A-0070): the condition for a new
+    /// look at the ADR.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisit_when: Option<String>,
+    /// The metadata `revisit_on`, YYYY-MM-DD: the check flags the ADR from
+    /// this day.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revisit_on: Option<String>,
+    /// The metadata `accepted_commit`: the main commit when the ADR moved
+    /// to Decided. The check compares the citing files with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_commit: Option<String>,
 }
 
 impl AdrState {
@@ -275,7 +297,26 @@ impl AdrState {
             archived_at: None,
             superseded_by: Vec::new(),
             amended_by: Vec::new(),
+            revisit_when: None,
+            revisit_on: None,
+            accepted_commit: None,
         }
+    }
+
+    /// Take the values of the metadata of KAIROS-A-0070 by slug. A slug that
+    /// the item does not have leaves the field empty.
+    pub fn with_metadata(mut self, values: &[(String, String)]) -> Self {
+        let get = |slug: &str| {
+            values
+                .iter()
+                .find(|(key, _)| key == slug)
+                .map(|(_, value)| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+        };
+        self.revisit_when = get(META_REVISIT_WHEN);
+        self.revisit_on = get(META_REVISIT_ON);
+        self.accepted_commit = get(META_ACCEPTED_COMMIT);
+        self
     }
 
     /// The state from the item graph of the ADR (depth 1): the focus is
@@ -309,6 +350,9 @@ impl AdrState {
             archived_at: focus.archived_at.clone(),
             superseded_by: sources(SUPERSEDES),
             amended_by: sources(AMENDS),
+            revisit_when: None,
+            revisit_on: None,
+            accepted_commit: None,
         }
     }
 }
@@ -342,7 +386,10 @@ impl Source {
             let state = match self {
                 Source::Deployment(client) => {
                     match client.get_item_graph(EntityKind::Adr, code, Some(1)).await {
-                        Ok(graph) => AdrState::from_graph(code, &graph),
+                        Ok(graph) => {
+                            let state = AdrState::from_graph(code, &graph);
+                            metadata_of(client, state).await?
+                        }
                         Err(ApiError::NotFound { .. }) => AdrState::missing(code),
                         Err(err) => return Err(err.into()),
                     }
@@ -361,6 +408,34 @@ impl Source {
         Ok(states)
     }
 }
+
+/// The metadata of a live ADR (KAIROS-A-0070). An archived ADR, or a 404 of
+/// an older server, gives no values.
+async fn metadata_of(client: &KairosClient, state: AdrState) -> Result<AdrState, CliError> {
+    let Some(current) = state.current_code.clone() else {
+        return Ok(state);
+    };
+    if state.archived_at.is_some() {
+        return Ok(state);
+    }
+    match client.metadata(EntityKind::Adr, &current).await {
+        Ok(response) => {
+            let values: Vec<(String, String)> = response
+                .values
+                .into_iter()
+                .map(|value| (value.slug, value.value))
+                .collect();
+            Ok(state.with_metadata(&values))
+        }
+        Err(ApiError::NotFound { .. }) => Ok(state),
+        Err(err) => Err(err.into()),
+    }
+}
+
+/// The slugs of the metadata of KAIROS-A-0070.
+pub const META_REVISIT_WHEN: &str = "revisit_when";
+pub const META_REVISIT_ON: &str = "revisit_on";
+pub const META_ACCEPTED_COMMIT: &str = "accepted_commit";
 
 /// The status of a code that the snapshot does not hold.
 const NOT_IN_SNAPSHOT: &str = "not-in-snapshot";
@@ -438,7 +513,8 @@ impl Severity {
 pub struct Finding {
     pub severity: Severity,
     /// `missing`, `not_in_snapshot`, `archived`, `superseded`,
-    /// `ended_column`, `retired_code` or `amended`.
+    /// `ended_column`, `retired_code`, `amended`, `revisit_due`,
+    /// `stale_code` or `commit_unknown`.
     pub reason: &'static str,
     pub message: String,
 }
@@ -519,6 +595,136 @@ pub fn findings(state: &AdrState) -> Vec<Finding> {
     out
 }
 
+/// The default of `--stale-lines`.
+pub const STALE_LINES: u64 = 50;
+
+/// The answer of the diff of one file since a commit: the added and the
+/// removed lines, or `None` when the checkout does not have the commit.
+pub type Diff = Option<u64>;
+
+/// The findings of KAIROS-A-0070 for each code: `revisit_due` when
+/// `revisit_on` is `today` or earlier; `stale_code` when the files that cite
+/// the ADR changed by `threshold` lines or more since `accepted_commit`;
+/// `commit_unknown` when the checkout does not have the commit. `diff`
+/// gives the lines of one file since one commit.
+pub fn time_findings(
+    states: &[AdrState],
+    citations: &[Citation],
+    threshold: u64,
+    today: chrono::NaiveDate,
+    mut diff: impl FnMut(&str, &str) -> Diff,
+) -> BTreeMap<String, Vec<Finding>> {
+    let mut out: BTreeMap<String, Vec<Finding>> = BTreeMap::new();
+    for state in states.iter().filter(|s| s.found && s.archived_at.is_none()) {
+        let current = state.current_code.as_deref().unwrap_or(&state.code);
+        let mut found = Vec::new();
+        if let Some(on) = state.revisit_on.as_deref()
+            && let Ok(date) = chrono::NaiveDate::parse_from_str(on, "%Y-%m-%d")
+            && date <= today
+        {
+            let when = state
+                .revisit_when
+                .as_deref()
+                .map(|w| format!(" Revisit when: {w}"))
+                .unwrap_or_default();
+            found.push(Finding {
+                severity: Severity::Warn,
+                reason: "revisit_due",
+                message: format!("The revisit date {on} of the ADR {current} has passed.{when}"),
+            });
+        }
+        if let Some(commit) = state.accepted_commit.as_deref() {
+            let files: BTreeSet<&str> = citations
+                .iter()
+                .filter(|c| c.code == state.code)
+                .map(|c| c.file.as_str())
+                .collect();
+            let mut changed = Vec::new();
+            let mut unknown = false;
+            for file in files {
+                match diff(commit, file) {
+                    Some(0) => {}
+                    Some(lines) => changed.push((file, lines)),
+                    None => unknown = true,
+                }
+            }
+            let total: u64 = changed.iter().map(|(_, lines)| lines).sum();
+            if unknown {
+                found.push(Finding {
+                    severity: Severity::Info,
+                    reason: "commit_unknown",
+                    message: format!(
+                        "The checkout does not have the commit {commit} at the acceptance of \
+                         {current}. The check cannot compare the files with it."
+                    ),
+                });
+            } else if total >= threshold {
+                let list = changed
+                    .iter()
+                    .map(|(file, lines)| format!("{file} ({lines})"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                found.push(Finding {
+                    severity: Severity::Warn,
+                    reason: "stale_code",
+                    message: format!(
+                        "The files that cite the ADR {current} changed by {total} lines since \
+                         the commit {commit} at its acceptance: {list}. Read the ADR again: \
+                         make sure that it still applies."
+                    ),
+                });
+            }
+        }
+        if !found.is_empty() {
+            out.insert(state.code.clone(), found);
+        }
+    }
+    out
+}
+
+/// The lines of `file` that changed since `commit`, added plus removed, with
+/// `git diff --numstat` in the folder of the file. `None` when git does not
+/// know the commit there, or when the file is in no checkout.
+pub fn git_diff(commit: &str, file: &str) -> Diff {
+    let path = Path::new(file);
+    let folder = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let name = path.file_name()?;
+    let git = |args: &[&std::ffi::OsStr]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(folder)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+    };
+    let object = format!("{commit}^{{commit}}");
+    git(&["cat-file".as_ref(), "-e".as_ref(), object.as_ref()])?;
+    let out = git(&[
+        "diff".as_ref(),
+        "--numstat".as_ref(),
+        commit.as_ref(),
+        "--".as_ref(),
+        name,
+    ])?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    Some(
+        text.lines()
+            .filter_map(|line| {
+                let mut parts = line.split_whitespace();
+                let added = parts.next()?.parse::<u64>().ok()?;
+                let removed = parts.next()?.parse::<u64>().ok()?;
+                Some(added + removed)
+            })
+            .sum(),
+    )
+}
+
 fn codes_of(refs: &[AdrRef]) -> String {
     refs.iter()
         .map(|r| r.code.as_str())
@@ -565,10 +771,15 @@ pub fn build_report(
     source: &'static str,
     citations: Vec<Citation>,
     states: Vec<AdrState>,
+    mut extra: BTreeMap<String, Vec<Finding>>,
 ) -> Report {
     let by_code: BTreeMap<&str, Vec<Finding>> = states
         .iter()
-        .map(|state| (state.code.as_str(), findings(state)))
+        .map(|state| {
+            let mut found = findings(state);
+            found.extend(extra.remove(&state.code).unwrap_or_default());
+            (state.code.as_str(), found)
+        })
         .collect();
     let mut summary = Summary {
         citations: citations.len(),
@@ -659,7 +870,9 @@ impl CheckArgs {
         if let Some(path) = &self.save_snapshot {
             write_snapshot(path, &states)?;
         }
-        let report = build_report(source.name(), citations, states);
+        let today = chrono::Utc::now().date_naive();
+        let extra = time_findings(&states, &citations, self.stale_lines, today, git_diff);
+        let report = build_report(source.name(), citations, states, extra);
         if self.common.json {
             context::print_json(&report)?;
         } else {
@@ -739,7 +952,7 @@ mod tests {
             "KAIROS-A-0031x",
             "xKAIROS-A-0031",
             "_KAIROS-A-0031",
-            "K-A-0031",
+            "x-KAIROS-A-0031",
             "KAIROS-A-",
             "1KAIROS-A-0031 is not a code",
         ] {
@@ -751,6 +964,7 @@ mod tests {
             scan_text("`K8S-A-0001`"),
             vec![(1, "K8S-A-0001".to_string())]
         );
+        assert_eq!(scan_text("K-A-0031"), vec![(1, "K-A-0031".to_string())]);
         assert_eq!(
             scan_text("x/KAIROS-A-0001"),
             vec![(1, "KAIROS-A-0001".to_string())]
@@ -817,6 +1031,9 @@ mod tests {
             archived_at: None,
             superseded_by: Vec::new(),
             amended_by: Vec::new(),
+            revisit_when: None,
+            revisit_on: None,
+            accepted_commit: None,
         }
     }
 
@@ -895,6 +1112,7 @@ mod tests {
             "snapshot",
             citations,
             vec![live("ACME-A-0001"), AdrState::missing("ACME-A-0002")],
+            BTreeMap::new(),
         );
         assert!(!report.ok);
         assert_eq!(
@@ -937,6 +1155,150 @@ mod tests {
         std::fs::write(&path, r#"{"kairos_adr_snapshot": 9, "adrs": []}"#).unwrap();
         let err = read_snapshot(&path).unwrap_err();
         assert!(err.to_string().contains("version 9"), "{err}");
+    }
+
+    fn cite(file: &str, code: &str) -> Citation {
+        Citation {
+            file: file.into(),
+            line: 1,
+            code: code.into(),
+        }
+    }
+
+    #[test]
+    fn the_metadata_of_kairos_a_0070_fills_the_state() {
+        let state = live("ACME-A-0001").with_metadata(&[
+            ("priority".into(), "high".into()),
+            ("revisit_when".into(), " a second forge ".into()),
+            ("revisit_on".into(), "2026-12-01".into()),
+            ("accepted_commit".into(), "".into()),
+        ]);
+        assert_eq!(state.revisit_when.as_deref(), Some("a second forge"));
+        assert_eq!(state.revisit_on.as_deref(), Some("2026-12-01"));
+        assert_eq!(state.accepted_commit, None, "an empty value is no value");
+    }
+
+    #[test]
+    fn a_passed_date_and_changed_files_flag_the_adr() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 25).unwrap();
+        let mut due = live("ACME-A-0001");
+        due.revisit_on = Some("2026-10-25".into());
+        due.revisit_when = Some("a second forge".into());
+        let mut later = live("ACME-A-0002");
+        later.revisit_on = Some("2026-10-26".into());
+        let mut stale = live("ACME-A-0003");
+        stale.accepted_commit = Some("abc123".into());
+        let mut fresh = live("ACME-A-0004");
+        fresh.accepted_commit = Some("abc123".into());
+        let mut unknown = live("ACME-A-0005");
+        unknown.accepted_commit = Some("fff000".into());
+        let mut archived = live("ACME-A-0006");
+        archived.accepted_commit = Some("abc123".into());
+        archived.archived_at = Some("2026-10-01T00:00:00Z".into());
+        let citations = vec![
+            cite("a.rs", "ACME-A-0003"),
+            cite("b.rs", "ACME-A-0003"),
+            cite("b.rs", "ACME-A-0003"),
+            cite("c.rs", "ACME-A-0004"),
+            cite("a.rs", "ACME-A-0005"),
+            cite("a.rs", "ACME-A-0006"),
+        ];
+        let mut asked = Vec::new();
+        let found = time_findings(
+            &[due, later, stale, fresh, unknown, archived],
+            &citations,
+            50,
+            today,
+            |commit, file| {
+                asked.push(format!("{commit}:{file}"));
+                match (commit, file) {
+                    ("fff000", _) => None,
+                    (_, "a.rs") => Some(30),
+                    (_, "b.rs") => Some(20),
+                    _ => Some(49),
+                }
+            },
+        );
+        let reasons: BTreeMap<&str, Vec<&str>> = found
+            .iter()
+            .map(|(code, f)| (code.as_str(), f.iter().map(|f| f.reason).collect()))
+            .collect();
+        assert_eq!(
+            reasons,
+            BTreeMap::from([
+                ("ACME-A-0001", vec!["revisit_due"]),
+                ("ACME-A-0003", vec!["stale_code"]),
+                ("ACME-A-0005", vec!["commit_unknown"]),
+            ])
+        );
+        let due = &found["ACME-A-0001"][0];
+        assert!(
+            due.message.contains("Revisit when: a second forge"),
+            "{}",
+            due.message
+        );
+        let stale = &found["ACME-A-0003"][0];
+        assert_eq!(stale.severity, Severity::Warn);
+        assert!(
+            stale.message.contains("changed by 50 lines"),
+            "{}",
+            stale.message
+        );
+        assert!(
+            stale.message.contains("a.rs (30), b.rs (20)"),
+            "{}",
+            stale.message
+        );
+        assert_eq!(found["ACME-A-0005"][0].severity, Severity::Info);
+        // Each file once; no diff for an archived ADR.
+        assert_eq!(
+            asked,
+            vec!["abc123:a.rs", "abc123:b.rs", "abc123:c.rs", "fff000:a.rs"]
+        );
+    }
+
+    #[test]
+    fn git_diff_counts_the_lines_since_a_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args([
+                    "-c",
+                    "user.name=Robin",
+                    "-c",
+                    "user.email=robin@example.com",
+                ])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        git(&["init", "-q"]);
+        std::fs::write(root.join("a.rs"), "one\ntwo\n").unwrap();
+        git(&["add", "a.rs"]);
+        git(&["commit", "-q", "-m", "one"]);
+        let commit = git(&["rev-parse", "HEAD"]);
+        std::fs::write(root.join("a.rs"), "one\nthree\nfour\n").unwrap();
+        let file = root.join("a.rs");
+        let file = file.to_str().unwrap();
+        assert_eq!(git_diff(&commit, file), Some(3));
+        assert_eq!(git_diff(&commit[..8], file), Some(3), "a short hash");
+        assert_eq!(
+            git_diff("0123456789abcdef0123456789abcdef01234567", file),
+            None
+        );
+        let outside = tempfile::tempdir().unwrap();
+        let loose = outside.path().join("b.rs");
+        std::fs::write(&loose, "x").unwrap();
+        assert_eq!(git_diff(&commit, loose.to_str().unwrap()), None);
     }
 
     #[test]

@@ -289,8 +289,9 @@ tool decides. It does not read the text of the write.
 `hooks/adr_context.py` is a `PreToolUse` hook on `Write`, `Edit` and `MultiEdit`
 (KAIROS-T-0702, COLLIERY-I-0659). When the file cites ADRs by short code (for example
 `KAIROS-A-0031`), it gives the agent one block before the edit: the code, the column and the
-title of each cited ADR, the successor of a superseded ADR, the amendments, and a line for a
-code that no ADR has. The states come from `kairos adrs check <file> --json`, with the login
+title of each cited ADR, the successor of a superseded ADR, the amendments, the revisit
+condition and date (`revisit_when`, `revisit_on`, KAIROS-A-0070), and a line for a code that
+no ADR has. The states come from `kairos adrs check <file> --json`, with the login
 or the key of the person.
 
 - It runs in a wired checkout only: the nearest folder with `.git` above the file has the

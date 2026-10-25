@@ -794,5 +794,99 @@ class AgentKeyHowToMatchesTheManifest(unittest.TestCase):
         self.assertIn("writes only", text)
         self.assertNotIn("writes this entry", text)
 
+
+class AnAdrWhenAReaderWouldGetItWrong(unittest.TestCase):
+    """KAIROS-T-0704 (COLLIERY-I-0659): the skills write an ADR when a
+    reader of the code would get the decision wrong, cite it in the code,
+    and amend it for a part (KAIROS-A-0069)."""
+
+    def text(self, rel):
+        return read(os.path.join(SKILLS, rel))
+
+    def section(self, rel, heading):
+        body = self.text(rel)
+        self.assertIn(heading, body, rel)
+        return body.split(heading, 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
+
+    def criterion_texts(self):
+        return {
+            "domain-modeling": self.section(
+                "engineering/domain-modeling/SKILL.md",
+                "### Offer an ADR when a reader would get it wrong",
+            ),
+            "ADR-FORMAT": self.section(
+                "engineering/domain-modeling/ADR-FORMAT.md", "## When to offer an ADR"
+            ),
+        }
+
+    def test_the_criterion_is_a_reader_who_would_get_it_wrong(self):
+        for name, text in self.criterion_texts().items():
+            with self.subTest(skill=name):
+                self.assertIn("a reader of the code would get the decision wrong", text)
+                for case in (
+                    "A choice against a library default.",
+                    "A rejected option that will come back.",
+                    "A decision of the user.",
+                    "KAIROS-T-0673",
+                    "KAIROS-T-0689",
+                    "Skip routine bug fixes.",
+                ):
+                    self.assertIn(case, text)
+
+    def test_the_three_part_rule_is_gone(self):
+        for rel in (
+            "engineering/domain-modeling/SKILL.md",
+            "engineering/domain-modeling/ADR-FORMAT.md",
+        ):
+            with self.subTest(skill=rel):
+                text = self.text(rel)
+                self.assertNotIn("all three are true", text)
+                self.assertNotIn("All three of these must be true", text)
+                self.assertNotIn("Hard to reverse", text)
+
+    def test_cite_do_not_copy(self):
+        for rel, heading in (
+            ("engineering/domain-modeling/SKILL.md", "### Cite, do not copy"),
+            ("engineering/domain-modeling/ADR-FORMAT.md", "## Cite it, do not copy it"),
+        ):
+            with self.subTest(skill=rel):
+                text = self.section(rel, heading)
+                self.assertIn("short code", text)
+                self.assertIn("does not repeat the reasoning", text)
+                self.assertIn("KAIROS-A-0069", text)
+
+    def test_amend_for_a_part_supersede_for_all(self):
+        record = self.section("engineering/domain-modeling/SKILL.md", "## Record this decision")
+        adr_format = self.text("engineering/domain-modeling/ADR-FORMAT.md")
+        for name, text in (("record this decision", record), ("ADR-FORMAT", adr_format)):
+            with self.subTest(skill=name):
+                self.assertIn("`link_items` with `amends`" if name != "ADR-FORMAT"
+                              else "`link_items` (`amends`)", text)
+                self.assertIn("a part of", text)
+                self.assertIn("`supersedes`", text)
+                self.assertIn("all of", text)
+                self.assertIn("KAIROS-A-0069", text)
+
+    def test_implement_asks_with_the_criterion_and_cites(self):
+        text = self.text("workflow/implement/SKILL.md")
+        gate = text.split("## The completion gate", 1)[1].split("## Push and open the PR", 1)[0]
+        self.assertIn("would a reader of the code get it wrong without it?", gate)
+        self.assertIn("a decision of the user", gate)
+        self.assertIn("Skip routine bug fixes.", gate)
+        self.assertIn("cite the ADR in the code that you changed", gate)
+        self.assertIn("does not copy the reasoning", gate)
+        self.assertIn("`amends`", gate)
+        self.assertIn("`supersedes`", gate)
+
+    def test_the_new_text_has_short_sentences(self):
+        texts = dict(self.criterion_texts())
+        texts["cite"] = self.section(
+            "engineering/domain-modeling/ADR-FORMAT.md", "## Cite it, do not copy it"
+        )
+        for name, text in texts.items():
+            for sentence in sentences(text):
+                with self.subTest(skill=name, sentence=sentence[:60]):
+                    self.assertLessEqual(len(sentence.split()), 20)
+
 if __name__ == "__main__":
     unittest.main()

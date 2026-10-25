@@ -47,7 +47,8 @@ SESSION_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
 # prefix (a letter, then letters or digits), `-A-`, four digits or more. A
 # letter, a digit, `_` or `-` just before it, or a letter, a digit or `_`
 # just after it, makes it part of a longer word.
-# shared with kairos_index::is_adr_code (KAIROS-T-0703)
+# The same rule as kairos_index::codes_in (KAIROS-T-0703); the tests of both
+# read the examples of adr_code_examples.json.
 ADR_CODE = re.compile(r"(?<![A-Za-z0-9_-])([A-Z][A-Z0-9]*-A-[0-9]{4,})(?![A-Za-z0-9_])")
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_ADRS = 12

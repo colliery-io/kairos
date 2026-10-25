@@ -63,7 +63,7 @@ use kairos_narsil::parser::LanguageParser;
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 
-pub use citations::{CitedAdr, is_adr_code};
+pub use citations::{CitedAdr, codes_in, is_adr_code};
 pub use duplicates::{
     DEFAULT_MIN_LINES, DuplicateGroup, DuplicateKind, DuplicateOptions, Duplicates,
     MIN_NEAR_TOKENS, NEAR_THRESHOLD, SAME_IDEA_THRESHOLD,

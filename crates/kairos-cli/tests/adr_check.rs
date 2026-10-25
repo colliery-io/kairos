@@ -341,6 +341,29 @@ fn with_no_deployment_and_no_snapshot_the_check_is_skipped() {
 }
 
 #[test]
+fn a_snapshot_with_no_adrs_is_a_placeholder_and_the_check_is_skipped() {
+    let sandbox = Sandbox::new();
+    sandbox.write("a.md", "ACME-A-0001\n");
+    let snapshot = sandbox.dir.path().join("placeholder.json");
+    std::fs::write(&snapshot, "{\"kairos_adr_snapshot\": 1, \"adrs\": []}\n").unwrap();
+    let snapshot = snapshot.to_str().unwrap();
+
+    let output = sandbox.run(&["adrs", "check", "--snapshot", snapshot], &[]);
+    assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
+    assert!(stdout(&output).is_empty());
+    assert!(
+        stderr(&output).contains("has no ADRs") && stderr(&output).contains("--save-snapshot"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = sandbox.run(&["adrs", "check", "--json", "--snapshot", snapshot], &[]);
+    assert_eq!(output.status.code(), Some(0));
+    let report = json_of(&output);
+    assert_eq!(report["skipped"], true);
+}
+
+#[test]
 fn a_refused_key_exits_2_and_a_missing_path_exits_1() {
     let sandbox = Sandbox::new();
     let stub = Stub::start();

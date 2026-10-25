@@ -1073,7 +1073,8 @@ larger than 2 MiB.
 
 A code is an upper-case prefix, `-A-`, and four digits or more. A letter, a
 digit, `_` or `-` just before the code makes it part of a longer word. A
-letter, a digit or `_` just after the code does the same. The
+letter, a digit or `_` just after the code does the same. The code index and
+the plugin hook `adr_context.py` use the same rule. The
 check reads each text of a file, also the strings and the prose. It does not
 read the snake-case names of tests (`retry_kairos_a_0065`), as the code index
 does.
@@ -1101,7 +1102,24 @@ ADR once. It also reads the metadata of each live ADR: `revisit_when`,
 With `--snapshot`, the states come from a file that `--save-snapshot` wrote.
 Then the command needs no deployment and no key. Use this in CI: CI must not
 have a key of a deployment. With no deployment and no `--snapshot`, the CLI
-skips the check: it says so on stderr and exits with 0.
+skips the check: it says so on stderr and exits with 0. A snapshot with no
+ADRs is a placeholder: the CLI skips the check in the same way.
+
+The CI of the kairos repository runs the check on the committed snapshot
+`.github/adr-snapshot.json`. The snapshot is in a hidden folder, so the walk
+does not read its codes as citations:
+
+```
+kairos adrs check --prefix KAIROS --snapshot .github/adr-snapshot.json
+```
+
+To update the snapshot, log in to the deployment and run this from the root
+of the checkout. Commit the file. Do this when a change cites a new ADR, or
+when an ADR is superseded, amended or archived:
+
+```
+kairos adrs check --prefix KAIROS --save-snapshot .github/adr-snapshot.json
+```
 
 For `stale_code`, the CLI runs `git diff --numstat <accepted_commit> -- <file>`
 in the folder of each citing file. The diff is local, also with `--snapshot`.

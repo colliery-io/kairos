@@ -34,8 +34,9 @@ use crate::context::{self, Common};
 use crate::error::CliError;
 
 /// The relationship of an amendment: the source amends the target
-/// (KAIROS-T-0700). Until the server has the edge, no graph has it, and an
-/// ADR has no amendments. This is the one place that reads it.
+/// (KAIROS-T-0700, KAIROS-A-0069): an edge from the amending ADR to the
+/// amended one. The amendments of an ADR are the sources of its inbound
+/// `amends` edges. This is the one place that reads it.
 pub const AMENDS: &str = "amends";
 
 /// The relationship of a replacement: the source supersedes the target.
@@ -124,50 +125,17 @@ pub struct Citation {
 /// The check reads each text of a file: code, comments, strings and prose.
 /// The code index (KAIROS-T-0703) reads the comments, the doc strings and
 /// the snake-case names of tests (`retry_kairos_a_0065`); this scan does
-/// not read the names of tests.
-// shared with kairos_index::is_adr_code (KAIROS-T-0703)
+/// not read the names of tests. The rule of a code is the one of the index:
+/// [`kairos_index::codes_in`].
 pub fn scan_text(text: &str) -> Vec<(usize, String)> {
-    let mut found = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let bytes = line.as_bytes();
-        let mut from = 0;
-        while let Some(at) = line[from..].find("-A-").map(|i| i + from) {
-            from = at + 3;
-            let mut start = at;
-            while start > 0
-                && (bytes[start - 1].is_ascii_uppercase() || bytes[start - 1].is_ascii_digit())
-            {
-                start -= 1;
-            }
-            // The prefix starts with an upper-case letter.
-            while start < at && !bytes[start].is_ascii_uppercase() {
-                start += 1;
-            }
-            if start == at {
-                continue;
-            }
-            if start > 0 && (is_word_byte(bytes[start - 1]) || bytes[start - 1] == b'-') {
-                continue;
-            }
-            let mut end = at + 3;
-            while end < bytes.len() && bytes[end].is_ascii_digit() {
-                end += 1;
-            }
-            if end - (at + 3) < 4 {
-                continue;
-            }
-            if end < bytes.len() && is_word_byte(bytes[end]) {
-                continue;
-            }
-            found.push((index + 1, line[start..end].to_string()));
-            from = end;
-        }
-    }
-    found
-}
-
-fn is_word_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
+    text.lines()
+        .enumerate()
+        .flat_map(|(index, line)| {
+            kairos_index::codes_in(line)
+                .into_iter()
+                .map(move |(_, code)| (index + 1, code))
+        })
+        .collect()
 }
 
 /// The prefix of a code: `KAIROS` of `KAIROS-A-0031`.
@@ -848,6 +816,16 @@ pub fn render_text(report: &Report) -> String {
 pub const SKIPPED: &str = "The ADR check is skipped: the CLI knows no deployment, and the \
     command has no --snapshot. Log in, set KAIROS_URL, or give --snapshot FILE.";
 
+/// The text of a check skipped on a snapshot with no ADRs (a placeholder).
+pub fn empty_snapshot(path: &Path) -> String {
+    format!(
+        "The ADR check is skipped: the snapshot {} has no ADRs. Save it with \
+         `kairos adrs check --prefix PREFIX --save-snapshot {}` from a login.",
+        path.display(),
+        path.display()
+    )
+}
+
 impl CheckArgs {
     pub async fn run(self) -> Result<ExitCode, CliError> {
         let paths = if self.paths.is_empty() {
@@ -857,10 +835,18 @@ impl CheckArgs {
         };
         let citations = scan_paths(&paths, &self.prefixes)?;
         let source = match &self.snapshot {
-            Some(path) => Source::Snapshot(read_snapshot(path)?),
+            Some(path) => {
+                let states = read_snapshot(path)?;
+                // A snapshot with no ADRs is a placeholder: the check is
+                // skipped, not failed for each citation.
+                if states.is_empty() {
+                    return self.skip(&empty_snapshot(path));
+                }
+                Source::Snapshot(states)
+            }
             None => {
                 if !deployment_known(&self.common) {
-                    return self.skip();
+                    return self.skip(SKIPPED);
                 }
                 Source::Deployment(context::client(&self.common)?)
             }
@@ -885,19 +871,19 @@ impl CheckArgs {
         })
     }
 
-    fn skip(&self) -> Result<ExitCode, CliError> {
+    fn skip(&self, message: &str) -> Result<ExitCode, CliError> {
         if self.common.json {
             context::print_json(&serde_json::json!({
                 "source": "none",
                 "skipped": true,
                 "ok": true,
-                "message": SKIPPED,
+                "message": message,
                 "summary": Summary::default(),
                 "citations": [],
                 "adrs": [],
             }))?;
         } else {
-            eprintln!("{SKIPPED}");
+            eprintln!("{message}");
         }
         Ok(ExitCode::SUCCESS)
     }

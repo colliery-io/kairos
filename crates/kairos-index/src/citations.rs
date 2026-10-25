@@ -486,6 +486,28 @@ mod tests {
         assert!(!is_adr_code("Queue"));
     }
 
+    /// The examples that the hook of the plugin (`adr_context.py`) checks
+    /// too: the two rules of a code stay equal.
+    #[test]
+    fn the_codes_match_the_examples_of_the_plugin_hook() {
+        let file: serde_json::Value =
+            serde_json::from_str(include_str!("../../../plugin/hooks/adr_code_examples.json"))
+                .unwrap();
+        let examples = file["examples"].as_array().unwrap();
+        assert!(!examples.is_empty());
+        for example in examples {
+            let text = example["text"].as_str().unwrap();
+            let want: Vec<&str> = example["codes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c.as_str().unwrap())
+                .collect();
+            let got: Vec<String> = codes_in(text).into_iter().map(|(_, c)| c).collect();
+            assert_eq!(got, want, "{text}");
+        }
+    }
+
     #[test]
     fn sql_comments_cite_and_strings_do_not() {
         let found = in_sql(

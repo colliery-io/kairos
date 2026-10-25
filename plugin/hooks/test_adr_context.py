@@ -319,6 +319,19 @@ class Pure(unittest.TestCase):
         ):
             self.assertEqual(adr_context.cited_codes(text), [], text)
 
+    def test_cited_codes_match_the_shared_examples(self):
+        # The same examples as the Rust rule (kairos_index::codes_in).
+        with open(os.path.join(HERE, "adr_code_examples.json"), encoding="utf-8") as f:
+            examples = json.load(f)["examples"]
+        self.assertTrue(examples)
+        for example in examples:
+            text = example["text"]
+            self.assertEqual(
+                [m.group(1) for m in adr_context.ADR_CODE.finditer(text)],
+                example["codes"],
+                text,
+            )
+
     def test_refs_text(self):
         self.assertEqual(
             adr_context.refs_text([{"code": "A-A-0001", "title": "T"}, {"code": "A-A-0002"}, "x"]),

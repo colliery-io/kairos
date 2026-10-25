@@ -2187,6 +2187,7 @@ pub(crate) async fn add_board_member(
             let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
+                user,
                 &body.user_id,
                 "user_id",
                 routes,
@@ -2256,7 +2257,7 @@ pub(crate) async fn replace_capabilities(
     let member = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let target = member_ref(conn, &slug, &target)?;
+            let target = member_ref(conn, &slug, user, &target)?;
             replace_as(conn, &slug, user, board_id, target, &body.capabilities)
         })
         .await?;
@@ -2266,11 +2267,16 @@ pub(crate) async fn replace_capabilities(
 /// The user of a `{user_id}` path segment (KAIROS-T-0443): a UUID as it is
 /// (a person who left the organization keeps grants that can be revoked),
 /// else an email or a user name of a member of the organization.
-fn member_ref(conn: &mut PgConnection, slug: &str, reference: &str) -> Result<Uuid, ApiError> {
+fn member_ref(
+    conn: &mut PgConnection,
+    slug: &str,
+    caller: Uuid,
+    reference: &str,
+) -> Result<Uuid, ApiError> {
     match Uuid::parse_str(reference.trim()) {
         Ok(id) => Ok(id),
         Err(_) => Ok(crate::api::org::structure_grants::resolve_member(
-            conn, slug, reference, "user_id",
+            conn, slug, caller, reference, "user_id",
         )?
         .id),
     }
@@ -2340,7 +2346,7 @@ pub(crate) async fn remove_board_member(
     let outcome = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let target = member_ref(conn, &slug, &target)?;
+            let target = member_ref(conn, &slug, user, &target)?;
             revoke_all_as(conn, &slug, user, board_id, target)
         })
         .await?;

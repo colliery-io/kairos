@@ -452,23 +452,24 @@ pub(crate) fn column_of(
         .select((dsl::id, dsl::name))
         .load(conn)
         .map_err(ApiError::internal)?;
-    let wanted = column.trim();
-    columns
-        .iter()
-        .find(|(id, name)| id.to_string() == wanted || name.eq_ignore_ascii_case(wanted))
-        .map(|(id, _)| *id)
-        .ok_or_else(|| {
-            ApiError::validation(format!(
-                "The board {} has no column {wanted:?}. Its columns are: {}.",
-                board.slug,
-                columns
-                    .iter()
-                    .map(|(_, n)| n.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))
-            .with_details(json!({ "field": "column" }))
-        })
+    // KAIROS-T-0689: the forms of crate::references::COLUMN_FORMS.
+    let wanted = crate::references::text(column);
+    crate::references::column(
+        columns.iter().map(|(id, name)| (*id, name.as_str())),
+        wanted,
+    )
+    .ok_or_else(|| {
+        ApiError::validation(format!(
+            "The board {} has no column {wanted:?}. Its columns are: {}.",
+            board.slug,
+            columns
+                .iter()
+                .map(|(_, n)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+        .with_details(json!({ "field": "column" }))
+    })
 }
 
 /// Whether the column is a done column.

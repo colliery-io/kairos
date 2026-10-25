@@ -82,17 +82,14 @@ fn load_team(conn: &mut PgConnection, team_id: Uuid) -> Result<Team, ApiError> {
 /// `/api/teams/{id}` route takes it, so that a client that has the slug of
 /// a team makes one call.
 pub(crate) fn team_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError> {
-    use kairos_db::schema::teams::dsl;
+    // KAIROS-T-0689: the forms of crate::references::TEAM_FORMS.
+    let reference = crate::references::text(reference);
+    // An id gets the refusal that names the id.
     if let Ok(team_id) = Uuid::parse_str(reference) {
         return load_team(conn, team_id).map(|team| team.id);
     }
-    dsl::teams
-        .filter(dsl::slug.eq(reference))
-        .filter(dsl::deleted_at.is_null())
-        .select(dsl::id)
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
+    crate::references::team(conn, reference)?
+        .map(|team| team.id)
         .ok_or_else(|| {
             ApiError::not_found(format!(
                 "No live team has the slug or the id {reference:?}."
@@ -894,7 +891,8 @@ pub(crate) async fn add_member(
         .run(&tenant.slug, move |conn| {
             let team_id = team_by_ref(conn, &id)?;
             // KAIROS-T-0443: a UUID, an email or a user name.
-            let target = resolve_member_to_add(conn, &slug, &body.user_id, "user_id", routes)?.id;
+            let target =
+                resolve_member_to_add(conn, &slug, user, &body.user_id, "user_id", routes)?.id;
             add_member_as(conn, &slug, user, team_id, target)
         })
         .await?;
@@ -986,7 +984,7 @@ pub(crate) async fn remove_member(
             // be taken off the team.
             let target = match Uuid::parse_str(target.trim()) {
                 Ok(id) => id,
-                Err(_) => resolve_member(conn, &slug, &target, "user_id")?.id,
+                Err(_) => resolve_member(conn, &slug, user, &target, "user_id")?.id,
             };
             remove_member_as(conn, &slug, user, team_id, target)
         })

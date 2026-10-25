@@ -68,6 +68,13 @@ use crate::app::AppState;
 use crate::middleware::{auth, tenant};
 
 pub use service::KairosMcp;
+
+/// Each tool of each profile, for the tests of the schemas outside this
+/// module (KAIROS-T-0689).
+#[cfg(test)]
+pub(crate) fn all_tools() -> Vec<rmcp::model::Tool> {
+    KairosMcp::tool_router().list_all()
+}
 /// The answer text of `get_item` (KAIROS-T-0626), for the statement-count test.
 #[doc(hidden)]
 pub use tools::get_item_text;

@@ -1188,8 +1188,8 @@ pub struct CreateBoardParams {
 pub struct AddTeamMemberParams {
     /// The team, by slug or UUID.
     pub team: String,
-    /// The member of the organization: a user id, an email, a user name, or
-    /// the name of a service account.
+    /// The member of the organization: `me`, a user id, an email, a user
+    /// name, or the name of a service account.
     pub user: String,
 }
 
@@ -1198,8 +1198,8 @@ pub struct AddTeamMemberParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct GrantCapabilityParams {
-    /// The member of the organization: a user id, an email, a user name, or
-    /// the name of a service account.
+    /// The member of the organization: `me`, a user id, an email, a user
+    /// name, or the name of a service account.
     pub user: String,
     /// A board capability (manage_tasks, manage_documents, manage_adrs,
     /// manage_initiatives, manage_strategies, transition_items,
@@ -1326,7 +1326,7 @@ pub struct DeleteTeamPageParams {
 pub struct RemoveTeamMemberParams {
     /// The team, by slug or UUID.
     pub team: String,
-    /// The member: a user id, an email, a user name, or the name of a
+    /// The member: `me`, a user id, an email, a user name, or the name of a
     /// service account.
     pub user: String,
 }
@@ -1338,8 +1338,8 @@ pub struct RemoveTeamMemberParams {
 pub struct SetBoardCapabilitiesParams {
     /// The board, by slug or UUID.
     pub board: String,
-    /// The member of the organization: a user id, an email, a user name, or
-    /// the name of a service account.
+    /// The member of the organization: `me`, a user id, an email, a user
+    /// name, or the name of a service account.
     pub user: String,
     /// The full set of board capabilities of the user on the board. It
     /// replaces the set. An empty list revokes each capability.
@@ -2488,7 +2488,10 @@ impl KairosMcp {
                 },
             )?;
             let triage = d::agent_triage_as(conn, &slug, user, &params.board)?;
-            let mut text = dispatch_text(&params.board, &rules, &targets, &log);
+            // KAIROS-T-0689: the slug of the board, for each form of the
+            // reference.
+            let board = board_by_ref(conn, &params.board)?;
+            let mut text = dispatch_text(&board.slug, &rules, &targets, &log);
             text.push_str(&format!(
                 "Triage of intake (KAIROS-T-0428): {}.\n",
                 if triage.agents_decide {
@@ -5066,6 +5069,7 @@ impl KairosMcp {
             let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
+                user,
                 &params.user,
                 "user",
                 routes,
@@ -5081,7 +5085,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Grant a capability to a member (`user`: user id, email, user name or service account name). A board capability (manage_tasks, manage_documents, manage_adrs, manage_initiatives, manage_strategies, transition_items, configure_boards, administer_members, pages, purge, member, approve_proposals, or a glob such as manage_*) needs `board` and `administer_members` there, or `manage_structure`. `manage_structure` (only an org admin grants it): with no `board`, the structure of the organization; with `board`, that board's columns, transitions, members and grants."
+        description = "Grant a capability to a member (`user`: `me`, a user id, an email, a user name or a service-account name). A board capability (manage_tasks, manage_documents, manage_adrs, manage_initiatives, manage_strategies, transition_items, configure_boards, administer_members, pages, purge, member, approve_proposals, or a glob such as manage_*) needs `board` and `administer_members` there, or `manage_structure`. `manage_structure` (only an org admin grants it): with no `board`, the structure of the organization; with `board`, that board's columns, transitions, members and grants."
     )]
     pub async fn grant_capability(
         &self,
@@ -5123,6 +5127,7 @@ impl KairosMcp {
             let target = crate::api::org::structure_grants::resolve_member_to_add(
                 conn,
                 &slug,
+                user,
                 &params.user,
                 "user",
                 routes,
@@ -5206,6 +5211,7 @@ impl KairosMcp {
                     crate::api::org::structure_grants::resolve_member(
                         conn,
                         &slug,
+                        user,
                         &params.user,
                         "user",
                     )?
@@ -5235,6 +5241,7 @@ impl KairosMcp {
             let target = crate::api::org::structure_grants::resolve_member(
                 conn,
                 &slug,
+                user,
                 &params.user,
                 "user",
             )?;
@@ -5247,14 +5254,15 @@ impl KairosMcp {
             if params.capabilities.is_empty() {
                 if had == 0 {
                     return Ok(format!(
-                        "{} has no capability on the board {}: nothing changed.",
-                        params.user, board.slug
+                        "{} <{}> has no capability on the board {}: nothing changed.",
+                        target.display_name, target.email, board.slug
                     ));
                 }
                 let revoked = b::revoke_all_as(conn, &slug, user, board.id, target.id)?;
                 return Ok(format!(
-                    "Revoked each capability of {} on the board {}: {}.",
-                    params.user,
+                    "Revoked each capability of {} <{}> on the board {}: {}.",
+                    target.display_name,
+                    target.email,
                     board.slug,
                     revoked.revoked_capabilities.join(", ")
                 ));
@@ -5265,8 +5273,10 @@ impl KairosMcp {
                 b::replace_as(conn, &slug, user, board.id, target.id, &params.capabilities)?
             };
             Ok(format!(
-                "{} has on the board {}: {}.",
-                params.user,
+                // KAIROS-T-0689: the member, not the form of the reference.
+                "{} <{}> has on the board {}: {}.",
+                target.display_name,
+                target.email,
                 board.slug,
                 member.capabilities.join(", ")
             ))
@@ -6906,7 +6916,7 @@ fn load_item(
     short_code: &str,
     liveness: Liveness,
 ) -> Result<ItemView, ApiError> {
-    let upper = short_code.to_ascii_uppercase();
+    let upper = crate::references::short_code(short_code);
     let row: Option<LoadedItem> = sql_query(LOAD_ITEM_SQL)
         .bind::<SqlText, _>(&upper)
         .get_result(conn)
@@ -6976,7 +6986,7 @@ fn refuse_write(
     }
     if archived {
         return Err(crate::api::archived_write_refused(
-            &short_code.to_ascii_uppercase(),
+            &crate::references::short_code(short_code),
         ));
     }
     Ok(())
@@ -7008,7 +7018,7 @@ struct ItemKey {
 /// refusals as [`load_item`] with [`Liveness::LiveOnly`].
 fn load_item_key(conn: &mut PgConnection, short_code: &str) -> Result<ItemKey, ApiError> {
     let row: Option<LoadedKey> = sql_query(LOAD_ITEM_KEY_SQL)
-        .bind::<SqlText, _>(short_code.to_ascii_uppercase())
+        .bind::<SqlText, _>(crate::references::short_code(short_code))
         .get_result(conn)
         .optional()
         .map_err(ApiError::internal)?;
@@ -7284,26 +7294,11 @@ fn require_capability_explained(
     })))
 }
 
-/// Resolve a board by UUID or slug; 404 `NOT_FOUND` otherwise.
+/// A board by UUID or slug: the one lookup of REST and MCP
+/// ([`crate::api::org::load_board_by_ref`], KAIROS-T-0689); 404
+/// `NOT_FOUND` otherwise.
 fn board_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError> {
-    use kairos_db::schema::boards;
-    let mut query = boards::table
-        .filter(boards::deleted_at.is_null())
-        .select(Board::as_select())
-        .into_boxed();
-    query = match Uuid::parse_str(reference) {
-        Ok(id) => query.filter(boards::id.eq(id)),
-        Err(_) => query.filter(boards::slug.eq(reference)),
-    };
-    query
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| {
-            ApiError::not_found(format!(
-                "No live board has the slug or the id {reference:?}."
-            ))
-        })
+    crate::api::org::load_board_by_ref(conn, reference)
 }
 
 /// Resolve a team by UUID or slug; 422 otherwise (a filter value).
@@ -7382,20 +7377,15 @@ fn board_columns_including_removed(
         .map_err(ApiError::internal)
 }
 
-/// Resolve a column reference (UUID or case-insensitive name) against a
-/// board's columns; failure names the available columns (agent-corrective).
+/// Resolve a column reference ([`crate::references::COLUMN_FORMS`]) against
+/// a board's columns; failure names the available columns (agent-corrective).
 fn resolve_column(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError> {
-    if let Ok(id) = Uuid::parse_str(reference)
-        && columns.iter().any(|c| c.id == id)
+    if let Some(id) =
+        crate::references::column(columns.iter().map(|c| (c.id, c.name.as_str())), reference)
     {
         return Ok(id);
     }
-    if let Some(column) = columns
-        .iter()
-        .find(|c| c.name.eq_ignore_ascii_case(reference))
-    {
-        return Ok(column.id);
-    }
+    let reference = crate::references::text(reference);
     let names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
     Err(ApiError::validation(format!(
         "This board has no column {reference:?}. The columns are: {}.",

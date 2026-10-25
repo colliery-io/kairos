@@ -50,6 +50,9 @@ similar = { workspace = true }
 # The config of the person, `config.toml` (#270). kairos-index has toml 0.9
 # in the tree already.
 toml = "0.9"
+# `kairos adrs check` (KAIROS-T-0701): the walk of the tree honours
+# .gitignore, as the walk of `kairos index` does.
+ignore = "0.4"
 
 [features]
 default = ["vectors"]

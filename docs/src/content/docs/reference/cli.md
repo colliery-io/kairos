@@ -46,7 +46,7 @@ Command groups, each detailed below:
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | API or validation error: not found, forbidden, conflict, invalid transition, bad input. A transport failure: the deployment or the OIDC issuer gave no answer, also during a token refresh. Also the case of several cached deployments with no `--url`. |
+| 1 | API or validation error: not found, forbidden, conflict, invalid transition, bad input. A transport failure: the deployment or the OIDC issuer gave no answer, also during a token refresh. Also the case of several cached deployments with no `--url`. `adrs check`: a citation fails (the report is on stdout). |
 | 2 | Authentication error: no cached credentials, expired or rejected credentials, a token refresh that the issuer refused, an expired local session, a rejected email and password, HTTP 401, a corrupted credential cache. |
 | 3 | `self-update --check`: the server is newer than the CLI. |
 | 64 | Usage error: an argument or a command that this CLI does not know, a missing argument, two options that exclude each other. The message is the one of the argument parser. An older CLI exits with this code for a new option. |
@@ -326,6 +326,10 @@ differ.
 | `archive` (alias `delete`) | yes | yes | yes | yes | yes |
 | `purge` | no | no | yes | no | no |
 | `restore` | yes | yes | yes | yes | yes |
+| `check` | no | no | no | no | yes |
+
+`adrs check` checks the ADR citations of a tree; see
+[`adrs check`](#adrs-check). `adr` is an alias of the noun `adrs`.
 
 `documents` has no `transition` verb: documents have no board placement, and
 carry an editorial lifecycle instead of a column. `documents lifecycle` sets
@@ -1046,6 +1050,70 @@ with `tasks archive`. Kairos refuses a live task with `TASK_LIVE`.
 
 You need the `purge` capability on the board of the task. Team membership does
 not give it, and an organization admin has it.
+
+### `adrs check`
+
+```
+kairos adrs check [PATH]... [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `[PATH]...` | path | `.` | The files and folders to check. |
+| `--prefix <PREFIX>` | string | all | Check only the codes with this prefix, for example `KAIROS`. More than one is allowed. |
+| `--snapshot <FILE>` | path | none | Read the states of the ADRs from this file, not from the deployment. |
+| `--save-snapshot <FILE>` | path | none | Write the states of the cited ADRs to this file, for a later `--snapshot`. |
+
+Finds each ADR short code (for example `KAIROS-A-0031`) in the files of the
+paths. Gives a finding for each citation. The walk skips the files that git
+ignores and the hidden folders. It also skips a file that is not UTF-8 or is
+larger than 2 MiB. A code is an upper-case prefix, `-A-`, and four digits or more.
+
+| Finding | Severity | Meaning |
+|---|---|---|
+| `missing` | fail | No ADR has the code. |
+| `archived` | fail | The ADR is archived. |
+| `not_in_snapshot` | fail | The snapshot of `--snapshot` has no state for the code. Save the snapshot again. |
+| `superseded` | warn | An ADR supersedes the cited ADR. The finding names the successor. |
+| `ended_column` | warn | The ADR is in the column Superseded, Rejected or Deprecated, and no ADR supersedes it. |
+| `retired_code` | warn | The citation uses a retired code. The finding names the current code. |
+| `amended` | info | ADRs amend the cited ADR. The finding names them. |
+
+The text output gives one line for each finding, `FILE:LINE: CODE SEVERITY:
+MESSAGE`, and then the counts. A citation of a live ADR gives no line.
+
+The states come from the deployment: the CLI reads the item graph of each cited
+ADR once. With `--snapshot`, they come from a file that `--save-snapshot`
+wrote, and the command needs no deployment and no key. Use this in CI: CI must
+not have a key of a deployment. With no deployment and no `--snapshot`, the
+CLI skips the check: it says so on stderr and exits with 0.
+
+The exit code is 0 when no citation fails, also with warnings or a skipped
+check. It is 1 when a citation fails, and 2 for an error of the login. With
+`--json`, the report is one JSON object on stdout, also when a citation fails:
+
+```json
+{
+  "source": "deployment",
+  "skipped": false,
+  "ok": false,
+  "summary": {"citations": 3, "adrs": 2, "fail": 1, "warn": 1, "info": 0},
+  "citations": [
+    {"file": "src/main.rs", "line": 12, "code": "ACME-A-0002", "severity": "warn",
+     "findings": [{"severity": "warn", "reason": "superseded",
+                   "message": "The ADR ACME-A-0002 is superseded by ACME-A-0007. ..."}]}
+  ],
+  "adrs": [
+    {"code": "ACME-A-0002", "found": true, "current_code": "ACME-A-0002",
+     "title": "...", "status": "Superseded", "superseded_by": [{"code": "ACME-A-0007", "title": "..."}],
+     "amended_by": []}
+  ]
+}
+```
+
+`citations` has each citation, also the ones with no finding (`severity`
+`ok`). `adrs` has the state of each cited ADR. A skipped check has `source`
+`none`, `skipped` true and a `message`.
 
 ### `<noun> restore`
 

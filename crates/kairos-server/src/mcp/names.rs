@@ -73,12 +73,9 @@ const NAMES: &[Name] = &[
     ),
     one("board", "a board"),
     one("to_board", "the board that an item moves to"),
-    one("board_id", "a board"),
     one("team", "a team"),
     one("from_team", "the team that sends a request"),
-    one("team_id", "a team"),
     one("column", "a column"),
-    one("column_id", "a column"),
     one("to_column", "the column that a move ends in"),
     one("from_column", "the column that a move starts in"),
     one("repository", "a repository"),
@@ -293,23 +290,13 @@ const SAME_MEANING: &[(&[&str], &str)] = &[
     ),
     (
         &["item_type", "entity_type", "entity_types", "kind"],
-        "The REST names are the same. KAIROS-T-0696.",
+        "The REST names are the same. The choice of one name waits for a decision \
+         (KAIROS-T-0696 note n-1: `entity_type` by count renames create_item.item_type).",
     ),
     (
         &["definition", "definition_slug", "metadata_slug"],
-        "The REST names are the same. KAIROS-T-0696.",
-    ),
-    (
-        &["board", "board_id"],
-        "filter.board_id is the old form of filter.board. KAIROS-T-0696.",
-    ),
-    (
-        &["team", "team_id"],
-        "filter.team_id is the old form of filter.team. KAIROS-T-0696.",
-    ),
-    (
-        &["column", "column_id"],
-        "filter.column_id is the old form of filter.column. KAIROS-T-0696.",
+        "The REST names are the same. The count of the three names is a tie: the choice \
+         waits for a decision (KAIROS-T-0696 note n-1).",
     ),
 ];
 
@@ -364,7 +351,7 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::mcp::arguments::ALIASES;
+    use crate::mcp::arguments::{ALIASES, FIELD_ALIASES};
 
     /// One argument of one tool: its name, its JSON type, and where it is
     /// (`""` for an argument of the tool, else the name of the object in
@@ -599,6 +586,22 @@ mod tests {
                     faults.push(format!(
                         "{alias} is an alias of {argument} and the name of an argument. Use \
                          a different name, or list it in ALIAS_IS_ARGUMENT with the reason."
+                    ));
+                }
+            }
+        }
+        // KAIROS-T-0696: an alias of a field of an object argument is not
+        // the name of an argument, and its field is one.
+        for (object, field, aliases) in FIELD_ALIASES {
+            for name in [object, field] {
+                if !names.contains(*name) {
+                    faults.push(format!("FIELD_ALIASES: no tool has the name {name}."));
+                }
+            }
+            for alias in *aliases {
+                if names.contains(*alias) {
+                    faults.push(format!(
+                        "{alias} is an alias of {object}.{field} and the name of an argument."
                     ));
                 }
             }

@@ -1007,12 +1007,9 @@ are compact and grouped by type.
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `entity_type` | array of string | no | all | `strategy`, `initiative`, `task`, `document`, `adr`. Must not be an empty array. |
-| `board_id` | UUID string | no | — | Items on this board. A document is not a card, so this filter gives no document. Do not send with `board`. |
-| `board` | string | no | — | Items on this board, by slug or UUID. Do not send with `board_id`. |
-| `column_id` | UUID string | no | — | Items in this column. Do not send with `column`. |
-| `column` | string | no | — | Items in this column, by name (with `board`) or UUID. A name with no `board`, or a name the board does not have, is refused and the refusal lists the columns. Do not send with `column_id`. |
-| `team_id` | UUID string | no | — | Tasks of this team. Do not send with `team`. |
-| `team` | string | no | — | Tasks of this team, by slug or UUID. Do not send with `team_id`. |
+| `board` | string | no | — | Items on this board, by slug or UUID. A document is not a card, so this filter gives no document. The old name `board_id` is an alias. |
+| `column` | string | no | — | Items in this column, by name (with `board`) or UUID. A name with no `board`, or a name the board does not have, is refused and the refusal lists the columns. The old name `column_id` is an alias. |
+| `team` | string | no | — | Tasks of this team, by slug or UUID. The old name `team_id` is an alias. |
 | `repository` | string | no | — | The items of this repository: see below. Slug or UUID of a live repository. |
 | `task_type` | array of string | no | all | `task`, `bug`, `tech_debt`, `support`. Must not be an empty array. |
 | `work_class` | array of string | no | all | `planned`, `support`. Must not be an empty array. |
@@ -1051,7 +1048,7 @@ in a done column has no open blockers. `board_items` counts them the same way.
 - the documents that impact the repository
 - the ADRs that impact the repository
 
-The filter gives no strategy and no initiative. With `team_id`, `task_type` or
+The filter gives no strategy and no initiative. With `team`, `task_type` or
 `work_class`, only tasks match. `entity_type` makes the result smaller, as for
 each filter.
 
@@ -1085,7 +1082,8 @@ repository, so `impacts` is not a value of `relationships`. Use
 
 Refuses: `VALIDATION` for a blank `q`, an empty enum array, a blank metadata
 key, an inverted date range, an empty `metadata_missing` or a slug in it that
-names no definition, `board` with `board_id`, `team` with `team_id`, an
+names no definition, a field with its old name in the same filter (`board`
+with `board_id`, `team` with `team_id`, `column` with `column_id`), an
 unknown `board` or `team`, a person in `claimed_by`, `owned_by` or
 `created_by` that is not a member of the organization, a
 missing `traverse.depth`, a `depth` of 0 or above 10, an empty

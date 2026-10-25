@@ -273,7 +273,10 @@ fn faults_of(
         let of_a_tool_about = about.iter().any(|tool| surface.has(tool, name));
         let field = name.rsplit('.').next().unwrap_or(name);
         let an_argument = surface.all_arguments.contains(field);
-        if surface.looks_like_a_tool(name) && !an_argument {
+        // KAIROS-T-0696: a listed alias (`board_id` of `filter.board`) is a
+        // name of the server too.
+        let an_alias = surface.aliases.values().any(|a| a.contains(field));
+        if surface.looks_like_a_tool(name) && !an_argument && !an_alias {
             faults.push(format!(
                 "{}: `{name}` has the form of a tool, and the server has no tool {name}.",
                 text.place

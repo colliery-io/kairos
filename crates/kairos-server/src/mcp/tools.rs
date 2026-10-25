@@ -442,18 +442,12 @@ pub struct SearchParams {
 pub struct SearchFilterParams {
     /// Restrict to entity types: strategy | initiative | task | document | adr.
     pub entity_type: Option<Vec<String>>,
-    /// Restrict to items on this board (UUID). Not with `board`.
-    pub board_id: Option<String>,
-    /// Restrict to items on this board, by slug or UUID. Not with `board_id`.
+    /// Restrict to items on this board, by slug or UUID.
     pub board: Option<String>,
-    /// Restrict to items in this column (UUID). Not with `column`.
-    pub column_id: Option<String>,
     /// Restrict to items in this column, by name (with `board`) or UUID
-    /// (KAIROS-T-0552). Not with `column_id`.
+    /// (KAIROS-T-0552).
     pub column: Option<String>,
-    /// Restrict to tasks of this team (UUID). Not with `team`.
-    pub team_id: Option<String>,
-    /// Restrict to tasks of this team, by slug or UUID. Not with `team_id`.
+    /// Restrict to tasks of this team, by slug or UUID.
     pub team: Option<String>,
     /// Restrict to the items of this repository (slug or UUID): the tasks
     /// that link to it, and the documents and the ADRs that impact it.
@@ -3234,10 +3228,10 @@ impl KairosMcp {
         let refs = match params.filter.as_ref().map(|f| {
             crate::api::search::FilterRefs::new(
                 f.repository.clone(),
-                (f.board.clone(), f.board_id.is_some()),
-                (f.team.clone(), f.team_id.is_some()),
+                (f.board.clone(), false),
+                (f.team.clone(), false),
             )
-            .and_then(|refs| refs.with_column(f.column.clone(), f.column_id.is_some()))
+            .and_then(|refs| refs.with_column(f.column.clone(), false))
             .map(|refs| {
                 refs.with_people(
                     f.claimed_by.clone(),
@@ -9305,15 +9299,6 @@ fn field_invalid(field: &str, message: impl Into<String>) -> ApiError {
     ApiError::validation(message).with_details(json!({ "field": field }))
 }
 
-fn uuid_field(value: &str, field: &str) -> Result<Uuid, ApiError> {
-    Uuid::parse_str(value).map_err(|_| {
-        field_invalid(
-            field,
-            format!("The value {value:?} of {field} is not a UUID."),
-        )
-    })
-}
-
 fn timestamp_field(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError> {
     DateTime::parse_from_rfc3339(value)
         .map(|t| t.with_timezone(&Utc))
@@ -9434,21 +9419,12 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
                             .collect::<Result<Vec<core_search::SearchEntityType>, _>>()
                     })
                     .transpose()?,
-                board_id: filter
-                    .board_id
-                    .as_deref()
-                    .map(|v| uuid_field(v, "filter.board_id"))
-                    .transpose()?,
-                column_id: filter
-                    .column_id
-                    .as_deref()
-                    .map(|v| uuid_field(v, "filter.column_id"))
-                    .transpose()?,
-                team_id: filter
-                    .team_id
-                    .as_deref()
-                    .map(|v| uuid_field(v, "filter.team_id"))
-                    .transpose()?,
+                // KAIROS-T-0696: `board`, `column` and `team` (a slug, a
+                // name or a UUID) are resolved inside the tool; their old
+                // names are aliases (`arguments::FIELD_ALIASES`).
+                board_id: None,
+                column_id: None,
+                team_id: None,
                 // Resolved from the slug-or-UUID `repository` inside the
                 // tool (a conn is needed); see `search`.
                 repository_id: None,

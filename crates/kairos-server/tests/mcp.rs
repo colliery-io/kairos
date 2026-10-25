@@ -2711,7 +2711,7 @@ async fn mcp_endpoint_against_live_stack() {
     assert!(
         text.starts_with(
             "VALIDATION: The call has the field \"board_slug\" in filter. The object filter \
-             does not accept that field. The fields of filter are: entity_type, board_id, "
+             does not accept that field. The fields of filter are: entity_type, board, "
         ),
         "{text}"
     );
@@ -4860,6 +4860,11 @@ async fn triage_tools_against_live_stack() {
         )
         .await;
     assert!(text.contains("VALIDATION"), "{text}");
+    // KAIROS-T-0696: `board_id` is the old name of `filter.board`.
+    assert!(
+        text.contains("They are the same field") && text.contains("filter.board_id"),
+        "{text}"
+    );
     let text = session
         .call_err("search", json!({"filter": {"board": "no-such-board"}}))
         .await;

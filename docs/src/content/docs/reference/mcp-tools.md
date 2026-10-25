@@ -3298,8 +3298,8 @@ meet most. Only an organization admin.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `days` | integer | no | `7` | The number of days of the range, 1 to 90. |
-| `until` | string | no | now | The last day of the range, `YYYY-MM-DD` in UTC. The range includes that day. |
-| `top` | integer | no | `20` | The number of rows, 1 to 100. |
+| `to` | string | no | now | The last day of the range, `YYYY-MM-DD` in UTC. The range includes that day. |
+| `limit` | integer | no | `20` | The number of rows, 1 to 100. |
 
 ```text
 Refusals from 2026-10-18 16:00 UTC to 2026-10-25 16:00 UTC: 214 in all, in 31 pairs of tool and code. The top 2 of 31 pairs:
@@ -3315,7 +3315,7 @@ A range with no refusal gives `No refusals from <start> to <end>.`
 Refuses:
 
 - `FORBIDDEN` for a person who is not an organization admin;
-- `VALIDATION` for `days` or `top` out of range, and for an `until` that is
+- `VALIDATION` for `days` or `limit` out of range, and for a `to` that is
   not a date. `details.field` names the argument.
 
 ## Related reading

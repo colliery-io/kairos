@@ -288,7 +288,7 @@ async fn refusals_are_counted_by_tool_and_code() {
         .refused("refusal_counts", json!({}), "FORBIDDEN")
         .await;
     let text = admin_mcp
-        .ok("refusal_counts", json!({"days": 7, "top": 10}))
+        .ok("refusal_counts", json!({"days": 7, "limit": 10}))
         .await;
     assert!(text.contains(": 5 in all,"), "{text}");
     let first = text
@@ -311,7 +311,7 @@ async fn refusals_are_counted_by_tool_and_code() {
     );
     let rank = |needle: &str| text.find(needle).expect(needle);
     assert!(rank("| create_item") < rank("| get_item"), "{text}");
-    let text = admin_mcp.ok("refusal_counts", json!({"top": 1})).await;
+    let text = admin_mcp.ok("refusal_counts", json!({"limit": 1})).await;
     assert_eq!(
         text.matches("\n| ").count(),
         2,
@@ -321,7 +321,7 @@ async fn refusals_are_counted_by_tool_and_code() {
 
     // 4. A range with no refusal, and the bounds of the arguments.
     let text = admin_mcp
-        .ok("refusal_counts", json!({"until": "2020-01-01"}))
+        .ok("refusal_counts", json!({"to": "2020-01-01"}))
         .await;
     assert!(text.starts_with("No refusals from 2019-12-26"), "{text}");
     let text = admin_mcp
@@ -332,16 +332,16 @@ async fn refusals_are_counted_by_tool_and_code() {
         .refused("refusal_counts", json!({"days": 91}), "VALIDATION")
         .await;
     admin_mcp
-        .refused("refusal_counts", json!({"top": 0}), "VALIDATION")
+        .refused("refusal_counts", json!({"limit": 0}), "VALIDATION")
         .await;
     let text = admin_mcp
         .refused(
             "refusal_counts",
-            json!({"until": "yesterday"}),
+            json!({"to": "yesterday"}),
             "VALIDATION",
         )
         .await;
-    assert!(text.contains("\"field\":\"until\""), "{text}");
+    assert!(text.contains("\"field\":\"to\""), "{text}");
 }
 
 #[derive(QueryableByName)]

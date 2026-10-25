@@ -278,14 +278,14 @@ pub struct ListOrgReadTokensParams {}
 #[serde(deny_unknown_fields)]
 pub struct RefusalCountsParams {
     /// The number of days of the range, 1 to 90 (default 7). The range
-    /// ends at `until`.
+    /// ends at `to`.
     pub days: Option<i64>,
     /// The last day of the range, YYYY-MM-DD in UTC; the range includes
     /// that day. Default: now.
-    pub until: Option<String>,
+    pub to: Option<String>,
     /// The number of rows, 1 to 100 (default 20): the pairs of tool and
     /// code with the most refusals.
-    pub top: Option<i64>,
+    pub limit: Option<i64>,
 }
 
 /// `set_org_read_token` (KAIROS-T-0431).
@@ -2866,7 +2866,7 @@ impl KairosMcp {
 
     // KAIROS-T-0694 (KAIROS-A-0068): the count of the refusals.
     #[tool(
-        description = "The count of the MCP refusals for each tool and code in a range of days, the highest first: the field that the refusals name most, and the count for each kind of caller (person, agent key, service account). Kairos keeps one row for each tool call that ends in a tool error, with no argument value, for 90 days. `days` is 1 to 90 (default 7), `until` is the last day of the range, YYYY-MM-DD in UTC (default now), and `top` is 1 to 100 rows (default 20). Only an organization admin."
+        description = "The count of the MCP refusals for each tool and code in a range of days, the highest first: the field that the refusals name most, and the count for each kind of caller (person, agent key, service account). Kairos keeps one row for each tool call that ends in a tool error, with no argument value, for 90 days. `days` is 1 to 90 (default 7), `to` is the last day of the range, YYYY-MM-DD in UTC (default now), and `limit` is 1 to 100 rows (default 20). Only an organization admin."
     )]
     pub async fn refusal_counts(
         &self,
@@ -9856,7 +9856,7 @@ fn ride_along_text(unread: &kairos_db::notifications::Unread) -> Option<String> 
 }
 
 /// The range and the row count of `refusal_counts` (KAIROS-T-0694):
-/// `days` days that end at the end of the day `until`, or at `now`.
+/// `days` days that end at the end of the day `to`, or at `now`.
 fn refusal_range(
     params: &RefusalCountsParams,
     now: chrono::DateTime<chrono::Utc>,
@@ -9876,22 +9876,22 @@ fn refusal_range(
         ))
         .with_details(json!({ "field": "days" })));
     }
-    let top = params.top.unwrap_or(20);
+    let top = params.limit.unwrap_or(20);
     if !(1..=100).contains(&top) {
         return Err(ApiError::validation(format!(
-            "The value {top} of top is not in the range. Send a number of rows from 1 to 100."
+            "The value {top} of limit is not in the range. Send a number of rows from 1 to 100."
         ))
-        .with_details(json!({ "field": "top" })));
+        .with_details(json!({ "field": "limit" })));
     }
-    let until = match params.until.as_deref() {
+    let until = match params.to.as_deref() {
         None => now,
         Some(text) => {
             let day = chrono::NaiveDate::parse_from_str(text.trim(), "%Y-%m-%d").map_err(|_| {
                 ApiError::validation(format!(
-                    "The value {text:?} of until is not a date. Send a date in the form \
+                    "The value {text:?} of to is not a date. Send a date in the form \
                      YYYY-MM-DD, for example 2026-10-25."
                 ))
-                .with_details(json!({ "field": "until" }))
+                .with_details(json!({ "field": "to" }))
             })?;
             (day + chrono::Duration::days(1))
                 .and_hms_opt(0, 0, 0)

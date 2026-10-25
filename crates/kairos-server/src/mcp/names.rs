@@ -242,7 +242,6 @@ const NAMES: &[Name] = &[
     one("offset", "the number of rows to skip"),
     one("older_than_days", "an age in days"),
     one("days", "the number of days of a range"),
-    one("top", "the number of rows"),
     one("created_after", "created after a time"),
     one("created_before", "created before a time"),
     one("updated_after", "changed after a time"),
@@ -270,10 +269,9 @@ const NAMES: &[Name] = &[
     on(
         "to",
         "the last day of a range",
-        &["board_flow"],
+        &["board_flow", "refusal_counts"],
         "A date range is `from` and `to`, as in the REST query of the flow.",
     ),
-    one("until", "the last day of a range"),
     on(
         "to",
         "the person who gets the claim or the ownership",
@@ -312,15 +310,6 @@ const SAME_MEANING: &[(&[&str], &str)] = &[
     (
         &["column", "column_id"],
         "filter.column_id is the old form of filter.column. KAIROS-T-0696.",
-    ),
-    (
-        &["limit", "top"],
-        "refusal_counts takes the `top` rows of a ranking, with no `offset` (KAIROS-T-0694).",
-    ),
-    (
-        &["to", "until"],
-        "board_flow takes the range `from` and `to`; refusal_counts takes `days` that end at \
-         `until` (KAIROS-T-0694).",
     ),
 ];
 

@@ -324,10 +324,13 @@ pub(super) fn parse_expiry(
     raw.map(|raw| {
         chrono::DateTime::parse_from_rfc3339(raw)
             .map(|ts| ts.with_timezone(&chrono::Utc))
-            .map_err(|e| {
+            .map_err(|_| {
+                // KAIROS-T-0690: the value, not the text of chrono.
                 ApiError::validation(format!(
-                    "The value of expires_at is not a timestamp: {e}. Send an RFC 3339 timestamp."
+                    "The value {raw:?} of expires_at is not a timestamp. Send an RFC 3339 \
+                     timestamp, for example 2026-12-31T00:00:00Z."
                 ))
+                .with_details(serde_json::json!({ "field": "expires_at" }))
             })
     })
     .transpose()

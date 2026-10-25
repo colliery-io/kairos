@@ -287,8 +287,15 @@ pub enum ToolError {
         "The call does not have the argument {argument:?}. This tool must have that argument. The arguments of this tool are: {allowed}."
     )]
     MissingArgument { argument: String, allowed: String },
-    #[error("The arguments are not correct for this tool: {0}.")]
-    BadArguments(String),
+    /// KAIROS-T-0690: a value that the tool cannot read. The text names the
+    /// argument, not the text of `serde`.
+    #[error(
+        "The value of {field} is not correct for this tool. The schema of the tool in tools/list gives its type."
+    )]
+    BadArgument { field: String },
+    /// The arguments are not one object.
+    #[error("The arguments of this tool must be one object with these arguments: {allowed}.")]
+    BadArguments { allowed: String },
     #[error("The argument `limit` must be from 1 to {0}.")]
     Limit(usize),
     #[error("The argument `min_lines` must be 1 or more.")]
@@ -396,7 +403,8 @@ impl ToolError {
             ToolError::UnknownArgument { .. }
             | ToolError::UnknownCheckout { .. }
             | ToolError::MissingArgument { .. }
-            | ToolError::BadArguments(_)
+            | ToolError::BadArgument { .. }
+            | ToolError::BadArguments { .. }
             | ToolError::Limit(_)
             | ToolError::MinLines => "VALIDATION",
             ToolError::Index(_) => "INDEX",
@@ -413,6 +421,7 @@ impl ToolError {
                 argument, allowed, ..
             } => Some(json!({ "field": argument, "allowed": allowed })),
             ToolError::MissingArgument { argument, .. } => Some(json!({ "field": argument })),
+            ToolError::BadArgument { field } => Some(json!({ "field": field })),
             _ => None,
         }
     }

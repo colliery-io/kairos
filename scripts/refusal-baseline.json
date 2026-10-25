@@ -1,0 +1,230 @@
+{
+  "crates/kairos-cli/src/index/error.rs": {
+    "LIB": 1,
+    "FIELD": 0
+  },
+  "crates/kairos-server/src/api/adrs.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/api/documents.rs": {
+    "LIB": 0,
+    "FIELD": 4
+  },
+  "crates/kairos-server/src/api/initiatives.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/api/local_accounts.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/api/meta/activity.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/api/meta/definitions.rs": {
+    "LIB": 0,
+    "FIELD": 10
+  },
+  "crates/kairos-server/src/api/meta/external.rs": {
+    "LIB": 0,
+    "FIELD": 4
+  },
+  "crates/kairos-server/src/api/meta/history.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/api/meta/impacts.rs": {
+    "LIB": 0,
+    "FIELD": 3
+  },
+  "crates/kairos-server/src/api/meta/item_teams.rs": {
+    "LIB": 0,
+    "FIELD": 4
+  },
+  "crates/kairos-server/src/api/meta/mod.rs": {
+    "LIB": 0,
+    "FIELD": 5
+  },
+  "crates/kairos-server/src/api/meta/relationships.rs": {
+    "LIB": 0,
+    "FIELD": 6
+  },
+  "crates/kairos-server/src/api/meta/templates.rs": {
+    "LIB": 0,
+    "FIELD": 6
+  },
+  "crates/kairos-server/src/api/mod.rs": {
+    "LIB": 0,
+    "FIELD": 23
+  },
+  "crates/kairos-server/src/api/notifications.rs": {
+    "LIB": 0,
+    "FIELD": 7
+  },
+  "crates/kairos-server/src/api/org/admin.rs": {
+    "LIB": 0,
+    "FIELD": 3
+  },
+  "crates/kairos-server/src/api/org/boards.rs": {
+    "LIB": 0,
+    "FIELD": 10
+  },
+  "crates/kairos-server/src/api/org/code_indexes.rs": {
+    "LIB": 0,
+    "FIELD": 5
+  },
+  "crates/kairos-server/src/api/org/dispatch.rs": {
+    "LIB": 0,
+    "FIELD": 4
+  },
+  "crates/kairos-server/src/api/org/forge.rs": {
+    "LIB": 0,
+    "FIELD": 3
+  },
+  "crates/kairos-server/src/api/org/members.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/api/org/mod.rs": {
+    "LIB": 0,
+    "FIELD": 13
+  },
+  "crates/kairos-server/src/api/org/org_read_tokens.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/api/org/repositories.rs": {
+    "LIB": 0,
+    "FIELD": 9
+  },
+  "crates/kairos-server/src/api/org/repository_credentials.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/api/org/repository_write_tokens.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/api/org/sites.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/api/org/streams.rs": {
+    "LIB": 0,
+    "FIELD": 4
+  },
+  "crates/kairos-server/src/api/org/team_pages.rs": {
+    "LIB": 0,
+    "FIELD": 12
+  },
+  "crates/kairos-server/src/api/org/teams.rs": {
+    "LIB": 0,
+    "FIELD": 5
+  },
+  "crates/kairos-server/src/api/org/user_grants.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/api/proposals.rs": {
+    "LIB": 0,
+    "FIELD": 4
+  },
+  "crates/kairos-server/src/api/search.rs": {
+    "LIB": 0,
+    "FIELD": 3
+  },
+  "crates/kairos-server/src/api/tasks.rs": {
+    "LIB": 0,
+    "FIELD": 3
+  },
+  "crates/kairos-server/src/app.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/body.rs": {
+    "LIB": 1,
+    "FIELD": 4
+  },
+  "crates/kairos-server/src/cancel.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/claims.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/code_index/git.rs": {
+    "LIB": 2,
+    "FIELD": 0
+  },
+  "crates/kairos-server/src/config.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/credentials.rs": {
+    "LIB": 1,
+    "FIELD": 0
+  },
+  "crates/kairos-server/src/forge/import.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/input.rs": {
+    "LIB": 0,
+    "FIELD": 4
+  },
+  "crates/kairos-server/src/mcp/arguments.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/mcp/request_key.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/mcp/tools.rs": {
+    "LIB": 0,
+    "FIELD": 41
+  },
+  "crates/kairos-server/src/middleware/auth.rs": {
+    "LIB": 1,
+    "FIELD": 0
+  },
+  "crates/kairos-server/src/owners.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/promote.rs": {
+    "LIB": 0,
+    "FIELD": 3
+  },
+  "crates/kairos-server/src/scim/tokens.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/service_accounts/agent_keys.rs": {
+    "LIB": 0,
+    "FIELD": 3
+  },
+  "crates/kairos-server/src/service_accounts/org_agent_keys.rs": {
+    "LIB": 0,
+    "FIELD": 1
+  },
+  "crates/kairos-server/src/service_accounts/routes.rs": {
+    "LIB": 0,
+    "FIELD": 9
+  },
+  "crates/kairos-server/src/site_store.rs": {
+    "LIB": 1,
+    "FIELD": 0
+  },
+  "crates/kairos-server/src/task_state.rs": {
+    "LIB": 0,
+    "FIELD": 2
+  },
+  "crates/kairos-server/src/web.rs": {
+    "LIB": 1,
+    "FIELD": 8
+  }
+}

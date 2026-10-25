@@ -191,4 +191,71 @@ mod tests {
                 .contains("more than one time")
         );
     }
+
+    /// KAIROS-T-0691: the page `mcp-tools.md`.
+    fn page() -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/src/content/docs/reference/mcp-tools.md");
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    /// Each name in backticks in the text.
+    fn backticked(text: &str) -> Vec<String> {
+        text.split('`')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn all_tools() -> Vec<String> {
+        super::super::KairosMcp::tool_router()
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn the_work_profile_is_the_list_of_the_page() {
+        // KAIROS-T-0691: `WORK` is a rule table; the page lists it.
+        let all = all_tools();
+        let work: std::collections::BTreeSet<String> =
+            WORK.iter().map(|name| name.to_string()).collect();
+        assert_eq!(work.len(), WORK.len(), "WORK has a name two times");
+        for name in &work {
+            assert!(all.contains(name), "{name} is in WORK but is not a tool");
+        }
+
+        let page = page();
+        let heading = "The work tools:\n\n";
+        let start = page.find(heading).expect("the list of the work tools");
+        let list = &page[start + heading.len()..];
+        let list = &list[..list.find("\n\n").expect("the end of the list")];
+        let listed: std::collections::BTreeSet<String> = backticked(list).into_iter().collect();
+        assert_eq!(listed, work, "the work tools of mcp-tools.md");
+
+        let work_count = format!("{} tools. |", WORK.len());
+        assert!(page.contains(&work_count), "mcp-tools.md: {work_count}");
+        let admin_count = format!("the other {} tools. |", all.len() - WORK.len());
+        assert!(page.contains(&admin_count), "mcp-tools.md: {admin_count}");
+    }
+
+    #[test]
+    fn the_instructions_name_work_tools_only() {
+        // KAIROS-T-0691: a client calls only the listed tools, so each tool
+        // that the instructions of the default profile name is in it.
+        let all = all_tools();
+        let named: Vec<String> = backticked(super::super::service::INSTRUCTIONS)
+            .into_iter()
+            .filter(|name| all.contains(name))
+            .collect();
+        assert!(named.len() >= 9, "{named:?}");
+        for name in named {
+            assert!(
+                WORK.contains(&name.as_str()),
+                "the instructions name {name}, which is not in the work profile"
+            );
+        }
+    }
 }

@@ -45,7 +45,7 @@ static SCRATCH_DB: scratch::ScratchName =
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 71] = [
+const EXPECTED_TABLES: [&str; 72] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -145,6 +145,8 @@ const EXPECTED_TABLES: [&str; 71] = [
     "teams",
     "template_metadata",
     "templates",
+    // KAIROS-T-0694 (KAIROS-A-0068): the count of the MCP refusals.
+    "tool_refusals",
     // KAIROS-T-0384: the webhook targets, the deliveries and their tries.
     "webhook_deliveries",
     "webhook_delivery_tries",

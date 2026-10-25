@@ -320,6 +320,7 @@ fn retention_run(
         unused_summaries_deleted = pass.unused_summaries_deleted,
         webhook_deliveries_deleted = pass.webhook_deliveries_deleted,
         request_keys_deleted = pass.request_keys_deleted,
+        tool_refusals_deleted = pass.tool_refusals_deleted,
         "retention: pass done"
     );
     Ok(())

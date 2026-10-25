@@ -3,8 +3,8 @@ title: "MCP tools"
 ---
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-seventy-nine tools. A drift gate in the test suite
-asserts that `tools/list` returns these seventy-nine and no others. The same
+eighty tools. A drift gate in the test suite
+asserts that `tools/list` returns these eighty and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -23,7 +23,7 @@ organization.
 | URL | Profile | Tools |
 |---|---|---|
 | `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read: 48 tools. |
-| `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge: the other 31 tools. |
+| `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge, the count of the refusals: the other 32 tools. |
 | `/mcp?profile=all` | all | Each tool. |
 
 The profile changes the list, not the rights. Kairos runs a call to a tool
@@ -138,7 +138,16 @@ says `This tool has no arguments.`
 A call without an argument that the tool must have has a refusal of the same
 form: `VALIDATION: The call does not have the argument "short_code". This tool
 must have that argument. …`. An argument with the wrong JSON type is
-`VALIDATION` too, and the text gives the fault. See
+`VALIDATION` too. The text names the argument and the type that the tool
+must have. The tool can refuse a value of the correct type. Then the text
+gives the values or the form that the tool accepts, and the value of the call:
+
+```text
+VALIDATION: The value of within.mode must be one of these values: fast, slow. The call gives "quick".
+details: {"expected":"one of these values: fast, slow","field":"within.mode"}
+```
+
+A refusal does not contain the text of a library (KAIROS-T-0690). See
 [An input that a route does not accept](../errors/#an-input-that-a-route-does-not-accept)
 for the rule of the REST API.
 
@@ -1194,7 +1203,10 @@ both fields were already *readable* through `get_item`. They are accepted now.
 
 Refuses: `VALIDATION` for an unknown `item_type`; for a `task_type`,
 `work_class`, `complexity` or `bucket_type` outside its vocabulary; for a `decision_date` that is not `YYYY-MM-DD`; for a type-specific
-argument passed with the wrong `item_type`, naming the type it belongs to; for a
+argument passed with the wrong `item_type`, naming the type it belongs to, with
+the argument in `details.field` (the arguments of the table above with "Tasks
+only" and the like; a test keeps the table, the schema and the server equal,
+KAIROS-T-0691); for a
 document with no `board`, or whose parent is not a strategy, initiative or
 task; for a document with `repository`; for a `parent` relationship that the type rules do not allow, with the
 rule in the message; for a `parent` that does not name a live item; for an unknown template,
@@ -3266,6 +3278,45 @@ Refuses: `FORBIDDEN` for a person who is not an organization admin;
 `NOT_FOUND` for a host with no token.
 
 REST: `DELETE /api/org/read-tokens/{host}`.
+
+## The count of the refusals
+
+Kairos keeps one row for each tool call that ends in a tool error
+(KAIROS-T-0694, KAIROS-A-0068). The row has the tool, the code of the
+refusal and the `field` of its details. It also has the kind of the caller:
+`person`, `agent_key` or `service_account`. It has no argument value, no text
+of the refusal and no person. The retention pass deletes the rows after 90
+days. Kairos does not count the refusals of the REST API.
+
+### `refusal_counts`
+
+Gives the count of the refusals for each tool and code in a range of days,
+the highest first. Each row has the field that the refusals name most, and
+the count for each kind of caller. Use it to find the refusals that agents
+meet most. Only an organization admin.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `days` | integer | no | `7` | The number of days of the range, 1 to 90. |
+| `until` | string | no | now | The last day of the range, `YYYY-MM-DD` in UTC. The range includes that day. |
+| `top` | integer | no | `20` | The number of rows, 1 to 100. |
+
+```text
+Refusals from 2026-10-18 16:00 UTC to 2026-10-25 16:00 UTC: 214 in all, in 31 pairs of tool and code. The top 2 of 31 pairs:
+
+| tool | code | count | field named most | person | agent key | service account |
+|---|---|---|---|---|---|---|
+| link_items | RELATIONSHIP_RULE | 41 | - | 3 | 38 | 0 |
+| create_item | VALIDATION | 29 | parent | 1 | 28 | 0 |
+```
+
+A range with no refusal gives `No refusals from <start> to <end>.`
+
+Refuses:
+
+- `FORBIDDEN` for a person who is not an organization admin;
+- `VALIDATION` for `days` or `top` out of range, and for an `until` that is
+  not a date. `details.field` names the argument.
 
 ## Related reading
 

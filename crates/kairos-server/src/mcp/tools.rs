@@ -3,7 +3,7 @@
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
 //! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
 //! (COLLIERY-T-0220), and `add_repository` and `update_repository`
-//! (COLLIERY-T-0266); later tasks added more (79 in all, in the profiles
+//! (COLLIERY-T-0266); later tasks added more (80 in all, in the profiles
 //! of `profiles.rs`, KAIROS-T-0454) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
@@ -272,6 +272,22 @@ pub struct WebhookTargetParams {
 #[serde(deny_unknown_fields)]
 pub struct ListOrgReadTokensParams {}
 
+/// `refusal_counts` (KAIROS-T-0694).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct RefusalCountsParams {
+    /// The number of days of the range, 1 to 90 (default 7). The range
+    /// ends at `until`.
+    pub days: Option<i64>,
+    /// The last day of the range, YYYY-MM-DD in UTC; the range includes
+    /// that day. Default: now.
+    pub until: Option<String>,
+    /// The number of rows, 1 to 100 (default 20): the pairs of tool and
+    /// code with the most refusals.
+    pub top: Option<i64>,
+}
+
 /// `set_org_read_token` (KAIROS-T-0431).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -519,7 +535,7 @@ pub struct CreateItemParams {
     /// Parent item's short code: the `parent` edge (for a document or an
     /// ADR, the `supports` edge).
     pub parent: Option<String>,
-    /// Template (id or name) — documents only (KAIROS-A-0003).
+    /// Documents only: the template, by id, slug or name (KAIROS-A-0003).
     pub template: Option<String>,
     /// Initial markdown content (defaults to empty / the template's).
     pub content: Option<String>,
@@ -1503,7 +1519,7 @@ pub struct SaveTemplateParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (79; the list of each profile is asserted in tests/mcp.rs)
+// The tools (80; the list of each profile is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -2844,6 +2860,32 @@ impl KairosMcp {
                     .unwrap_or_else(|_| params.host.clone()),
                 org_read_tokens_text(&left)
             ))
+        })
+        .await
+    }
+
+    // KAIROS-T-0694 (KAIROS-A-0068): the count of the refusals.
+    #[tool(
+        description = "The count of the MCP refusals for each tool and code in a range of days, the highest first: the field that the refusals name most, and the count for each kind of caller (person, agent key, service account). Kairos keeps one row for each tool call that ends in a tool error, with no argument value, for 90 days. `days` is 1 to 90 (default 7), `until` is the last day of the range, YYYY-MM-DD in UTC (default now), and `top` is 1 to 100 rows (default 20). Only an organization admin."
+    )]
+    pub async fn refusal_counts(
+        &self,
+        Parameters(params): Parameters<RefusalCountsParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (_, tenant) = Self::caller(&context)?;
+        if let Err(e) = crate::api::meta::require_org_admin(&tenant) {
+            return Ok(tool_error(e));
+        }
+        let range = match refusal_range(&params, chrono::Utc::now()) {
+            Ok(range) => range,
+            Err(e) => return Ok(tool_error(e)),
+        };
+        self.run_tool(&tenant, move |conn| {
+            let (since, until, top) = range;
+            let counts =
+                kairos_db::tool_refusals::counts(conn, since, until).map_err(ApiError::internal)?;
+            Ok(refusal_counts_text(since, until, top, &counts))
         })
         .await
     }
@@ -4788,7 +4830,7 @@ impl KairosMcp {
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-            let cancellable = matches!(item.item_type, ItemType::Task | ItemType::Initiative);
+            let cancellable = CANCELLABLE.contains(&item.item_type);
             let Some(board_id) = item.board_id.filter(|_| cancellable) else {
                 return Err(ApiError::validation(format!(
                     "{} is a {}. You can cancel only a task or an initiative. {}",
@@ -7203,6 +7245,11 @@ fn claim_and_move_initiative(
 }
 
 /// How to retire an item that `cancel_item` does not take (KAIROS-T-0678).
+/// KAIROS-T-0691: the item types that `cancel_item` cancels. A unit test
+/// checks that the description of the tool and the page `mcp-tools.md` name
+/// these and give a route for each other type.
+pub(crate) const CANCELLABLE: &[ItemType] = &[ItemType::Task, ItemType::Initiative];
+
 fn retire_route(item_type: ItemType) -> &'static str {
     match item_type {
         ItemType::Document => "To retire a document, call set_lifecycle with archived.",
@@ -8839,21 +8886,73 @@ fn resolve_template(conn: &mut PgConnection, reference: &str) -> Result<Uuid, Ap
     }
 }
 
-/// Reject a type-specific field supplied for the wrong item type (agents
-/// get corrected instead of silently losing input).
-fn reject_field(
-    field: &str,
-    value: Option<&String>,
-    item_type: ItemType,
-    applies_to: &str,
-) -> Result<(), ApiError> {
-    match value {
-        Some(_) => Err(ApiError::validation(format!(
-            "{field} applies to {applies_to}. It does not apply to an item of the type \
-             {item_type}."
-        ))),
-        None => Ok(()),
+/// KAIROS-T-0691: the arguments of `create_item` that apply to one item
+/// type only. `create_item_impl` refuses each of them for the other types,
+/// and a unit test checks that the argument descriptions of the schema and
+/// the page `mcp-tools.md` say the same ("Tasks only", ...).
+pub(crate) const TYPE_ONLY_FIELDS: &[(&str, ItemType)] = &[
+    ("template", ItemType::Document),
+    ("task_type", ItemType::Task),
+    ("repository", ItemType::Task),
+    ("work_class", ItemType::Task),
+    ("from_team", ItemType::Task),
+    ("hypothesis", ItemType::Strategy),
+    ("complexity", ItemType::Initiative),
+    ("bucket_type", ItemType::Initiative),
+    ("decision_maker", ItemType::Adr),
+    ("decision_date", ItemType::Adr),
+];
+
+/// The plural of an item type, as the refusals and descriptions write it.
+pub(crate) fn type_plural(item_type: ItemType) -> &'static str {
+    match item_type {
+        ItemType::Strategy => "strategies",
+        ItemType::Initiative => "initiatives",
+        ItemType::Task => "tasks",
+        ItemType::Document => "documents",
+        ItemType::Adr => "ADRs",
     }
+}
+
+/// The value of a [`TYPE_ONLY_FIELDS`] argument in the parameters.
+fn type_only_value<'a>(params: &'a CreateItemParams, field: &str) -> Option<&'a String> {
+    match field {
+        "template" => params.template.as_ref(),
+        "task_type" => params.task_type.as_ref(),
+        "repository" => params.repository.as_ref(),
+        "work_class" => params.work_class.as_ref(),
+        "from_team" => params.from_team.as_ref(),
+        "hypothesis" => params.hypothesis.as_ref(),
+        "complexity" => params.complexity.as_ref(),
+        "bucket_type" => params.bucket_type.as_ref(),
+        "decision_maker" => params.decision_maker.as_ref(),
+        "decision_date" => params.decision_date.as_ref(),
+        other => unreachable!("{other} is not in TYPE_ONLY_FIELDS"),
+    }
+}
+
+/// Reject each type-specific field supplied for the wrong item type (agents
+/// get corrected instead of silently losing input). The refusal names the
+/// field in `details.field` (KAIROS-T-0690).
+fn reject_type_only_fields(params: &CreateItemParams, item_type: ItemType) -> Result<(), ApiError> {
+    for &(field, applies_to) in TYPE_ONLY_FIELDS {
+        if applies_to == item_type || type_only_value(params, field).is_none() {
+            continue;
+        }
+        let mut message = format!(
+            "The argument {field} applies to {}. It does not apply to an item of the type \
+             {item_type}.",
+            type_plural(applies_to)
+        );
+        if field == "repository" && matches!(item_type, ItemType::Document | ItemType::Adr) {
+            message.push_str(&format!(
+                " To say that the {item_type} impacts a repository, create the {item_type}. \
+                 Then call link_items with the relationship impacts."
+            ));
+        }
+        return Err(ApiError::validation(message).with_details(json!({ "field": field })));
+    }
+    Ok(())
 }
 
 /// The create_item body: resolve the target board (or parent, for
@@ -8888,52 +8987,7 @@ fn create_item_impl(
             )));
         }
     };
-    if item_type != ItemType::Document {
-        reject_field("template", params.template.as_ref(), item_type, "documents")?;
-    }
-    if item_type != ItemType::Task {
-        reject_field("task_type", params.task_type.as_ref(), item_type, "tasks")?;
-        // KAIROS-T-0553: refused like the others, not read and dropped.
-        reject_field("work_class", params.work_class.as_ref(), item_type, "tasks")?;
-    }
-    if item_type != ItemType::Strategy {
-        reject_field(
-            "hypothesis",
-            params.hypothesis.as_ref(),
-            item_type,
-            "strategies",
-        )?;
-    }
-    if item_type != ItemType::Initiative {
-        reject_field(
-            "complexity",
-            params.complexity.as_ref(),
-            item_type,
-            "initiatives",
-        )?;
-    }
-    if item_type != ItemType::Initiative {
-        reject_field(
-            "bucket_type",
-            params.bucket_type.as_ref(),
-            item_type,
-            "initiatives",
-        )?;
-    }
-    if item_type != ItemType::Adr {
-        reject_field(
-            "decision_maker",
-            params.decision_maker.as_ref(),
-            item_type,
-            "ADRs",
-        )?;
-        reject_field(
-            "decision_date",
-            params.decision_date.as_ref(),
-            item_type,
-            "ADRs",
-        )?;
-    }
+    reject_type_only_fields(params, item_type)?;
     let content = params.content.as_deref().unwrap_or("");
 
     // Documents: an owner is REQUIRED, which is `board`, or `parent`, or
@@ -8941,15 +8995,7 @@ fn create_item_impl(
     // those of POST /api/documents: the two call one function.
     if item_type == ItemType::Document {
         // Until COLLIERY-T-0269 the tool did not read `repository` for a
-        // document, and it did not say so.
-        if params.repository.is_some() {
-            return Err(ApiError::validation(
-                "The argument repository applies to tasks. It does not apply to an item \
-                 of the type document. To say that the document impacts a repository, \
-                 create the document. Then call link_items with the relationship \
-                 impacts.",
-            ));
-        }
+        // document, and it did not say so: `reject_type_only_fields` refuses it.
         let template_id = params
             .template
             .as_deref()
@@ -8987,10 +9033,6 @@ fn create_item_impl(
             out.push_str(&format!("\n{renamed}"));
         }
         return Ok(out);
-    }
-
-    if item_type != ItemType::Task {
-        reject_field("repository", params.repository.as_ref(), item_type, "tasks")?;
     }
 
     // Board items: resolve the board (explicit slug/UUID or the single
@@ -9055,13 +9097,8 @@ fn create_item_impl(
         let work_class = access.work_class(requested_work_class, task_type);
         (board, Some(route), Some((task_type, work_class)))
     } else {
-        // KAIROS-T-0426: `from_team` says who sends a task.
-        if params.from_team.is_some() {
-            return Err(ApiError::validation(format!(
-                "The argument from_team is for a task. A {item_type} has no sending team."
-            ))
-            .with_details(json!({ "field": "from_team" })));
-        }
+        // KAIROS-T-0426: `from_team` says who sends a task; a sending team
+        // on another type is refused by `reject_type_only_fields`.
         let board = match params.board.as_deref() {
             Some(reference) => board_by_ref(conn, reference)?,
             None => default_board_for(conn, level_of(item_type))?,
@@ -9818,6 +9855,91 @@ fn ride_along_text(unread: &kairos_db::notifications::Unread) -> Option<String> 
     Some(out)
 }
 
+/// The range and the row count of `refusal_counts` (KAIROS-T-0694):
+/// `days` days that end at the end of the day `until`, or at `now`.
+fn refusal_range(
+    params: &RefusalCountsParams,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<
+    (
+        chrono::DateTime<chrono::Utc>,
+        chrono::DateTime<chrono::Utc>,
+        usize,
+    ),
+    ApiError,
+> {
+    let days = params.days.unwrap_or(7);
+    if !(1..=kairos_db::tool_refusals::KEEP_DAYS).contains(&days) {
+        return Err(ApiError::validation(format!(
+            "The value {days} of days is not in the range. Send a number of days from 1 to {}.",
+            kairos_db::tool_refusals::KEEP_DAYS
+        ))
+        .with_details(json!({ "field": "days" })));
+    }
+    let top = params.top.unwrap_or(20);
+    if !(1..=100).contains(&top) {
+        return Err(ApiError::validation(format!(
+            "The value {top} of top is not in the range. Send a number of rows from 1 to 100."
+        ))
+        .with_details(json!({ "field": "top" })));
+    }
+    let until = match params.until.as_deref() {
+        None => now,
+        Some(text) => {
+            let day = chrono::NaiveDate::parse_from_str(text.trim(), "%Y-%m-%d").map_err(|_| {
+                ApiError::validation(format!(
+                    "The value {text:?} of until is not a date. Send a date in the form \
+                     YYYY-MM-DD, for example 2026-10-25."
+                ))
+                .with_details(json!({ "field": "until" }))
+            })?;
+            (day + chrono::Duration::days(1))
+                .and_hms_opt(0, 0, 0)
+                .expect("midnight")
+                .and_utc()
+        }
+    };
+    Ok((until - chrono::Duration::days(days), until, top as usize))
+}
+
+/// The answer of `refusal_counts`: one line, then a table of the top rows.
+fn refusal_counts_text(
+    since: chrono::DateTime<chrono::Utc>,
+    until: chrono::DateTime<chrono::Utc>,
+    top: usize,
+    counts: &[kairos_db::tool_refusals::Count],
+) -> String {
+    let when = |t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%d %H:%M UTC").to_string();
+    if counts.is_empty() {
+        return format!("No refusals from {} to {}.", when(since), when(until));
+    }
+    let total: i64 = counts.iter().map(|c| c.count).sum();
+    let shown = counts.len().min(top);
+    let mut out = format!(
+        "Refusals from {} to {}: {total} in all, in {} pairs of tool and code. The top \
+         {shown} of {} pairs:\n\n\
+         | tool | code | count | field named most | person | agent key | service account |\n\
+         |---|---|---|---|---|---|---|",
+        when(since),
+        when(until),
+        counts.len(),
+        counts.len(),
+    );
+    for c in &counts[..shown] {
+        out.push_str(&format!(
+            "\n| {} | {} | {} | {} | {} | {} | {} |",
+            c.tool,
+            c.code,
+            c.count,
+            c.top_field.as_deref().unwrap_or("-"),
+            c.person,
+            c.agent_key,
+            c.service_account
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod ride_along_tests {
     //! KAIROS-T-0612: the heading of the ride-along has no count past
@@ -10569,7 +10691,7 @@ mod t0677_tests {
 
     /// The rows of the table in the description, as `(relationship,
     /// sources, targets)`.
-    fn table_rows(description: &str) -> Vec<(String, Vec<String>, Vec<String>)> {
+    pub(super) fn table_rows(description: &str) -> Vec<(String, Vec<String>, Vec<String>)> {
         let list = |cell: &str| -> Vec<String> {
             cell.split(',')
                 .map(|part| part.trim().to_string())
@@ -10738,6 +10860,237 @@ mod t0685_tests {
         assert!(
             state.contains("Send each field as its own argument, not one object"),
             "{state}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod t0691_tests {
+    //! KAIROS-T-0691 (pass 6 of KAIROS-D-0016): each rule table in the code
+    //! is stated in the description of its tool and on the page
+    //! `mcp-tools.md`. The tables: the link matrix (`check_link`, tested in
+    //! `t0677_tests` against the description and here against the page),
+    //! the type-only arguments of create_item (`TYPE_ONLY_FIELDS`), and the
+    //! types that cancel_item cancels (`CANCELLABLE`). The profile lists are
+    //! tested in `profiles`.
+
+    use super::{
+        CANCELLABLE, CreateItemParams, KairosMcp, TYPE_ONLY_FIELDS, retire_route, type_plural,
+    };
+    use kairos_core::short_code::ItemType;
+    use std::collections::BTreeMap;
+
+    fn page() -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/src/content/docs/reference/mcp-tools.md");
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    /// The section `### \`name\`` of the page, to the next section.
+    fn section(page: &str, name: &str) -> String {
+        let heading = format!("### `{name}`\n");
+        let start = page
+            .find(&heading)
+            .unwrap_or_else(|| panic!("no section {name}"));
+        let body = &page[start + heading.len()..];
+        let end = body.find("\n### ").unwrap_or(body.len());
+        body[..end].to_string()
+    }
+
+    /// The description of each argument in the JSON schema of the tool.
+    fn argument_descriptions(tool: rmcp::model::Tool) -> BTreeMap<String, String> {
+        let properties = tool
+            .input_schema
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .expect("properties")
+            .clone();
+        properties
+            .into_iter()
+            .map(|(name, schema)| {
+                let text = schema
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                (name, text)
+            })
+            .collect()
+    }
+
+    /// The type that an "X only" description names, or None.
+    fn only_type(text: &str) -> Option<ItemType> {
+        ItemType::ALL.iter().copied().find(|&item_type| {
+            let plural = type_plural(item_type);
+            let mut capital = plural.to_string();
+            capital[..1].make_ascii_uppercase();
+            text.starts_with(&format!("{capital} only"))
+        })
+    }
+
+    #[test]
+    fn the_type_only_arguments_are_the_table() {
+        let table: BTreeMap<String, ItemType> = TYPE_ONLY_FIELDS
+            .iter()
+            .map(|&(field, item_type)| (field.to_string(), item_type))
+            .collect();
+
+        // The schema of the tool: "Tasks only: ..." for each field of the
+        // table, and no "X only" for another field.
+        let schema = argument_descriptions(KairosMcp::create_item_tool_attr());
+        for field in table.keys() {
+            assert!(schema.contains_key(field), "{field} is not an argument");
+        }
+        for (field, text) in &schema {
+            assert_eq!(
+                only_type(text),
+                table.get(field).copied(),
+                "the schema description of {field}: {text}"
+            );
+        }
+
+        // The page: the column Description of the table of arguments.
+        let section = section(&page(), "create_item");
+        let mut rows = 0;
+        for line in section.lines().filter(|l| l.starts_with("| `")) {
+            let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+            let field = cells[0].trim_matches('`');
+            if !schema.contains_key(field) {
+                continue;
+            }
+            rows += 1;
+            let text = cells.last().expect("a description");
+            assert_eq!(
+                only_type(text),
+                table.get(field).copied(),
+                "mcp-tools.md, create_item, {field}: {text}"
+            );
+        }
+        // `request_key` is on the page under Conventions.
+        assert_eq!(
+            rows,
+            schema.len() - 1,
+            "a row on the page for each argument"
+        );
+
+        // The description of the tool: each "X only: `a`, and `b`" names
+        // fields of X.
+        let description = KairosMcp::create_item_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        for sentence in description.split(". ") {
+            if let Some(item_type) = only_type(sentence) {
+                let named = sentence
+                    .split('`')
+                    .skip(1)
+                    .step_by(2)
+                    .take_while(|name| table.contains_key(*name))
+                    .collect::<Vec<_>>();
+                assert!(!named.is_empty(), "{sentence}");
+                for name in named {
+                    assert_eq!(table.get(name), Some(&item_type), "{sentence}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_type_only_argument_is_refused_with_its_field() {
+        let params = |value: serde_json::Value| -> CreateItemParams {
+            serde_json::from_value(value).expect("the parameters")
+        };
+        let refusal = |value, item_type| {
+            super::reject_type_only_fields(&params(value), item_type).expect_err("a refusal")
+        };
+        for &(field, applies_to) in TYPE_ONLY_FIELDS {
+            let value = serde_json::json!({"item_type": "x", "title": "t", field: "v"});
+            assert!(super::reject_type_only_fields(&params(value.clone()), applies_to).is_ok());
+            for &other in ItemType::ALL.iter().filter(|&&t| t != applies_to) {
+                let err = refusal(value.clone(), other);
+                assert_eq!(err.code, "VALIDATION");
+                assert_eq!(err.details["field"], field, "{}", err.message);
+                assert!(
+                    err.message.starts_with(&format!(
+                        "The argument {field} applies to {}.",
+                        type_plural(applies_to)
+                    )),
+                    "{}",
+                    err.message
+                );
+            }
+        }
+        let err = refusal(
+            serde_json::json!({"item_type": "adr", "title": "t", "repository": "kairos"}),
+            ItemType::Adr,
+        );
+        assert!(
+            err.message.ends_with("relationship impacts."),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn the_cancel_types_are_the_table() {
+        let description = KairosMcp::cancel_item_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        let first = description.split(':').next().expect("a first clause");
+        for &item_type in ItemType::ALL {
+            let upper = item_type.entity_type().to_ascii_uppercase();
+            let named = first
+                .split(|c: char| !c.is_ascii_alphabetic())
+                .any(|w| w == upper);
+            assert_eq!(
+                named,
+                CANCELLABLE.contains(&item_type),
+                "cancel_item description, {item_type}: {first}"
+            );
+        }
+        let retire = &description[description
+            .find("To retire a different type")
+            .expect("the route for the other types")..];
+        let page = section(&page(), "cancel_item");
+        let page_retire = &page[page.find("To retire a different type").expect("route")..];
+        for &item_type in ItemType::ALL {
+            if CANCELLABLE.contains(&item_type) {
+                continue;
+            }
+            let name = match item_type {
+                ItemType::Adr => "ADR".to_string(),
+                other => other.entity_type().to_string(),
+            };
+            assert!(retire.contains(&name), "description: no route for {name}");
+            assert!(page_retire.contains(&name), "page: no route for {name}");
+            assert!(retire_route(item_type).starts_with("To retire"));
+        }
+        let start = page
+            .find("a task or an initiative")
+            .expect("the page names the types");
+        assert!(start < 200, "{page}");
+    }
+
+    #[test]
+    fn the_link_table_of_the_page_is_the_table_of_the_description() {
+        let description = KairosMcp::link_items_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        let page = section(&page(), "link_items");
+        let start = page
+            .find("| relationship |")
+            .expect("the table of the page");
+        let table: String = page[start..]
+            .lines()
+            .take_while(|line| line.starts_with('|'))
+            .map(|line| line.replace('`', "") + "\n")
+            .collect();
+        assert_eq!(
+            super::t0677_tests::table_rows(&table),
+            super::t0677_tests::table_rows(&description),
+            "{table}"
         );
     }
 }

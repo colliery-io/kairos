@@ -2451,7 +2451,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     // KAIROS-T-0555 added set_lifecycle. KAIROS-T-0556 added list_members.
     // KAIROS-T-0572 added set_parent. KAIROS-T-0558 added the 3 tools of
     // the webhook targets. set_complexity is one more.
-    checks.same("H1: the number of tools", tools.len(), 79);
+    checks.same("H1: the number of tools", tools.len(), 80);
     let schema_of = |name: &str| -> Value {
         tools
             .iter()

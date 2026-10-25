@@ -11,7 +11,7 @@ plugin/
 │   ├── review/       # architecture-review, diataxis-review
 │   └── meta/         # kairos (router), kairos-vocabulary, grill-me, grilling, handoff, writing-great-skills, bootstrap
 ├── references/       # rendered review specs (see below)
-├── hooks/            # SessionStart context injection, the Ralph loop (Stop hook), the active work after a compaction, the code index, the Kairos rules once per session, the git guard, the memory reminder
+├── hooks/            # SessionStart context injection, the Ralph loop (Stop hook), the active work after a compaction, the code index, the Kairos rules once per session, the git guard, the memory reminder, the ADRs of a file before an edit
 └── bin/              # kairos-code (the code tools over stdio), kairos-channel (the dispatch channel)
 ```
 
@@ -283,6 +283,26 @@ tool decides. It does not read the text of the write.
 - Once per session per file: `~/.claude/kairos-memory/<session_id>.json` holds the paths
   (`KAIROS_MEMORY_STATE_DIR` overrides the folder; records older than 30 days are removed).
 - Tests: `hooks/test_memory_reminder.py`, part of `angreal test unit`.
+
+## Before an edit, the agent sees the ADRs that the file cites
+
+`hooks/adr_context.py` is a `PreToolUse` hook on `Write`, `Edit` and `MultiEdit`
+(KAIROS-T-0702, COLLIERY-I-0659). When the file cites ADRs by short code (for example
+`KAIROS-A-0031`), it gives the agent one block before the edit: the code, the column and the
+title of each cited ADR, the successor of a superseded ADR, the amendments, and a line for a
+code that no ADR has. The states come from `kairos adrs check <file> --json`, with the login
+or the key of the person.
+
+- It runs in a wired checkout only: the nearest folder with `.git` above the file has the
+  wiring, or the session folder above it has.
+- Once per session per file: `~/.claude/kairos-adr/<session_id>.json` holds the files that got
+  the block and the states of the ADRs that the session read, so the hook reads an ADR once
+  per session (`KAIROS_ADR_STATE_DIR` overrides the folder; records older than 30 days are
+  removed).
+- It fails open. A file that cites nothing, a new file, no `kairos` on PATH, no deployment, a
+  skipped check, a timeout (8 seconds) or an error gives no output. The output is
+  `additionalContext` only, with no `permissionDecision`: the hook never blocks an edit.
+- Tests: `hooks/test_adr_context.py`, part of `angreal test unit`.
 
 ## Sessions are scoped to a team board and a repository
 

@@ -625,7 +625,7 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `column` | `string`, nullable | no | The name or the id of a column of the board. Required for `entered_column`; for `unblocked`, the column the task must be in. |
-| `metadata_slug` | `string`, nullable | no | Only tasks with this metadata: the slug of a definition. Send it with `metadata_value`. |
+| `metadata_slug` | `string`, nullable | no | Only tasks with this metadata: the slug of a definition. Send it with `metadata_value`. KAIROS-T-0696: the server also accepts the name `definition`, the name on MCP. |
 | `metadata_value` | `string`, nullable | no | The value of `metadata_slug` that matches. |
 | `repository` | `string`, nullable | no | Only tasks of this repository: its slug or its id. |
 | `target_id` | `string` | yes | The id of a webhook target of the board. |
@@ -3116,7 +3116,7 @@ One template ↔ metadata-definition association in a template write.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `default_value` | `string`, nullable | no | Optional default, validated against the definition's type. |
-| `definition_slug` | `string` | yes | Slug of an existing metadata definition. |
+| `definition_slug` | `string` | yes | Slug of an existing metadata definition. KAIROS-T-0696: the server also accepts the name `definition`, the name on MCP. |
 | `required` | `boolean` | no |  |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).

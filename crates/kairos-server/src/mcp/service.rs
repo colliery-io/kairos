@@ -22,6 +22,29 @@ use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
+/// The instructions of the server (`initialize`). KAIROS-T-0692 checks
+/// that each tool name in it is served.
+pub(super) const INSTRUCTIONS: &str = "Kairos work-item tools. Start with `whoami` (identity, teams, board \
+         capabilities) and `my_boards` (boards + columns). Items are identified \
+         by short code (e.g. ACME-T-0012) everywhere. Use `search` to find \
+         items, `get_item` for full content, and the write tools \
+         (create/update/edit/transition/link/set_metadata/delete) to work \
+         them; writes require board capabilities and edits use optimistic \
+         versioning. Repositories: `list_repositories` and `get_repository` \
+         read the directory, `add_repository` and `update_repository` write \
+         it, and `set_repository` links a task to one. `/mcp` lists the work \
+         profile: items, repositories, members, claims, notifications, board \
+         flow and dispatch rules to read. `/mcp?profile=admin` lists the \
+         administration tools: teams, boards, grants, metadata, dispatch rule \
+         writes, team page writes, org read tokens, purge. `/mcp?profile=all` \
+         lists each tool. The server runs a call to a tool that the profile does \
+         not list. A client such as Claude Code calls only the listed tools. With \
+         the Claude Code plugin, the user gets the admin tools with one command: \
+         `claude mcp add --scope user kairos-admin -- kairos mcp-proxy --profile \
+         admin`, then a new session; the CLI is the fallback (`kairos teams \
+         create`). Do not add an MCP server yourself: tell the user. The plugin \
+         skill `/kairos:onboard-team` sets up a team; only the user can start it.";
+
 /// One MCP service instance (rmcp builds one per session via the service
 /// factory in [`super::router`]). Holds the shared [`AppState`]; the
 /// caller identity is NOT stored here — it is read per tool call from the
@@ -259,28 +282,7 @@ impl ServerHandler for KairosMcp {
             .with_server_info(
                 Implementation::new("kairos", env!("CARGO_PKG_VERSION")).with_title("Kairos"),
             )
-            .with_instructions(
-                "Kairos work-item tools. Start with `whoami` (identity, teams, board \
-                 capabilities) and `my_boards` (boards + columns). Items are identified \
-                 by short code (e.g. ACME-T-0012) everywhere. Use `search` to find \
-                 items, `get_item` for full content, and the write tools \
-                 (create/update/edit/transition/link/set_metadata/delete) to work \
-                 them; writes require board capabilities and edits use optimistic \
-                 versioning. Repositories: `list_repositories` and `get_repository` \
-                 read the directory, `add_repository` and `update_repository` write \
-                 it, and `set_repository` links a task to one. `/mcp` lists the work \
-                 profile: items, repositories, members, claims, notifications, board \
-                 flow and dispatch rules to read. `/mcp?profile=admin` lists the \
-                 administration tools: teams, boards, grants, metadata, dispatch rule \
-                 writes, team page writes, org read tokens, purge. `/mcp?profile=all` \
-                 lists each tool. The server runs a call to a tool that the profile does \
-                 not list. A client such as Claude Code calls only the listed tools. With \
-                 the Claude Code plugin, the user gets the admin tools with one command: \
-                 `claude mcp add --scope user kairos-admin -- kairos mcp-proxy --profile \
-                 admin`, then a new session; the CLI is the fallback (`kairos teams \
-                 create`). Do not add an MCP server yourself: tell the user. The plugin \
-                 skill `/kairos:onboard-team` sets up a team; only the user can start it.",
-            )
+            .with_instructions(INSTRUCTIONS)
     }
 }
 

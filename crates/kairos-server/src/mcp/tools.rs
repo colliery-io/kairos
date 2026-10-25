@@ -1852,7 +1852,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "One repository: owner team and its delivery board, open task count, default branch and where it comes from, the team's `description` of how to work in it (read it before working in an unfamiliar repository), the documents and ADRs that impact it, the other ADRs of the owner team (newest first, 50 at most, none superseded; read each with `get_item` before planning), its open branches and pull requests with their items and those not linked to an item (50 of each at most; `offset` gives the next part), the forge filters, and the lines read token, write-back, code index build and code index breaker (a tripped breaker stops builds until `rebuild_code_index`). `repository` is a slug or UUID; `include_deleted: true` adds archived documents and ADRs."
+        description = "One repository: owner team and its delivery board, open task count, default branch and where it comes from, the team's `description` of how to work in it (`update_repository` sets it; read it before working in an unfamiliar repository), the documents and ADRs that impact it, the other ADRs of the owner team (newest first, 50 at most, none superseded; read each with `get_item` before planning), its open branches and pull requests with their items and those not linked to an item (50 of each at most; `offset` gives the next part), the forge filters, and the lines read token, write-back, code index build and code index breaker (a tripped breaker stops builds until `rebuild_code_index`). `repository` is a slug or UUID; `include_deleted: true` adds archived documents and ADRs."
     )]
     pub async fn get_repository(
         &self,
@@ -4106,7 +4106,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Ask for a full build of the code index of a repository (the head of its default branch), when the index is missing, old or wrong. It also resets a tripped code index breaker. `repository` is a slug or UUID; the answer names the run. Refused: CODE_INDEX_BUILD_RUNNING (a run is active), CODE_INDEX_BUILD_OFF (set `code_index_build` on first), CODE_INDEX_BUILDER_OFF (no builder on this deployment). Needs membership of the owner team, or the org admin role."
+        description = "Ask for a full build of the code index of a repository (the head of its default branch), when the index is missing, old or wrong. It also resets a tripped code index breaker. `repository` is a slug or UUID; the answer names the run. Refused: CODE_INDEX_BUILD_RUNNING (a run is active), CODE_INDEX_BUILD_OFF (set `code_index_build` on with `update_repository` first), CODE_INDEX_BUILDER_OFF (no builder on this deployment). Needs membership of the owner team, or the org admin role."
     )]
     pub async fn rebuild_code_index(
         &self,

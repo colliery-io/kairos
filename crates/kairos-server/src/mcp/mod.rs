@@ -44,6 +44,9 @@
 //! constructor and is not used in this mode.
 
 mod arguments;
+// KAIROS-T-0692: the test of the names in the texts.
+#[cfg(test)]
+mod mentions;
 // KAIROS-T-0688: the test of the argument names.
 #[cfg(test)]
 mod names;

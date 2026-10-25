@@ -2,7 +2,7 @@
 title: "Dispatch tasks to an agent runner"
 ---
 
-This page describes Kairos 0.16.1.
+This page describes Kairos 0.17.0.
 
 Send a task to an agent when the task enters a column of a board. For
 example, a bug that enters Todo can start a Claude Code session that works on

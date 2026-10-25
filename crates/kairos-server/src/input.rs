@@ -58,7 +58,7 @@ use axum::response::{IntoResponse, Response};
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
-use crate::body::{innermost, unknown_field};
+use crate::body::{Fault, innermost, unknown_field};
 use crate::error::ApiError;
 
 /// The query of a route. See the module docs.
@@ -87,18 +87,20 @@ fn query_rejection(rejection: &QueryRejection) -> ApiError {
         return unknown_parameter(&parameter, &allowed);
     }
     // `serde_path_to_error` puts the name of the parameter before the
-    // message: `limit: invalid digit found in string`.
+    // message: `limit: invalid digit found in string`. KAIROS-T-0697: the
+    // refusal says what the value must be, in Kairos words ([`Fault`]).
     match message.split_once(": ") {
         Some((parameter, fault)) if is_name(parameter) => ApiError::new(
             StatusCode::BAD_REQUEST,
             "VALIDATION",
-            format!("The value of the query parameter {parameter:?} is not correct: {fault}."),
+            Fault::of(fault).sentence(&format!("the query parameter {parameter:?}"), "request"),
         )
         .with_details(json!({ "parameter": parameter })),
         _ => ApiError::new(
             StatusCode::BAD_REQUEST,
             "VALIDATION",
-            format!("The query is not correct for this route: {message}."),
+            "The query is not correct for this route. The REST reference gives its parameters."
+                .to_string(),
         ),
     }
 }
@@ -280,8 +282,7 @@ mod tests {
         assert_eq!(err.code, "VALIDATION");
         assert_eq!(
             err.message,
-            "The value of the query parameter \"limit\" is not correct: invalid digit found \
-             in string."
+            "The value of the query parameter \"limit\" must be a whole number."
         );
         assert_eq!(err.details, json!({"parameter": "limit"}));
     }

@@ -325,8 +325,52 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// An error of the system (a file, a process) in Kairos words
+/// (KAIROS-T-0697): the kind of the error, not the text of the library.
+pub fn io_words(error: &std::io::Error) -> String {
+    use std::io::ErrorKind;
+    let words = match error.kind() {
+        ErrorKind::NotFound => "the file or the program is not there",
+        ErrorKind::PermissionDenied => "the server has no permission for it",
+        ErrorKind::AlreadyExists => "it is there already",
+        ErrorKind::StorageFull => "the disk is full",
+        ErrorKind::TimedOut => "it took too long",
+        ErrorKind::Interrupted => "it stopped before the end",
+        ErrorKind::InvalidData | ErrorKind::InvalidInput => "the data is not correct",
+        ErrorKind::UnexpectedEof => "the file ends too soon",
+        ErrorKind::IsADirectory => "it is a folder",
+        ErrorKind::NotADirectory => "a part of the path is not a folder",
+        ErrorKind::ReadOnlyFilesystem => "the file system is read-only",
+        _ => {
+            return match error.raw_os_error() {
+                Some(code) => format!("the system gave the error {code}"),
+                None => "the system gave an error".to_string(),
+            };
+        }
+    };
+    words.to_string()
+}
+
 #[cfg(test)]
 mod tests {
+    /// KAIROS-T-0697: an error of the system in Kairos words.
+    #[test]
+    fn an_error_of_the_system_is_in_kairos_words() {
+        use std::io::{Error, ErrorKind};
+        assert_eq!(
+            super::io_words(&Error::from(ErrorKind::NotFound)),
+            "the file or the program is not there"
+        );
+        assert_eq!(
+            super::io_words(&Error::from_raw_os_error(9999)),
+            "the system gave the error 9999"
+        );
+        assert_eq!(
+            super::io_words(&Error::other("library text")),
+            "the system gave an error"
+        );
+    }
+
     use super::*;
 
     #[test]

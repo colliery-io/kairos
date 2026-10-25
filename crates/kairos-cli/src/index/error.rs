@@ -24,7 +24,8 @@ pub enum IndexCommandError {
     NoRoot(PathBuf),
     #[error("Git did not run in {path}: {message}.")]
     Git { path: PathBuf, message: String },
-    #[error("The CLI did not write {path}: {source}.")]
+    /// KAIROS-T-0697: the error of the system in Kairos words.
+    #[error("The CLI did not write {path}: {}.", io_words(.source))]
     Write {
         path: PathBuf,
         source: std::io::Error,
@@ -37,6 +38,28 @@ pub enum IndexCommandError {
     /// error of the code tools (KAIROS-T-0419).
     #[error(transparent)]
     Symbol(Box<ToolError>),
+}
+
+/// An error of the system (a file) in Kairos words (KAIROS-T-0697): the
+/// kind of the error, not the text of the library.
+fn io_words(error: &std::io::Error) -> String {
+    use std::io::ErrorKind;
+    let words = match error.kind() {
+        ErrorKind::NotFound => "the folder is not there",
+        ErrorKind::PermissionDenied => "the CLI has no permission for it",
+        ErrorKind::AlreadyExists => "it is there already",
+        ErrorKind::StorageFull => "the disk is full",
+        ErrorKind::ReadOnlyFilesystem => "the file system is read-only",
+        ErrorKind::IsADirectory => "it is a folder",
+        ErrorKind::NotADirectory => "a part of the path is not a folder",
+        _ => {
+            return match error.raw_os_error() {
+                Some(code) => format!("the system gave the error {code}"),
+                None => "the system gave an error".to_string(),
+            };
+        }
+    };
+    words.to_string()
 }
 
 /// The text of [`IndexCommandError::TooFar`]: three parts, each of whole

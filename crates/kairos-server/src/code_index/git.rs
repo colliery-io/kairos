@@ -56,11 +56,12 @@ pub type GitToken = Secret;
 /// An error of a git command.
 #[derive(Debug, thiserror::Error)]
 pub enum GitError {
-    #[error("The git command did not start: {0}.")]
+    /// KAIROS-T-0697: the error of the system in Kairos words.
+    #[error("The git command did not start: {}. Is git installed on the server?", crate::error::io_words(.0))]
     Start(std::io::Error),
     #[error("git {command} failed: {stderr}")]
     Failed { command: String, stderr: String },
-    #[error("Cannot write {path}: {source}.")]
+    #[error("Cannot write {path}: {}.", crate::error::io_words(.source))]
     Io {
         path: PathBuf,
         source: std::io::Error,

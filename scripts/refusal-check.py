@@ -170,7 +170,8 @@ def has_field_detail(source, close, literals):
         return False
     open_paren = close + 1 + found.end() - 1
     end = ste.call_end(source, open_paren, literals)
-    return re.search(r'"field"', source[open_paren:end]) is not None
+    # KAIROS-T-0697: `fault.details(...)` of `body::Fault` gives `field`.
+    return re.search(r'"field"|\bfault\.details\(', source[open_paren:end]) is not None
 
 
 def refusals(rel, source):

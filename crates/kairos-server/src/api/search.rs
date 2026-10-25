@@ -196,7 +196,9 @@ pub(crate) async fn search(
     // Deserialize by hand: a fault of shape (an unknown field, a wrong
     // JSON type) is a 400 on this route, and a 422 on each other route
     // (COLLIERY-T-0249). The message names an unknown field.
-    let request: dto_search::SearchRequest = serde_json::from_value(body)
+    // KAIROS-T-0697: with the path of the fault, as the extractor of axum
+    // gives it, so the refusal names the field.
+    let request: dto_search::SearchRequest = serde_path_to_error::deserialize(body)
         .map_err(|e| crate::body::shape_error(StatusCode::BAD_REQUEST, &e.to_string()))?;
     let mut core = to_core(&request)?;
     let refs = FilterRefs::of(request.filter.as_ref())?;

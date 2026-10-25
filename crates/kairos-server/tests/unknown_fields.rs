@@ -636,9 +636,10 @@ async fn a_body_that_the_route_cannot_read_gets_the_envelope_against_live_stack(
         answer["error"]["message"]
             .as_str()
             .unwrap_or_default()
-            .contains("missing field `name`"),
+            .contains("The body does not have the field \"name\""),
         "{answer}"
     );
+    assert_eq!(answer["error"]["details"]["field"], "name", "{answer}");
 
     // --- a field has the wrong type: 422
     let (status, text) = stack
@@ -650,14 +651,32 @@ async fn a_body_that_the_route_cannot_read_gets_the_envelope_against_live_stack(
         )
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{text}");
-    envelope(&text);
+    // KAIROS-T-0697: the field and what it must be, not the text of serde.
+    let answer = envelope(&text);
+    assert_eq!(
+        answer["error"]["message"],
+        "The value of the field name must be a string. The body gives a number.",
+        "{answer}"
+    );
+    assert_eq!(
+        answer["error"]["details"],
+        json!({"field": "name", "expected": "a string"}),
+        "{answer}"
+    );
 
     // --- the body is not JSON: 400
     let (status, text) = stack
         .send_text(Method::POST, "/api/teams", json_type, r#"{"name": "Web","#)
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{text}");
-    envelope(&text);
+    let answer = envelope(&text);
+    assert!(
+        answer["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("The body is not JSON: it ends at line 1"),
+        "{answer}"
+    );
 
     // --- the body has no JSON content type: 415
     let (status, text) = stack

@@ -1,8 +1,4 @@
 {
-  "crates/kairos-cli/src/index/error.rs": {
-    "LIB": 1,
-    "FIELD": 0
-  },
   "crates/kairos-server/src/api/adrs.rs": {
     "LIB": 0,
     "FIELD": 1
@@ -144,8 +140,8 @@
     "FIELD": 1
   },
   "crates/kairos-server/src/body.rs": {
-    "LIB": 1,
-    "FIELD": 4
+    "LIB": 0,
+    "FIELD": 3
   },
   "crates/kairos-server/src/cancel.rs": {
     "LIB": 0,
@@ -155,17 +151,9 @@
     "LIB": 0,
     "FIELD": 2
   },
-  "crates/kairos-server/src/code_index/git.rs": {
-    "LIB": 2,
-    "FIELD": 0
-  },
   "crates/kairos-server/src/config.rs": {
     "LIB": 0,
     "FIELD": 1
-  },
-  "crates/kairos-server/src/credentials.rs": {
-    "LIB": 1,
-    "FIELD": 0
   },
   "crates/kairos-server/src/forge/import.rs": {
     "LIB": 0,
@@ -186,10 +174,6 @@
   "crates/kairos-server/src/mcp/tools.rs": {
     "LIB": 0,
     "FIELD": 40
-  },
-  "crates/kairos-server/src/middleware/auth.rs": {
-    "LIB": 1,
-    "FIELD": 0
   },
   "crates/kairos-server/src/owners.rs": {
     "LIB": 0,
@@ -215,16 +199,12 @@
     "LIB": 0,
     "FIELD": 9
   },
-  "crates/kairos-server/src/site_store.rs": {
-    "LIB": 1,
-    "FIELD": 0
-  },
   "crates/kairos-server/src/task_state.rs": {
     "LIB": 0,
     "FIELD": 2
   },
   "crates/kairos-server/src/web.rs": {
-    "LIB": 1,
+    "LIB": 0,
     "FIELD": 8
   }
 }

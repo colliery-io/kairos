@@ -47,7 +47,9 @@ pub enum TokenError {
     #[error(transparent)]
     Open(#[from] OpenError),
     /// The database failed.
-    #[error("The database gave an error: {0}.")]
+    /// KAIROS-T-0697: only the log has the cause ([`token_refusal`] makes
+    /// it a 500).
+    #[error("The database gave an error. The server log has the cause.")]
     Database(#[from] diesel::result::Error),
 }
 

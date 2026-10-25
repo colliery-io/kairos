@@ -924,13 +924,22 @@ fn references(
     let index = open(root)?;
     // KAIROS-T-0703: an ADR short code gives the places that cite it.
     if kairos_index::is_adr_code(symbol) {
-        if file.is_some() || line.is_some() || possible {
-            return Err(IndexCommandError::Symbol(Box::new(
-                error::ToolError::BadArguments(format!(
-                    "{symbol} is an ADR short code, and an ADR short code takes no `--file`, `--line` or `--possible`"
-                )),
-            ))
-            .into());
+        let extra = [
+            ("file", file.is_some()),
+            ("line", line.is_some()),
+            ("possible", possible),
+        ]
+        .into_iter()
+        .find(|(_, given)| *given);
+        if let Some((field, _)) = extra {
+            return Err(
+                IndexCommandError::Symbol(Box::new(error::ToolError::AdrCodeArgument {
+                    symbol: symbol.to_string(),
+                    field: field.to_string(),
+                    others: "`--file`, `--line` or `--possible`".to_string(),
+                }))
+                .into(),
+            );
         }
         if json {
             let found =

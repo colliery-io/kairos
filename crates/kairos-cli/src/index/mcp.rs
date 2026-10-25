@@ -1351,11 +1351,19 @@ impl CodeTools {
             let (_, index) = self.open_index(params.checkout.as_deref())?;
             // KAIROS-T-0703: an ADR short code gives the places that cite it.
             if kairos_index::is_adr_code(&params.symbol) {
-                if params.file.is_some() || params.line.is_some() || params.possible.is_some() {
-                    return Err(ToolError::BadArguments(format!(
-                        "{} is an ADR short code, and an ADR short code takes no `file`, `line` or `possible`",
-                        params.symbol
-                    )));
+                let extra = [
+                    ("file", params.file.is_some()),
+                    ("line", params.line.is_some()),
+                    ("possible", params.possible.is_some()),
+                ]
+                .into_iter()
+                .find(|(_, given)| *given);
+                if let Some((field, _)) = extra {
+                    return Err(ToolError::AdrCodeArgument {
+                        symbol: params.symbol.clone(),
+                        field: field.to_string(),
+                        others: "`file`, `line` or `possible`".to_string(),
+                    });
                 }
                 return Ok(citations_text(&index, &params.symbol, limit)?);
             }

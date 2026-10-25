@@ -319,6 +319,14 @@ pub enum ToolError {
     /// The arguments are not one object.
     #[error("The arguments of this tool must be one object with these arguments: {allowed}.")]
     BadArguments { allowed: String },
+    /// KAIROS-T-0703: an ADR short code as the symbol takes no `file`,
+    /// `line` or `possible`. `field` is the first of them that the call has.
+    #[error("{symbol} is an ADR short code, and an ADR short code takes no {others}.")]
+    AdrCodeArgument {
+        symbol: String,
+        field: String,
+        others: String,
+    },
     #[error("The argument `limit` must be from 1 to {0}.")]
     Limit(usize),
     #[error("The argument `min_lines` must be 1 or more.")]
@@ -428,6 +436,7 @@ impl ToolError {
             | ToolError::MissingArgument { .. }
             | ToolError::BadArgument { .. }
             | ToolError::BadArguments { .. }
+            | ToolError::AdrCodeArgument { .. }
             | ToolError::Limit(_)
             | ToolError::MinLines => "VALIDATION",
             ToolError::Index(_) => "INDEX",
@@ -445,6 +454,7 @@ impl ToolError {
             } => Some(json!({ "field": argument, "allowed": allowed })),
             ToolError::MissingArgument { argument, .. } => Some(json!({ "field": argument })),
             ToolError::BadArgument { field } => Some(json!({ "field": field })),
+            ToolError::AdrCodeArgument { field, .. } => Some(json!({ "field": field })),
             _ => None,
         }
     }

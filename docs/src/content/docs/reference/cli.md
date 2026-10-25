@@ -1114,8 +1114,8 @@ kairos adrs check --prefix KAIROS --snapshot .github/adr-snapshot.json
 ```
 
 To update the snapshot, log in to the deployment and run this from the root
-of the checkout. Commit the file. Do this when a change cites a new ADR, or
-when an ADR is superseded, amended or archived:
+of the checkout. Commit the file. Do this when a change cites a new ADR. Do it
+also when an ADR gets a successor or an amendment, or goes to the archive:
 
 ```
 kairos adrs check --prefix KAIROS --save-snapshot .github/adr-snapshot.json

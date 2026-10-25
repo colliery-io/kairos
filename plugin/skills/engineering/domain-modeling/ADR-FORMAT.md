@@ -35,7 +35,7 @@ Three metadata values of an ADR tell `kairos adrs check` when the decision needs
 - `revisit_when`: one sentence, when the decision rests on a fact that can change: "when a second forge is added", "when the tenant count passes 100". Skip it when nothing foreseeable would change the decision.
 - `revisit_on`: a date (YYYY-MM-DD), only when the fact has a date: a contract end, a deprecation, a trial period. From that day the check flags the ADR.
 
-A flag is a reason to read the ADR again, not to change it. If the decision still holds, set a new `accepted_commit` or `revisit_on`. If it does not, write a new ADR that supersedes it.
+A flag is a reason to read the ADR again, not to change it. If the decision still holds, set a new `accepted_commit` or `revisit_on`. If it does not, write a new ADR: one that amends it when a part changes, one that supersedes it when all of it changes.
 
 ## When to offer an ADR
 

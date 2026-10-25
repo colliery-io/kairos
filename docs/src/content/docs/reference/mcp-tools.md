@@ -1194,7 +1194,10 @@ both fields were already *readable* through `get_item`. They are accepted now.
 
 Refuses: `VALIDATION` for an unknown `item_type`; for a `task_type`,
 `work_class`, `complexity` or `bucket_type` outside its vocabulary; for a `decision_date` that is not `YYYY-MM-DD`; for a type-specific
-argument passed with the wrong `item_type`, naming the type it belongs to; for a
+argument passed with the wrong `item_type`, naming the type it belongs to, with
+the argument in `details.field` (the arguments of the table above with "Tasks
+only" and the like; a test keeps the table, the schema and the server equal,
+KAIROS-T-0691); for a
 document with no `board`, or whose parent is not a strategy, initiative or
 task; for a document with `repository`; for a `parent` relationship that the type rules do not allow, with the
 rule in the message; for a `parent` that does not name a live item; for an unknown template,

@@ -188,22 +188,17 @@ pub fn load_board(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiE
 /// does not read the list of the boards. The write routes take the id only:
 /// a write can change the slug.
 pub fn load_board_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError> {
-    use kairos_db::schema::boards::dsl;
+    // KAIROS-T-0689: the forms of crate::references::BOARD_FORMS.
+    let reference = crate::references::text(reference);
+    // An id gets the refusal that names the id.
     if let Ok(board_id) = Uuid::parse_str(reference) {
         return load_board(conn, board_id);
     }
-    dsl::boards
-        .filter(dsl::slug.eq(reference))
-        .filter(dsl::deleted_at.is_null())
-        .select(Board::as_select())
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| {
-            ApiError::not_found(format!(
-                "No live board has the slug or the id {reference:?}."
-            ))
-        })
+    crate::references::board(conn, reference)?.ok_or_else(|| {
+        ApiError::not_found(format!(
+            "No live board has the slug or the id {reference:?}."
+        ))
+    })
 }
 
 /// How many LIVE workflow items (strategies/initiatives/tasks/ADRs) sit on

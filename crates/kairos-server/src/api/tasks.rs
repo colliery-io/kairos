@@ -282,7 +282,7 @@ pub(crate) fn require_entry_column(
 /// path of [`super::found_or_follow_retired`], for its 404.
 fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result<Task, ApiError> {
     use kairos_db::schema::{retired_codes, tasks::dsl};
-    let upper = short_code.to_ascii_uppercase();
+    let upper = crate::references::short_code(short_code);
     let found = dsl::tasks
         .filter(
             dsl::short_code.eq(&upper).or(dsl::id.eq_any(

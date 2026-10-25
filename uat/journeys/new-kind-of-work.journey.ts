@@ -293,9 +293,9 @@ journey(
       ledger.add({ kind: 'template', label: reviewSlug, delete: tolerant(`/api/templates/${review.id}`) });
 
       // The template carries the field, so the field cannot go first.
-      const refused = await mcp.refused('delete_metadata_definition', { reference: impactSlug });
+      const refused = await mcp.refused('delete_metadata_definition', { definition: impactSlug });
       expect(refused).toContain('DEFINITION_IN_USE');
-      await mcp.call('delete_template', { reference: reviewSlug });
+      await mcp.call('delete_template', { template: reviewSlug });
       await mcp.call('delete_metadata_definition', { reference: impactSlug });
       return {
         field: `${impactSlug} (low | medium | high)`,

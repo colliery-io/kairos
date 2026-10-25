@@ -559,54 +559,34 @@ pub fn require_claim_take(
     crate::api::require_capability(conn, slug, Some(board_id), user, "transition_items")
 }
 
-/// The person that `reference` names, for a hand-off: a user id, an email
-/// or a user name of a member of the organization `slug`, or `me` for the
-/// caller `me` (KAIROS-T-0528). A service account is refused: only a
-/// person can have a claim.
+/// The person that `reference` names, for a hand-off, in the forms of
+/// [`crate::references::PERSON_FORMS`]: a member of the organization
+/// `slug`, or `me` for the caller `me` (KAIROS-T-0528, KAIROS-T-0689). A
+/// service account is refused: only a person can have a claim.
 pub fn resolve_person(
     conn: &mut PgConnection,
     slug: &str,
     reference: &str,
     me: Uuid,
 ) -> Result<Uuid, ApiError> {
-    use kairos_db::schema::users;
-    let me_text = me.to_string();
-    let reference = reference.trim();
-    let reference = if reference.eq_ignore_ascii_case("me") {
-        me_text.as_str()
-    } else {
-        reference
-    };
-    let found: Option<(Uuid, String)> = if let Ok(id) = reference.parse::<Uuid>() {
-        users::table
-            .filter(users::id.eq(id))
-            .select((users::id, users::kind))
-            .first(conn)
-            .optional()
-    } else if reference.contains('@') {
-        users::table
-            .filter(users::email.eq(reference))
-            .select((users::id, users::kind))
-            .first(conn)
-            .optional()
-    } else {
-        users::table
-            .filter(users::user_name.eq(reference))
-            .select((users::id, users::kind))
-            .first(conn)
-            .optional()
+    let reference = crate::references::text(reference);
+    let mut member = None;
+    for user in crate::references::people(conn, me, reference)? {
+        if kairos_db::abac::is_org_member(conn, slug, user.id).map_err(ApiError::internal)? {
+            if member.is_some() {
+                return Err(ApiError::validation(format!(
+                    "More than one member of the organization has the name {reference:?}. \
+                     Send the id of the member."
+                ))
+                .with_details(serde_json::json!({ "field": "to" })));
+            }
+            member = Some((user.id, user.kind));
+        }
     }
-    .map_err(ApiError::internal)?;
-    let member = match found {
-        Some((id, kind)) => kairos_db::abac::is_org_member(conn, slug, id)
-            .map_err(ApiError::internal)?
-            .then_some((id, kind)),
-        None => None,
-    };
     let Some((id, kind)) = member else {
         return Err(ApiError::validation(format!(
-            "No member of the organization has the id, the email or the user name {reference:?}. \
-             Send a person of the organization."
+            "No member of the organization has the id, the email, the user name or the \
+             service-account name {reference:?}. Send me, or a person of the organization."
         ))
         .with_details(serde_json::json!({ "field": "to" })));
     };

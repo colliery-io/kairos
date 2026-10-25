@@ -157,19 +157,10 @@ pub fn parse_opt_uuid(value: Option<&str>, field: &str) -> Result<Option<Uuid>, 
 /// difference between "no board called that" and "that is not a UUID" is the
 /// whole point for someone who typed a slug on purpose.
 pub fn board_id_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError> {
-    use kairos_db::schema::boards::dsl;
-    let mut query = dsl::boards
-        .filter(dsl::deleted_at.is_null())
-        .select(dsl::id)
-        .into_boxed();
-    query = match Uuid::parse_str(reference) {
-        Ok(id) => query.filter(dsl::id.eq(id)),
-        Err(_) => query.filter(dsl::slug.eq(reference)),
-    };
-    query
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
+    // KAIROS-T-0689: the forms of crate::references::BOARD_FORMS.
+    let reference = crate::references::text(reference);
+    crate::references::board(conn, reference)?
+        .map(|board| board.id)
         .ok_or_else(|| {
             ApiError::not_found(format!(
                 "No live board has the slug or the id {reference:?}."
@@ -1014,7 +1005,7 @@ pub fn resolve_short_code(
         }
     };
     let row: Option<DirectoryRow> = sql_query(sql)
-        .bind::<Text, _>(short_code.to_ascii_uppercase())
+        .bind::<Text, _>(crate::references::short_code(short_code))
         .get_result(conn)
         .optional()
         .map_err(ApiError::internal)?;
@@ -1042,7 +1033,7 @@ pub fn retired_to_current(
     short_code: &str,
 ) -> Result<Option<String>, ApiError> {
     Ok(
-        kairos_db::retired_codes::current_code(conn, &short_code.to_ascii_uppercase())
+        kairos_db::retired_codes::current_code(conn, &crate::references::short_code(short_code))
             .map_err(ApiError::internal)?
             .and_then(|retired| retired.current.map(|(code, _)| code)),
     )
@@ -1098,7 +1089,7 @@ pub fn found_or_follow_retired<T>(
     }
     // KAIROS-T-0560: a code in input ignores case. The upper-cased code
     // loads one more time at most.
-    let upper = short_code.to_ascii_uppercase();
+    let upper = crate::references::short_code(short_code);
     if upper != short_code {
         return load(conn, &upper, liveness);
     }
@@ -1165,7 +1156,7 @@ pub fn resolve_live_ref(
     short_code: &str,
     field: &str,
 ) -> Result<LiveRef, ApiError> {
-    let code = short_code.to_ascii_uppercase();
+    let code = crate::references::short_code(short_code);
     if let Some((id, item_type)) = resolve_short_code(conn, &code, Liveness::LiveOnly)? {
         return Ok(LiveRef {
             id,

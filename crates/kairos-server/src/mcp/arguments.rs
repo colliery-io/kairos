@@ -110,6 +110,12 @@ pub(super) const ALIASES: &[(&str, &[&str])] = &[
     ("content", &["body", "text"]),
     ("q", &["query"]),
     ("to_column", &["to", "column"]),
+    // KAIROS-T-0688: the old names of the arguments of `set_transition`,
+    // `my_boards`, `delete_metadata_definition` and `delete_template`.
+    ("from_column", &["from"]),
+    ("board_level", &["level"]),
+    ("definition", &["reference"]),
+    ("template", &["reference"]),
     ("source", &["from"]),
     ("target", &["to"]),
     ("relationship", &["relation", "edge_type"]),
@@ -890,6 +896,18 @@ mod tests {
             aliases("link_items", "relationship"),
             json!(["relation", "edge_type"])
         );
+        // KAIROS-T-0688: the old names of the renamed arguments.
+        assert_eq!(aliases("set_transition", "from_column"), json!(["from"]));
+        assert_eq!(
+            aliases("set_transition", "to_column"),
+            json!(["to", "column"])
+        );
+        assert_eq!(aliases("my_boards", "board_level"), json!(["level"]));
+        assert_eq!(
+            aliases("delete_metadata_definition", "definition"),
+            json!(["reference"])
+        );
+        assert_eq!(aliases("delete_template", "template"), json!(["reference"]));
         // `hand_off_item` has an argument `to`: it is not an alias there.
         assert_eq!(
             aliases("hand_off_item", "short_code"),

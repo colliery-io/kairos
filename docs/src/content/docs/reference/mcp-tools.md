@@ -79,7 +79,7 @@ These hold for every tool.
 | Identity | Every tool runs as the authenticated principal — a human user or a service account — under the same attribute-based access control as the REST handlers. Archiving is not a permission boundary: whoever could read an item before it was archived can read it after. |
 | Item identity | Items are named by short code, e.g. `ACME-T-0012`, in every input and every output. Kairos changes a code in input to capital letters, so `acme-t-0012` finds `ACME-T-0012`. |
 | Retired codes | When an item gets a new short code, its old code is retired. Kairos does not issue a retired code again. A read tool (`get_item`, `get_history`, `search`) finds the item from a retired code and shows the current code. A write tool refuses a retired code for the item that it changes. The refusal is `NOT_FOUND`, and it gives the current code. A reference in a write follows a retired code: the `source` and the `target` of `link_items` and `unlink_items`, and the `parent` of `create_item`. The answer then has a line such as `COLLIERY-T-2430 is now SKADI-T-0577.` |
-| Board and team references | A `board`, `to_board`, `team` or `repository` argument accepts either a slug or a UUID. A `column` or `to_column` argument accepts either a column name, case-insensitively, or a UUID. |
+| References | Each kind of reference has one set of forms in each tool and in each filter (KAIROS-T-0689). A team (`team`, `from_team`, `filter.team`), a board (`board`, `to_board`, `filter.board`) and a repository (`repository`, `filter.repository`): a slug or a UUID. A column (`column`, `to_column`, `from_column`, `filter.column`): a column name in any case, or a UUID. A person (`user`, the `to` of `hand_off_item`, `filter.claimed_by`, `filter.created_by`, `filter.owned_by`): `me`, a user id, an email, a user name, or the name of a service account. An item: a short code. Kairos removes the blanks at the two ends of a reference. It refuses each other form: for example, a team by its name or its code prefix. |
 | Listing weight | Listings are compact: short code, title and key fields. Full markdown content arrives only from `get_item` and from `get_history` with a `version`. |
 | Parts of a list | A list can show a part of its rows. Then the list says how many rows come after it, and the `offset` of the next part: `2 more; offset 50.` Send that `offset` to get the next part. `search`, `get_history`, and the two lists of open work of `get_repository` say it this way. |
 | Errors | A refusal comes back as an MCP tool error whose text is `CODE: message`, the code being the same stable one as the REST API's error envelope. Where that code has structured `details`, a second line follows: `details: ` and the JSON object. See [Errors](../errors/) for what each code's `details` carries. The key `field` names the argument that the refusal is about, as it names the field of a REST body. |
@@ -199,9 +199,9 @@ these include `manage_adrs`.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `level` | string | no | all levels | One of `strategy`, `initiative`, `delivery`, `adr`. |
+| `board_level` | string | no | all levels | One of `strategy`, `initiative`, `delivery`, `adr`. The tool also accepts the name `level`. |
 
-Refuses: `VALIDATION` for a `level` outside that vocabulary.
+Refuses: `VALIDATION` for a `board_level` outside that vocabulary.
 
 ### `my_work`
 
@@ -2552,7 +2552,7 @@ grant. On the ADR board of the team, the member also gets `manage_adrs`.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `team` | string | yes | — | The team. Slug or UUID. |
-| `user` | string | yes | — | A user id, an email, a user name, or the name of a service account. |
+| `user` | string | yes | — | `me`, a user id, an email, a user name, or the name of a service account. |
 
 Requires the organization admin role or `manage_structure` on the
 organization.
@@ -2578,7 +2578,7 @@ Grants one capability to a member of the organization.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `user` | string | yes | — | A user id, an email, a user name, or the name of a service account. |
+| `user` | string | yes | — | `me`, a user id, an email, a user name, or the name of a service account. |
 | `capability` | string | yes | — | A board capability or a glob of [the vocabulary](../capabilities/#the-grantable-vocabulary), or `manage_structure`. |
 | `board` | string | no | none | The board. Slug or UUID. A board capability needs it. For `manage_structure`, no `board` is a grant on the organization. |
 
@@ -2606,7 +2606,7 @@ organization admin.
 
 These tools do what the REST routes of teams and boards do (KAIROS-T-0443).
 Each tool calls the function of its route, so the gate is the same. A `user`
-is a user id, an email, a user name, or the name of a service account. A
+is `me`, a user id, an email, a user name, or the name of a service account. A
 `board` or a `team` is a slug or a UUID. A `column` is a name or a UUID.
 
 ### `update_team`
@@ -2707,8 +2707,8 @@ Allows or stops a move between two columns, as
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `board` | string | yes | — | Slug or UUID. |
-| `from` | string | yes | — | The column where the move starts. Name or UUID. |
-| `to` | string | yes | — | The column where the move ends. Name or UUID. |
+| `from_column` | string | yes | — | The column where the move starts. Name or UUID. The tool also accepts the name `from`. |
+| `to_column` | string | yes | — | The column where the move ends. Name or UUID. The tool also accepts the names `to` and `column`. |
 | `allowed` | boolean | yes | — | `true` adds the transition. `false` removes it. |
 
 Requires `configure_boards` on the board. Refuses: `DUPLICATE_TRANSITION`.
@@ -2736,7 +2736,7 @@ does.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `reference` | string | yes | — | Slug or UUID. |
+| `definition` | string | yes | — | Slug or UUID. The tool also accepts the name `reference`. |
 
 For organization admins only. Refuses: `DEFINITION_IN_USE` while an item has a
 value or a template has the field. The message names them.
@@ -2762,7 +2762,7 @@ keep their content and their metadata.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `reference` | string | yes | — | Slug or UUID. |
+| `template` | string | yes | — | Slug or UUID. The tool also accepts the name `reference`. |
 
 For organization admins only.
 

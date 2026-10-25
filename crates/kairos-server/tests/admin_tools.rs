@@ -311,6 +311,7 @@ async fn team_and_board_administration_over_mcp() {
     let text = alice_mcp
         .ok(
             "set_transition",
+            // `from` and `to` are aliases of `from_column` and `to_column`.
             json!({"board": board, "from": "Active", "to": "In review", "allowed": true}),
         )
         .await;
@@ -331,7 +332,8 @@ async fn team_and_board_administration_over_mcp() {
     alice_mcp
         .ok(
             "set_transition",
-            json!({"board": board, "from": "Active", "to": "In review", "allowed": false}),
+            // KAIROS-T-0688: the names of the columns, as on REST.
+            json!({"board": board, "from_column": "Active", "to_column": "In review", "allowed": false}),
         )
         .await;
     alice_mcp
@@ -401,7 +403,7 @@ async fn team_and_board_administration_over_mcp() {
     admin_mcp
         .refused(
             "delete_metadata_definition",
-            json!({"reference": "size"}),
+            json!({"definition": "size"}),
             "DEFINITION_IN_USE",
         )
         .await;
@@ -419,10 +421,10 @@ async fn team_and_board_administration_over_mcp() {
         )
         .await;
     admin_mcp
-        .ok("delete_template", json!({"reference": "spike"}))
+        .ok("delete_template", json!({"template": "spike"}))
         .await;
     admin_mcp
-        .ok("delete_metadata_definition", json!({"reference": "size"}))
+        .ok("delete_metadata_definition", json!({"definition": "size"}))
         .await;
     admin_mcp
         .refused(

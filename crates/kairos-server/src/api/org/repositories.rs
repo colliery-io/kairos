@@ -269,22 +269,14 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
     }
 }
 
-/// Resolve a team reference (UUID or slug) to its live row, or 422.
+/// Resolve a team reference ([`crate::references::TEAM_FORMS`]) to its live
+/// row, or 422.
 pub(crate) fn resolve_team(conn: &mut PgConnection, reference: &str) -> Result<Team, ApiError> {
     use kairos_db::schema::teams::dsl;
-    let mut query = dsl::teams.filter(dsl::deleted_at.is_null()).into_boxed();
-    query = match reference.parse::<Uuid>() {
-        Ok(id) => query.filter(dsl::id.eq(id)),
-        Err(_) => query.filter(dsl::slug.eq(reference)),
-    };
-    if let Some(team) = query
-        .select(Team::as_select())
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
-    {
+    if let Some(team) = crate::references::team(conn, reference)? {
         return Ok(team);
     }
+    let reference = crate::references::text(reference);
     // KAIROS-T-0685: the refusal lists the slugs of the teams. Each member
     // can read the teams of the organization (the A-0006 read rule).
     let slugs: Vec<String> = dsl::teams

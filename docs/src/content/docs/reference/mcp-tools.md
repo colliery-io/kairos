@@ -365,6 +365,12 @@ One repository in full. The output has these parts:
 - the team's description of how to work in the repository
 - the documents and the ADRs that impact the repository
 - `## ADRs of the owner team`: the other ADRs of the owner team
+- `## ADRs that the code cites`: the ADR short codes that the code cites.
+  They come from the newest code index of the default branch: its
+  comments, its doc strings and its test names. Each line has the ADR, its
+  column, and the count of its places and of its files. For a code that no
+  ADR of the organization has, the line says so. 100 codes at most. The tool `references` of the code tools gives each place. See
+  [the places that cite an ADR](../configuration/#the-code-tools-the-places-that-cite-an-adr).
 - the in-flight branches and pull requests, each with its work item
 - `## Not linked to an item`: the in-flight branches and pull requests that
   the forge filter admits, with no item that links to them

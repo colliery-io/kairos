@@ -176,11 +176,11 @@ pub enum IndexCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Show each use of a symbol: in Rust, the uses as a type, a field, an import and a call; in the other languages, the calls
+    /// Show each use of a symbol: in Rust, the uses as a type, a field, an import and a call; in the other languages, the calls. Give an ADR short code to show each place that cites the ADR
     References {
         #[command(flatten)]
         root: RootArg,
-        /// The symbol: a name, `Type::name` or `Type.name`, or a candidate `name (file:line)`
+        /// The symbol: a name, `Type::name` or `Type.name`, or a candidate `name (file:line)`; or an ADR short code, as `KAIROS-A-0065`
         symbol: String,
         /// The file of the symbol, when more than one symbol has the name
         #[arg(long)]
@@ -922,6 +922,25 @@ fn references(
     json: bool,
 ) -> Result<(), CliError> {
     let index = open(root)?;
+    // KAIROS-T-0703: an ADR short code gives the places that cite it.
+    if kairos_index::is_adr_code(symbol) {
+        if file.is_some() || line.is_some() || possible {
+            return Err(IndexCommandError::Symbol(Box::new(
+                error::ToolError::BadArguments(format!(
+                    "{symbol} is an ADR short code, and an ADR short code takes no `--file`, `--line` or `--possible`"
+                )),
+            ))
+            .into());
+        }
+        if json {
+            let found =
+                report::citations(&index, symbol, limit).map_err(IndexCommandError::from)?;
+            return print_json(&found);
+        }
+        let text = mcp::citations_text(&index, symbol, limit).map_err(IndexCommandError::from)?;
+        println!("{text}");
+        return Ok(());
+    }
     let s = mcp::find(&index, symbol, file, line, mcp::SYMBOL)
         .map_err(|e| IndexCommandError::Symbol(Box::new(e)))?;
     if json {

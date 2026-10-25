@@ -2976,7 +2976,7 @@ kairos index references <SYMBOL> [--root <ROOT>] [--file <FILE>] [--line <LINE>]
 
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
-| `<SYMBOL>` | string | required | A name, `Type::name` or `Type.name`, or a candidate `name (file:line)`. |
+| `<SYMBOL>` | string | required | A name, `Type::name` or `Type.name`, or a candidate `name (file:line)`. Or an ADR short code, as `KAIROS-A-0065`. |
 | `--file <FILE>` | path | none | The file of the symbol, when more than one symbol has the name. |
 | `--line <LINE>` | integer | none | A line of the symbol, when more than one symbol of one file has the name. |
 | `--possible` | flag | off | Also show the calls by a name that more than one function has. |
@@ -2984,6 +2984,11 @@ kairos index references <SYMBOL> [--root <ROOT>] [--file <FILE>] [--line <LINE>]
 
 Shows each use of a symbol. In Rust, a use is a type, a field, an import or
 a call. In the other languages, a use is a call.
+
+With an ADR short code, the command shows each place that cites the ADR.
+A place is a comment, a doc string or the name of a test. Each place has
+its line and its symbol. The command then takes no `--file`, `--line` or
+`--possible`.
 
 ### `kairos index upload`
 

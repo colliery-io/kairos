@@ -4214,6 +4214,135 @@ fn why_no_model() -> Option<String> {
     None
 }
 
+// --- ADR citations (KAIROS-T-0703) --------------------------------------------
+
+/// The files with ADR citations that the citation scenarios add to a copy
+/// of the fixture.
+const CITING_FILES: &[(&str, &str)] = &[
+    (
+        "src/decisions.rs",
+        "//! The retry rules of KAIROS-A-0065.\n\
+         \n\
+         /// A retried write is safe: KAIROS-A-0065.\n\
+         pub fn retry_write() -> &'static str {\n\
+         \x20   // The key is kept for 24 hours (KAIROS-A-0065, COLLIERY-A-0023).\n\
+         \x20   \"KAIROS-A-0999 is data, not a citation\"\n\
+         }\n\
+         \n\
+         #[cfg(test)]\n\
+         mod tests {\n\
+         \x20   use super::*;\n\
+         \n\
+         \x20   #[test]\n\
+         \x20   fn retry_is_safe_kairos_a_0065() {\n\
+         \x20       assert!(!retry_write().is_empty());\n\
+         \x20   }\n\
+         }\n",
+    ),
+    (
+        "python/polyglot/retry.py",
+        "\"\"\"\nThe retry rules of KAIROS-A-0065.\n\"\"\"\n\n\
+         def retry():\n\
+         \x20   \"\"\"Retry a write, as KAIROS-A-0065 says.\"\"\"\n\
+         \x20   return \"KAIROS-A-0999\"\n",
+    ),
+    (
+        "web/src/retry.ts",
+        "/**\n * Retry a write: KAIROS-A-0065.\n */\n\
+         export function retryWrite(): string {\n\
+         \x20 // KAIROS-A-0065: the key is kept.\n\
+         \x20 return \"KAIROS-A-0999\";\n\
+         }\n",
+    ),
+    (
+        "go/greet/retry.go",
+        "package greet\n\n\
+         // Retry retries a write, as KAIROS-A-0065 says.\n\
+         func Retry() string {\n\
+         \treturn \"KAIROS-A-0999\"\n\
+         }\n",
+    ),
+    (
+        "infra/retry.tf",
+        "# The retry queue of KAIROS-A-0065.\n\
+         variable \"retry_hours\" {\n\
+         \x20 default = 24\n\
+         }\n",
+    ),
+    (
+        "migrations/002_keys/up.sql",
+        "-- KAIROS-A-0065: one row for each caller and key.\n\
+         CREATE TABLE request_keys (key TEXT NOT NULL, note TEXT DEFAULT 'KAIROS-A-0999');\n",
+    ),
+];
+
+#[given("the polyglot fixture with ADR citations in each language")]
+fn the_fixture_with_citations(world: &mut IndexWorld) {
+    let copy = TempDir::new().expect("make a folder for the copy");
+    copy_tree(&fixture_root(), copy.path());
+    for (file, text) in CITING_FILES {
+        let path = copy.path().join(file);
+        fs::create_dir_all(path.parent().expect("a folder")).expect("make a folder");
+        fs::write(path, text).expect("write a file");
+    }
+    world.root = copy.path().to_path_buf();
+    world.repo_copy = Some(copy);
+}
+
+#[when(expr = "I add a comment that cites {string} at the end of {string} and update the index")]
+fn add_a_citation(world: &mut IndexWorld, code: String, file: String) {
+    let path = world.root.join(&file);
+    let mut text = fs::read_to_string(&path).expect("read the file");
+    text.push_str(&format!("// See {code}.\n"));
+    fs::write(&path, text).expect("write the file");
+    world.update(false);
+}
+
+/// The places that cite `code`, as `file:line`, the context and the
+/// symbol (empty at the top of a file).
+fn citations_of(world: &IndexWorld, code: &str) -> Vec<(String, String, String)> {
+    world
+        .index()
+        .adr_citations(code)
+        .expect("read the citations")
+        .into_iter()
+        .map(|c| {
+            (
+                format!("{}:{}", c.file, c.line),
+                c.context,
+                c.symbol.map(|s| s.name).unwrap_or_default(),
+            )
+        })
+        .collect()
+}
+
+#[then(expr = "the places that cite {string} are:")]
+fn the_citing_places(world: &mut IndexWorld, code: String, step: &cucumber::gherkin::Step) {
+    let table = step.table.as_ref().expect("a table of places");
+    let expected: Vec<(String, String, String)> = table
+        .rows
+        .iter()
+        .skip(1)
+        .map(|row| (row[0].clone(), row[1].clone(), row[2].clone()))
+        .collect();
+    assert_eq!(citations_of(world, &code), expected);
+}
+
+#[then(expr = "the code cites {string} in {int} place(s) and {int} file(s)")]
+fn the_cited_counts(world: &mut IndexWorld, code: String, places: u32, files: u32) {
+    let cited = world.index().cited_adrs().expect("read the cited ADRs");
+    let found = cited
+        .iter()
+        .find(|c| c.code == code)
+        .unwrap_or_else(|| panic!("{code} is not cited: {cited:?}"));
+    assert_eq!((found.places, found.files), (places, files), "{cited:?}");
+}
+
+#[then(expr = "no place cites {string}, because a code in a string is not a citation")]
+fn no_citation(world: &mut IndexWorld, code: String) {
+    assert_eq!(citations_of(world, &code), Vec::new());
+}
+
 #[tokio::main]
 async fn main() {
     let features = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/features");

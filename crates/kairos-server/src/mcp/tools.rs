@@ -1844,7 +1844,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "One repository: owner team and its delivery board, open task count, default branch and where it comes from, the team's `description` of how to work in it (read it before working in an unfamiliar repository), the documents and ADRs that impact it, the other ADRs of the owner team (newest first, 50 at most, none superseded; read each with `get_item` before planning), its open branches and pull requests with their items and those not linked to an item (50 of each at most; `offset` gives the next part), the forge filters, and the lines read token, write-back, code index build and code index breaker (a tripped breaker stops builds until `rebuild_code_index`). `repository` is a slug or UUID; `include_deleted: true` adds archived documents and ADRs."
+        description = "One repository: owner team and its delivery board, open task count, default branch and where it comes from, the team's `description` of how to work in it (read it before working in an unfamiliar repository), the documents and ADRs that impact it, the other ADRs of the owner team (newest first, 50 at most, none superseded; read each with `get_item` before planning), the ADRs that the code cites (from the newest code index of the default branch, with the count of places and files), its open branches and pull requests with their items and those not linked to an item (50 of each at most; `offset` gives the next part), the forge filters, and the lines read token, write-back, code index build and code index breaker (a tripped breaker stops builds until `rebuild_code_index`). `repository` is a slug or UUID; `include_deleted: true` adds archived documents and ADRs."
     )]
     pub async fn get_repository(
         &self,
@@ -1973,6 +1973,16 @@ impl KairosMcp {
                     rendered.team.slug
                 ));
             }
+            // KAIROS-T-0703: the ADRs that the code cites, from the newest
+            // index of the default branch.
+            let cited = kairos_db::code_indexes::branch_citations(
+                conn,
+                repo_id,
+                &rendered.default_branch,
+                kairos_index::store::VERSION_PREFIX_BYTES as i32,
+            )
+            .map_err(ApiError::internal)?;
+            out.push_str(&cited_adrs_text(&rendered.default_branch, cited.as_ref()));
             out.push_str("\n## In flight\n");
             if in_flight.is_empty() {
                 out.push_str(&empty_page_text(
@@ -7954,6 +7964,77 @@ fn relationship_hint(value: &str) -> &'static str {
         "impact" => " Use impacts.",
         _ => "",
     }
+}
+
+/// The most ADRs that the section "ADRs that the code cites" of
+/// `get_repository` lists (KAIROS-T-0703).
+const CITED_ADRS_LIMIT: usize = 100;
+
+/// The section "ADRs that the code cites" of `get_repository`
+/// (KAIROS-T-0703): each ADR short code in the comments, the doc strings
+/// and the test names of the newest index of `branch`, with the ADR of the
+/// code, the count of its places and of its files.
+fn cited_adrs_text(
+    branch: &str,
+    cited: Option<&kairos_db::code_indexes::BranchCitations>,
+) -> String {
+    let mut out = String::from("\n## ADRs that the code cites\n");
+    let Some(cited) = cited else {
+        out.push_str(&format!(
+            "(the branch {branch} has no code index, so the citations are not known)\n"
+        ));
+        return out;
+    };
+    let short = &cited.commit_sha[..cited.commit_sha.len().min(12)];
+    if kairos_index::store::structure_version(&cited.prefix)
+        .is_some_and(|found| found < kairos_index::SCHEMA_VERSION)
+    {
+        out.push_str(&format!(
+            "(the newest code index of {branch}, at {short}, is from before the index read the citations; the next build of the repository reads them)\n"
+        ));
+        return out;
+    }
+    out.push_str(&format!(
+        "The ADR short codes in the comments, the doc strings and the test names of the newest code index of {branch}, at {short}. The tool `references` of kairos-code, with the short code as `symbol`, gives each place.\n"
+    ));
+    if cited.adrs.is_empty() {
+        out.push_str("(none)\n");
+    }
+    for adr in cited.adrs.iter().take(CITED_ADRS_LIMIT) {
+        let places = format!(
+            "{} {} in {} {}",
+            adr.places,
+            if adr.places == 1 { "place" } else { "places" },
+            adr.files,
+            if adr.files == 1 { "file" } else { "files" }
+        );
+        match &adr.title {
+            Some(title) => out.push_str(&format!(
+                "- {} — {title}{}{} · {places}\n",
+                adr.code,
+                adr.column_name
+                    .as_deref()
+                    .map(|c| format!(" · column: {c}"))
+                    .unwrap_or_default(),
+                if adr.archived_at.is_some() {
+                    " [archived]"
+                } else {
+                    ""
+                },
+            )),
+            None => out.push_str(&format!(
+                "- {} — no ADR of this organization has this code · {places}\n",
+                adr.code
+            )),
+        }
+    }
+    if cited.adrs.len() > CITED_ADRS_LIMIT {
+        out.push_str(&format!(
+            "- {} more.\n",
+            cited.adrs.len() - CITED_ADRS_LIMIT
+        ));
+    }
+    out
 }
 
 /// One line of a document or an ADR in a section of `get_repository`

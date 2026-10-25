@@ -515,6 +515,7 @@ fn write_back_jobs_dedupe_on_the_queued_key() {
         summary_keys: 3,
         vector_model: Some("det/m/1".into()),
         created_by: Some(robin),
+        citations: Vec::new(),
     };
     code_indexes::put(
         &mut conn,

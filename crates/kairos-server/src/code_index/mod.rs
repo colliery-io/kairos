@@ -1700,6 +1700,21 @@ async fn record_failure_once(
     }
 }
 
+/// The ADRs that the code of an index cites (KAIROS-T-0703), as the store
+/// keeps them.
+pub(crate) fn cited_codes(
+    cited: &[kairos_index::CitedAdr],
+) -> Vec<kairos_db::code_indexes::CitedCode> {
+    cited
+        .iter()
+        .map(|c| kairos_db::code_indexes::CitedCode {
+            code: c.code.clone(),
+            places: i32::try_from(c.places).unwrap_or(i32::MAX),
+            files: i32::try_from(c.files).unwrap_or(i32::MAX),
+        })
+        .collect()
+}
+
 async fn store_built(
     blocking: &BlockingTenantPool,
     tenant: &str,
@@ -1717,6 +1732,7 @@ async fn store_built(
         summary_keys: split.keys.len() as i32,
         vector_model: split.vector_model,
         created_by: None,
+        citations: cited_codes(&split.citations),
     };
     let pool = used_rows(split.pool, &split.keys);
     let keys = split.keys;

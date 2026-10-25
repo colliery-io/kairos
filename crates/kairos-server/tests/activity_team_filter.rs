@@ -336,12 +336,14 @@ async fn the_server_filters_the_activity_by_team_against_live_stack() {
             .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{answer}");
         assert_eq!(error_code(&answer), "VALIDATION", "{answer}");
-        assert_eq!(
-            answer["error"]["message"],
-            format!(
+        // KAIROS-T-0685: the refusal lists the slugs of the teams.
+        let message = answer["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.starts_with(&format!(
                 "The team {reference:?} is not in the organization. Send the id or the slug \
-                 of a team of the organization."
-            ),
+                 of a team of the organization. The slugs are: "
+            )) && message.contains("payments"),
+            "{answer}"
         );
         assert_eq!(answer["error"]["details"], json!({"field": "team"}));
     }

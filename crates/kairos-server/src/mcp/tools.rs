@@ -608,6 +608,11 @@ pub struct GetEventsParams {
     /// page. The page has the unread ones older than it, and no read ones.
     #[serde(default)]
     pub before: Option<String>,
+    /// `true`: only the unread notifications, with no read ones
+    /// (KAIROS-T-0683). The first page names the newest unread id, to send
+    /// as `up_to` to `mark_events_read`.
+    #[serde(default)]
+    pub unread: Option<bool>,
 }
 
 /// `my_work` has no arguments (KAIROS-T-0489).
@@ -3231,7 +3236,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy, initiative, task, document or ADR. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks: the board decides the team; `repository` is an optional link and chooses no board. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives: `bucket_type` makes a bucket; `set_complexity` changes the complexity later. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code. Send a `request_key` when you may retry this call."
+        description = "Create a work item: strategy, initiative, task, document or ADR. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks only: `repository`, an optional link that chooses no board; the board decides the team. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives only: `complexity`, and `bucket_type`, which makes a bucket; `set_complexity` changes the complexity later. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code. Send a `request_key` when you may retry this call."
     )]
     pub async fn create_item(
         &self,
@@ -3271,7 +3276,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Targeted server-side edit of an item's content: exact search/replace applied to the CURRENT version (retries once on a concurrent-edit race). Fails if `search` is not found, or is ambiguous when replace_all is false. You can edit an item that you created, or with `manage_<type>` on its board. Send a `request_key` when you may retry this call."
+        description = "Targeted server-side edit of an item's content: exact search/replace applied to the CURRENT version (retries once on a concurrent-edit race). Fails if `search` is not found, or is ambiguous when replace_all is false. When the text differs only in whitespace, the refusal quotes the exact text to send. You can edit an item that you created, or with `manage_<type>` on its board. Send a `request_key` when you may retry this call."
     )]
     pub async fn edit_item(
         &self,
@@ -3328,7 +3333,7 @@ impl KairosMcp {
     // KAIROS-T-0382: the notifications of the person of the key. The read
     // state is of the caller (KAIROS-T-0550): the agent key, or the person.
     #[tool(
-        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board. Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
+        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board. Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `unread: true` gives only the unread ones, and names the newest unread id to send as `up_to` to `mark_events_read`. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
     )]
     pub async fn get_events(
         &self,
@@ -3340,14 +3345,19 @@ impl KairosMcp {
         self.run_tool(&tenant, move |conn| {
             let reader = crate::api::notifications::reader_for(conn, user, key)?;
             let before = params.before.as_deref();
-            let (items, unread) = crate::api::notifications::list_for(conn, &reader, before, None)?;
-            Ok(events_text(&items, unread, before.is_some()))
+            let (mut items, unread) =
+                crate::api::notifications::list_for(conn, &reader, before, None)?;
+            let unread_only = params.unread.unwrap_or(false);
+            if unread_only {
+                items.retain(|n| n.read_at.is_none());
+            }
+            Ok(events_text(&items, unread, before.is_some(), unread_only))
         })
         .await
     }
 
     #[tool(
-        description = "Mark your notifications read: `ids` (the ids that `get_events` gives), or `all: true` with `up_to` (the id of the newest notification that you read). `all` marks that one and each older unread one, and no newer one; `all` without `up_to` is refused. A read with an agent key is the key's: the person's bell keeps its own state. A read notification no longer comes at the end of each answer. An id that is not one of your notifications is refused and named, and nothing changes."
+        description = "Mark your notifications read: `ids` (the ids that `get_events` gives), or `all: true` with `up_to` (the id of the newest notification that you read: `get_events` with `unread: true` names it). `all` marks that one and each older unread one, and no newer one; `all` without `up_to` is refused. A read with an agent key is the key's: the person's bell keeps its own state. A read notification no longer comes at the end of each answer. An id that is not one of your notifications is refused and named, and nothing changes."
     )]
     pub async fn mark_events_read(
         &self,
@@ -3804,7 +3814,7 @@ impl KairosMcp {
 
     // KAIROS-T-0506: the live state of a task.
     #[tool(
-        description = "Write the live state of a TASK: `branch`, `commit`, `pushed`, `pr_url`, `next_step` (send at least one). The write is a patch: a field that you send is set, `null` clears it, a field that you do not send is kept. `expected_updated_at` (the `updated_at` you read) refuses a write over a state that changed since, with CONFLICT and the current state. A hand-off or a release clears `next_step`. The state is not a note: it is one current line that `get_item`, `board_items` and the card show, with who wrote it when. Write it after each commit, each push, a PR, and before you stop. The edit rule applies: the creator of the task, or `manage_tasks` on its board."
+        description = "Write the live state of a TASK: `branch`, `commit`, `pushed`, `pr_url`, `next_step` (send at least one). Send each field as its own argument, not one object or one JSON text. The write is a patch: a field that you send is set, `null` clears it, a field that you do not send is kept. `expected_updated_at` (the `updated_at` you read) refuses a write over a state that changed since, with CONFLICT and the current state. A hand-off or a release clears `next_step`. The state is not a note: it is one current line that `get_item`, `board_items` and the card show, with who wrote it when. Write it after each commit, each push, a PR, and before you stop. The edit rule applies: the creator of the task, or `manage_tasks` on its board."
     )]
     pub async fn set_state(
         &self,
@@ -6101,8 +6111,10 @@ pub fn edit_item_text(
         let occurrences = item.content.matches(&params.search).count();
         if occurrences == 0 {
             return Err(ApiError::validation(format!(
-                "The text of search is not in {} (version {}).",
-                item.short_code, item.version
+                "The text of search is not in {} (version {}).{}",
+                item.short_code,
+                item.version,
+                whitespace_hint(&item.content, &params.search)
             )));
         }
         if occurrences > 1 && !params.replace_all {
@@ -6137,6 +6149,74 @@ pub fn edit_item_text(
         }
     }
     unreachable!("edit_item loop returns within two attempts");
+}
+
+/// KAIROS-T-0684: the spans of `content` that are equal to `search` when
+/// each run of whitespace in the two texts counts as one space. The spans
+/// are byte ranges of `content`, in order, with no overlap.
+fn whitespace_matches(content: &str, search: &str) -> Vec<std::ops::Range<usize>> {
+    // The normal form of a text: each whitespace run is one space. For
+    // each char of the normal form, the byte range of `content` that it
+    // stands for.
+    fn normal(text: &str) -> (String, Vec<std::ops::Range<usize>>) {
+        let mut out = String::new();
+        let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
+        for (at, ch) in text.char_indices() {
+            let end = at + ch.len_utf8();
+            if ch.is_whitespace() {
+                if out.ends_with(' ') && spans.last().is_some_and(|s| s.end == at) {
+                    if let Some(last) = spans.last_mut() {
+                        last.end = end;
+                    }
+                    continue;
+                }
+                out.push(' ');
+            } else {
+                out.push(ch);
+            }
+            spans.push(at..end);
+        }
+        (out, spans)
+    }
+    let (text, spans) = normal(content);
+    let (needle, _) = normal(search);
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    // The char index of each byte offset of the normal form.
+    let starts: Vec<usize> = text.char_indices().map(|(at, _)| at).collect();
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(offset) = text[from..].find(&needle) {
+        let begin = from + offset;
+        let end = begin + needle.len();
+        let first = starts.partition_point(|&at| at < begin);
+        let last = starts.partition_point(|&at| at < end) - 1;
+        found.push(spans[first].start..spans[last].end);
+        from = end;
+    }
+    found
+}
+
+/// KAIROS-T-0684: the end of the refusal of a `search` that is not in the
+/// content, when a text that differs only in whitespace is there. Empty
+/// when there is no such text.
+fn whitespace_hint(content: &str, search: &str) -> String {
+    let found = whitespace_matches(content, search);
+    match found.as_slice() {
+        [] => String::new(),
+        [one] => format!(
+            " A text that differs only in whitespace is in the content one time. Send this \
+             exact text as search: {:?}.",
+            &content[one.clone()]
+        ),
+        [first, ..] => format!(
+            " A text that differs only in whitespace is in the content {} times. The first \
+             is {:?}. Send the exact text, with more text around it to make it unique.",
+            found.len(),
+            &content[first.clone()]
+        ),
+    }
 }
 
 /// The answer text of `append_note`.
@@ -7246,30 +7326,14 @@ fn meta_id(
     })
 }
 
+/// A team by id or slug: the ONE lookup of REST and MCP
+/// ([`crate::api::org::repositories::resolve_team`]). The refusal lists
+/// the slugs of the teams (KAIROS-T-0685).
 fn team_by_ref(
     conn: &mut PgConnection,
     reference: &str,
 ) -> Result<kairos_db::models::teams::Team, ApiError> {
-    use kairos_db::models::teams::Team;
-    use kairos_db::schema::teams;
-    let mut query = teams::table
-        .filter(teams::deleted_at.is_null())
-        .select(Team::as_select())
-        .into_boxed();
-    query = match Uuid::parse_str(reference) {
-        Ok(id) => query.filter(teams::id.eq(id)),
-        Err(_) => query.filter(teams::slug.eq(reference)),
-    };
-    query
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| {
-            ApiError::validation(format!(
-                "The team {reference:?} is not in the organization. Send the id or the \
-                 slug of a team of the organization."
-            ))
-        })
+    crate::api::org::repositories::resolve_team(conn, reference)
 }
 
 /// A board's LIVE columns in position order — what the board is now, so
@@ -9659,16 +9723,30 @@ fn events_text(
     items: &[kairos_db::notifications::Notification],
     unread: i64,
     page: bool,
+    unread_only: bool,
 ) -> String {
     let unread_items: Vec<_> = items.iter().filter(|n| n.read_at.is_none()).collect();
     if items.is_empty() {
         return if page {
             format!("# Your notifications ({unread} unread)\nNo older unread ones.\n")
+        } else if unread_only {
+            "# Your notifications (0 unread)\nNo unread ones.\n".to_string()
         } else {
             "# Your notifications\n(none)\n".to_string()
         };
     }
     let mut out = format!("# Your notifications ({unread} unread)\n");
+    // KAIROS-T-0683: the newest unread id first, ready for `up_to`.
+    if unread_only
+        && !page
+        && let Some(newest) = unread_items.first()
+    {
+        out.push_str(&format!(
+            "Newest unread id: \"{}\". Send it as `up_to` with `all: true` to \
+             mark_events_read.\n\n",
+            newest.id
+        ));
+    }
     let mut read_heading = false;
     for n in items {
         if n.read_at.is_some() && !read_heading {
@@ -10337,6 +10415,61 @@ mod t0561_tests {
     }
 }
 
+#[cfg(test)]
+mod t0683_tests {
+    //! KAIROS-T-0683: `get_events` with `unread: true`.
+
+    use super::events_text;
+    use kairos_db::notifications::Notification;
+    use uuid::Uuid;
+
+    fn notification(n: u128, read: bool) -> Notification {
+        Notification {
+            id: Uuid::from_u128(n),
+            kind: "mention".into(),
+            item_id: None,
+            short_code: Some(format!("ACME-T-{n:04}")),
+            entity_type: None,
+            title: None,
+            text: format!("Robin mentioned you ({n})"),
+            actor_id: None,
+            created_at: chrono::Utc::now(),
+            read_at: read.then(chrono::Utc::now),
+        }
+    }
+
+    #[test]
+    fn the_unread_list_names_the_newest_id_first() {
+        let items = [notification(2, false), notification(1, false)];
+        let text = events_text(&items, 2, false, true);
+        let newest = Uuid::from_u128(2);
+        assert!(
+            text.starts_with(&format!(
+                "# Your notifications (2 unread)\nNewest unread id: \"{newest}\". Send it as \
+                 `up_to` with `all: true` to mark_events_read.\n\n"
+            )),
+            "{text}"
+        );
+        assert!(!text.contains("## Read"), "{text}");
+    }
+
+    #[test]
+    fn no_unread_ones() {
+        assert_eq!(
+            events_text(&[], 0, false, true),
+            "# Your notifications (0 unread)\nNo unread ones.\n"
+        );
+    }
+
+    #[test]
+    fn the_default_list_has_no_newest_line() {
+        let items = [notification(2, false), notification(1, true)];
+        let text = events_text(&items, 1, false, false);
+        assert!(!text.contains("Newest unread id"), "{text}");
+        assert!(text.contains("## Read"), "{text}");
+    }
+}
+
 impl super::request_key::Keyed for CreateItemParams {
     fn request_key(&self) -> Option<&str> {
         self.request_key.as_deref()
@@ -10517,6 +10650,91 @@ mod t0677_tests {
         assert!(
             text.ends_with("parent, supports, informs, supersedes, blocks, impacts, external."),
             "{text}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod t0684_tests {
+    //! KAIROS-T-0684: the whitespace hint of `edit_item`.
+    use super::{whitespace_hint, whitespace_matches};
+
+    #[test]
+    fn a_run_of_whitespace_matches_one_space() {
+        let content = "## Done when\n\n- The  table is there.\n- Tests.";
+        let found = whitespace_matches(content, "- The table is\tthere.");
+        assert_eq!(found.len(), 1);
+        assert_eq!(&content[found[0].clone()], "- The  table is there.");
+        // A search across lines.
+        let found = whitespace_matches(content, "Done when - The table");
+        assert_eq!(&content[found[0].clone()], "Done when\n\n- The  table");
+    }
+
+    #[test]
+    fn the_hint_quotes_the_exact_text() {
+        let content = "Line one.\n  Line two.";
+        assert_eq!(
+            whitespace_hint(content, "Line one. Line two."),
+            " A text that differs only in whitespace is in the content one time. Send this \
+             exact text as search: \"Line one.\\n  Line two.\"."
+        );
+    }
+
+    #[test]
+    fn more_than_one_and_none() {
+        let content = "a  b and a\tb";
+        let hint = whitespace_hint(content, "a b");
+        assert!(hint.contains("2 times"), "{hint}");
+        assert!(hint.contains("\"a  b\""), "{hint}");
+        assert_eq!(whitespace_hint(content, "no such text"), "");
+        // Non-ASCII text keeps char bounds.
+        let content = "Größe:  10 µm";
+        let found = whitespace_matches(content, "Größe: 10 µm");
+        assert_eq!(&content[found[0].clone()], content);
+    }
+}
+
+#[cfg(test)]
+mod t0685_tests {
+    //! KAIROS-T-0685: the refusal of an unknown team, and the descriptions
+    //! of create_item and set_state.
+    use super::KairosMcp;
+    use crate::api::org::repositories::unknown_team_text;
+
+    #[test]
+    fn the_refusal_lists_the_slugs() {
+        let slugs = ["kairos".to_string(), "skadi".to_string()];
+        assert_eq!(
+            unknown_team_text("Kairos team", &slugs),
+            "The team \"Kairos team\" is not in the organization. Send the id or the slug \
+             of a team of the organization. The slugs are: kairos, skadi."
+        );
+        assert!(unknown_team_text("x", &[]).ends_with("The organization has no team."));
+        let many: Vec<String> = (0..51).map(|n| format!("team-{n:02}")).collect();
+        let text = unknown_team_text("x", &many);
+        assert!(text.contains("The first 50 slugs are: team-00,"), "{text}");
+        assert!(!text.contains("team-50"), "{text}");
+        assert!(text.ends_with("GET /api/teams gives each team."), "{text}");
+    }
+
+    #[test]
+    fn the_descriptions_name_the_scope_of_the_fields() {
+        let create = KairosMcp::create_item_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        assert!(create.contains("Tasks only: `repository`"), "{create}");
+        assert!(
+            create.contains("Initiatives only: `complexity`"),
+            "{create}"
+        );
+        let state = KairosMcp::set_state_tool_attr()
+            .description
+            .expect("a description")
+            .to_string();
+        assert!(
+            state.contains("Send each field as its own argument, not one object"),
+            "{state}"
         );
     }
 }

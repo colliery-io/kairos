@@ -277,17 +277,49 @@ pub(crate) fn resolve_team(conn: &mut PgConnection, reference: &str) -> Result<T
         Ok(id) => query.filter(dsl::id.eq(id)),
         Err(_) => query.filter(dsl::slug.eq(reference)),
     };
-    query
+    if let Some(team) = query
         .select(Team::as_select())
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| {
-            ApiError::validation(format!(
-                "The team {reference:?} is not in the organization. Send the id or the \
-                 slug of a team of the organization."
-            ))
-        })
+    {
+        return Ok(team);
+    }
+    // KAIROS-T-0685: the refusal lists the slugs of the teams. Each member
+    // can read the teams of the organization (the A-0006 read rule).
+    let slugs: Vec<String> = dsl::teams
+        .filter(dsl::deleted_at.is_null())
+        .order(dsl::slug.asc())
+        .select(dsl::slug)
+        .limit(TEAM_SLUGS_IN_REFUSAL + 1)
+        .load(conn)
+        .map_err(ApiError::internal)?;
+    Err(ApiError::validation(unknown_team_text(reference, &slugs)))
+}
+
+/// How many team slugs the refusal of an unknown team lists at most.
+pub(crate) const TEAM_SLUGS_IN_REFUSAL: i64 = 50;
+
+/// The refusal of a team reference that names no team (KAIROS-T-0685).
+/// `slugs` has at most [`TEAM_SLUGS_IN_REFUSAL`] + 1 entries; one more
+/// than the limit means that there are more.
+pub(crate) fn unknown_team_text(reference: &str, slugs: &[String]) -> String {
+    let mut text = format!(
+        "The team {reference:?} is not in the organization. Send the id or the slug of a \
+         team of the organization."
+    );
+    let limit = TEAM_SLUGS_IN_REFUSAL as usize;
+    if slugs.is_empty() {
+        text.push_str(" The organization has no team.");
+    } else if slugs.len() > limit {
+        text.push_str(&format!(
+            " The first {limit} slugs are: {}. GET /api/teams gives each team.",
+            slugs[..limit].join(", ")
+        ));
+    } else {
+        text.push_str(&format!(" The slugs are: {}.", slugs.join(", ")));
+    }
+    text
 }
 
 /// The team's ONE live delivery board, or `None` when it has none or

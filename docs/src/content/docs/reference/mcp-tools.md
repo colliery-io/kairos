@@ -319,6 +319,14 @@ and its id in `delivery_board_id`.
 Refuses: `VALIDATION` for an unknown `team` — it is a filter value, not a
 path.
 
+The refusal of an unknown team lists the slugs of the teams of the
+organization, 50 at most (KAIROS-T-0685). Each tool with a `team` argument
+gives the same refusal:
+
+```text
+VALIDATION: The team "Kairos team" is not in the organization. Send the id or the slug of a team of the organization. The slugs are: kairos, skadi.
+```
+
 ### `get_repository`
 
 One repository in full. The output has these parts:
@@ -1240,6 +1248,15 @@ current content, and for a `search` matching more than once while
 `replace_all` is false — the refusal states the occurrence count. Otherwise as
 `update_item`, and the same edit rule applies.
 
+Sometimes the `search` text is not in the content, but a text that differs
+only in whitespace is there. Then the refusal quotes the exact text of the
+item (KAIROS-T-0684). Each run of spaces, tabs and line breaks counts as one space.
+Kairos does not replace that text: send it as `search`.
+
+```text
+VALIDATION: The text of search is not in ACME-T-0012 (version 3). A text that differs only in whitespace is in the content one time. Send this exact text as search: "Line one.\n  Line two.".
+```
+
 ### `append_note`
 
 Appends a note to the item, in one call. Send no version and no anchor
@@ -1523,6 +1540,9 @@ you stop.
 | `pr_url` | string or `null` | no | kept | The URL of the PR. `null` clears it. |
 | `next_step` | string or `null` | no | kept | What comes next. `null` clears it. |
 | `expected_updated_at` | string | no | — | The `updated_at` of the state you read (RFC 3339). A state that changed since refuses the write with `CONFLICT`; the details carry the current state. |
+
+Send each field as its own argument, not one object or one JSON text
+(KAIROS-T-0685).
 
 The write is a patch (KAIROS-T-0533). A field that you send gets the value.
 `null` clears the field. A field that you do not send keeps its value. Send
@@ -2911,6 +2931,16 @@ item and the text.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `before` | string | no | — | The id of a notification. The page has the unread notifications older than it, and no read ones. |
+| `unread` | boolean | no | false | `true`: only the unread notifications, and no read ones (KAIROS-T-0683). |
+
+With `unread: true`, the first line after the heading names the newest unread
+id:
+
+```text
+Newest unread id: "4f1c2a8e-0000-4000-8000-000000000001". Send it as `up_to` with `all: true` to mark_events_read.
+```
+
+With no unread notification, the answer is `No unread ones.`
 
 The answer ends with the `up_to` value for `mark_events_read`: the id of the
 newest unread notification. When the page has 100 unread notifications, the
@@ -2929,7 +2959,7 @@ with `up_to`.
 |---|---|---|---|---|
 | `ids` | array of strings | no | — | The ids of your notifications, as `get_events` gives them. |
 | `all` | boolean | no | — | `true`: each of your unread notifications up to `up_to`. |
-| `up_to` | string | with `all` | — | The id of the newest notification that you read. Kairos marks it and each older unread notification. A newer notification stays unread. |
+| `up_to` | string | with `all` | — | The id of the newest notification that you read. Kairos marks it and each older unread notification. A newer notification stays unread. `get_events` with `unread: true` names it. |
 
 Kairos refuses `all` without `up_to`. A notification can come after your list.
 Without a bound, Kairos would mark it read before you see it.

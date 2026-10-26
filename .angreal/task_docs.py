@@ -24,7 +24,7 @@ import angreal  # type: ignore
 # task_test.py does with task_web: an import in the command does not return.
 import task_test as gui
 
-from utils import PROJECT_ROOT, docker_down, docker_up
+from utils import PROJECT_ROOT, TARGET_DIR, docker_down, docker_up
 
 docs = angreal.command_group(name="docs", about="documentation book commands")
 
@@ -179,7 +179,7 @@ def docs_api():
     The spec comes from the same pure test CI uses (no services needed), so
     this works on a laptop with nothing running.
     """
-    spec = PROJECT_ROOT / "target" / "openapi.json"
+    spec = TARGET_DIR / "openapi.json"
     print("producing the OpenAPI spec...")
     produced = subprocess.run(
         [

@@ -19,7 +19,7 @@
 //! `bge-small-en-v1.5` from `KAIROS_EMBED_CACHE`, else `target/embed-cache`
 //! (`angreal dev fetch-model`). Nothing is downloaded.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -130,9 +130,9 @@ fn run() -> Result<(), String> {
         }
     }
 
-    let cache = std::env::var_os("KAIROS_EMBED_CACHE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/embed-cache"));
+    let cache = kairos_embed::dev::model_cache(&kairos_embed::dev::workspace_of(env!(
+        "CARGO_MANIFEST_DIR"
+    )));
     let embedder = LocalProvider::new(&LocalConfig {
         cache_dir: cache,
         allow_download: false,

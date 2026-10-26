@@ -32,17 +32,30 @@ Usage:  python3 scripts/render-openapi.py [--check]
              reference/rest/*.md
   --check    exit 1 if any committed page differs from what the spec implies
 
-Reads target/openapi.json, produced by
+Reads openapi.json in the cargo target folder (CARGO_TARGET_DIR, else
+target/), produced by
 `cargo test -p kairos-server --test openapi write_spec_artifact`.
 """
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SPEC = REPO / "target" / "openapi.json"
+def _target_dir():
+    """The cargo target folder (KAIROS-T-0712): CARGO_TARGET_DIR, else the
+    target/ folder of the repository. A relative value is relative to the
+    repository root."""
+    configured = os.environ.get("CARGO_TARGET_DIR")
+    if not configured:
+        return REPO / "target"
+    path = Path(configured)
+    return path if path.is_absolute() else REPO / path
+
+
+SPEC = _target_dir() / "openapi.json"
 DOCS = REPO / "docs" / "src" / "content" / "docs"
 INDEX = DOCS / "reference" / "rest-api.md"
 PAGES = DOCS / "reference" / "rest"

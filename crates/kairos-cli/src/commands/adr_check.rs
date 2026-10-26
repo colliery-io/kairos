@@ -57,15 +57,18 @@ pub enum AdrsCli {
     /// archived, and is not superseded
     #[command(long_about = "Check the ADR citations of a tree.\n\n\
         The check finds each ADR short code (for example KAIROS-A-0031) in the files of PATH. \
-        It skips the files that git ignores and the hidden folders. For each citation it gives \
+        It reads the hidden folders too. It skips the files that the .gitignore files of the \
+        checkout ignore, the .git folder and the snapshot file. For each citation it gives \
         a finding:\n  \
         fail  the ADR does not exist, or it is archived\n  \
         warn  the ADR is superseded (the check names the successor), it is in a column that \
         ends it, or the citation uses a retired code (the check names the current code)\n  \
         info  the ADR has amendments\n\n\
-        The states of the ADRs come from the deployment, or from a file of --snapshot. \
-        --save-snapshot writes the states of this run to a file, for a run with no \
-        deployment (CI). With no deployment and no --snapshot, the check is skipped: it says \
+        The states of the ADRs come from the deployment of the checkout of the first PATH, or \
+        from a file of --snapshot. --save-snapshot writes the states of this run to a file, for \
+        a run with no deployment (CI). With --snapshot, a code that the snapshot does not hold \
+        is a warn: a contributor with no login passes, and a person with a login saves the \
+        snapshot again. With no deployment and no --snapshot, the check is skipped: it says \
         so and exits 0.\n\n\
         The exit code is 0 when no citation fails, 1 when a citation fails, 2 for an error \
         of the login. With --json the report is one JSON object on stdout.")]
@@ -100,6 +103,9 @@ pub struct CheckArgs {
     /// Flag an ADR when the files that cite it changed by this count of lines (added plus removed) since its accepted_commit
     #[arg(long, value_name = "N", default_value_t = STALE_LINES)]
     pub stale_lines: u64,
+    /// Read only the codes with the prefix of an ADR board of the deployment; each other code is an info
+    #[arg(long, conflicts_with = "snapshot")]
+    pub board_prefixes: bool,
     #[command(flatten)]
     pub common: Common,
 }
@@ -143,12 +149,22 @@ fn prefix_of(code: &str) -> &str {
     code.rsplit_once("-A-").map_or(code, |(prefix, _)| prefix)
 }
 
-/// The citations in `paths` (a file, or a folder that the walk reads with
-/// the rules of git: no ignored file, no hidden folder), in the order of
-/// the paths, then of the files, then of the lines. With `prefixes`, only
-/// the codes with one of them.
-pub fn scan_paths(paths: &[PathBuf], prefixes: &[String]) -> Result<Vec<Citation>, CliError> {
+/// The citations in `paths` (a file, or a folder), in the order of the
+/// paths, then of the files, then of the lines. With `prefixes`, only the
+/// codes with one of them.
+///
+/// The walk of a folder reads the hidden folders (`.github/`, `.angreal/`).
+/// It skips the files that the `.gitignore` files of the checkout ignore,
+/// each `.git` folder or file, and the files of `skip` (the snapshot). It
+/// does not read the global gitignore of the person: the result is the
+/// same on each machine.
+pub fn scan_paths(
+    paths: &[PathBuf],
+    prefixes: &[String],
+    skip: &[PathBuf],
+) -> Result<Vec<Citation>, CliError> {
     let wanted: BTreeSet<String> = prefixes.iter().map(|p| p.to_ascii_uppercase()).collect();
+    let skip: Vec<PathBuf> = skip.iter().map(|p| canonical(p)).collect();
     let mut files = Vec::new();
     for path in paths {
         if !path.exists() {
@@ -158,11 +174,21 @@ pub fn scan_paths(paths: &[PathBuf], prefixes: &[String]) -> Result<Vec<Citation
             )));
         }
         if path.is_file() {
-            files.push(path.clone());
+            if !skip.contains(&canonical(path)) {
+                files.push(path.clone());
+            }
             continue;
         }
         let mut found = Vec::new();
-        for entry in ignore::WalkBuilder::new(path).build() {
+        let skipped = skip.clone();
+        let walk = ignore::WalkBuilder::new(path)
+            .hidden(false)
+            .git_global(false)
+            .filter_entry(move |entry| {
+                entry.file_name() != ".git" && !skipped.contains(&canonical(entry.path()))
+            })
+            .build();
+        for entry in walk {
             let entry = entry.map_err(|err| {
                 CliError::Failure(format!(
                     "The CLI cannot read the tree {}: {err}.",
@@ -197,6 +223,25 @@ pub fn scan_paths(paths: &[PathBuf], prefixes: &[String]) -> Result<Vec<Citation
         }
     }
     Ok(citations)
+}
+
+/// The path with no `..` and no link, or the path as it is when it does not
+/// exist.
+fn canonical(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// The folder of `path`: the path when it is a folder, else its parent.
+/// [`crate::project_config::binding`] takes the binding of the top of the
+/// checkout that holds it (KAIROS-T-0707).
+fn folder_of(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    if absolute.is_dir() {
+        return absolute;
+    }
+    absolute
+        .parent()
+        .map_or_else(|| absolute.clone(), Path::to_path_buf)
 }
 
 fn display_path(path: &Path) -> String {
@@ -408,6 +453,29 @@ pub const META_ACCEPTED_COMMIT: &str = "accepted_commit";
 /// The status of a code that the snapshot does not hold.
 const NOT_IN_SNAPSHOT: &str = "not-in-snapshot";
 
+/// The status of a code whose prefix is no ADR board of the deployment
+/// (`--board-prefixes`): a code of another organization or deployment.
+const UNKNOWN_PREFIX: &str = "unknown-prefix";
+
+/// The prefixes of the ADR boards of the deployment, in upper case.
+async fn adr_board_prefixes(client: &KairosClient) -> Result<BTreeSet<String>, CliError> {
+    let (boards, _) = crate::listing::read_each_page(|offset| async move {
+        let envelope = client
+            .list_boards(kairos_client::types::Pagination {
+                limit: Some(200),
+                offset: Some(offset),
+            })
+            .await?;
+        Ok::<_, CliError>((envelope.items, envelope.total))
+    })
+    .await?;
+    Ok(boards
+        .into_iter()
+        .filter(|board| board.board_level == "adr" && !board.code_prefix.is_empty())
+        .map(|board| board.code_prefix.to_ascii_uppercase())
+        .collect())
+}
+
 fn read_snapshot(path: &Path) -> Result<BTreeMap<String, AdrState>, CliError> {
     let text = std::fs::read_to_string(path).map_err(|err| {
         CliError::Failure(format!(
@@ -480,7 +548,7 @@ impl Severity {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Finding {
     pub severity: Severity,
-    /// `missing`, `not_in_snapshot`, `archived`, `superseded`,
+    /// `missing`, `not_in_snapshot`, `unknown_prefix`, `archived`, `superseded`,
     /// `ended_column`, `retired_code`, `amended`, `revisit_due`,
     /// `stale_code` or `commit_unknown`.
     pub reason: &'static str,
@@ -495,13 +563,27 @@ const ENDED_COLUMNS: [&str; 3] = ["superseded", "rejected", "deprecated"];
 pub fn findings(state: &AdrState) -> Vec<Finding> {
     let code = &state.code;
     if !state.found {
+        // A new citation that the snapshot does not hold is a warn: CI
+        // passes for a contributor with no login, and a person with a login
+        // saves the snapshot again.
         if state.status.as_deref() == Some(NOT_IN_SNAPSHOT) {
             return vec![Finding {
-                severity: Severity::Fail,
+                severity: Severity::Warn,
                 reason: "not_in_snapshot",
                 message: format!(
-                    "The snapshot has no state for {code}. Save the snapshot again with \
-                     --save-snapshot."
+                    "The snapshot has no state for {code}, so the check cannot read it. Save the \
+                     snapshot again with --save-snapshot from a login."
+                ),
+            }];
+        }
+        if state.status.as_deref() == Some(UNKNOWN_PREFIX) {
+            return vec![Finding {
+                severity: Severity::Info,
+                reason: "unknown_prefix",
+                message: format!(
+                    "{code} is not known to this deployment: no ADR board of the deployment \
+                     has the prefix {}.",
+                    prefix_of(code)
                 ),
             }];
         }
@@ -833,7 +915,13 @@ impl CheckArgs {
         } else {
             self.paths.clone()
         };
-        let citations = scan_paths(&paths, &self.prefixes)?;
+        let skip: Vec<PathBuf> = self
+            .snapshot
+            .iter()
+            .chain(self.save_snapshot.iter())
+            .cloned()
+            .collect();
+        let citations = scan_paths(&paths, &self.prefixes, &skip)?;
         let source = match &self.snapshot {
             Some(path) => {
                 let states = read_snapshot(path)?;
@@ -845,14 +933,35 @@ impl CheckArgs {
                 Source::Snapshot(states)
             }
             None => {
-                if !deployment_known(&self.common)? {
+                // The binding of the checkout of the files, not of the
+                // folder of the session (a board folder holds several
+                // checkouts). A `config.toml` that does not parse is refused,
+                // not skipped (KAIROS-T-0706): the check must not pass on a
+                // typo.
+                let binding = crate::project_config::binding(&folder_of(&paths[0]))?;
+                if !deployment_known(&self.common, &binding) {
                     return self.skip(SKIPPED);
                 }
-                Source::Deployment(context::client(&self.common)?)
+                Source::Deployment(context::client_for(&self.common, &binding)?.0)
             }
         };
-        let codes: BTreeSet<String> = citations.iter().map(|c| c.code.clone()).collect();
-        let states = source.states(&codes).await?;
+        let mut codes: BTreeSet<String> = citations.iter().map(|c| c.code.clone()).collect();
+        let mut unknown = Vec::new();
+        if let (true, Source::Deployment(client)) = (self.board_prefixes, &source) {
+            let known = adr_board_prefixes(client).await?;
+            codes.retain(|code| {
+                let keep = known.contains(prefix_of(code));
+                if !keep {
+                    let mut state = AdrState::missing(code);
+                    state.status = Some(UNKNOWN_PREFIX.to_string());
+                    unknown.push(state);
+                }
+                keep
+            });
+        }
+        let mut states = source.states(&codes).await?;
+        states.extend(unknown);
+        states.sort_by(|a, b| a.code.cmp(&b.code));
         if let Some(path) = &self.save_snapshot {
             write_snapshot(path, &states)?;
         }
@@ -890,23 +999,21 @@ impl CheckArgs {
 }
 
 /// True when a deployment is named: `--url`, `KAIROS_URL`, a key in the
-/// environment, the project config, or a login in the credential cache.
-/// A `config.toml` that does not parse is refused, not skipped
-/// (KAIROS-T-0706): the check must not pass on a typo.
-fn deployment_known(common: &Common) -> Result<bool, CliError> {
-    let binding = crate::project_config::binding_here()?;
+/// environment, the binding of the checkout, or a login in the credential
+/// cache.
+fn deployment_known(common: &Common, binding: &crate::project_config::Binding) -> bool {
     let env = crate::auth::Env::from_process();
     if common.url.is_some() || env.url.is_some() || env.key.is_some() {
-        return Ok(true);
+        return true;
     }
     if binding.get("deployment").is_some() {
-        return Ok(true);
+        return true;
     }
-    Ok(crate::credentials::credentials_path()
+    crate::credentials::credentials_path()
         .and_then(|path| crate::credentials::load(&path))
         // A cache that the CLI cannot read is an error of the login: the
         // client says so.
-        .map_or(true, |store| !store.deployments.is_empty()))
+        .map_or(true, |store| !store.deployments.is_empty())
 }
 
 #[cfg(test)]
@@ -1133,9 +1240,23 @@ mod tests {
             .unwrap()
             .block_on(source.states(&codes))
             .unwrap();
+        // A code that the snapshot does not hold is a warn, not a fail: CI
+        // passes for a contributor with no login.
         assert_eq!(
             reasons(&states[1]),
-            vec![(Severity::Fail, "not_in_snapshot")]
+            vec![(Severity::Warn, "not_in_snapshot")]
+        );
+        let report = build_report(
+            "snapshot",
+            vec![cite("a.rs", "ACME-A-0002")],
+            states.clone(),
+            BTreeMap::new(),
+        );
+        assert!(report.ok);
+        assert!(
+            render_text(&report).contains("Save the snapshot again"),
+            "{}",
+            render_text(&report)
         );
 
         std::fs::write(&path, r#"{"kairos_adr_snapshot": 9, "adrs": []}"#).unwrap();
@@ -1292,19 +1413,121 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git/HEAD"), "ACME-A-0007").unwrap();
         std::fs::write(root.join(".gitignore"), "target/\n").unwrap();
         std::fs::create_dir_all(root.join("target")).unwrap();
         std::fs::write(root.join("target/x.rs"), "ACME-A-0009").unwrap();
-        std::fs::create_dir_all(root.join(".hidden")).unwrap();
-        std::fs::write(root.join(".hidden/x.md"), "ACME-A-0008").unwrap();
         std::fs::write(root.join("a.rs"), "// ACME-A-0001\n// WEB-A-0002\n").unwrap();
-        let all = scan_paths(&[root.to_path_buf()], &[]).unwrap();
+        let all = scan_paths(&[root.to_path_buf()], &[], &[]).unwrap();
         let codes: Vec<&str> = all.iter().map(|c| c.code.as_str()).collect();
         assert_eq!(codes, vec!["ACME-A-0001", "WEB-A-0002"]);
-        let acme = scan_paths(&[root.to_path_buf()], &["acme".into()]).unwrap();
+        let acme = scan_paths(&[root.to_path_buf()], &["acme".into()], &[]).unwrap();
         assert_eq!(acme.len(), 1);
         assert_eq!(acme[0].line, 1);
-        let err = scan_paths(&[root.join("nope")], &[]).unwrap_err();
+        let err = scan_paths(&[root.join("nope")], &[], &[]).unwrap_err();
         assert!(err.to_string().contains("does not exist"), "{err}");
+    }
+
+    #[test]
+    fn the_walk_reads_hidden_folders_but_not_git_or_the_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git/config"), "ACME-A-0007").unwrap();
+        std::fs::create_dir_all(root.join(".github")).unwrap();
+        std::fs::write(root.join(".github/adr-snapshot.json"), "ACME-A-0006").unwrap();
+        std::fs::write(root.join(".github/ci.yml"), "# ACME-A-0005").unwrap();
+        std::fs::create_dir_all(root.join(".angreal")).unwrap();
+        std::fs::write(root.join(".angreal/task.py"), "# ACME-A-0004").unwrap();
+        // A worktree inside the tree has a `.git` file.
+        std::fs::create_dir_all(root.join("wt")).unwrap();
+        std::fs::write(root.join("wt/.git"), "gitdir: ACME-A-0003").unwrap();
+        let snapshot = root.join(".github/adr-snapshot.json");
+        let found =
+            scan_paths(&[root.to_path_buf()], &[], std::slice::from_ref(&snapshot)).unwrap();
+        let files: Vec<String> = found
+            .iter()
+            .map(|c| {
+                Path::new(&c.file)
+                    .strip_prefix(root)
+                    .unwrap()
+                    .display()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(files, vec![".angreal/task.py", ".github/ci.yml"]);
+        // The snapshot is skipped also when the path names it, and with a
+        // path that differs in form (`./x/../`).
+        let odd = root.join("wt/../.github/adr-snapshot.json");
+        assert!(scan_paths(&[odd], &[], &[snapshot]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_walk_does_not_read_the_global_gitignore() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("repo");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git/config"), "[core]\n").unwrap();
+        std::fs::write(root.join("a.md"), "ACME-A-0001").unwrap();
+        // A global gitignore of the person that ignores `*.md`.
+        let global = dir.path().join("global-ignore");
+        std::fs::write(&global, "*.md\n").unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".config/git")).unwrap();
+        std::fs::write(home.join(".config/git/ignore"), "*.md\n").unwrap();
+        std::fs::write(
+            home.join(".gitconfig"),
+            format!("[core]\n\texcludesFile = {}\n", global.display()),
+        )
+        .unwrap();
+        let walk = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "commands::adr_check::tests::global_gitignore_child",
+                "--nocapture",
+            ])
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .env("LANE_ROOT", &root)
+            .output()
+            .unwrap();
+        let out = String::from_utf8_lossy(&walk.stdout);
+        assert!(walk.status.success(), "{out}");
+        assert!(out.contains("codes: [\"ACME-A-0001\"]"), "{out}");
+    }
+
+    /// The child of [`the_walk_does_not_read_the_global_gitignore`]: it runs
+    /// with the HOME of the parent, so no test changes the HOME of this
+    /// process. Alone it does nothing.
+    #[test]
+    fn global_gitignore_child() {
+        let Some(root) = std::env::var_os("LANE_ROOT") else {
+            return;
+        };
+        let found = scan_paths(&[PathBuf::from(root)], &[], &[]).unwrap();
+        let codes: Vec<&str> = found.iter().map(|c| c.code.as_str()).collect();
+        println!("codes: {codes:?}");
+    }
+
+    #[test]
+    fn the_folder_of_a_file_is_its_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/a.rs"), "").unwrap();
+        assert_eq!(folder_of(&dir.path().join("src/a.rs")), dir.path().join("src"));
+        assert_eq!(folder_of(&dir.path().join("src")), dir.path().join("src"));
+    }
+
+    #[test]
+    fn a_code_of_another_deployment_is_an_info() {
+        let mut state = AdrState::missing("OTHER-A-0001");
+        state.status = Some(UNKNOWN_PREFIX.into());
+        let found = findings(&state);
+        assert_eq!(reasons(&state), vec![(Severity::Info, "unknown_prefix")]);
+        assert!(
+            found[0].message.contains("not known to this deployment"),
+            "{}",
+            found[0].message
+        );
     }
 }

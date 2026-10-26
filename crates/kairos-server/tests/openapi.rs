@@ -295,12 +295,17 @@ fn operation_ids_are_unique() {
     }
 }
 
-/// Generate the CI artifact: write the spec to `target/openapi.json`
-/// (workspace target dir). The CI workflow runs exactly this test and
-/// uploads the file; the containerized validator runs against it too.
+/// Generate the CI artifact: write the spec to `openapi.json` in the cargo
+/// target folder (`CARGO_TARGET_DIR`, else the workspace `target/`,
+/// KAIROS-T-0712). The test makes the folder. The CI workflow runs exactly
+/// this test and uploads the file; the containerized validator runs against
+/// it too. `scripts/render-openapi.py` reads the same place.
 #[test]
 fn write_spec_artifact() {
-    let out = FsPath::new(env!("CARGO_MANIFEST_DIR")).join("../../target/openapi.json");
+    let target =
+        kairos_embed::dev::target_dir(&kairos_embed::dev::workspace_of(env!("CARGO_MANIFEST_DIR")));
+    std::fs::create_dir_all(&target).expect("the target folder");
+    let out = target.join("openapi.json");
     let json = serde_json::to_string_pretty(&spec()).expect("spec serializes");
     std::fs::write(&out, &json).expect("writable target dir");
     // Round-trip: what CI uploads is parseable JSON.

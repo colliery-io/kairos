@@ -69,6 +69,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -278,6 +279,48 @@ def spawn(args, cwd):
     )
 
 
+# ----------------------------------------------------------------- the index
+
+
+def index_home():
+    """The folder of the code indexes (KAIROS-A-0072), as the CLI finds it:
+    KAIROS_INDEX_DIR, else $XDG_CACHE_HOME/kairos/index, else
+    ~/.cache/kairos/index."""
+    configured = os.environ.get("KAIROS_INDEX_DIR")
+    if configured:
+        return configured
+    cache = os.environ.get("XDG_CACHE_HOME")
+    if cache:
+        return os.path.join(cache, "kairos", "index")
+    home = os.environ.get("HOME")
+    if home:
+        return os.path.join(home, ".cache", "kairos", "index")
+    return os.path.join(os.environ.get("TMPDIR") or "/tmp", "kairos-index")
+
+
+def checkout_key(root):
+    """The key of the index folder of a checkout (KAIROS-A-0072), the rule of
+    `checkout_key` in the CLI: the folder name (each character that is not a
+    letter, a digit, `.`, `_` or `-` is `_`; at most 40), `-`, and 16 hex
+    digits of the SHA-256 of the canonical path (pure; testable)."""
+    real = os.path.realpath(root)
+    digest = hashlib.sha256(os.fsencode(real)).hexdigest()[:16]
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(real))[:40]
+    return f"{name}-{digest}" if name else digest
+
+
+def index_file(root):
+    """The index file of the checkout at `root` in the user cache."""
+    return os.path.join(index_home(), checkout_key(root), "index.db")
+
+
+def has_index(root):
+    """The checkout has a local index: in the user cache, or an old one in
+    the checkout that the next open of the CLI moves."""
+    old = os.path.join(root, ".kairos", "index.db")
+    return os.path.isfile(index_file(root)) or os.path.isfile(old)
+
+
 # ----------------------------------------------------------------- start
 
 
@@ -301,7 +344,7 @@ def session_text(project, log):
         f"makes the background update run the model. Its log: {log}.",
         after_edit_text(),
     ]
-    if not os.path.isfile(os.path.join(project, ".kairos", "index.db")):
+    if not has_index(project):
         lines.append(
             "This checkout has no local index yet. The update tries to download "
             "the base index from Kairos. If the log says that no base index is "

@@ -32,11 +32,10 @@
 //! - `kairos index upload` sends the index of the checkout to Kairos as the
 //!   index of its HEAD commit ([`upload`], KAIROS-T-0592).
 //!
-//! The index is `.kairos/index.db` in the checkout. Git must not track it,
-//! so a build adds it to `.git/info/exclude` when git does not ignore it
-//! already. That file is local to the checkout and is not tracked, so the
-//! CLI changes no file of the repository, and each repository that it
-//! indexes is covered with no commit.
+//! The index of a checkout is in the user cache, not in the checkout
+//! (KAIROS-A-0072): `<home>/<key>/index.db`, see [`db_path`]. The CLI
+//! writes no file into the checkout. On the first open it moves an old
+//! `.kairos/index.db` of the checkout there.
 //!
 //! Summaries need the feature `llama` (llama.cpp and the local vector
 //! model) and the model file. Without them, a build or an update makes the
@@ -50,7 +49,6 @@ mod query;
 mod report;
 mod upload;
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -348,8 +346,117 @@ fn checkout_root(arg: RootArg) -> Result<PathBuf, IndexCommandError> {
     })
 }
 
-pub(super) fn db_path(root: &Path) -> PathBuf {
-    root.join(kairos_index::INDEX_FILE)
+/// The file name of the index in its folder.
+const DB_FILE: &str = "index.db";
+
+/// The SQLite files next to an index: the journal of a rollback, and the
+/// files of a WAL.
+const DB_SIDE_FILES: [&str; 3] = ["-journal", "-wal", "-shm"];
+
+/// The folder of the indexes of each checkout (KAIROS-A-0072):
+/// `KAIROS_INDEX_DIR`, else `$XDG_CACHE_HOME/kairos/index`, else
+/// `~/.cache/kairos/index`, else a folder in the temp folder. `var` reads
+/// one variable of the environment. Pure.
+fn index_home_from(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> PathBuf {
+    let set = |name: &str| {
+        var(name)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    if let Some(dir) = set("KAIROS_INDEX_DIR") {
+        return dir;
+    }
+    if let Some(cache) = set("XDG_CACHE_HOME") {
+        return cache.join("kairos").join("index");
+    }
+    if let Some(home) = set("HOME") {
+        return home.join(".cache").join("kairos").join("index");
+    }
+    std::env::temp_dir().join("kairos-index")
+}
+
+/// [`index_home_from`] of the process. The unit tests of this crate use one
+/// temp folder: no test writes into the cache of the person.
+#[cfg(not(test))]
+fn index_home() -> PathBuf {
+    index_home_from(|name| std::env::var_os(name))
+}
+
+#[cfg(test)]
+fn index_home() -> PathBuf {
+    static HOME: std::sync::LazyLock<tempfile::TempDir> =
+        std::sync::LazyLock::new(|| tempfile::tempdir().expect("a temp index home"));
+    HOME.path().to_path_buf()
+}
+
+/// The key of the folder of the index of the checkout at `root`: the
+/// folder name of the checkout (letters, digits, `.`, `_` and `-`; each
+/// other character is `_`; at most 40), `-`, and the first 16 hex digits of
+/// the SHA-256 of the canonical path. Each worktree has its own key. The
+/// hook `index_update.py` uses the same rule.
+pub(crate) fn checkout_key(root: &Path) -> String {
+    use sha2::Digest;
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let digest = sha2::Sha256::digest(root.as_os_str().as_encoded_bytes());
+    let hex: String = digest
+        .iter()
+        .take(8)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let name: String = root
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(40)
+        .collect();
+    if name.is_empty() {
+        hex
+    } else {
+        format!("{name}-{hex}")
+    }
+}
+
+/// The index file of the checkout at `root` (KAIROS-A-0072).
+pub(crate) fn db_path(root: &Path) -> PathBuf {
+    index_home().join(checkout_key(root)).join(DB_FILE)
+}
+
+/// Move an old index of the checkout (`.kairos/index.db`, from before
+/// KAIROS-T-0709) to `db`, with its SQLite files, when `db` is not there.
+/// A move is a rename. A rename that fails leaves the old file, and the
+/// index is built again. The old lock file goes, and the folder `.kairos`
+/// goes when it is empty. The CLI does not change the exclude line of git.
+/// Returns the old file when it moved.
+fn move_old_index(root: &Path, db: &Path) -> Option<PathBuf> {
+    let old = root.join(kairos_index::INDEX_FILE);
+    if db.exists() || !old.is_file() {
+        return None;
+    }
+    std::fs::rename(&old, db).ok()?;
+    let with = |path: &Path, suffix: &str| {
+        let mut name = path.as_os_str().to_owned();
+        name.push(suffix);
+        PathBuf::from(name)
+    };
+    for suffix in DB_SIDE_FILES {
+        let side = with(&old, suffix);
+        if side.exists() {
+            let _ = std::fs::rename(&side, with(db, suffix));
+        }
+    }
+    let _ = std::fs::remove_file(with(&old, ".lock"));
+    if let Some(folder) = old.parent() {
+        let _ = std::fs::remove_dir(folder);
+    }
+    Some(old)
 }
 
 /// The trimmed stdout of a git command that succeeded.
@@ -385,52 +492,10 @@ pub(crate) fn test_git(dir: &Path, args: &[&str]) {
     );
 }
 
-/// Make git ignore the index: if git does not ignore `.kairos/index.db`,
-/// add it to `.git/info/exclude`. Returns the file that was changed. A root
-/// that is not in a git repository needs nothing.
-fn ensure_ignored(root: &Path) -> Result<Option<PathBuf>, IndexCommandError> {
-    let Some(exclude) = git_output(root, &["rev-parse", "--git-path", "info/exclude"]) else {
-        return Ok(None);
-    };
-    let ignored = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["check-ignore", "-q", kairos_index::INDEX_FILE])
-        .status()
-        .map_err(|e| IndexCommandError::Git {
-            path: root.to_path_buf(),
-            message: e.to_string(),
-        })?;
-    if ignored.success() {
-        return Ok(None);
-    }
-    let exclude = root.join(exclude);
-    let write = |source| IndexCommandError::Write {
-        path: exclude.clone(),
-        source,
-    };
-    if let Some(folder) = exclude.parent() {
-        std::fs::create_dir_all(folder).map_err(write)?;
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&exclude)
-        .map_err(write)?;
-    // The pattern also covers the journal files of SQLite.
-    writeln!(
-        file,
-        "\n# The code index of `kairos index` (COLLIERY-T-1852).\n/{}*",
-        kairos_index::INDEX_FILE
-    )
-    .map_err(write)?;
-    Ok(Some(exclude))
-}
-
-/// The path of the index file, with its folder made and `.kairos/` ignored
-/// by git. The exclude file is given back when this call added the line,
-/// so that the caller can say so: the MCP server must not print
-/// (KAIROS-T-0348).
+/// The path of the index file, with its folder made, and an old index of
+/// the checkout moved there ([`move_old_index`]). The old file is given
+/// back when this call moved it, so that the caller can say so: the MCP
+/// server must not print (KAIROS-T-0348).
 pub(super) fn prepare_quiet(root: &Path) -> Result<(PathBuf, Option<PathBuf>), IndexCommandError> {
     let db = db_path(root);
     if let Some(folder) = db.parent() {
@@ -439,11 +504,11 @@ pub(super) fn prepare_quiet(root: &Path) -> Result<(PathBuf, Option<PathBuf>), I
             source,
         })?;
     }
-    let exclude = ensure_ignored(root)?;
-    Ok((db, exclude))
+    let moved = move_old_index(root, &db);
+    Ok((db, moved))
 }
 
-/// The lock of the index of a checkout, `.kairos/index.db.lock`: one process
+/// The lock of the index of a checkout, `index.db.lock` next to it: one process
 /// at a time fetches, builds or updates the index. Until KAIROS-T-0357, 2
 /// agents that opened one checkout at the same time wrote the same download
 /// file and the same tables, and one got "disk I/O error" or "no such
@@ -472,8 +537,8 @@ pub(super) fn lock_index(db: &Path) -> Result<std::fs::File, IndexCommandError> 
 /// goes, or one JSON object at its end (KAIROS-T-0654).
 fn build(root: &Path, json: bool) -> Result<(), CliError> {
     let mut run = report::Run::new("build", json);
-    let (db, exclude) = prepare_quiet(root)?;
-    run.excluded(exclude);
+    let (db, moved) = prepare_quiet(root)?;
+    run.moved(moved);
     let _lock = lock_index(&db)?;
     run.index(&db);
     let started = Instant::now();
@@ -501,12 +566,8 @@ async fn update(
     remote: &base::RemoteArgs,
     run: &mut report::Run,
 ) -> Result<(), IndexCommandError> {
-    let db = db_path(root);
-    // The exclude line before the lock file: else git counts the lock file
-    // as a change of the tree when the CLI compares it with a base index
-    // (KAIROS-T-0357).
-    let (_, exclude) = prepare_quiet(root)?;
-    run.excluded(exclude);
+    let (db, moved) = prepare_quiet(root)?;
+    run.moved(moved);
     let _lock = lock_index(&db)?;
     let local = if !db.is_file() {
         Local::Missing
@@ -1280,34 +1341,135 @@ mod tests {
         assert_eq!(index.counts().expect("counts").symbols, 40);
     }
 
+    /// KAIROS-A-0072: the place of the indexes.
     #[test]
-    fn a_build_makes_git_ignore_the_index() {
-        let dir = tempfile::tempdir().expect("a folder");
-        let root = dir.path();
-        assert!(
-            Command::new("git")
-                .arg("-C")
-                .arg(root)
-                .args(["init", "-q"])
-                .status()
-                .expect("git")
-                .success()
+    fn the_index_home_follows_the_environment() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| std::ffi::OsString::from(value))
+            }
+        };
+        let all: &'static [(&str, &str)] = &[
+            ("KAIROS_INDEX_DIR", "/elsewhere"),
+            ("XDG_CACHE_HOME", "/xdg"),
+            ("HOME", "/home/robin"),
+        ];
+        assert_eq!(index_home_from(env(all)), Path::new("/elsewhere"));
+        assert_eq!(
+            index_home_from(env(&[
+                ("KAIROS_INDEX_DIR", ""),
+                ("XDG_CACHE_HOME", "/xdg"),
+                ("HOME", "/home/robin")
+            ])),
+            Path::new("/xdg/kairos/index")
         );
-        let changed = ensure_ignored(root).expect("ignore");
-        assert_eq!(changed, Some(root.join(".git/info/exclude")));
-        // A second time, git ignores it already.
-        assert_eq!(ensure_ignored(root).expect("ignore"), None);
-        let exclude = std::fs::read_to_string(root.join(".git/info/exclude")).expect("read");
-        assert_eq!(exclude.matches("/.kairos/index.db*").count(), 1);
-        assert!(!root.join(".gitignore").exists());
+        assert_eq!(
+            index_home_from(env(&[("HOME", "/home/robin")])),
+            Path::new("/home/robin/.cache/kairos/index")
+        );
+        assert_eq!(
+            index_home_from(env(&[])),
+            std::env::temp_dir().join("kairos-index")
+        );
     }
 
+    /// KAIROS-A-0072: a checkout and its worktree have their own index, and
+    /// no file of the index is in the checkout.
     #[test]
-    fn a_folder_with_no_git_needs_nothing() {
+    fn each_checkout_and_worktree_has_its_own_index_out_of_the_checkout() {
         let dir = tempfile::tempdir().expect("a folder");
-        // A temporary folder is not in a git repository on a normal machine.
-        if git_output(dir.path(), &["rev-parse", "--git-dir"]).is_none() {
-            assert_eq!(ensure_ignored(dir.path()).expect("ignore"), None);
+        let main = dir.path().join("my repo");
+        std::fs::create_dir_all(&main).expect("a folder");
+        test_git(&main, &["init", "-q"]);
+        std::fs::write(main.join("a.py"), "def a():\n    return 1\n").expect("a file");
+        test_git(&main, &["add", "a.py"]);
+        test_git(&main, &["commit", "-q", "-m", "one"]);
+        let worktree = dir.path().join("wt");
+        test_git(
+            &main,
+            &["worktree", "add", "-q", worktree.to_str().expect("utf-8")],
+        );
+        build(&main, true).expect("the build of the checkout");
+        build(&worktree, true).expect("the build of the worktree");
+        let (one, two) = (db_path(&main), db_path(&worktree));
+        assert_ne!(one, two);
+        assert!(one.is_file() && two.is_file());
+        assert!(one.starts_with(index_home()), "{}", one.display());
+        let key = checkout_key(&main);
+        assert!(key.starts_with("my_repo-"), "{key}");
+        assert_eq!(key.len(), "my_repo-".len() + 16);
+        assert_eq!(checkout_key(&main), checkout_key(&main.join("../my repo")));
+        for root in [&main, &worktree] {
+            assert!(!root.join(".kairos").exists(), "{}", root.display());
         }
+        // No line in the excludes of git: the checkout holds no index.
+        let exclude = main.join(".git/info/exclude");
+        let text = std::fs::read_to_string(exclude).unwrap_or_default();
+        assert!(!text.contains("index.db"), "{text}");
+    }
+
+    /// The key of a checkout: the same example as the test of the hook
+    /// `index_update.py`, so the two find the same folder.
+    #[test]
+    fn the_key_of_a_checkout_is_the_key_of_the_hook() {
+        assert_eq!(
+            checkout_key(Path::new("/nonexistent-kairos/my repo")),
+            "my_repo-4a68e4c25d4d38c3"
+        );
+    }
+
+    /// KAIROS-T-0709: an old `.kairos/index.db` moves to the new place on the
+    /// first open, with its SQLite files; the old exclude line stays.
+    #[test]
+    fn an_old_index_in_the_checkout_moves_to_the_cache() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let root = dir.path().join("old");
+        std::fs::create_dir_all(root.join(".kairos")).expect("a folder");
+        std::fs::write(root.join("a.py"), "def a():\n    return 1\n").expect("a file");
+        let old = root.join(kairos_index::INDEX_FILE);
+        kairos_index::build_structure(&root, &old).expect("an old index");
+        std::fs::write(root.join(".kairos/index.db-wal"), b"").expect("a wal");
+        std::fs::write(root.join(".kairos/index.db.lock"), b"").expect("a lock");
+        let (db, moved) = prepare_quiet(&root).expect("prepare");
+        assert_eq!(moved.as_deref(), Some(old.as_path()));
+        assert!(db.is_file() && !old.exists());
+        assert!(Path::new(&format!("{}-wal", db.display())).exists());
+        assert!(!root.join(".kairos").exists(), "the empty folder goes");
+        let index = Index::open(&db).expect("the moved index opens");
+        assert_eq!(index.counts().expect("counts").files, 1);
+        // A second open moves nothing.
+        assert_eq!(prepare_quiet(&root).expect("prepare").1, None);
+
+        // A folder `.kairos` with a rule file stays; an index at the new
+        // place wins, and the old file stays where it is.
+        std::fs::create_dir_all(root.join(".kairos")).expect("a folder");
+        std::fs::write(root.join(".kairos/index-rules.toml"), "").expect("rules");
+        std::fs::write(&old, b"old").expect("an old file");
+        assert_eq!(prepare_quiet(&root).expect("prepare").1, None);
+        assert!(old.is_file());
+    }
+
+    /// KAIROS-T-0709: a rename that fails leaves the old file, and the
+    /// index is built again at the new place.
+    #[test]
+    fn a_failed_move_leaves_the_old_index_and_a_build_makes_a_new_one() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let root = dir.path().join("stuck");
+        std::fs::create_dir_all(root.join(".kairos")).expect("a folder");
+        std::fs::write(root.join("a.py"), "def a():\n    return 1\n").expect("a file");
+        let old = root.join(kairos_index::INDEX_FILE);
+        std::fs::write(&old, b"old").expect("an old file");
+        // The folder of the target is not there: the rename fails, as on
+        // another file system.
+        let db = dir.path().join("no-folder").join("index.db");
+        assert_eq!(move_old_index(&root, &db), None);
+        assert!(old.is_file(), "the old file stays");
+        assert!(!db.exists());
+        // With no index at the new place, an update has no local start and
+        // builds a new index (`Local::Missing`).
+        assert_eq!(std::fs::read(&old).expect("read"), b"old");
     }
 }

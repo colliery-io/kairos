@@ -10,7 +10,7 @@ import sys
 
 import angreal  # type: ignore
 
-from utils import run_psql, docker_up, MIGRATIONS_DIR, PROJECT_ROOT
+from utils import run_psql, docker_up, MIGRATIONS_DIR, PROJECT_ROOT, TARGET_DIR
 
 db = angreal.command_group(name="db", about="database management commands")
 
@@ -19,7 +19,7 @@ db = angreal.command_group(name="db", about="database management commands")
 # feature so libpq is compiled from source instead of expected on the host.
 # Installed into target/tools so it never clobbers a user-global diesel.
 DIESEL_CLI_VERSION = "2.3.6"
-DIESEL_TOOLS_ROOT = PROJECT_ROOT / "target" / "tools"
+DIESEL_TOOLS_ROOT = TARGET_DIR / "tools"
 DATABASE_URL = "postgres://kairos:kairos@localhost:41432/kairos"
 SCHEMA_RS = PROJECT_ROOT / "crates" / "kairos-db" / "src" / "schema.rs"
 # Throwaway tenant provisioned (and dropped) by schema-sync so diesel
@@ -739,7 +739,7 @@ def backfill_embeddings(tenant=None, batch=None, max_batches=None, pause_ms=None
     env.setdefault("DATABASE_URL", DATABASE_URL)
     # A source build has no baked model layer, so point at the cache
     # `dev fetch-model` fills and let this one path download if asked.
-    env.setdefault("KAIROS_EMBED_CACHE", str(PROJECT_ROOT / "target" / "embed-cache"))
+    env.setdefault("KAIROS_EMBED_CACHE", str(TARGET_DIR / "embed-cache"))
 
     print("Building kairos-server...", flush=True)
     code = subprocess.run(
@@ -749,7 +749,7 @@ def backfill_embeddings(tenant=None, batch=None, max_batches=None, pause_ms=None
     if code:
         return code
     return subprocess.run(
-        [str(PROJECT_ROOT / "target" / "debug" / "kairos-server"), *args],
+        [str(TARGET_DIR / "debug" / "kairos-server"), *args],
         cwd=str(PROJECT_ROOT),
         env=env,
     ).returncode
@@ -800,7 +800,7 @@ def index_embeddings(tenant=None):
 
     env = os.environ.copy()
     env.setdefault("DATABASE_URL", DATABASE_URL)
-    env.setdefault("KAIROS_EMBED_CACHE", str(PROJECT_ROOT / "target" / "embed-cache"))
+    env.setdefault("KAIROS_EMBED_CACHE", str(TARGET_DIR / "embed-cache"))
 
     print("Building kairos-server...", flush=True)
     code = subprocess.run(
@@ -810,7 +810,7 @@ def index_embeddings(tenant=None):
     if code:
         return code
     return subprocess.run(
-        [str(PROJECT_ROOT / "target" / "debug" / "kairos-server"), *args],
+        [str(TARGET_DIR / "debug" / "kairos-server"), *args],
         cwd=str(PROJECT_ROOT),
         env=env,
     ).returncode

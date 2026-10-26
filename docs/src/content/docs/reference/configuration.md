@@ -1099,6 +1099,8 @@ cached credentials, the daily version check, and the settings of
 | `KAIROS_CONFIG_DIR` | The config directory, taken verbatim. Highest precedence. |
 | `XDG_CONFIG_HOME` | Used as `$XDG_CONFIG_HOME/kairos` when `KAIROS_CONFIG_DIR` is unset or empty. |
 | `HOME` | Used as `$HOME/.config/kairos` when neither of the above is set. |
+| `KAIROS_INDEX_DIR` | The folder of the code indexes, taken verbatim. See [The place of the code index](#the-place-of-the-code-index). |
+| `XDG_CACHE_HOME` | Used as `$XDG_CACHE_HOME/kairos/index` for the code indexes when `KAIROS_INDEX_DIR` is unset or empty. Else the CLI uses `$HOME/.cache/kairos/index`. |
 | `KAIROS_UPDATE_CHECK` | `0` turns off the daily version check of the CLI. |
 | `KAIROS_AUTO_UPDATE` | `1` makes the daily check install the newer version of the server. It does not install from an `http://` deployment. |
 | `KAIROS_RELEASES_URL` | The base URL of the published releases, for a mirror. `kairos self-update` takes each checksum from it, and the tarballs of `--version` and `--latest`. The default is the GitHub releases. |
@@ -1240,6 +1242,31 @@ and gives the `kairos login` command.
 A file that does not parse is an authentication error (exit 2). The message
 names the file and the fault. The JSON is not valid, it stops early, or it does
 not have the fields of a credential cache.
+
+### The place of the code index
+
+The local code index of a checkout is in the user cache, not in the checkout
+(KAIROS-A-0072). The file is `<home>/<key>/index.db`. Its lock file
+`index.db.lock` is next to it.
+
+- `<home>` is `KAIROS_INDEX_DIR`. When it is unset or empty, `<home>` is
+  `$XDG_CACHE_HOME/kairos/index`, else `$HOME/.cache/kairos/index`. macOS
+  uses the same folders.
+- `<key>` is the folder name of the checkout, `-`, and the first 16 hex
+  digits of the SHA-256 of the canonical path of the checkout. For example:
+  `app-4a68e4c25d4d38c3`.
+
+Each worktree has its own key, so it has its own index. When you move or
+rename a checkout, its key changes. Then the CLI builds the index again, or
+it downloads the base index from Kairos.
+
+An index of an older CLI is in the checkout, at `.kairos/index.db`. On the
+first open, the CLI moves it to the user cache with a rename. When the
+rename fails, the CLI leaves the old file, and it builds the index again. The
+CLI does not change the line of `.kairos/index.db` in `.git/info/exclude`.
+You can remove that line. The CLI writes no line there now.
+
+The plugin hooks find the index with the same rule.
 
 ### `kairos index update` and the base index
 

@@ -133,11 +133,9 @@ fn load_corpus() -> Corpus {
 }
 
 fn real_model() -> Arc<dyn EmbeddingProvider> {
-    let cache_dir = std::env::var("KAIROS_EMBED_CACHE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/embed-cache")
-        });
+    let cache_dir = kairos_embed::dev::model_cache(&kairos_embed::dev::workspace_of(env!(
+        "CARGO_MANIFEST_DIR"
+    )));
     let provider = LocalProvider::new(&LocalConfig {
         cache_dir,
         allow_download: true,

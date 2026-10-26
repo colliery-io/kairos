@@ -24,7 +24,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from utils import PROJECT_ROOT, SWEEP_DAYS, sweep_target
+from utils import PROJECT_ROOT, SWEEP_DAYS, TARGET_DIR, sweep_target
 
 dev = angreal.command_group(name="dev", about="local development commands")
 
@@ -133,7 +133,7 @@ def dev_sweep(days=None):
 # test's cache (crates/kairos-embed/tests/local_model.rs) so a developer who has
 # run the tests already has it, and sits under target/ so `cargo clean` and CI's
 # cache treat it like any other build artefact.
-EMBED_CACHE = PROJECT_ROOT / "target" / "embed-cache"
+EMBED_CACHE = TARGET_DIR / "embed-cache"
 
 
 @dev()

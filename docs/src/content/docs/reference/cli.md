@@ -1065,11 +1065,19 @@ kairos adrs check [PATH]... [OPTIONS]
 | `--snapshot <FILE>` | path | none | Read the states of the ADRs from this file, not from the deployment. |
 | `--save-snapshot <FILE>` | path | none | Write the states of the cited ADRs to this file, for a later `--snapshot`. |
 | `--stale-lines <N>` | integer | 50 | Flag an ADR when the files that cite it changed by this count of lines (added and removed) since its `accepted_commit`. |
+| `--board-prefixes` | flag | off | Read only the codes with the prefix of an ADR board of the deployment. Each other code is an `unknown_prefix` info. Not with `--snapshot`. |
 
 Finds each ADR short code (for example `KAIROS-A-0031`) in the files of the
-paths. Gives a finding for each citation. The walk skips the files that git
-ignores and the hidden folders. It also skips a file that is not UTF-8 or is
-larger than 2 MiB.
+paths. Gives a finding for each citation. The walk reads the hidden folders
+(`.github/`, `.angreal/`). It skips these files:
+
+- the files that the `.gitignore` files of the checkout ignore;
+- each `.git` folder or file;
+- the file of `--snapshot` or `--save-snapshot`;
+- a file that is not UTF-8 or is larger than 2 MiB.
+
+The walk does not read your global gitignore, so the result is the same on
+each machine.
 
 A code is an upper-case prefix, `-A-`, and four digits or more. A letter, a
 digit, `_` or `-` just before the code makes it part of a longer word. A
@@ -1083,7 +1091,7 @@ does.
 |---|---|---|
 | `missing` | fail | No ADR has the code. |
 | `archived` | fail | The ADR is archived. |
-| `not_in_snapshot` | fail | The snapshot of `--snapshot` has no state for the code. Save the snapshot again. |
+| `not_in_snapshot` | warn | The snapshot of `--snapshot` has no state for the code. Save the snapshot again. |
 | `superseded` | warn | An ADR supersedes the cited ADR. The finding names the successor. |
 | `ended_column` | warn | The ADR is in the column Superseded, Rejected or Deprecated, and no ADR supersedes it. |
 | `retired_code` | warn | The citation uses a retired code. The finding names the current code. |
@@ -1091,23 +1099,34 @@ does.
 | `stale_code` | warn | The files that cite the ADR changed by `--stale-lines` lines or more since its `accepted_commit`. The finding names each file with its count. |
 | `amended` | info | ADRs amend the cited ADR. The finding names them. |
 | `commit_unknown` | info | The checkout does not have the `accepted_commit` of the ADR, so the check cannot compare. |
+| `unknown_prefix` | info | With `--board-prefixes`: no ADR board of the deployment has the prefix of the code. It is not known to this deployment. |
 
 The text output gives one line for each finding, `FILE:LINE: CODE SEVERITY:
 MESSAGE`, and then the counts. A citation of a live ADR gives no line.
 
-The states come from the deployment. The CLI reads the item graph of each cited
-ADR once. It also reads the metadata of each live ADR: `revisit_when`,
+The states come from the deployment of the checkout of the first path. The
+checkout is the nearest folder with `.git` at or above the path. The binding
+of that checkout gives the deployment. In a board folder with several
+checkouts, the binding of the board folder does not apply. The CLI reads the
+item graph of each cited ADR once. It also reads the metadata of each live ADR: `revisit_when`,
 `revisit_on` and `accepted_commit` (KAIROS-A-0070).
 
 With `--snapshot`, the states come from a file that `--save-snapshot` wrote.
 Then the command needs no deployment and no key. Use this in CI: CI must not
-have a key of a deployment. With no deployment and no `--snapshot`, the CLI
-skips the check: it says so on stderr and exits with 0. A snapshot with no
-ADRs is a placeholder: the CLI skips the check in the same way.
+have a key of a deployment.
+
+A citation that the snapshot does not hold is a warn, not a fail. Thus CI
+passes for a contributor with no login. A person with a login then saves the
+snapshot again. With `--snapshot`, a citation fails only when the snapshot
+gives its ADR as missing or archived.
+
+With no deployment and no `--snapshot`, the CLI skips the check: it says so on
+stderr and exits with 0. A snapshot with no ADRs is a placeholder: the CLI
+skips the check in the same way.
 
 The CI of the kairos repository runs the check on the committed snapshot
-`.github/adr-snapshot.json`. The snapshot is in a hidden folder, so the walk
-does not read its codes as citations:
+`.github/adr-snapshot.json`. The walk does not read the snapshot file, so its
+codes are not citations:
 
 ```
 kairos adrs check --prefix KAIROS --snapshot .github/adr-snapshot.json
@@ -2992,8 +3011,11 @@ Drops the tenant's organization and schema. Destructive and unrecoverable.
 ## The code index of a checkout
 
 `kairos index` builds the code index of a git checkout, and serves its code
-tools to an agent. The index is the file `.kairos/index.db` in the checkout.
-A build adds it to `.git/info/exclude`, so git does not track it.
+tools to an agent. The index is in the user cache, not in the checkout
+(KAIROS-A-0072). Each checkout and each worktree has its own folder. See
+[The place of the code index](../configuration/#the-place-of-the-code-index).
+The CLI writes no file into the checkout. On the first open, it moves an old
+`.kairos/index.db` of the checkout to the user cache.
 
 Each `index` command takes `--root`. Only `index update` takes `--url` and
 `--tenant`. Each `index` command except `index mcp` takes `--json`. See
@@ -3167,8 +3189,8 @@ text. A refusal is the error envelope on stderr (see
 ```json
 {
   "command": "update",
-  "index": "/work/app/.kairos/index.db",
-  "git_exclude": null,
+  "index": "/home/robin/.cache/kairos/index/app-4a68e4c25d4d38c3/index.db",
+  "moved_from": null,
   "start": {
     "from": "base",
     "base": { "repository": "app", "branch": "main", "commit": "9f2c…", "changed": 3, … },
@@ -3186,7 +3208,7 @@ text. A refusal is the error envelope on stderr (see
 |---|---|
 | `command` | `build` or `update`. `index --full` gives `build`. |
 | `index` | The path of the index file. |
-| `git_exclude` | The exclude file of git, when the run added the line of the index. Else `null`. |
+| `moved_from` | The old index of the checkout (`.kairos/index.db`), when the run moved it to the user cache. Else `null`. |
 | `start` | Where the update started. It is `null` for a build. |
 | `start.from` | `base`: the update downloaded the base index of Kairos. `local`: the update changed the local index. |
 | `start.base` | The base index that Kairos gave: the repository, the branch, the commit, the changed files and the count of its summaries. The update can keep the local index and not use it. |

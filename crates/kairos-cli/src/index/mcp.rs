@@ -105,6 +105,12 @@ impl Found {
     }
 }
 
+/// True when the checkout at `root` has a local index: in the user cache
+/// (KAIROS-A-0072), or an old one in the checkout that the next open moves.
+fn has_index(root: &Path) -> bool {
+    super::db_path(root).is_file() || root.join(kairos_index::INDEX_FILE).is_file()
+}
+
 /// The checkouts in the immediate subfolders of `folder`, as `kairos repos
 /// local` finds them, at most [`MAX_BELOW`]. No git command fails the
 /// start of the server: a folder that cannot be read gives none.
@@ -115,7 +121,7 @@ fn checkouts_below(folder: &Path) -> Vec<Found> {
         .map(|(name, path)| Found {
             remote: super::git_output(&path, &["config", "--get", "remote.origin.url"])
                 .map(|url| super::base::normalized_remote(&url)),
-            indexed: path.join(kairos_index::INDEX_FILE).is_file(),
+            indexed: has_index(&path),
             name,
             path,
         })
@@ -311,7 +317,7 @@ impl CodeTools {
     /// index opens nothing: the agent opens a checkout with `fetch_index`,
     /// and the server names the checkouts below the folder (#272).
     pub fn new(root: PathBuf) -> Self {
-        let open = root.join(kairos_index::INDEX_FILE).is_file() || root.join(".git").exists();
+        let open = has_index(&root) || root.join(".git").exists();
         let below = if open {
             Vec::new()
         } else {
@@ -386,7 +392,7 @@ impl CodeTools {
     }
 
     fn index_at(root: &Path) -> Result<Index, ToolError> {
-        let db = root.join(kairos_index::INDEX_FILE);
+        let (db, _moved) = super::prepare_quiet(root)?;
         if !db.is_file() {
             return Err(ToolError::NoIndex(db));
         }
@@ -394,8 +400,8 @@ impl CodeTools {
     }
 
     /// `fetch_index`: open the checkout at `params.root`. Kairos gives the
-    /// nearest index of the repository; the server puts it at
-    /// `.kairos/index.db` of the checkout, updates the structure for the
+    /// nearest index of the repository; the server puts it at the index of
+    /// the checkout in the user cache (KAIROS-A-0072), updates the structure for the
     /// files that differ, and links the summaries of the pool. It runs no
     /// model. With no base from Kairos, a local index is used when there is
     /// one.
@@ -422,7 +428,7 @@ impl CodeTools {
         // KAIROS-T-0526: this server is the `kairos` binary of the session
         // start. Say so when the deployment is newer.
         let behind = crate::self_update::behind_server_line().await;
-        let (db, _exclude) = super::prepare_quiet(&root)?;
+        let (db, _moved) = super::prepare_quiet(&root)?;
         // One process at a time (KAIROS-T-0357): another agent can fetch the
         // index of this checkout now. The wait is off the async threads.
         let _lock = {
@@ -1643,9 +1649,9 @@ mod tests {
         std::fs::create_dir_all(work.join("engine-fix")).expect("a worktree");
         std::fs::write(work.join("engine-fix").join(".git"), "gitdir: /nowhere\n")
             .expect("its .git file");
-        std::fs::create_dir_all(work.join("engine").join(".kairos")).expect("the index folder");
-        std::fs::write(work.join("engine").join(kairos_index::INDEX_FILE), b"")
-            .expect("a local index");
+        let engine_db = super::super::db_path(&work.join("engine"));
+        std::fs::create_dir_all(engine_db.parent().expect("a folder")).expect("the index folder");
+        std::fs::write(&engine_db, b"").expect("a local index");
         std::fs::create_dir_all(work.join("scripts")).expect("a folder of no repository");
 
         let tools = CodeTools::new(work.clone());

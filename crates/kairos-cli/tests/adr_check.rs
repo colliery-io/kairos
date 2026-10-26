@@ -152,9 +152,14 @@ impl Sandbox {
 
     /// Run `kairos` in the checkout with a clean environment.
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
+        self.run_in(&self.repo(), args, env)
+    }
+
+    /// Run `kairos` in `dir` with a clean environment.
+    fn run_in(&self, dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
         let mut command = Command::new(KAIROS);
         command
-            .current_dir(self.repo())
+            .current_dir(dir)
             .args(args)
             .env_remove("KAIROS_URL")
             .env_remove("KAIROS_KEY")
@@ -306,17 +311,149 @@ fn a_saved_snapshot_gives_the_same_report_with_no_deployment() {
     online["source"] = json!("snapshot");
     assert_eq!(online, offline);
 
-    // A new citation that the snapshot does not hold fails, and says to save
-    // the snapshot again.
+    // KAIROS-T-0711: a new citation that the snapshot does not hold is a
+    // warn, so CI passes for a contributor with no login. The warn says to
+    // save the snapshot again.
     sandbox.write("new.md", "ACME-A-0042\n");
     let output = sandbox.run(&["adrs", "check", "new.md", "--snapshot", snapshot], &[]);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
+    let text = stdout(&output);
     assert!(
-        stdout(&output).contains("Save the snapshot again"),
+        text.contains("new.md:1: ACME-A-0042 warn: ") && text.contains("Save the snapshot again"),
+        "{text}"
+    );
+    assert!(text.contains("0 fail, 1 warn"), "{text}");
+    assert!(Path::new(snapshot).exists());
+}
+
+/// KAIROS-T-0711: the walk reads the hidden folders of the checkout, but
+/// not `.git` and not the snapshot of the command.
+#[test]
+fn the_check_reads_hidden_folders_and_skips_the_snapshot() {
+    let sandbox = Sandbox::new();
+    let stub = Stub::start();
+    stub.adr("ACME-A-0001", "ACME-A-0001", "Decided", false, &[]);
+    sandbox.write(".github/workflows/ci.yml", "# ACME-A-0001\n");
+    sandbox.write(".angreal/task.py", "# ACME-A-0001\n");
+    sandbox.write(".git/config", "ACME-A-0002\n");
+    let output = sandbox.run_stub(
+        &stub,
+        &[
+            "adrs",
+            "check",
+            "--save-snapshot",
+            ".github/adr-snapshot.json",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("2 citations of 1 ADRs"),
         "{}",
         stdout(&output)
     );
-    assert!(Path::new(snapshot).exists());
+    // The saved snapshot holds ACME-A-0001: the next run does not read it
+    // as a citation.
+    let output = sandbox.run(
+        &["adrs", "check", "--snapshot", ".github/adr-snapshot.json"],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("2 citations of 1 ADRs (snapshot): 0 fail"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+/// KAIROS-T-0711: in a board folder, the check uses the binding of the
+/// checkout of the files, not the binding of the session folder.
+#[test]
+fn the_binding_comes_from_the_checkout_of_the_files() {
+    let sandbox = Sandbox::new();
+    let stub = Stub::start();
+    stub.adr("ACME-A-0001", "ACME-A-0001", "Decided", false, &[]);
+    sandbox.write(".git/HEAD", "ref: refs/heads/main\n");
+    sandbox.write("a.md", "ACME-A-0001\n");
+    let board = sandbox.dir.path();
+    // The board folder has the wiring of a deployment that is not there.
+    std::fs::create_dir_all(board.join(".claude")).unwrap();
+    std::fs::write(
+        board.join(".claude/kairos.local.md"),
+        "---\ndeployment_url: http://127.0.0.1:9\ntenant: board\n---\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(board.join("config")).unwrap();
+    std::fs::write(
+        board.join("config/config.toml"),
+        format!(
+            "[default]\ndeployment = \"http://127.0.0.1:9\"\n\n\
+             [[project]]\npath = \"{}\"\ndeployment = \"{}\"\n",
+            sandbox.repo().display(),
+            stub.url
+        ),
+    )
+    .unwrap();
+    let board_dir = board.to_str().unwrap();
+    let output = sandbox.run_in(
+        board,
+        &["adrs", "check", "repo/a.md"],
+        &[
+            ("KAIROS_KEY", "stub-key"),
+            ("CLAUDE_PROJECT_DIR", board_dir),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("1 citations of 1 ADRs (deployment): 0 fail"),
+        "{}",
+        stdout(&output)
+    );
+    assert_eq!(stub.graph_hits(), 1);
+}
+
+/// KAIROS-T-0711: with --board-prefixes, the check reads only the codes of
+/// the ADR boards of the deployment. A code of another deployment is an
+/// info that says so, and the check reads no graph for it.
+#[test]
+fn board_prefixes_skip_the_codes_of_another_deployment() {
+    let sandbox = Sandbox::new();
+    let stub = Stub::start();
+    stub.adr("ACME-A-0001", "ACME-A-0001", "Decided", false, &[]);
+    let board = |slug: &str, level: &str, prefix: &str| {
+        json!({"id": slug, "name": slug, "slug": slug, "board_level": level,
+               "team_id": null, "code_prefix": prefix,
+               "created_at": "2026-10-01T00:00:00Z", "updated_at": "2026-10-01T00:00:00Z"})
+    };
+    stub.route(
+        "/api/boards?limit=200&offset=0",
+        200,
+        json!({"items": [board("adrs", "adr", "ACME"), board("work", "delivery", "WORK")],
+               "total": 2, "limit": 200, "offset": 0}),
+    );
+    sandbox.write("a.md", "ACME-A-0001\nOTHER-A-0002\nWORK-A-0003\n");
+    let output = sandbox.run_stub(&stub, &["adrs", "check", "--board-prefixes", "--json"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let report = json_of(&output);
+    assert_eq!(
+        report["summary"],
+        json!({"citations": 3, "adrs": 3, "fail": 0, "warn": 0, "info": 2})
+    );
+    let other = report["adrs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|adr| adr["code"] == "OTHER-A-0002")
+        .unwrap();
+    assert_eq!(other["found"], false);
+    assert_eq!(other["status"], "unknown-prefix");
+    assert_eq!(stub.graph_hits(), 1, "no graph read for another prefix");
+
+    // --board-prefixes needs the deployment: not with --snapshot.
+    let output = sandbox.run(
+        &["adrs", "check", "--board-prefixes", "--snapshot", "x.json"],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(64), "{}", stderr(&output));
 }
 
 #[test]

@@ -153,7 +153,9 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   path of the checkout, and the server takes the nearest index of the repository from Kairos
   (KAIROS-T-0348). The instructions of the server, and the error of a tool with no open
   checkout, name each clone and worktree below the start folder, with its `origin` remote and
-  whether it has a local index (#272). Each `fetch_index` adds a checkout: the tools read the
+  whether it has a local index (#272). The local index of a checkout is in the user cache,
+  not in the checkout (KAIROS-A-0072): `$XDG_CACHE_HOME/kairos/index/` (else
+  `~/.cache/kairos/index/`, or `KAIROS_INDEX_DIR`), one folder for each checkout and worktree. Each `fetch_index` adds a checkout: the tools read the
   last one opened, or the one that their `checkout` argument names, and `code_search` with no
   `checkout` searches each open checkout. If `kairos` is not on PATH, `bin/kairos-code` is an MCP server with no
   tools (COLLIERY-T-2529). Its instructions tell the agent that `kairos` is not on PATH, and
@@ -305,8 +307,11 @@ tool decides. It does not read the text of the write.
 `KAIROS-A-0031`), it gives the agent one block before the edit: the code, the column and the
 title of each cited ADR, the successor of a superseded ADR, the amendments, the revisit
 condition and date (`revisit_when`, `revisit_on`, KAIROS-A-0070), and a line for a code that
-no ADR has. The states come from `kairos adrs check <file> --json`, with the login
-or the key of the person.
+the deployment does not know. The states come from
+`kairos adrs check <file> --board-prefixes --json`, with the login or the key of the person
+(KAIROS-T-0711). The CLI uses the binding of the checkout of the file, and reads only the codes
+with the prefix of an ADR board of that deployment. A code of another organization or
+deployment is "not known to this deployment": the hook does not tell the agent to remove it.
 
 - It runs in a wired checkout only: the nearest folder with `.git` above the file has the
   wiring, or the session folder above it has.

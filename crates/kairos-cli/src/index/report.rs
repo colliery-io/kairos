@@ -47,8 +47,9 @@ struct RunJson {
     command: &'static str,
     /// The index file.
     index: Option<PathBuf>,
-    /// The exclude file of git, when this run added the line of the index.
-    git_exclude: Option<PathBuf>,
+    /// The old index of the checkout (`.kairos/index.db`), when this run
+    /// moved it to the user cache (KAIROS-A-0072).
+    moved_from: Option<PathBuf>,
     /// Where the update started; null for a build.
     start: Option<Start>,
     structure: Option<Value>,
@@ -92,15 +93,15 @@ impl Run {
         }
     }
 
-    /// The exclude file of git, when this run added the line of the index.
-    pub fn excluded(&mut self, exclude: Option<PathBuf>) {
-        if let Some(exclude) = exclude {
+    /// The old index of the checkout, when this run moved it to the user
+    /// cache (KAIROS-A-0072).
+    pub fn moved(&mut self, old: Option<PathBuf>) {
+        if let Some(old) = old {
             self.say(&format!(
-                "Git ignores {} now: the CLI added it to {}.",
-                kairos_index::INDEX_FILE,
-                exclude.display()
+                "The CLI moved the old index {} to the user cache.",
+                old.display()
             ));
-            self.report.git_exclude = Some(exclude);
+            self.report.moved_from = Some(old);
         }
     }
 
@@ -504,7 +505,7 @@ mod tests {
     #[test]
     fn a_text_run_keeps_nothing_and_a_json_run_keeps_each_part() {
         let mut run = Run::new("update", true);
-        run.excluded(Some(PathBuf::from("/r/.git/info/exclude")));
+        run.moved(Some(PathBuf::from("/r/.kairos/index.db")));
         run.index(Path::new("/r/.kairos/index.db"));
         run.start(Start {
             from: "local",
@@ -515,7 +516,7 @@ mod tests {
         run.warn("The summaries of the local index are not kept: x".into());
         let v = serde_json::to_value(&run.report).expect("json");
         assert_eq!(v["command"], "update");
-        assert_eq!(v["git_exclude"], "/r/.git/info/exclude");
+        assert_eq!(v["moved_from"], "/r/.kairos/index.db");
         assert_eq!(v["index"], "/r/.kairos/index.db");
         assert_eq!(v["start"]["from"], "local");
         assert_eq!(v["start"]["local_changed"], 2);

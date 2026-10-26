@@ -35,7 +35,7 @@ use kairos_server::middleware::auth::Authenticator;
 use kairos_server::service_accounts::auth::{generate_key, hash_key};
 use tempfile::TempDir;
 
-use super::{CliWorld, INDEX_DB, KAIROS};
+use super::{CliWorld, KAIROS, clean_env, index_db};
 
 /// Same default as `.angreal/task_db.py`.
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
@@ -459,7 +459,7 @@ impl BaseWorld {
     }
 
     fn index(&self) -> Index {
-        Index::open(&self.root().join(INDEX_DB)).expect("open the index")
+        Index::open(&index_db(self.root())).expect("open the index")
     }
 
     /// A clone of the remote, on `main`.
@@ -502,6 +502,7 @@ impl BaseWorld {
         let root = self.root().to_path_buf();
         let config = TempDir::new().expect("a config folder");
         let mut command = Command::new(KAIROS);
+        clean_env(&mut command);
         command
             .args(["index", "update", "--repository", REPOSITORY])
             .args(flags)
@@ -523,7 +524,7 @@ impl BaseWorld {
     fn upload_cli(&mut self) {
         let root = self.root().to_path_buf();
         let config = TempDir::new().expect("a config folder");
-        let run = Command::new(KAIROS)
+        let run = clean_env(&mut Command::new(KAIROS))
             .args(["index", "upload", "--repo", REPOSITORY, "--root"])
             .arg(&root)
             .env_remove("KAIROS_MCP_KEY")
@@ -712,7 +713,7 @@ fn a_branch(world: &mut CliWorld, changed: usize) {
     }
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-q", "-m", "the branch"]);
-    assert!(!root.join(INDEX_DB).exists());
+    assert!(!index_db(&root).exists());
 }
 
 /// KAIROS-T-0646: a clone whose `.claude/kairos.local.md` names the
@@ -833,7 +834,7 @@ fn a_checkout_behind(world: &mut CliWorld) {
     let root = w.root().to_path_buf();
     git(&root, &["reset", "-q", "--hard", &w.c]);
     assert_eq!(git(&root, &["rev-parse", "origin/main"]), w.b);
-    assert!(!root.join(INDEX_DB).exists());
+    assert!(!index_db(&root).exists());
 }
 
 /// KAIROS-T-0348: the server starts in an empty folder, as a session of a
@@ -922,7 +923,7 @@ fn refuses_with_the_limit(world: &mut CliWorld) {
         "{}",
         r.text
     );
-    assert!(!world.base.root().join(INDEX_DB).exists(), "{}", r.text);
+    assert!(!index_db(world.base.root()).exists(), "{}", r.text);
 }
 
 /// KAIROS-T-0517: a failed fetch opened nothing, and says so.
@@ -1015,7 +1016,7 @@ fn no_summarizer(_world: &mut CliWorld) {
     let dir = TempDir::new().expect("a folder");
     git(dir.path(), &["init", "-q"]);
     write(dir.path(), "one.py", "def one():\n    return 1\n");
-    let out = Command::new(KAIROS)
+    let out = clean_env(&mut Command::new(KAIROS))
         .args(["index", "build", "--root"])
         .arg(dir.path())
         .output()
@@ -1033,8 +1034,8 @@ fn a_local_index(world: &mut CliWorld) {
     let w = base(world);
     let checkout = TempDir::new().expect("a folder for the checkout");
     repository_at_a(checkout.path());
-    let db = checkout.path().join(INDEX_DB);
-    fs::create_dir_all(db.parent().expect("a folder")).expect("make .kairos");
+    let db = index_db(checkout.path());
+    fs::create_dir_all(db.parent().expect("a folder")).expect("make the index folder");
     kairos_index::update(
         checkout.path(),
         &db,
@@ -1067,7 +1068,7 @@ fn run_update(world: &mut CliWorld, command: String) {
 fn run_update_in_worktree(world: &mut CliWorld) {
     let w = base(world);
     let config = TempDir::new().expect("a config folder");
-    let run = Command::new(KAIROS)
+    let run = clean_env(&mut Command::new(KAIROS))
         .args(["index", "update", "--root"])
         .arg(w.root())
         .env_remove("KAIROS_MCP_KEY")
@@ -1086,7 +1087,7 @@ fn run_repos_local(world: &mut CliWorld) {
     let w = base(world);
     let config = TempDir::new().expect("a config folder");
     let board = w.board.as_ref().expect("no board folder").path();
-    let run = Command::new(KAIROS)
+    let run = clean_env(&mut Command::new(KAIROS))
         .args(["repos", "local", "--json"])
         .arg(board)
         .env_remove("KAIROS_MCP_KEY")
@@ -1246,7 +1247,7 @@ async fn kairos_has_head(world: &mut CliWorld) {
         .unwrap_or_else(|| panic!("no index of {head}: {indexes:?}"));
     assert_eq!(stored.r#ref.as_deref(), Some("feature"));
     assert_eq!(stored.source, "upload");
-    let local = fs::read(w.root().join(INDEX_DB)).expect("the local index");
+    let local = fs::read(index_db(w.root())).expect("the local index");
     let downloaded = w
         .kairos()
         .client()
@@ -1418,7 +1419,7 @@ fn json_refusal(world: &mut CliWorld, changed: usize, limit: usize) {
     let run = w.run.as_ref().expect("no run");
     assert_eq!(run.status.code(), Some(1), "{out}");
     assert_eq!(w.stdout(), "", "{out}");
-    assert!(!w.root().join(INDEX_DB).exists(), "{out}");
+    assert!(!index_db(w.root()).exists(), "{out}");
     let stderr = String::from_utf8_lossy(&run.stderr);
     let v: serde_json::Value = serde_json::from_str(&stderr)
         .unwrap_or_else(|e| panic!("stderr is not one JSON value ({e}):\n{out}"));
@@ -1459,7 +1460,7 @@ fn builds_nothing(world: &mut CliWorld) {
     let out = w.output();
     let run = w.run.as_ref().expect("no run");
     assert_eq!(run.status.code(), Some(1), "{out}");
-    assert!(!w.root().join(INDEX_DB).exists(), "{out}");
+    assert!(!index_db(w.root()).exists(), "{out}");
     assert!(
         out.contains("250 files changed since") && out.contains("The limit is 200"),
         "{out}"

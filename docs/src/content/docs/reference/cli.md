@@ -3011,8 +3011,11 @@ Drops the tenant's organization and schema. Destructive and unrecoverable.
 ## The code index of a checkout
 
 `kairos index` builds the code index of a git checkout, and serves its code
-tools to an agent. The index is the file `.kairos/index.db` in the checkout.
-A build adds it to `.git/info/exclude`, so git does not track it.
+tools to an agent. The index is in the user cache, not in the checkout
+(KAIROS-A-0072). Each checkout and each worktree has its own folder. See
+[The place of the code index](../configuration/#the-place-of-the-code-index).
+The CLI writes no file into the checkout. On the first open, it moves an old
+`.kairos/index.db` of the checkout to the user cache.
 
 Each `index` command takes `--root`. Only `index update` takes `--url` and
 `--tenant`. Each `index` command except `index mcp` takes `--json`. See
@@ -3173,8 +3176,8 @@ text. A refusal is the error envelope on stderr (see
 ```json
 {
   "command": "update",
-  "index": "/work/app/.kairos/index.db",
-  "git_exclude": null,
+  "index": "/home/robin/.cache/kairos/index/app-4a68e4c25d4d38c3/index.db",
+  "moved_from": null,
   "start": {
     "from": "base",
     "base": { "repository": "app", "branch": "main", "commit": "9f2c…", "changed": 3, … },
@@ -3192,7 +3195,7 @@ text. A refusal is the error envelope on stderr (see
 |---|---|
 | `command` | `build` or `update`. `index --full` gives `build`. |
 | `index` | The path of the index file. |
-| `git_exclude` | The exclude file of git, when the run added the line of the index. Else `null`. |
+| `moved_from` | The old index of the checkout (`.kairos/index.db`), when the run moved it to the user cache. Else `null`. |
 | `start` | Where the update started. It is `null` for a build. |
 | `start.from` | `base`: the update downloaded the base index of Kairos. `local`: the update changed the local index. |
 | `start.base` | The base index that Kairos gave: the repository, the branch, the commit, the changed files and the count of its summaries. The update can keep the local index and not use it. |

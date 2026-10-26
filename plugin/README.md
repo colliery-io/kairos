@@ -141,7 +141,9 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   path of the checkout, and the server takes the nearest index of the repository from Kairos
   (KAIROS-T-0348). The instructions of the server, and the error of a tool with no open
   checkout, name each clone and worktree below the start folder, with its `origin` remote and
-  whether it has a local index (#272). Each `fetch_index` adds a checkout: the tools read the
+  whether it has a local index (#272). The local index of a checkout is in the user cache,
+  not in the checkout (KAIROS-A-0072): `$XDG_CACHE_HOME/kairos/index/` (else
+  `~/.cache/kairos/index/`, or `KAIROS_INDEX_DIR`), one folder for each checkout and worktree. Each `fetch_index` adds a checkout: the tools read the
   last one opened, or the one that their `checkout` argument names, and `code_search` with no
   `checkout` searches each open checkout. If `kairos` is not on PATH, `bin/kairos-code` is an MCP server with no
   tools (COLLIERY-T-2529). Its instructions tell the agent that `kairos` is not on PATH, and

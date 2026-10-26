@@ -576,7 +576,7 @@ pub(crate) async fn upload_code_index(
         kairos_index::store::split(file.path()).map_err(|e| {
             ApiError::validation(format!(
                 "The body is not a code index file of this version of Kairos: {e} Send the \
-                 file .kairos/index.db that `kairos index build` makes."
+                 file index.db of `kairos index build`. `kairos index status` gives its path."
             ))
             .with_details(json!({ "field": "body" }))
         })

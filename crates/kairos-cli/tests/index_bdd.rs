@@ -38,6 +38,37 @@ const KAIROS: &str = env!("CARGO_BIN_EXE_kairos");
 static HOME: std::sync::LazyLock<TempDir> =
     std::sync::LazyLock::new(|| tempfile::tempdir().expect("a temp home"));
 
+/// The folder of the indexes of each `kairos` of a scenario
+/// (KAIROS-A-0072): `KAIROS_INDEX_DIR` in the temp home.
+fn index_home() -> PathBuf {
+    HOME.path().join("index")
+}
+
+/// The index file of the checkout at `root`, by the rule of KAIROS-A-0072:
+/// the folder name, `-`, and 16 hex digits of the SHA-256 of the canonical
+/// path.
+fn index_db(root: &Path) -> PathBuf {
+    use sha2::Digest;
+    let root = root.canonicalize().expect("the checkout");
+    let digest = sha2::Sha256::digest(root.as_os_str().as_encoded_bytes());
+    let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let name: String = root
+        .file_name()
+        .expect("a folder name")
+        .to_string_lossy()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(40)
+        .collect();
+    index_home().join(format!("{name}-{hex}")).join("index.db")
+}
+
 /// A clean environment for a `kairos` of a scenario (KAIROS-T-0712): no
 /// `KAIROS_*` variable of the person (the deployment, the key), no session
 /// folder, and a temp home, config folder and cache folder. A scenario
@@ -51,6 +82,7 @@ fn clean_env(command: &mut Command) -> &mut Command {
     let home = HOME.path();
     command
         .env_remove("CLAUDE_PROJECT_DIR")
+        .env("KAIROS_INDEX_DIR", index_home())
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home.join(".config"))
         .env("XDG_CACHE_HOME", home.join(".cache"))
@@ -58,7 +90,8 @@ fn clean_env(command: &mut Command) -> &mut Command {
 }
 
 /// The index in a checkout.
-const INDEX_DB: &str = ".kairos/index.db";
+/// The old place of the index in a checkout (before KAIROS-T-0709).
+const OLD_INDEX_DB: &str = ".kairos/index.db";
 
 /// How long the agent waits for one answer of the server.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
@@ -306,7 +339,7 @@ impl CliWorld {
     }
 
     fn db(&self) -> PathBuf {
-        self.root().join(INDEX_DB)
+        index_db(self.root())
     }
 
     fn index(&self) -> Index {
@@ -331,8 +364,8 @@ impl CliWorld {
 fn build_index_at(root: &Path) {
     {
         let root = root.to_path_buf();
-        let db = root.join(INDEX_DB);
-        fs::create_dir_all(db.parent().expect("a folder")).expect("make .kairos");
+        let db = index_db(&root);
+        fs::create_dir_all(db.parent().expect("a folder")).expect("make the index folder");
         let options = BuildOptions {
             rust_analyzer: None,
             std_source: None,
@@ -653,6 +686,7 @@ fn run_build_and_status(world: &mut CliWorld, first: String, second: String) {
         [
             ("kairos index build", "kairos index status"),
             ("kairos index build --json", "kairos index status --json"),
+            ("kairos index update --link-only", "kairos index status"),
             (
                 "kairos index duplicates --json",
                 "kairos index references Queue --file src/queue.rs --json"
@@ -701,15 +735,10 @@ fn json_counts(world: &mut CliWorld) {
     assert!(
         build["index"]
             .as_str()
-            .is_some_and(|p| p.ends_with(INDEX_DB)),
+            .is_some_and(|p| Path::new(p) == world.db()),
         "{out}"
     );
-    assert!(
-        build["git_exclude"]
-            .as_str()
-            .is_some_and(|p| p.ends_with("info/exclude")),
-        "{out}"
-    );
+    assert_eq!(build["moved_from"], Value::Null, "{out}");
     assert_eq!(build["structure"]["files"], files, "{out}");
     assert_eq!(build["structure"]["symbols"], symbols, "{out}");
     assert_eq!(build["structure"]["edges"]["total"], edges, "{out}");
@@ -1034,21 +1063,40 @@ fn status_counts(world: &mut CliWorld) {
     );
 }
 
-#[then("the index is in .kairos/index.db and git ignores it")]
-fn the_index_is_ignored(world: &mut CliWorld) {
-    assert!(world.db().is_file());
-    let out = git(world.root(), &["check-ignore", "-q", INDEX_DB]);
-    assert!(out.status.success(), "git does not ignore {INDEX_DB}");
-    // No tracked file was changed for it.
+#[then("the index is in the user cache and no file of it is in the checkout")]
+fn the_index_is_in_the_cache(world: &mut CliWorld) {
+    assert!(world.db().is_file(), "{}", world.db().display());
+    assert!(world.db().starts_with(index_home()));
+    // KAIROS-A-0072: no file of the index in the checkout, no tracked file
+    // changed, and no line in the excludes of git.
+    assert!(!world.root().join(".kairos").exists());
     assert!(!world.root().join(".gitignore").exists());
-    // The index did not index itself.
+    let exclude =
+        std::fs::read_to_string(world.root().join(".git/info/exclude")).unwrap_or_default();
+    assert!(!exclude.contains("index.db"), "{exclude}");
+    let status = git(world.root(), &["status", "--porcelain", "--ignored"]);
+    let status = String::from_utf8_lossy(&status.stdout);
+    assert!(!status.contains(".kairos"), "{status}");
+}
+
+#[given("the polyglot fixture with an index of an older CLI in .kairos/index.db")]
+fn an_old_index(world: &mut CliWorld) {
+    world.copy_fixture();
+    let old = world.root().join(OLD_INDEX_DB);
+    fs::create_dir_all(old.parent().expect("a folder")).expect("make .kairos");
+    kairos_index::build_structure(world.root(), &old).expect("an old index");
+}
+
+#[then("the old index is moved to the user cache")]
+fn the_old_index_moved(world: &mut CliWorld) {
+    assert!(!world.root().join(OLD_INDEX_DB).exists());
+    assert!(!world.root().join(".kairos").exists());
+    assert!(world.db().is_file());
+    assert!(world.index().counts().expect("counts").files > 0);
     assert!(
-        world
-            .index()
-            .files()
-            .expect("files")
-            .iter()
-            .all(|f| !f.path.starts_with(".kairos/index.db"))
+        world.status_out.contains(&world.db().display().to_string()),
+        "{}",
+        world.status_out
     );
 }
 

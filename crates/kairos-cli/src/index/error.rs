@@ -22,8 +22,6 @@ pub enum IndexCommandError {
     TooFar(Box<TooFar>),
     #[error("The folder {0} is not there.")]
     NoRoot(PathBuf),
-    #[error("Git did not run in {path}: {message}.")]
-    Git { path: PathBuf, message: String },
     /// KAIROS-T-0697: the error of the system in Kairos words.
     #[error("The CLI did not write {path}: {}.", io_words(.source))]
     Write {
@@ -193,8 +191,7 @@ impl IndexCommandError {
             IndexCommandError::TooFar(_) => "TOO_FAR",
             IndexCommandError::NoRoot(_) => "NO_ROOT",
             IndexCommandError::Symbol(e) => e.code(),
-            IndexCommandError::Git { .. }
-            | IndexCommandError::Write { .. }
+            IndexCommandError::Write { .. }
             | IndexCommandError::Index(_)
             | IndexCommandError::Server(_) => crate::error::CODE_CLI_ERROR,
         }

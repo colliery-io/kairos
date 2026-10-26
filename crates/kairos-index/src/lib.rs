@@ -89,8 +89,10 @@ pub use summary::{
     vector_model_name,
 };
 
-/// The index of a checkout, from its root (COLLIERY-T-1852). A build does not
-/// read it, or its journal, as a file of the tree.
+/// The old place of the index of a checkout, from its root (COLLIERY-T-1852).
+/// The index is in the user cache now (KAIROS-A-0072), and the CLI moves an
+/// old file from here on the first open. A build does not read it, or its
+/// journal, as a file of the tree.
 pub const INDEX_FILE: &str = ".kairos/index.db";
 
 /// A file larger than this is read only in part: enough for the header and

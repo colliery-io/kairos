@@ -9,6 +9,8 @@
 //!   the checkout; a board folder (clones, no checkout) and a checkout with
 //!   no `origin` are bound by a `[[project]]` with `path`, which `kairos
 //!   config project` writes.
+//! - KAIROS-T-0713: the index commands in a board folder refuse, and name
+//!   the checkouts below it.
 //!
 //! Each test runs the binary in a temp folder with a clean environment: a
 //! temp HOME and KAIROS_CONFIG_DIR, no deployment and no key unless the test
@@ -450,4 +452,98 @@ fn a_checkout_with_no_origin_gets_a_path_entry() {
     assert_eq!(show["bound"], true, "{show}");
     assert_eq!(show["remote"], Value::Null);
     assert_eq!(show["values"]["tenant"]["value"], "local");
+}
+
+/// KAIROS-T-0713: `kairos index build`, `update` and `status` in a board
+/// folder do not index the clones as one tree. The refusal names each
+/// checkout below the folder, and writes no index.
+#[test]
+fn the_index_commands_in_a_board_folder_refuse_and_name_the_checkouts() {
+    let sandbox = Sandbox::new();
+    let board = sandbox.work().join("board");
+    std::fs::create_dir_all(&board).unwrap();
+    let engine = sandbox.checkout(
+        &board,
+        "engine",
+        Some("https://github.com/example-org/engine"),
+    );
+    let web = sandbox.checkout(&board, "web", None);
+    for args in [
+        &["index", "build"][..],
+        &["index", "update"],
+        &["index", "status"],
+        &["index", "--full"],
+    ] {
+        let output = sandbox.run_in(&board, args);
+        let err = stderr(&output);
+        assert_eq!(output.status.code(), Some(1), "{args:?}: {err}");
+        assert!(err.contains("is not in a git checkout"), "{args:?}: {err}");
+        assert!(err.contains("--root"), "{args:?}: {err}");
+        for clone in [&engine, &web] {
+            let name = clone.file_name().unwrap().to_str().unwrap();
+            assert!(
+                err.contains(&format!("- {}", clone.display()))
+                    || err.contains(&format!("/{name}\n"))
+                    || err.trim_end().ends_with(&format!("/{name}")),
+                "{args:?}: {err}"
+            );
+        }
+    }
+    let output = sandbox.run_in(
+        &sandbox.work(),
+        &[
+            "index",
+            "build",
+            "--json",
+            "--root",
+            board.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let envelope: Value = serde_json::from_str(stderr(&output).trim()).unwrap();
+    assert_eq!(envelope["error"]["code"], "NOT_A_CHECKOUT", "{envelope}");
+    assert_eq!(
+        envelope["error"]["details"]["checkouts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2,
+        "{envelope}"
+    );
+    let left: Vec<String> = std::fs::read_dir(&board)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left.len(), 2, "no index in the board folder: {left:?}");
+
+    // A checkout below the board folder is a root.
+    let output = sandbox.run_in(
+        &board,
+        &["index", "status", "--root", engine.to_str().unwrap()],
+    );
+    assert!(
+        !stderr(&output).contains("is not in a git checkout"),
+        "{}",
+        stderr(&output)
+    );
+
+    // A folder with no checkout and no --root is refused; with --root it is
+    // a root, as before.
+    let plain = sandbox.work().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    let output = sandbox.run_in(&plain, &["index", "status"]);
+    assert!(
+        stderr(&output).contains("No checkout is in the folder"),
+        "{}",
+        stderr(&output)
+    );
+    let output = sandbox.run_in(
+        &sandbox.work(),
+        &["index", "status", "--root", plain.to_str().unwrap()],
+    );
+    assert!(
+        !stderr(&output).contains("is not in a git checkout"),
+        "{}",
+        stderr(&output)
+    );
 }

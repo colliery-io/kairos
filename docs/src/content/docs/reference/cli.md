@@ -3004,6 +3004,15 @@ Each `index` command takes `--root`. Only `index update` takes `--url` and
 | `--root <ROOT>` | path | the root of the git repository of the current folder | The root of the checkout. |
 | `--json` | flag | off | Print one JSON object with the result, in place of the text. |
 
+`index build`, `index update`, `index status` and `index --full` need a
+checkout. The CLI refuses a folder that is not in a git checkout, for example
+a board folder that holds clones. It does not index the clones as one tree.
+
+The refusal `NOT_A_CHECKOUT` (exit 1) lists the checkouts below the folder.
+Run the command in one of them, or give one with `--root`. A `--root` that is
+not in a checkout and holds no checkout is a root, as before. `index mcp` in a
+board folder opens no checkout and names the checkouts.
+
 ### `kairos index`
 
 ```
@@ -3208,6 +3217,7 @@ A refusal of `index` has one of these codes in the error envelope:
 | `NO_START` | The update has no index to start from. The details give the `path` and the reason. |
 | `TOO_FAR` | More files than the limit changed since the base index. The details give `changed`, `limit`, `commit`, `branch` and `behind`. `local` is `true` when the count is that of the local index. |
 | `NO_ROOT` | The folder of `--root` is not there. |
+| `NOT_A_CHECKOUT` | `index build`, `index update`, `index status` or `index --full` in a folder that is not in a git checkout. The details give the `path` and the `checkouts` below it. |
 | `NOT_FOUND`, `AMBIGUOUS` | `index references` found no symbol, or more than one. The details of `AMBIGUOUS` give the `candidates`. |
 | `CLI_ERROR` | Any other failure. |
 

@@ -107,7 +107,7 @@ impl IndexArgs {
     pub async fn run(self) -> Result<(), CliError> {
         match self.command {
             Some(command) => command.run().await,
-            None if self.full => build(&resolve_root(self.root)?, self.json),
+            None if self.full => build(&checkout_root(self.root)?, self.json),
             None => Err(CliError::Failure(
                 "Give a subcommand of `kairos index`, or `--full`. See `kairos index --help`."
                     .into(),
@@ -236,7 +236,7 @@ pub struct RootArg {
 impl IndexCommand {
     pub async fn run(self) -> Result<(), CliError> {
         match self {
-            IndexCommand::Build { root, json } => build(&resolve_root(root)?, json),
+            IndexCommand::Build { root, json } => build(&checkout_root(root)?, json),
             IndexCommand::Update {
                 root,
                 rust_edges,
@@ -245,12 +245,12 @@ impl IndexCommand {
                 remote,
                 json,
             } => {
-                let root = resolve_root(root)?;
+                let root = checkout_root(root)?;
                 let mut run = report::Run::new("update", json);
                 update(&root, rust_edges, link_only, max_changed, &remote, &mut run).await?;
                 run.finish()
             }
-            IndexCommand::Status { root, json } => status(&resolve_root(root)?, json),
+            IndexCommand::Status { root, json } => status(&checkout_root(root)?, json),
             IndexCommand::Duplicates {
                 root,
                 kind,
@@ -321,6 +321,31 @@ fn resolve_root(arg: RootArg) -> Result<PathBuf, IndexCommandError> {
     };
     root.canonicalize()
         .map_err(|_| IndexCommandError::NoRoot(root))
+}
+
+/// The root for `build`, `update`, `status` and `--full` (KAIROS-T-0713):
+/// [`resolve_root`], but a folder that is not in a git checkout is refused
+/// when no `--root` names it. A `--root` that is not in a checkout is
+/// refused when it holds checkouts: a board folder of clones is not one
+/// tree. The refusal names the checkouts below the folder.
+fn checkout_root(arg: RootArg) -> Result<PathBuf, IndexCommandError> {
+    let given = arg.root.is_some();
+    let root = resolve_root(arg)?;
+    if crate::project_config::checkout_top(&root).is_some() {
+        return Ok(root);
+    }
+    let checkouts: Vec<PathBuf> = crate::commands::repos_local::checkouts_in(&root)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(_, path)| path)
+        .collect();
+    if given && checkouts.is_empty() {
+        return Ok(root);
+    }
+    Err(IndexCommandError::NotInCheckout {
+        folder: root,
+        checkouts,
+    })
 }
 
 pub(super) fn db_path(root: &Path) -> PathBuf {

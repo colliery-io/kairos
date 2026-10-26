@@ -341,7 +341,8 @@ def main():
             },
             sys.stdout,
         )
-    except Exception:  # never block a tool call by accident
+    except Exception as error:  # never block a tool call by accident (KAIROS-T-0708: the reason goes to the log)
+        sys.stderr.write(f"kairos git guard: the hook failed: {error}\n")
         return
 
 

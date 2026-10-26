@@ -1,0 +1,30 @@
+{
+  "about": "The cases of the front matter of .claude/kairos.local.md (KAIROS-T-0708). The CLI (index::base::front_matter) and the hooks (session_start.read_frontmatter) read each text to the same values.",
+  "cases": [
+    {
+      "name": "plain values",
+      "text": "---\ntenant: acme\nrepository: payments-api\n---\n\nrepository: not this\n",
+      "values": {"tenant": "acme", "repository": "payments-api"}
+    },
+    {
+      "name": "one pair of double or single quotes is removed",
+      "text": "---\ntenant: \"acme\"\nrepository: 'payments-api'\nteam_board: \"a'\n---\n",
+      "values": {"tenant": "acme", "repository": "payments-api", "team_board": "\"a'"}
+    },
+    {
+      "name": "a comment after a value with no quotes is cut",
+      "text": "---\ntenant: acme # the tenant\nrepository: \"pay # api\"\n---\n",
+      "values": {"tenant": "acme", "repository": "pay # api"}
+    },
+    {
+      "name": "indented lines, comment lines and empty values are not keys",
+      "text": "---\n# tenant: commented\n  tenant: indented\nrepository:\nteam_board: delivery\n---\n",
+      "values": {"team_board": "delivery"}
+    },
+    {
+      "name": "no front matter",
+      "text": "tenant: acme\n",
+      "values": {}
+    }
+  ]
+}

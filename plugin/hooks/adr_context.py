@@ -9,9 +9,9 @@ file in view, not only the decisions of the repository.
 The states come from `kairos adrs check <file> --json` (the resolver of
 KAIROS-T-0701), with the exit code and the JSON only (KAIROS-A-0031 rule
 4). The hook runs only in a wired checkout: the nearest folder with `.git`
-above the file has the wiring (`.claude/kairos.local.md`, or a
-`[[project]]` of the config of the person), or the session folder above it
-has.
+above the file has the wiring (`kairos config show`: a `[[project]]` of
+`config.toml`, or the retired `.claude/kairos.local.md`), or the session
+folder above it has.
 
 Once per session per file: the record is
 `$KAIROS_ADR_STATE_DIR/<session_id>.json`, default `~/.claude/kairos-adr/`,
@@ -281,7 +281,8 @@ def main():
             },
             sys.stdout,
         )
-    except Exception:  # never block a write
+    except Exception as error:  # never block a write (KAIROS-T-0708: the reason goes to the log)
+        sys.stderr.write(f"kairos adr context: the hook failed: {error}\n")
         return
 
 

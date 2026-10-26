@@ -4,7 +4,7 @@
 Four modes:
 
 - `start` (SessionStart): if `kairos` is on PATH and the checkout has the
-  Kairos wiring (`.claude/kairos.local.md`), start `worker` as a detached
+  Kairos wiring (`kairos config show`), start `worker` as a detached
   process and give the agent the text about the code tools of the local
   `kairos-code` MCP server. The hook does not wait for the update, so the
   start of the session is not slower. With no `kairos` or no wiring: no
@@ -58,7 +58,7 @@ The state is outside the checkout: `~/.claude/kairos-index/<name>-<hash>/`
 `last-edit`, `debounce.lock`);
 KAIROS_INDEX_STATE_DIR overrides the parent folder. The hook holds no
 credentials: `kairos index update` reads KAIROS_KEY or KAIROS_MCP_KEY and
-`.claude/kairos.local.md` itself (COLLIERY-T-1854). Each error gives no
+the binding of the checkout itself (COLLIERY-T-1854). Each error gives no
 output and exit 0: the hook never blocks a session or a tool call. Python
 stdlib only.
 """
@@ -129,9 +129,10 @@ def is_wired(project):
         sys.path.insert(0, here)
     import session_start
 
-    # The file first, with no process; else a [[project]] of the config of
-    # the person (#270).
-    return session_start.wiring_path(project) is not None or session_start.wiring(project) is not None
+    # The CLI gives the binding (#270, KAIROS-T-0708): a [[project]] of the
+    # config of the person, else the file. A CLI that fails is no wiring.
+    values = session_start.wiring(project)
+    return values is not None and not getattr(values, "error", None)
 
 
 def is_checkout(project):
@@ -675,7 +676,8 @@ def main():
             start(payload)
         elif mode == "record":
             record(payload)
-    except Exception:  # never block a session or a tool call
+    except Exception as error:  # never block a session or a tool call (KAIROS-T-0708: the reason goes to the log)
+        sys.stderr.write(f"kairos index update: the hook failed: {error}\n")
         return
 
 

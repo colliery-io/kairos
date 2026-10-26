@@ -26,8 +26,8 @@ use serde_json::Value;
 const WORDS: &[(&str, &str)] = &[
     // Board capabilities: `transition_items` has the form of a tool name.
     ("transition_items", "a board capability"),
-    // The keys of the settings file of the plugin (.claude/kairos.local.md).
-    ("team_board", "a key of the settings file of the plugin"),
+    // The keys of the binding of a checkout (config.toml, KAIROS-T-0710).
+    ("team_board", "a key of the binding of a checkout"),
     // The tools of the code-index MCP server of the CLI (kairos-code).
     ("fetch_index", "a tool of the kairos-code server"),
     ("module_map", "a tool of the kairos-code server"),
@@ -60,7 +60,7 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
     (
         "plugin/skills/meta/bootstrap/SKILL.md",
         "repository",
-        "`repository:` is a key of the settings file of the plugin.",
+        "`repository` is a key of the binding of a checkout (config.toml) there.",
     ),
 ];
 

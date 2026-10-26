@@ -1,16 +1,17 @@
 //! The base index in Kairos, for `kairos index update` (COLLIERY-T-1854,
 //! COLLIERY-I-0264 "The flow").
 //!
-//! - **The connection.** The URL: `--url`, else `KAIROS_URL`, else
-//!   `deployment_url` in `.claude/kairos.local.md` of the checkout, else the
-//!   credential cache of `kairos login`. A worktree has no such file (git
-//!   excludes it): the CLI then reads the file of its main clone
+//! - **The connection.** The URL: `--url`, else `KAIROS_URL`, else the
+//!   binding of the checkout ([`crate::project_config`]: a `[[project]]` of
+//!   `config.toml`, then the retired `.claude/kairos.local.md`, KAIROS-T-0710),
+//!   else the credential cache of `kairos login`. A worktree has no file of
+//!   its own (git excludes it): the CLI then reads the file of its main clone
 //!   ([`settings_path`], KAIROS-T-0646), as the plugin hooks do. The token: `KAIROS_KEY`, else
 //!   `KAIROS_MCP_KEY` (an agent key or a service-account key, as the plugin
 //!   and `scripts/render-references.sh` use), else the credential cache.
 //!   [`crate::auth`] resolves both, as for each other command.
-//! - **The repository.** `--repo`, else `repository` in
-//!   `.claude/kairos.local.md`, else the repository of Kairos whose
+//! - **The repository.** `--repo`, else `repository` of the binding of the
+//!   checkout, else the repository of Kairos whose
 //!   `repo_url` is the `origin` remote of the checkout.
 //! - **The branch point.** `git merge-base HEAD origin/<default branch>`
 //!   (then the local default branch), else HEAD. Kairos gives the nearest
@@ -45,13 +46,13 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 /// The flags that choose the Kairos deployment and the repository.
 #[derive(clap::Args, Debug, Default)]
 pub struct RemoteArgs {
-    /// The Kairos deployment. Default: KAIROS_URL, else `deployment_url` in .claude/kairos.local.md, else the only deployment of `kairos login`
+    /// The Kairos deployment. Default: KAIROS_URL, else the binding of the checkout (`kairos config show`), else the only deployment of `kairos login`
     #[arg(long)]
     pub url: Option<String>,
-    /// The tenant, when the token is from `kairos login`. Default: `tenant` in .claude/kairos.local.md, else the tenant of the login
+    /// The tenant, when the token is from `kairos login`. Default: `tenant` of the binding of the checkout (`kairos config show`), else the tenant of the login
     #[arg(long)]
     pub tenant: Option<String>,
-    /// The repository in Kairos. Default: `repository` in .claude/kairos.local.md, else the repository of the `origin` remote. The old name --repository still works
+    /// The repository in Kairos. Default: `repository` of the binding of the checkout (`kairos config show`), else the repository of the `origin` remote. The old name --repository still works
     #[arg(long = "repo", alias = "repository", value_name = "REPOSITORY")]
     pub repository: Option<String>,
 }
@@ -464,21 +465,43 @@ pub(crate) fn settings_path(root: &Path) -> Option<PathBuf> {
 /// The `key: value` lines of the front matter of the settings file of the
 /// checkout at `root` ([`settings_path`]).
 pub(crate) fn settings(root: &Path) -> HashMap<String, String> {
-    let Some(text) = settings_path(root).and_then(|path| std::fs::read_to_string(path).ok()) else {
+    let Some(text) = settings_path(root).and_then(|path| std::fs::read(path).ok()) else {
         return HashMap::new();
     };
+    front_matter(&String::from_utf8_lossy(&text))
+}
+
+/// The `key: value` lines of a front matter. The rule is also the rule of
+/// `read_frontmatter` of the plugin hooks (KAIROS-T-0708): an indented
+/// line, a blank line and a `#` line are not keys; one pair of matching
+/// quotes is removed from a value; with no quotes, a ` #` comment is cut;
+/// an empty value is not set.
+pub(crate) fn front_matter(text: &str) -> HashMap<String, String> {
     let mut lines = text.lines();
     if lines.next().map(str::trim) != Some("---") {
         return HashMap::new();
     }
     lines
         .take_while(|line| line.trim() != "---")
+        .filter(|line| !line.starts_with(char::is_whitespace) && !line.starts_with('#'))
         .filter_map(|line| {
             let (key, value) = line.split_once(':')?;
-            let value = value.trim().trim_matches('"');
+            let value = front_value(value);
             (!value.is_empty()).then(|| (key.trim().to_string(), value.to_string()))
         })
         .collect()
+}
+
+/// One value of a front matter line ([`front_matter`]).
+fn front_value(raw: &str) -> &str {
+    let value = raw.trim();
+    let quoted = value.len() >= 2
+        && (value.starts_with('"') && value.ends_with('"')
+            || value.starts_with('\'') && value.ends_with('\''));
+    if quoted {
+        return &value[1..value.len() - 1];
+    }
+    value.find(" #").map_or(value, |cut| value[..cut].trim())
 }
 
 /// A remote URL as `host/path`, in lower case, with no scheme, user,
@@ -621,6 +644,22 @@ mod tests {
         assert_eq!(settings["repository"], "kairos");
         assert_eq!(settings.len(), 3);
         assert!(super::settings(&dir.path().join("none")).is_empty());
+    }
+
+    /// KAIROS-T-0708: the CLI and the plugin hooks read each front matter
+    /// to the same values (the cases are shared with the hook tests).
+    #[test]
+    fn the_front_matter_rule_is_the_rule_of_the_hooks() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../plugin/hooks/frontmatter_cases.json"
+        ))
+        .expect("the cases parse");
+        for case in cases["cases"].as_array().expect("a list of cases") {
+            let text = case["text"].as_str().expect("a text");
+            let want: HashMap<String, String> =
+                serde_json::from_value(case["values"].clone()).expect("the values");
+            assert_eq!(front_matter(text), want, "{}", case["name"]);
+        }
     }
 
     /// KAIROS-T-0646: a worktree has no settings file (git excludes it).

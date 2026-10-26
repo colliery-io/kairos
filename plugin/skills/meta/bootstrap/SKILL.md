@@ -1,6 +1,6 @@
 ---
 name: bootstrap
-description: Wire this repo and engineer to a Kairos deployment — MCP endpoint config, auth check, repository detection from the git remote, board discovery, and the wiring (a project entry in ~/.config/kairos/config.toml, or .claude/kairos.local.md).
+description: Wire this repo and engineer to a Kairos deployment — MCP endpoint config, auth check, repository detection from the git remote, board discovery, and the wiring (a project entry in ~/.config/kairos/config.toml).
 argument-hint: "[deployment URL]"
 disable-model-invocation: true
 ---
@@ -13,7 +13,7 @@ Connect the current repo to a Kairos deployment so every other kairos skill (and
 
 **The MCP connection belongs to the user, not to the repository.** The default is the server of the plugin (agent-key path) or a user-scope entry (OAuth path). Write a project `.mcp.json`, or run `claude mcp add` with the `local` or `project` scope, only when the user asks for a connection in this repository only, for example for a second deployment. Do not write one to fix a connection that does not answer: find the cause (step 1, at the end).
 
-On a re-run, recover what is already known before asking: `KAIROS_URL`, the `kairos` entries of `claude mcp list`, `kairos config show` (the project entry, the file and `[default]`), and the frontmatter of `.claude/kairos.local.md`. Ask the user only for what is missing or being changed (or take it from the arguments):
+On a re-run, recover what is already known before asking: `KAIROS_URL`, the `kairos` entries of `claude mcp list`, and `kairos config show` (the project entry and `[default]`; each value names its source). Ask the user only for what is missing or being changed (or take it from the arguments):
 
 - **Deployment URL** — e.g. `https://acme.kairos.example` or `http://localhost:41080`. Strip any trailing slash. The MCP endpoint is `<deployment-url>/mcp`.
 - **Tenant slug (optional, dev setups only)** — production deployments resolve the tenant from the URL's subdomain, so most users skip this. When the URL has no tenant subdomain (localhost, IP, plain host), ask for the tenant slug; it is sent as an `X-Tenant` header on every request.
@@ -40,12 +40,17 @@ If there is no `registration_endpoint`, the MCP client cannot register, and the 
 
 Before you write any MCP config, look for the `kairos` server of the plugin. It is `plugin:kairos:kairos` in `claude mcp list`, and its tools are `mcp__plugin_kairos_kairos__*`. It reads `KAIROS_URL` and `KAIROS_MCP_KEY` from the environment, and connects in each repository with no file in the repository. If it answers `whoami`, the connection is complete: write no MCP config, and continue with step 3.
 
-On a re-run, a `kairos` entry with an `Authorization` header shows the agent-key path. Do not change it to OAuth and do not add a second `kairos` entry. If the `kairos` tools answer, continue with step 3. If the session has no `kairos` tools, look for the cause before you change the config:
+On a re-run, a `kairos` entry with an `Authorization` header shows the agent-key path. Do not change it to OAuth and do not add a second `kairos` entry. If the `kairos` tools answer, continue with step 3. If the session has no `kairos` tools, or each call fails, look for the cause before you change the config. The `kairos` server of the plugin runs `kairos mcp-proxy`: its instructions in `/mcp`, or the error of a call, name the fault. Run `kairos config show` in the session folder: it gives the deployment of the folder and the source of each value.
 
-- The session did not start in the root of the repository, so it did not read `.mcp.json`. Tell the user to start Claude Code there.
+- `kairos` is not on PATH. Tell the user to install the CLI, then start a new session.
+- The CLI is older than the plugin, so it has no `mcp-proxy`. Tell the user to run `kairos self-update`, then start a new session.
+- No deployment for this folder: `kairos config show` gives no `deployment`, `KAIROS_URL` is not set, and the CLI has no login, or more than one. Write the project entry (step 4), or tell the user to run `kairos login --url <deployment>`.
+- `config.toml` does not parse: `kairos config show` refuses and names the file. Show the user the message and the path that `kairos config path` gives, and let the user correct the file.
+- `KAIROS_URL` names a different deployment from the project entry. `KAIROS_URL` comes first, and `kairos config show` says so. Tell the user to correct or unset it, then start a new session.
+- The deployment refuses the key (HTTP 401): `KAIROS_MCP_KEY` is not set in the session, or the key is revoked, expired, or of a different deployment. Tell the user to set a key of this deployment ([AGENT-KEY.md](AGENT-KEY.md)) and start a new session.
+- `kairos config show` warns about `.claude/kairos.local.md`. The file is retired: this release still reads it, the next one does not. With the user's go, run `kairos config migrate` in the checkout, check the result with `kairos config show`, and tell the user to remove the file.
+- The session did not start in the root of the repository, so it did not read a project `.mcp.json`. Tell the user to start Claude Code there.
 - The user did not approve the project server. Tell the user to approve `kairos` in `/mcp`.
-- `KAIROS_MCP_KEY` is not set in the session. Tell the user to set it and start a new session.
-- The plugin server shows "Missing environment variables: KAIROS_URL". Tell the user to set `KAIROS_URL` to the deployment URL, with no `/mcp` and no trailing slash, and start a new session.
 - The plugin server and a project `kairos` entry both connect. Each tool is there 2 times. Tell the user to remove the project entry, unless they asked for this repository only.
 - The repository has a `kairos` entry in `.mcp.json`, or `claude mcp list` shows one in the `local` scope, and the user did not ask for it. It is from an earlier bootstrap. Offer to remove it, and use the plugin server or a user-scope entry.
 - A `kairos` entry with no `Authorization` header in the user or local scope (`claude mcp list`) overrides the project entry. It is from an earlier OAuth attempt. Tell the user to remove it with `claude mcp remove kairos -s user` (or `-s local`).
@@ -111,13 +116,13 @@ Strip a trailing `.git` and any leading `/`. Then match on `forge` + `full_name`
 - **Found** → its `slug` is the repository. The repository is a link: it does not choose the team board. Confirm with the user only if the remote matched more than one entry (it cannot: the pair is unique).
 - **Found, with no description** → `get_repository` prints `(no description yet)`. Offer to write one: draft it as in step 3 of "Add this repository", show it to the user, and on a yes call `update_repository` (`repository`, `description`).
 - **Not found** → add it with `add_repository`. See "Add this repository" below.
-- **No remote, or the user declines** → leave `repository:` empty and say what unblocks it. Everything else still works; the session is just board-scoped instead of repo-scoped. With no remote, the entry of step 4 has `path` (see "A board folder, or a checkout with no remote").
+- **No remote, or the user declines** → leave out `--repository` and say what unblocks it. Everything else still works; the session is just board-scoped instead of repo-scoped. With no remote, the entry of step 4 has `path` (see "A board folder, or a checkout with no remote").
 
 ### Add this repository
 
 Do this when the directory does not have the repository of the checkout. `add_repository` is for a member of the owner team or an organization admin.
 
-1. **Owner team.** One team in `whoami` → that team. More than one → ask the user which team owns this repository. No team → do not call the tool. Say that an organization admin must add the principal to a team, or add the repository. Leave `repository:` empty.
+1. **Owner team.** One team in `whoami` → that team. More than one → ask the user which team owns this repository. No team → do not call the tool. Say that an organization admin must add the principal to a team, or add the repository. Leave out `--repository`.
 2. **Values from git.**
 
    | Argument | Source |
@@ -130,17 +135,17 @@ Do this when the directory does not have the repository of the checkout. `add_re
 
 3. **Draft the description.** It is the "how to work here" text that each agent reads with `get_repository`. Read the README and the task runner of the checkout (for example `.angreal/`, `Makefile`, `justfile`, the `scripts` of `package.json`). Write a short text: what the repository is, the commands to build, test and lint, and the rules for a branch and a pull request. Write only what the files say.
 4. **Show, then call.** Show the user each argument and the full description. Call `add_repository` only after the user agrees. Use the text that the user agreed to.
-5. **Read the result.** The result gives the slug: `Added repository <slug>: …`. That slug is the `repository:` of step 4.
+5. **Read the result.** The result gives the slug: `Added repository <slug>: …`. That slug is the `--repository` of step 4.
 
 If the tool refuses, tell the user the message and do not try again with different values of your own:
 
 | Refusal | What to do |
 |---|---|
-| `FORBIDDEN` | The principal is not a member of the owner team. The message names the team. Leave `repository:` empty. |
+| `FORBIDDEN` | The principal is not a member of the owner team. The message names the team. Leave out `--repository`. |
 | `CONFLICT` | A repository has the slug already. Ask the user for a different `slug`. |
 | `VALIDATION` | The message names the value that is not correct. Correct it with the user. |
 
-`update_repository` changes the description, the default branch, the URL, the slug and the owner team later; a new slug breaks the slug in `.claude/kairos.local.md`, so run this bootstrap again after it. `delete_repository` removes a repository from the directory.
+`update_repository` changes the description, the default branch, the URL, the slug and the owner team later; a new slug breaks the `repository` of the project entry of each checkout, so run this bootstrap again after it. `delete_repository` removes a repository from the directory.
 
 ### Find the team board
 
@@ -148,7 +153,7 @@ The team board is the delivery board of the team of the principal that connects.
 
 - **One team in `whoami`** → that team is the **delivery stream**. Its delivery board is the **team board**: the `[mine]` delivery board in `my_boards` (the default slug is `<team>-delivery`).
 - **More than one team** → ask the user which team works in this checkout. Do the same when more than one delivery board is `[mine]`.
-- **No team** → leave `delivery_stream:` and `team_board:` empty. Say that an organization admin must add the principal to a team.
+- **No team** → leave out `--delivery-stream` and `--team-board`. Say that an organization admin must add the principal to a team.
 
 From the results pick, confirming with the user whenever there is more than one candidate:
 
@@ -157,7 +162,7 @@ From the results pick, confirming with the user whenever there is more than one 
 - **initiative board** — the default initiative-level board for new initiatives
 - **ADR board** — the ADR board of the team found above: in `my_boards`, the ADR board that names the team (`ADR board of the team <team>`). If the team has no ADR board, the ADR board of the organization. A team ADR board is for the delivery ADRs of the team (COLLIERY-T-3102).
 
-If auth is declined or fails, or there are no boards yet (fresh tenant, no memberships): keep the step 2 config, proceed to step 4 regardless, and record in the prose section what is missing and what unblocks it (authenticate via `/mcp`; on the agent-key path, set `KAIROS_MCP_KEY`; ask an org admin for team/board membership). Do not fail the bootstrap.
+If auth is declined or fails, or there are no boards yet (fresh tenant, no memberships): keep the step 2 config, proceed to step 4 regardless, and give in the report (step 5) what is missing and what unblocks it (authenticate via `/mcp`; on the agent-key path, set `KAIROS_MCP_KEY`; ask an org admin for team/board membership). Do not fail the bootstrap.
 
 ## 4. Write the wiring
 
@@ -169,44 +174,13 @@ The wiring binds the repository to a deployment and to the boards of a team (KAI
 kairos config project --deployment https://acme.kairos.example --tenant acme --repository payments-api --delivery-stream platform --team-board platform-delivery --initiative-board initiatives --adr-board platform-adrs
 ```
 
-The command adds the entry and keeps the rest of the file. If the file has an entry for the remote with other values, the command refuses: show the user `kairos config show` and the path that `kairos config path` gives, and let the user edit the entry. When the `kairos` CLI is not on PATH, or it is older and has no `config` verb, write the file below instead. Check the result with `kairos config show`: each value says where it comes from.
+The command adds the entry and keeps the rest of the file. If the file has an entry for the remote with other values, the command refuses: show the user `kairos config show` and the path that `kairos config path` gives, and let the user edit the entry. Check the result with `kairos config show`: each value says where it comes from.
 
-**Write `.claude/kairos.local.md` only when the user asks for it**, or when the CLI cannot write the project entry. The file is still read, after the project entry. Create or update `.claude/kairos.local.md` — substitute the real discovered values everywhere in this example:
+When the `kairos` CLI is not on PATH, or it is older and has no `config` verb, stop and tell the user to install or update the CLI (`kairos self-update`), then run this bootstrap again. The plugin needs the CLI for its `kairos` server too.
 
-```markdown
----
-deployment_url: https://acme.kairos.example
-tenant: acme
-repository: payments-api
-delivery_stream: platform
-team_board: platform-delivery
-initiative_board: initiatives
-adr_board: platform-adrs
----
+**Do not write `.claude/kairos.local.md`.** The file is retired (KAIROS-T-0710). This release still reads it, after the project entry, and says to move it; the next release does not read it. When a checkout has the file, run `kairos config migrate` with the user's go: it writes the values of the file to the project entry. Check with `kairos config show`, then tell the user to remove the file.
 
-# Kairos wiring for this repo
-
-Connected as alice@acme.example (org: Acme Inc, team: platform).
-Repository payments-api (github acme/payments-api, owned by platform) matched
-from the origin remote; boards from the team of alice 2026-09-22. Re-run
-/kairos:bootstrap after remote, team or board changes. <Note anything
-missing and what unblocks it.>
-```
-
-Frontmatter keys are exactly: `deployment_url`, `tenant`, `repository`, `delivery_stream`, `team_board`, `initiative_board`, `adr_board`. `repository` is the slug (KAIROS-A-0019); `team_board`, `initiative_board` and `adr_board` are board **slugs** (what `board_items` resolves — never display names); `delivery_stream` and `team_board` come from the team of the principal, also when a different team owns the repository. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
-
-An agent key acts as the user, so the first line names the user, as on the OAuth path. When the principal is a service account (an older wiring), the first line names the service account. It also names the person who set it up, if known:
-
-```markdown
-Connected as the service account claude-code (org: Acme Inc, team: platform),
-set up by alice@acme.example.
-```
-
-When you write the file, keep it out of git — it is org-specific wiring, not for the repo's history (tokens live with the MCP client and the API key lives in the user's settings, never in this file). Do not touch the tracked `.gitignore`: that is an edit on the current branch of a shared clone, and a shared clone may be on `main` (KAIROS-T-0527). Write the local exclude of the clone instead, which git never commits. The path is `$(git rev-parse --git-common-dir)/info/exclude`, the same file for every worktree of the clone. If it does not already hold the line, append:
-
-```
-.claude/kairos.local.md
-```
+Use the slugs that `my_boards` and the directory give: `repository` is the slug (KAIROS-A-0019); `team_board`, `initiative_board` and `adr_board` are board **slugs** (what `board_items` resolves — never display names); `delivery_stream` and `team_board` come from the team of the principal, also when a different team owns the repository. Leave out a flag whose value is not known.
 
 ### A board folder, or a checkout with no remote
 
@@ -226,7 +200,7 @@ The entry applies to the folder and to each folder below it. A clone under the b
 
 ## 5. Report
 
-Tell the user: where the wiring is (the project entry in `config.toml`, or `.claude/kairos.local.md`), deployment/tenant, who they are connected as, the repository matched (or why not), the boards chosen, and — if anything was skipped (offline, unauthenticated, a repository that is not in the directory, boardless) — exactly what to do to finish. Mention that from the next session on, the SessionStart hook injects this wiring and pulls this repository's queue automatically.
+Tell the user: where the wiring is (the project entry in `config.toml`, from `kairos config path`), deployment/tenant, who they are connected as, the repository matched (or why not), the boards chosen, and — if anything was skipped (offline, unauthenticated, a repository that is not in the directory, boardless) — exactly what to do to finish. Mention that from the next session on, the SessionStart hook injects this wiring and pulls this repository's queue automatically.
 
 On the agent-key path, tell the user these three facts also:
 

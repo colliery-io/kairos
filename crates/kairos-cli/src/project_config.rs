@@ -20,6 +20,11 @@
 //! repository has the same one. A repository with no remote is found by
 //! `path`, the folder of the checkout (or a folder above it).
 //!
+//! KAIROS-T-0707: a subfolder of a checkout has the binding of the top of
+//! the checkout ([`checkout_top`]). A board folder, which holds clones and
+//! is no checkout, is bound by a `[[project]]` with `path`: `kairos config
+//! project` writes one in a folder with no `origin` remote.
+//!
 //! The order is the same for each command, for the hooks of the plugin
 //! (`kairos config show --json`) and for `kairos mcp-proxy`: a flag, then
 //! the environment (`KAIROS_URL`), then the `[[project]]` of the checkout,
@@ -162,13 +167,17 @@ pub fn load(path: &Path) -> Result<UserConfig, CliError> {
             e.to_string().trim_end()
         ))
     })?;
-    if let Some(bad) = config
+    if let Some((index, bad)) = config
         .projects
         .iter()
-        .find(|p| p.remote.is_none() == p.path.is_none())
+        .enumerate()
+        .find(|(_, p)| p.remote.is_none() == p.path.is_none())
     {
+        let line = project_line(&text, index)
+            .map(|line| format!(" at line {line}"))
+            .unwrap_or_default();
         return Err(CliError::Failure(format!(
-            "A [[project]] of {} has {}. Give it `remote` or `path`, not both and not neither.",
+            "The [[project]]{line} of {} has {}. Give it `remote` or `path`, not both and not neither.",
             path.display(),
             if bad.remote.is_some() {
                 "both `remote` and `path`"
@@ -178,6 +187,26 @@ pub fn load(path: &Path) -> Result<UserConfig, CliError> {
         )));
     }
     Ok(config)
+}
+
+/// The line (from 1) of the header of the `[[project]]` at `index` in
+/// `text`, for the message of a refusal (KAIROS-T-0706).
+fn project_line(text: &str, index: usize) -> Option<usize> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            let line = line.trim();
+            line.strip_prefix("[[")
+                .and_then(|rest| rest.split_once("]]"))
+                .is_some_and(|(name, after)| {
+                    name.trim() == "project" && {
+                        let after = after.trim();
+                        after.is_empty() || after.starts_with('#')
+                    }
+                })
+        })
+        .nth(index)
+        .map(|(n, _)| n + 1)
 }
 
 /// Where a value comes from.
@@ -249,12 +278,25 @@ fn wiring_key(key: &str) -> &str {
     }
 }
 
-/// The `origin` remote of the checkout at `folder`, as `host/path`.
+/// The top of the checkout that holds `folder` (KAIROS-T-0707): `git
+/// rev-parse --show-toplevel`. `None` when no folder from `folder` up has
+/// a `.git`: then there is no git call.
+pub fn checkout_top(folder: &Path) -> Option<PathBuf> {
+    folder.ancestors().find(|dir| dir.join(".git").exists())?;
+    git_output(folder, &["rev-parse", "--show-toplevel"])
+        .filter(|top| !top.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The `origin` remote of the checkout that holds `folder`, as
+/// `host/path`. A subfolder has the remote of its checkout.
 pub fn origin_of(folder: &Path) -> Option<String> {
-    if !folder.join(".git").exists() {
-        return None;
-    }
-    git_output(folder, &["config", "--get", "remote.origin.url"])
+    remote_of_top(&checkout_top(folder)?)
+}
+
+/// The `origin` remote of the checkout at its top folder `top`.
+fn remote_of_top(top: &Path) -> Option<String> {
+    git_output(top, &["config", "--get", "remote.origin.url"])
         .map(|url| normalized_remote(&url))
         .filter(|r| !r.is_empty())
 }
@@ -295,9 +337,14 @@ fn project_for<'a>(
 }
 
 /// The binding of `folder` with the config at `config_file`.
+/// A subfolder of a checkout has the binding of the top of the checkout
+/// (KAIROS-T-0707): its remote, its `.claude/kairos.local.md`. A `path` of
+/// a `[[project]]` holds `folder` or a folder above it.
 pub fn binding_with(folder: &Path, config_file: &Path) -> Result<Binding, CliError> {
     let config = load(config_file)?;
-    let remote = origin_of(folder);
+    let top = checkout_top(folder);
+    let root = top.as_deref().unwrap_or(folder);
+    let remote = top.as_deref().and_then(remote_of_top);
     let file = config_file.display().to_string();
     let mut values = BTreeMap::new();
     for (key, value) in config.default.pairs() {
@@ -309,9 +356,9 @@ pub fn binding_with(folder: &Path, config_file: &Path) -> Result<Binding, CliErr
             },
         );
     }
-    if let Some(wiring) = settings_path(folder) {
+    if let Some(wiring) = settings_path(root) {
         let wiring = wiring.display().to_string();
-        let found = settings(folder);
+        let found = settings(root);
         for key in KEYS {
             if let Some(value) = found.get(wiring_key(key)) {
                 values.insert(
@@ -343,7 +390,7 @@ pub fn binding_with(folder: &Path, config_file: &Path) -> Result<Binding, CliErr
         }
     }
     Ok(Binding {
-        folder: folder.display().to_string(),
+        folder: root.display().to_string(),
         remote,
         project: project.map(Project::label),
         values,
@@ -355,24 +402,75 @@ pub fn binding(folder: &Path) -> Result<Binding, CliError> {
     binding_with(folder, &config_path()?)
 }
 
-/// The binding of the folder of the command: `CLAUDE_PROJECT_DIR` when a
-/// hook or an MCP server of the plugin runs it, else the current folder.
-/// A config that cannot be read is no binding, so a command that needs no
-/// project still runs; `kairos config show` gives the error.
-pub fn binding_here() -> Binding {
-    let folder = std::env::var_os("CLAUDE_PROJECT_DIR")
+/// The folder of the command: `CLAUDE_PROJECT_DIR` when a hook or an MCP
+/// server of the plugin runs it, else the current folder.
+pub fn folder_here() -> Option<PathBuf> {
+    std::env::var_os("CLAUDE_PROJECT_DIR")
         .filter(|d| !d.is_empty())
         .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok());
-    folder
-        .and_then(|folder| binding(&folder).ok())
-        .unwrap_or_default()
+        .or_else(|| std::env::current_dir().ok())
 }
 
-/// The text of a new `[[project]]` for `remote`, with the values that are
+/// The binding of the folder of the command ([`folder_here`]).
+/// KAIROS-T-0706: a `config.toml` that does not parse is an error that
+/// names the file and the line. It is never ignored: before, the command
+/// used `[default]` or the login, which can be another deployment. With no
+/// folder or no config directory there is no binding.
+pub fn binding_here() -> Result<Binding, CliError> {
+    let (Some(folder), Ok(config)) = (folder_here(), config_path()) else {
+        return Ok(Binding::default());
+    };
+    binding_with(&folder, &config)
+}
+
+/// What a new `[[project]]` is found by: the `origin` remote, or the path
+/// of a folder with no remote (KAIROS-T-0707: a board folder).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Key {
+    Remote(String),
+    Path(PathBuf),
+}
+
+impl Key {
+    /// The key as it is written and compared: the remote as `host/path`,
+    /// the path as an absolute folder.
+    pub fn normalized(&self) -> Key {
+        match self {
+            Key::Remote(remote) => Key::Remote(normalized_remote(remote)),
+            Key::Path(path) => Key::Path(path.canonicalize().unwrap_or_else(|_| path.clone())),
+        }
+    }
+
+    /// True when `project` is the entry of this key.
+    fn names(&self, project: &Project) -> bool {
+        match self {
+            Key::Remote(remote) => {
+                project.remote.as_deref().map(normalized_remote).as_deref() == Some(remote.as_str())
+            }
+            Key::Path(path) => project.path.as_deref().is_some_and(|p| {
+                let p = expand(p);
+                p.canonicalize().unwrap_or(p) == *path
+            }),
+        }
+    }
+
+    /// The key in a message: the remote, or the path.
+    pub fn label(&self) -> String {
+        match self {
+            Key::Remote(remote) => remote.clone(),
+            Key::Path(path) => path.display().to_string(),
+        }
+    }
+}
+
+/// The text of a new `[[project]]` for `key`, with the values that are
 /// set. The values are TOML basic strings.
-fn project_block(remote: &str, values: &Values) -> String {
-    let mut out = format!("\n[[project]]\nremote = {}\n", toml_string(remote));
+fn project_block(key: &Key, values: &Values) -> String {
+    let head = match key {
+        Key::Remote(remote) => format!("remote = {}", toml_string(remote)),
+        Key::Path(path) => format!("path = {}", toml_string(&path.display().to_string())),
+    };
+    let mut out = format!("\n[[project]]\n{head}\n");
     for (key, value) in values.pairs() {
         out.push_str(&format!("{key} = {}\n", toml_string(value)));
     }
@@ -393,18 +491,15 @@ pub enum Added {
     Same,
 }
 
-/// Add a `[[project]]` for `remote` to the config at `path` (#270: what
+/// Add a `[[project]]` for `key` to the config at `path` (#270: what
 /// `bootstrap` writes). The CLI appends the text and keeps the rest of the
-/// file as it is, with its comments. A `[[project]]` of the same remote
-/// with other values is a refusal: the person edits the file.
-pub fn add_project(path: &Path, remote: &str, values: &Values) -> Result<Added, CliError> {
-    let remote = normalized_remote(remote);
+/// file as it is, with its comments. A `[[project]]` of the same key with
+/// other values is a refusal: the person edits the file.
+pub fn add_project(path: &Path, key: &Key, values: &Values) -> Result<Added, CliError> {
+    let key = key.normalized();
+    let label = key.label();
     let config = load(path)?;
-    if let Some(existing) = config
-        .projects
-        .iter()
-        .find(|p| p.remote.as_deref().map(normalized_remote).as_deref() == Some(remote.as_str()))
-    {
+    if let Some(existing) = config.projects.iter().find(|p| key.names(p)) {
         let mut asked = existing.values();
         for (key, value) in values.pairs() {
             set(&mut asked, key, value);
@@ -413,7 +508,7 @@ pub fn add_project(path: &Path, remote: &str, values: &Values) -> Result<Added, 
             return Ok(Added::Same);
         }
         return Err(CliError::Failure(format!(
-            "{} has a [[project]] for {remote} with other values. Edit that entry in the file, \
+            "{} has a [[project]] for {label} with other values. Edit that entry in the file, \
              or remove it and run the command again.",
             path.display()
         )));
@@ -427,7 +522,7 @@ pub fn add_project(path: &Path, remote: &str, values: &Values) -> Result<Added, 
     if !text.is_empty() && !text.ends_with('\n') {
         text.push('\n');
     }
-    text.push_str(&project_block(&remote, values));
+    text.push_str(&project_block(&key, values));
     // The new text must parse: a refusal here keeps the old file.
     toml::from_str::<UserConfig>(&text).map_err(|e| {
         CliError::Failure(format!("The new {} would not parse: {e}", path.display()))
@@ -607,12 +702,87 @@ team_board = "other-delivery"
         std::fs::write(&config, "[default]\ndeploymnet = \"x\"\n").unwrap();
         let err = load(&config).unwrap_err().to_string();
         assert!(
-            err.contains("config.toml is not correct") && err.contains("deploymnet"),
+            err.contains("config.toml is not correct")
+                && err.contains("line 2")
+                && err.contains("deploymnet"),
             "{err}"
         );
-        std::fs::write(&config, "[[project]]\ntenant = \"x\"\n").unwrap();
+        std::fs::write(
+            &config,
+            "[[project]]\nremote = \"a/b\"\n\n# two\n[[project]] # no remote\ntenant = \"x\"\n",
+        )
+        .unwrap();
         let err = load(&config).unwrap_err().to_string();
-        assert!(err.contains("no `remote` and no `path`"), "{err}");
+        assert!(
+            err.contains("no `remote` and no `path`") && err.contains("at line 5"),
+            "{err}"
+        );
+    }
+
+    fn remote(remote: &str) -> Key {
+        Key::Remote(remote.to_string())
+    }
+
+    /// KAIROS-T-0707: a subfolder of a checkout has the binding of the top
+    /// of the checkout: its remote and its `.claude/kairos.local.md`.
+    #[test]
+    fn a_subfolder_has_the_binding_of_the_top_of_its_checkout() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        std::fs::write(&config, CONFIG).unwrap();
+        let clone = clone_with_origin(dir.path(), "https://github.com/example-org/example-repo");
+        wire(&clone, "adr_board: adrs\n");
+        let sub = clone.join("crates").join("deep");
+        std::fs::create_dir_all(&sub).unwrap();
+        let b = binding_with(&sub, &config).unwrap();
+        assert_eq!(
+            b.remote.as_deref(),
+            Some("github.com/example-org/example-repo")
+        );
+        assert!(b.is_bound());
+        assert_eq!(b.get("team_board"), Some("other-delivery"));
+        assert_eq!(b.get("adr_board"), Some("adrs"));
+        assert_eq!(
+            Path::new(&b.folder).canonicalize().unwrap(),
+            clone.canonicalize().unwrap(),
+            "the folder of the binding is the top of the checkout"
+        );
+        assert_eq!(
+            origin_of(&sub).as_deref(),
+            Some("github.com/example-org/example-repo")
+        );
+    }
+
+    /// KAIROS-T-0707: a board folder (clones, no checkout) is bound by a
+    /// `[[project]]` with `path`, also from a clone under it that has no
+    /// entry of its own.
+    #[test]
+    fn a_board_folder_is_bound_by_a_path_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let board = dir.path().join("board");
+        std::fs::create_dir_all(&board).unwrap();
+        let clone = clone_with_origin(&board, "https://github.com/someone/else");
+        let config = dir.path().join("config.toml");
+        let values = Values {
+            deployment: Some("https://kairos.example.com".into()),
+            team_board: Some("team-delivery".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            add_project(&config, &Key::Path(board.clone()), &values).unwrap(),
+            Added::Added
+        );
+        assert_eq!(
+            add_project(&config, &Key::Path(board.clone()), &values).unwrap(),
+            Added::Same
+        );
+        let b = binding_with(&board, &config).unwrap();
+        assert!(b.is_bound(), "{b:?}");
+        assert_eq!(b.remote, None);
+        assert_eq!(b.get("team_board"), Some("team-delivery"));
+        let c = binding_with(&clone, &config).unwrap();
+        assert!(c.is_bound());
+        assert_eq!(c.get("deployment"), Some("https://kairos.example.com"));
     }
 
     /// `add_project` appends and keeps the comments; the same values again
@@ -626,7 +796,7 @@ team_board = "other-delivery"
             ..Default::default()
         };
         assert_eq!(
-            add_project(&config, "git@github.com:Acme/App.git", &values).unwrap(),
+            add_project(&config, &remote("git@github.com:Acme/App.git"), &values).unwrap(),
             Added::Added
         );
         std::fs::write(
@@ -635,14 +805,14 @@ team_board = "other-delivery"
         )
         .unwrap();
         assert_eq!(
-            add_project(&config, "https://github.com/acme/app", &values).unwrap(),
+            add_project(&config, &remote("https://github.com/acme/app"), &values).unwrap(),
             Added::Same
         );
         let other = Values {
             team_board: Some("elsewhere".into()),
             ..Default::default()
         };
-        let err = add_project(&config, "github.com/acme/app", &other)
+        let err = add_project(&config, &remote("github.com/acme/app"), &other)
             .unwrap_err()
             .to_string();
         assert!(

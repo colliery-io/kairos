@@ -126,7 +126,10 @@ pub fn short(commit: &str) -> &str {
 
 /// Ask Kairos for the nearest base index of the checkout at `root`.
 pub async fn find(root: &Path, args: &RemoteArgs) -> Found {
-    let settings = bound_settings(root);
+    let settings = match bound_settings(root) {
+        Ok(settings) => settings,
+        Err(why) => return Found::NoBase(why),
+    };
     let (client, url) = match client(args, &settings) {
         Ok(Some(found)) => found,
         Ok(None) => return Found::NotSet,
@@ -245,7 +248,7 @@ pub async fn repository_of(
     root: &Path,
     args: &RemoteArgs,
 ) -> Result<(KairosClient, String), String> {
-    let settings = bound_settings(root);
+    let settings = bound_settings(root)?;
     let (client, url) = client(args, &settings)?.ok_or_else(|| {
         format!(
             "The CLI does not know the deployment. Use --url, set {}, or run `kairos login`",
@@ -332,10 +335,10 @@ fn choose(of_point: Nearest, of_tip: Nearest) -> Nearest {
 
 /// The client of the Kairos deployment of the checkout at `root`: the
 /// connection of [`find`], with no flags (KAIROS-T-0360). `None` when no
-/// deployment is set or the credentials do not resolve. It sends no
-/// request.
+/// deployment is set, the credentials do not resolve or `config.toml` does
+/// not parse ([`find`] names that error). It sends no request.
 pub fn connection(root: &Path) -> Option<KairosClient> {
-    client(&RemoteArgs::default(), &bound_settings(root))
+    client(&RemoteArgs::default(), &bound_settings(root).ok()?)
         .ok()
         .flatten()
         .map(|(client, _)| client)
@@ -430,12 +433,12 @@ fn login_tenant(
 /// The settings of the checkout at `root` with the config of the person
 /// (#270): its `[[project]]`, then `.claude/kairos.local.md`, then
 /// `[default]`, with the key names of the settings file. A `config.toml`
-/// that does not parse gives the settings file alone; `kairos config show`
-/// names the error.
-fn bound_settings(root: &Path) -> HashMap<String, String> {
+/// that does not parse is an error that names the file and the line
+/// (KAIROS-T-0706); before, the settings file alone was used.
+fn bound_settings(root: &Path) -> Result<HashMap<String, String>, String> {
     crate::project_config::binding(root)
         .map(|b| b.as_settings())
-        .unwrap_or_else(|_| settings(root))
+        .map_err(|e| e.to_string())
 }
 
 /// The settings file of the checkout at `root` (KAIROS-T-0646):

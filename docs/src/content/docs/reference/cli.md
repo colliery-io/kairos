@@ -3004,6 +3004,15 @@ Each `index` command takes `--root`. Only `index update` takes `--url` and
 | `--root <ROOT>` | path | the root of the git repository of the current folder | The root of the checkout. |
 | `--json` | flag | off | Print one JSON object with the result, in place of the text. |
 
+`index build`, `index update`, `index status` and `index --full` need a
+checkout. The CLI refuses a folder that is not in a git checkout, for example
+a board folder that holds clones. It does not index the clones as one tree.
+
+The refusal `NOT_A_CHECKOUT` (exit 1) lists the checkouts below the folder.
+Run the command in one of them, or give one with `--root`. A `--root` that is
+not in a checkout and holds no checkout is a root, as before. `index mcp` in a
+board folder opens no checkout and names the checkouts.
+
 ### `kairos index`
 
 ```
@@ -3208,6 +3217,7 @@ A refusal of `index` has one of these codes in the error envelope:
 | `NO_START` | The update has no index to start from. The details give the `path` and the reason. |
 | `TOO_FAR` | More files than the limit changed since the base index. The details give `changed`, `limit`, `commit`, `branch` and `behind`. `local` is `true` when the count is that of the local index. |
 | `NO_ROOT` | The folder of `--root` is not there. |
+| `NOT_A_CHECKOUT` | `index build`, `index update`, `index status` or `index --full` in a folder that is not in a git checkout. The details give the `path` and the `checkouts` below it. |
 | `NOT_FOUND`, `AMBIGUOUS` | `index references` found no symbol, or more than one. The details of `AMBIGUOUS` give the `candidates`. |
 | `CLI_ERROR` | Any other failure. |
 
@@ -3217,7 +3227,7 @@ A refusal of `index` has one of these codes in the error envelope:
 
 ```
 kairos config show [FOLDER] [--json]
-kairos config project [FOLDER] [--remote <REMOTE>] [--deployment <URL>] [--tenant <TENANT>]
+kairos config project [FOLDER] [--remote <REMOTE> | --path] [--deployment <URL>] [--tenant <TENANT>]
     [--repository <SLUG>] [--team-board <SLUG>] [--initiative-board <SLUG>]
     [--adr-board <SLUG>] [--delivery-stream <SLUG>] [--json]
 kairos config path
@@ -3227,7 +3237,8 @@ These commands read and write the config of the person, `config.toml` in the
 config directory (see [`config.toml`](../configuration/#configtoml)).
 
 `config show` gives the binding of the folder: the deployment, the tenant,
-the repository and the boards. For each value it gives where the value comes
+the repository and the boards. A subfolder of a checkout has the binding of
+the top of the checkout. For each value it gives where the value comes
 from: the `[[project]]` of the folder, `.claude/kairos.local.md`, or
 `[default]`. When `KAIROS_URL` is set, the output says that commands use it.
 The hooks of the plugin read `config show --json`. The JSON has `bound`, which
@@ -3238,6 +3249,11 @@ for `--remote`. The command adds the text to the end of the file and does not
 change the other lines. When the file has an entry for the remote with the
 same values, the command changes nothing. When the entry has other values, the
 command refuses. Then you edit the entry in the file.
+
+A folder with no `origin` remote gets a `[[project]]` with `path`. Examples
+are a board folder that holds clones, and a checkout with no remote. In a
+checkout, the path is the top of the checkout. With `--path`, a folder that
+has a remote also gets a `path` entry.
 
 `config path` prints the path of `config.toml`.
 
@@ -3267,6 +3283,20 @@ command refreshes the token when it expires.
 
 When the deployment refuses a request or does not answer, the client gets a
 JSON-RPC error with the reason.
+
+When the command cannot find a deployment or a credential, it does not stop.
+It serves MCP with no tools, and the instructions of the server give the
+reason and the commands to run. Standard error has the same text. These
+faults give the server with no tools:
+
+- There is no login, and no key with a URL.
+- `KAIROS_KEY` or `KAIROS_MCP_KEY` is set, but no URL names the deployment.
+- The credential cache has logins for more than one deployment, and no flag,
+  no `KAIROS_URL` and no binding names one.
+- `config.toml` does not parse. The reason gives the file and the line.
+
+After the fix, reconnect the server with `/mcp` in Claude Code, or start the
+session again.
 
 ### `kairos self-update`
 

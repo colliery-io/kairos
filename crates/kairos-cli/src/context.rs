@@ -41,9 +41,10 @@ pub fn client(common: &Common) -> Result<KairosClient, CliError> {
 
 /// [`client`], and the `credential:` line of `kairos whoami`
 /// (KAIROS-T-0594). A key that hides a login for the same deployment gives
-/// one warning line on stderr, unless `KAIROS_QUIET=1`.
+/// one warning line on stderr, unless `KAIROS_QUIET=1`. A `config.toml`
+/// that does not parse is refused (KAIROS-T-0706).
 pub fn client_with_credential(common: &Common) -> Result<(KairosClient, String), CliError> {
-    client_for(common, &project_config::binding_here())
+    client_for(common, &project_config::binding_here()?)
 }
 
 /// [`client_with_credential`] for the binding of a folder (#270). The

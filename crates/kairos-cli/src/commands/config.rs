@@ -2,8 +2,9 @@
 //! config directory. `show` gives the binding of a folder (the deployment,
 //! the tenant, the repository and the boards, and where each one comes
 //! from); the hooks of the plugin read it with `--json`. `project` adds a
-//! `[[project]]` for the `origin` remote of a checkout. `path` prints the
-//! path of the file.
+//! `[[project]]` for the `origin` remote of a checkout, or for the path of
+//! a folder with no remote: a board folder (KAIROS-T-0707). `path` prints
+//! the path of the file.
 
 use std::path::PathBuf;
 
@@ -12,14 +13,15 @@ use serde_json::json;
 use crate::auth;
 use crate::context::print_json;
 use crate::error::CliError;
-use crate::project_config::{self, Added, Binding, Origin, Values};
+use crate::project_config::{self, Added, Binding, Key, Origin, Values};
 
 #[derive(clap::Subcommand, Debug)]
 pub enum ConfigCommand {
     /// The binding of a folder: the deployment, the tenant, the repository
     /// and the boards, and where each value comes from
     Show(ShowArgs),
-    /// Add a [[project]] for the origin remote of a checkout to config.toml
+    /// Add a [[project]] to config.toml: for the origin remote of a
+    /// checkout, else for the path of the folder (a board folder)
     Project(ProjectArgs),
     /// Print the path of config.toml
     Path,
@@ -36,12 +38,16 @@ pub struct ShowArgs {
 
 #[derive(clap::Args, Debug)]
 pub struct ProjectArgs {
-    /// The checkout whose origin remote the entry names (default: the
+    /// The checkout whose origin remote the entry names, or the folder
+    /// whose path it names when it has no origin remote (default: the
     /// current folder)
     pub folder: Option<PathBuf>,
     /// The remote of the entry, in place of the origin of the folder
-    #[arg(long)]
+    #[arg(long, conflicts_with = "path")]
     pub remote: Option<String>,
+    /// Name the folder by its path, also when it has an origin remote
+    #[arg(long)]
+    pub path: bool,
     /// The deployment URL of the project
     #[arg(long)]
     pub deployment: Option<String>,
@@ -149,16 +155,7 @@ fn show_text(config: &str, binding: &Binding, env_url: Option<&str>) -> String {
 
 fn project(args: ProjectArgs) -> Result<(), CliError> {
     let folder = folder_or_here(args.folder)?;
-    let remote = match args.remote {
-        Some(remote) => remote,
-        None => project_config::origin_of(&folder).ok_or_else(|| {
-            CliError::Failure(format!(
-                "The folder {} has no origin remote. Give --remote, or add a [[project]] with \
-                 `path` to the config by hand.",
-                folder.display()
-            ))
-        })?,
-    };
+    let key = entry_key(&folder, args.remote, args.path)?;
     let values = Values {
         deployment: args.deployment,
         tenant: args.tenant,
@@ -169,23 +166,63 @@ fn project(args: ProjectArgs) -> Result<(), CliError> {
         delivery_stream: args.delivery_stream,
     };
     let config = project_config::config_path()?;
-    let added = project_config::add_project(&config, &remote, &values)?;
-    let remote = crate::index::normalized_remote(&remote);
+    let added = project_config::add_project(&config, &key, &values)?;
+    // The key as the file has it.
+    let added_key = key.normalized();
+    let label = added_key.label();
     if args.json {
+        let (remote, path) = match &added_key {
+            Key::Remote(remote) => (Some(remote.clone()), None),
+            Key::Path(path) => (None, Some(path.display().to_string())),
+        };
         return print_json(&json!({
             "config": config.display().to_string(),
             "remote": remote,
+            "path": path,
             "result": added,
         }));
     }
     match added {
-        Added::Added => println!("Added a [[project]] for {remote} to {}.", config.display()),
+        Added::Added => println!("Added a [[project]] for {label} to {}.", config.display()),
         Added::Same => println!(
-            "{} has this [[project]] for {remote} already. Nothing changed.",
+            "{} has this [[project]] for {label} already. Nothing changed.",
             config.display()
         ),
     }
     Ok(())
+}
+
+/// What the new `[[project]]` is found by (KAIROS-T-0707): `--remote`;
+/// else the path of the folder with `--path`; else the `origin` remote of
+/// the checkout of the folder; else the path of the folder. A subfolder of
+/// a checkout names the top of the checkout. A board folder (no checkout)
+/// and a checkout with no remote get a `path` entry.
+fn entry_key(
+    folder: &std::path::Path,
+    remote: Option<String>,
+    path: bool,
+) -> Result<Key, CliError> {
+    if let Some(remote) = remote {
+        return Ok(Key::Remote(remote));
+    }
+    if !folder.is_dir() {
+        return Err(CliError::Failure(format!(
+            "The folder {} does not exist.",
+            folder.display()
+        )));
+    }
+    let top = project_config::checkout_top(folder);
+    if !path && let Some(remote) = project_config::origin_of(folder) {
+        return Ok(Key::Remote(remote));
+    }
+    let folder = top.unwrap_or_else(|| folder.to_path_buf());
+    let folder = folder.canonicalize().map_err(|e| {
+        CliError::Failure(format!(
+            "The CLI cannot read the folder {}: {e}.",
+            folder.display()
+        ))
+    })?;
+    Ok(Key::Path(folder))
 }
 
 #[cfg(test)]

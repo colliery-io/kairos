@@ -46,6 +46,14 @@
 //! a replace: `set_state`, `set_metadata`) is retried with the backoff of
 //! a read. A second call gives the same state. The error data says
 //! `"retry": "idempotent"`.
+//!
+//! KAIROS-T-0706: when the proxy cannot find its deployment or its
+//! credential (no login, a key with no URL, logins for two deployments and
+//! no binding, a `config.toml` that does not parse), it does not exit. An
+//! exit before the handshake is "failed to connect" in Claude Code, and the
+//! agent does not see why. The proxy serves MCP with no tools: the
+//! instructions of the server give the reason and the commands to run, as
+//! the fallback of `plugin/bin/kairos-code` does. Stderr has the same text.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -266,48 +274,133 @@ impl Retry {
 
 impl McpProxyArgs {
     pub async fn run(self) -> Result<(), CliError> {
-        let upstream = Arc::new(connect(self)?);
-        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-        // One writer: the answers of requests that run at the same time do
-        // not mix their lines.
-        let writer = tokio::spawn(async move {
-            let mut stdout = tokio::io::stdout();
-            while let Some(line) = rx.recv().await {
-                if stdout.write_all(line.as_bytes()).await.is_err()
-                    || stdout.write_all(b"\n").await.is_err()
-                    || stdout.flush().await.is_err()
-                {
-                    break;
-                }
+        match connect(self) {
+            Ok(upstream) => forward_stdio(Arc::new(upstream)).await,
+            Err(off) => {
+                eprintln!("{off}");
+                serve_no_tools(off).await
             }
-        });
-        let mut lines = BufReader::new(tokio::io::stdin()).lines();
-        let mut tasks = Vec::new();
-        while let Ok(Some(line)) = lines.next_line().await {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let upstream = upstream.clone();
-            let tx = tx.clone();
-            tasks.push(tokio::spawn(async move {
-                for out in upstream.forward(&line).await {
-                    let _ = tx.send(out);
-                }
-            }));
         }
-        for task in tasks {
-            let _ = task.await;
-        }
-        upstream.end().await;
-        drop(tx);
-        let _ = writer.await;
-        Ok(())
     }
 }
 
-/// The deployment, the credential and the tenant of the proxy.
-fn connect(args: McpProxyArgs) -> Result<Upstream, CliError> {
-    let binding = project_config::binding_here();
+/// The MCP server with no tools of KAIROS-T-0706: its instructions say why
+/// the tools are off and what to run.
+#[derive(Clone)]
+struct NoTools {
+    instructions: String,
+}
+
+impl rmcp::ServerHandler for NoTools {
+    fn get_info(&self) -> rmcp::model::ServerInfo {
+        rmcp::model::ServerInfo::new(
+            rmcp::model::ServerCapabilities::builder()
+                .enable_tools()
+                .build(),
+        )
+        .with_server_info(rmcp::model::Implementation::new(
+            "kairos",
+            env!("CARGO_PKG_VERSION"),
+        ))
+        .with_instructions(self.instructions.clone())
+    }
+}
+
+/// Serve [`NoTools`] on stdin and stdout until the client closes stdin.
+async fn serve_no_tools(instructions: String) -> Result<(), CliError> {
+    use rmcp::ServiceExt;
+    let server = NoTools { instructions }
+        .serve(rmcp::transport::stdio())
+        .await
+        .map_err(|e| CliError::Failure(format!("The MCP server with no tools failed: {e}.")))?;
+    server
+        .waiting()
+        .await
+        .map_err(|e| CliError::Failure(format!("The MCP server with no tools failed: {e}.")))?;
+    Ok(())
+}
+
+/// What to run when the binding of the folder is not correct.
+fn config_fix(folder: &str) -> String {
+    format!(
+        "Correct the file, then run `kairos config show {folder}` to see the binding of the \
+         folder of the session. Then reconnect the `kairos` server with /mcp, or start the \
+         session again."
+    )
+}
+
+/// What to run when the proxy finds no deployment or no credential.
+fn login_fix(folder: &str) -> String {
+    format!(
+        "Do one of these, then reconnect the `kairos` server with /mcp, or start the session \
+         again:\n\
+         - Run `kairos login --url <deployment>`.\n\
+         - With logins for more than one deployment: run `kairos config project \
+         --deployment <url>` in the checkout ({folder}), or set {url} in the environment of \
+         Claude Code.\n\
+         - Set {url} and {key} (an agent key) in the environment of Claude Code.\n\
+         `kairos config show` gives the binding of the folder.",
+        url = auth::URL_VAR,
+        key = auth::KEY_VARS.join(" or "),
+    )
+}
+
+/// The instructions of the server with no tools: the reason, then the fix.
+fn tools_off(reason: &CliError, fix: &str) -> String {
+    format!(
+        "The Kairos tools are off: `kairos mcp-proxy` cannot reach a deployment.\n{}\n{fix}",
+        reason.to_string().trim_end()
+    )
+}
+
+/// Forward MCP between stdio and the deployment until stdin closes.
+async fn forward_stdio(upstream: Arc<Upstream>) -> Result<(), CliError> {
+    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    // One writer: the answers of requests that run at the same time do
+    // not mix their lines.
+    let writer = tokio::spawn(async move {
+        let mut stdout = tokio::io::stdout();
+        while let Some(line) = rx.recv().await {
+            if stdout.write_all(line.as_bytes()).await.is_err()
+                || stdout.write_all(b"\n").await.is_err()
+                || stdout.flush().await.is_err()
+            {
+                break;
+            }
+        }
+    });
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    let mut tasks = Vec::new();
+    while let Ok(Some(line)) = lines.next_line().await {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let upstream = upstream.clone();
+        let tx = tx.clone();
+        tasks.push(tokio::spawn(async move {
+            for out in upstream.forward(&line).await {
+                let _ = tx.send(out);
+            }
+        }));
+    }
+    for task in tasks {
+        let _ = task.await;
+    }
+    upstream.end().await;
+    drop(tx);
+    let _ = writer.await;
+    Ok(())
+}
+
+/// The deployment, the credential and the tenant of the proxy. The error is
+/// the instructions of the server with no tools (KAIROS-T-0706).
+fn connect(args: McpProxyArgs) -> Result<Upstream, String> {
+    let folder = project_config::folder_here()
+        .map(|f| f.display().to_string())
+        .unwrap_or_else(|| ".".to_string());
+    let binding =
+        project_config::binding_here().map_err(|e| tools_off(&e, &config_fix(&folder)))?;
+    let off = |e: CliError| tools_off(&e, &login_fix(&folder));
     let env = auth::Env::from_process();
     let url = args.url.or_else(|| {
         env.url
@@ -315,14 +408,14 @@ fn connect(args: McpProxyArgs) -> Result<Upstream, CliError> {
             .then(|| binding.get("deployment").map(str::to_string))
             .flatten()
     });
-    let path = credentials::credentials_path()?;
-    let source = auth::resolve(url.as_deref(), &env, || credentials::load(&path))?;
+    let path = credentials::credentials_path().map_err(off)?;
+    let source = auth::resolve(url.as_deref(), &env, || credentials::load(&path)).map_err(off)?;
     let (deployment, credential, tenant) = match source {
         Source::Key {
             deployment, key, ..
         } => (deployment, Credential::Key(key), args.tenant),
         Source::Cache { deployment, store } => {
-            let entry = credentials::entry_for(&store, &deployment)?;
+            let entry = credentials::entry_for(&store, &deployment).map_err(off)?;
             let same = binding.get("deployment").is_none_or(|bound| {
                 credentials::normalize_url(bound) == credentials::normalize_url(&deployment)
             });
@@ -334,13 +427,21 @@ fn connect(args: McpProxyArgs) -> Result<Upstream, CliError> {
             (deployment, Credential::Login(provider), tenant)
         }
     };
-    let timeout = kairos_client::timeout_from_env()?.unwrap_or(kairos_client::DEFAULT_TIMEOUT);
+    let timeout = kairos_client::timeout_from_env()
+        .map_err(|e| {
+            tools_off(
+                &e.into(),
+                "Correct the variable, then start the session again.",
+            )
+        })?
+        .unwrap_or(kairos_client::DEFAULT_TIMEOUT);
     Upstream::new(
         endpoint(&deployment, args.profile),
         credential,
         tenant,
         timeout,
     )
+    .map_err(|e| tools_off(&e, "Start the session again."))
 }
 
 impl Upstream {

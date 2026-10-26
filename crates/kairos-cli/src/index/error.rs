@@ -22,6 +22,13 @@ pub enum IndexCommandError {
     TooFar(Box<TooFar>),
     #[error("The folder {0} is not there.")]
     NoRoot(PathBuf),
+    /// KAIROS-T-0713: `build`, `update` or `status` in a folder that is not
+    /// in a git checkout, for example a board folder that holds clones.
+    #[error("{}.", not_in_checkout(.folder, .checkouts))]
+    NotInCheckout {
+        folder: PathBuf,
+        checkouts: Vec<PathBuf>,
+    },
     #[error("Git did not run in {path}: {message}.")]
     Git { path: PathBuf, message: String },
     /// KAIROS-T-0697: the error of the system in Kairos words.
@@ -38,6 +45,31 @@ pub enum IndexCommandError {
     /// error of the code tools (KAIROS-T-0419).
     #[error(transparent)]
     Symbol(Box<ToolError>),
+}
+
+/// The text of [`IndexCommandError::NotInCheckout`]: the checkouts below
+/// the folder, and what to do.
+fn not_in_checkout(folder: &std::path::Path, checkouts: &[PathBuf]) -> String {
+    let head = format!(
+        "The folder {} is not in a git checkout. The CLI does not index a folder of \
+         clones as one tree.",
+        folder.display()
+    );
+    if checkouts.is_empty() {
+        return format!(
+            "{head} No checkout is in the folder. Run the command in a checkout, or give one \
+             with --root"
+        );
+    }
+    let list: Vec<String> = checkouts
+        .iter()
+        .map(|path| format!("- {}", path.display()))
+        .collect();
+    format!(
+        "{head} The checkouts in the folder:\n{}\nRun the command in one of them, or give one \
+         with --root",
+        list.join("\n")
+    )
 }
 
 /// An error of the system (a file) in Kairos words (KAIROS-T-0697): the
@@ -192,6 +224,7 @@ impl IndexCommandError {
             IndexCommandError::NoStart { .. } => "NO_START",
             IndexCommandError::TooFar(_) => "TOO_FAR",
             IndexCommandError::NoRoot(_) => "NO_ROOT",
+            IndexCommandError::NotInCheckout { .. } => "NOT_A_CHECKOUT",
             IndexCommandError::Symbol(e) => e.code(),
             IndexCommandError::Git { .. }
             | IndexCommandError::Write { .. }
@@ -207,6 +240,9 @@ impl IndexCommandError {
                 json!({ "path": path })
             }
             IndexCommandError::NoStart { path, why } => json!({ "path": path, "why": why }),
+            IndexCommandError::NotInCheckout { folder, checkouts } => {
+                json!({ "path": folder, "checkouts": checkouts })
+            }
             IndexCommandError::TooFar(far) => far.details(),
             IndexCommandError::Symbol(e) => e.details().unwrap_or(Value::Null),
             _ => Value::Null,

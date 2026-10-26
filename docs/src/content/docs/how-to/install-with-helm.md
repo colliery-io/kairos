@@ -2,7 +2,7 @@
 title: "Install Kairos on Kubernetes with Helm"
 ---
 
-Get a Kairos 0.17.0 deployment serving on a cluster you already run.
+Get a Kairos 0.18.0 deployment serving on a cluster you already run.
 
 **Before you start**, have all four:
 
@@ -123,7 +123,7 @@ mounts the Swagger UI at `/api/docs`.
 
 ```sh
 helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
-  --version 0.17.0 -f my-values.yaml
+  --version 0.18.0 -f my-values.yaml
 ```
 
 `--version` is not optional in practice: the chart publishes no floating tag.
@@ -461,6 +461,70 @@ Changes that people and agents see:
 - A code index session that starts in a folder above several checkouts lists
   them and keeps several open. A `checkout` argument picks one for each
   call.
+
+### From 0.17.0 to 0.18.0
+
+These changes of 0.18.0 show after the upgrade. They apply to Compose too.
+
+Before the upgrade, stop every 0.17.0 server before a new one serves, as
+for 0.16. No test runs 0.17.0 servers and a 0.18.0 server together.
+
+4 migrations run, for each tenant:
+
+- `code_index_citations` adds the empty table `code_index_citations`. It
+  holds the ADR codes that the code of an index cites.
+- `amends_relationship` replaces the CHECK constraint of
+  `item_relationships.relationship` so that it accepts `amends`.
+- `tool_refusals` adds the empty table `tool_refusals` and 1 index. It
+  holds one row for each refused MCP call, with no argument values.
+- `adr_revisit_metadata` adds 3 system metadata definitions for ADRs:
+  `revisit_when`, `revisit_on` and `accepted_commit`.
+
+- Locks: the new CHECK on `item_relationships` reads the table under a
+  lock. The table is small (about 5000 rows on a large tenant), so the lock
+  is short. No migration locks a large table.
+- Scans: no migration builds an index with `CONCURRENTLY`.
+
+The code index has a new schema (version 8). Every repository gets a full
+build after the upgrade, one at a time. Until its build ends, the code
+tools of a repository say that it has no index.
+
+Changes that people and agents see:
+
+- The local code index is no longer in the checkout. It is in
+  `~/.cache/kairos/index/` (or `$XDG_CACHE_HOME/kairos/index/`, or
+  `KAIROS_INDEX_DIR`). The CLI moves an old `.kairos/index.db` there on the
+  first open, and writes no git exclude line. You can delete an empty
+  `.kairos/` folder after the move.
+- `.claude/kairos.local.md` gives a warning. Run `kairos config migrate` to
+  write its values to a `[[project]]` of `config.toml`. The next release
+  does not read the file. A board folder, or a checkout with no remote,
+  gets a `[[project]]` with `path`. A session in a subfolder of a checkout
+  uses the binding of the checkout.
+- When the `kairos` server of the plugin has no login, no URL for its key,
+  two logins, or a `config.toml` that does not parse, it starts with no
+  tools. Its instructions give the reason and the command to run.
+- `link_items` takes `amends`, from an ADR to an ADR: a new ADR that
+  changes part of an old one. `get_item` of an ADR shows "Amended by" and
+  "Amends" (KAIROS-A-0069).
+- `kairos adrs check` reads the ADR codes that a tree cites. It fails on a
+  missing or archived ADR, and it warns on a superseded one. Before an edit,
+  the plugin shows the ADRs that the file cites. ADRs take `revisit_when`,
+  `revisit_on` and `accepted_commit` (KAIROS-A-0070).
+- The code index finds ADR citations. The `references` code tool takes an
+  ADR code, and `get_repository` lists the ADRs that the code cites.
+- The REST write routes take an `Idempotency-Key` header. A replay gives
+  the first answer with `Idempotent-Replayed: true`.
+- `mcp-proxy` retries a write that carries `request_key`, and the
+  idempotent writes.
+- The admin MCP tool `refusal_counts` gives the refused MCP calls by tool
+  and code. The retention pass deletes the rows after 90 days.
+- More refusals name their field: `details.field`, `parameter` or `header`.
+  No refusal shows the text of a library.
+- Some MCP arguments have new names, and the old names stay as aliases:
+  `set_transition` takes `from_column` and `to_column`, `my_boards` takes
+  `board_level`, and the metadata definition is `definition`. A reference
+  of a person accepts `me` in more tools.
 
 ## Trying it out without a database
 

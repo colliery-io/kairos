@@ -3217,7 +3217,7 @@ A refusal of `index` has one of these codes in the error envelope:
 
 ```
 kairos config show [FOLDER] [--json]
-kairos config project [FOLDER] [--remote <REMOTE>] [--deployment <URL>] [--tenant <TENANT>]
+kairos config project [FOLDER] [--remote <REMOTE> | --path] [--deployment <URL>] [--tenant <TENANT>]
     [--repository <SLUG>] [--team-board <SLUG>] [--initiative-board <SLUG>]
     [--adr-board <SLUG>] [--delivery-stream <SLUG>] [--json]
 kairos config path
@@ -3227,7 +3227,8 @@ These commands read and write the config of the person, `config.toml` in the
 config directory (see [`config.toml`](../configuration/#configtoml)).
 
 `config show` gives the binding of the folder: the deployment, the tenant,
-the repository and the boards. For each value it gives where the value comes
+the repository and the boards. A subfolder of a checkout has the binding of
+the top of the checkout. For each value it gives where the value comes
 from: the `[[project]]` of the folder, `.claude/kairos.local.md`, or
 `[default]`. When `KAIROS_URL` is set, the output says that commands use it.
 The hooks of the plugin read `config show --json`. The JSON has `bound`, which
@@ -3238,6 +3239,11 @@ for `--remote`. The command adds the text to the end of the file and does not
 change the other lines. When the file has an entry for the remote with the
 same values, the command changes nothing. When the entry has other values, the
 command refuses. Then you edit the entry in the file.
+
+A folder with no `origin` remote gets a `[[project]]` with `path`. Examples
+are a board folder that holds clones, and a checkout with no remote. In a
+checkout, the path is the top of the checkout. With `--path`, a folder that
+has a remote also gets a `path` entry.
 
 `config path` prints the path of `config.toml`.
 

@@ -1139,7 +1139,7 @@ team_board = "other-delivery"
 | Key | Description |
 |---|---|
 | `remote` | `[[project]]` only. The `origin` remote of the repository. Each form that git takes is correct. The CLI compares it as `host/path` in lower case, so each clone and each worktree finds the entry. |
-| `path` | `[[project]]` only, in place of `remote`. A folder of a checkout with no remote. The entry applies to the folder and to each folder below it. `~/` is the home folder. |
+| `path` | `[[project]]` only, in place of `remote`. A folder with no remote: a checkout with no remote, or a board folder that holds clones. The entry applies to the folder and to each folder below it. `~/` is the home folder. `kairos config project` writes it in a folder with no `origin` remote. |
 | `deployment` | The deployment URL. |
 | `tenant` | The tenant of a login. A key carries its tenant, so the CLI does not send this value with a key. |
 | `repository` | The slug of the repository in Kairos. |
@@ -1156,10 +1156,14 @@ one order for each value:
 5. `[default]`.
 6. The deployment and the tenant of `kairos login`.
 
+A subfolder of a checkout has the binding of the top of the checkout: its
+remote and its `.claude/kairos.local.md`.
+
 `[default]` alone does not wire a repository. The hooks of the plugin give
 the Kairos context only when a `[[project]]` or `.claude/kairos.local.md`
-binds the folder. `kairos config show` gives each value of a folder and where
-it comes from.
+binds the folder. To wire a board folder, use a `[[project]]` with `path`, not
+`[default]`. `kairos config show` gives each value of a folder and where it
+comes from.
 
 The CLI refuses a `config.toml` that does not parse. It also refuses an
 unknown key, and a `[[project]]` with no `remote` and no `path`. The message

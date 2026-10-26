@@ -89,6 +89,10 @@ async fn run_cli_env(
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_kairos"))
         .args(args)
         .env("KAIROS_CONFIG_DIR", config_dir)
+        // No checkout around the command: the binding of the folder of the
+        // test run (KAIROS-T-0707: the top of the checkout) must not apply.
+        .current_dir(std::env::temp_dir())
+        .env_remove("CLAUDE_PROJECT_DIR")
         // The key of a person's own shell must not stand in for the login
         // under test (KAIROS_KEY wins over the cache).
         .env_remove("KAIROS_KEY")
@@ -872,6 +876,10 @@ async fn a_deployment_with_both_offers_both() {
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_kairos"))
         .args(["login", "--url", &deployment.base_url])
         .env("KAIROS_CONFIG_DIR", device_dir.path())
+        // No checkout around the command: the binding of the folder of the
+        // test run (KAIROS-T-0707: the top of the checkout) must not apply.
+        .current_dir(std::env::temp_dir())
+        .env_remove("CLAUDE_PROJECT_DIR")
         // The key of a person's own shell must not stand in for the login
         // under test (KAIROS_KEY wins over the cache).
         .env_remove("KAIROS_KEY")
@@ -1128,6 +1136,10 @@ sys.stdout.write("\nSENT=%s EXIT=%d\n" % (sent, os.waitstatus_to_exitcode(status
             PASSWORD,
         ])
         .env("KAIROS_CONFIG_DIR", config_dir.path())
+        // No checkout around the command: the binding of the folder of the
+        // test run (KAIROS-T-0707: the top of the checkout) must not apply.
+        .current_dir(std::env::temp_dir())
+        .env_remove("CLAUDE_PROJECT_DIR")
         // The key of a person's own shell must not stand in for the login
         // under test (KAIROS_KEY wins over the cache).
         .env_remove("KAIROS_KEY")
@@ -1465,6 +1477,9 @@ async fn an_amended_adr_shows_its_amendment_in_the_check_and_the_hook() {
         .arg(&hook)
         .env("PATH", path)
         .env("KAIROS_CONFIG_DIR", config_dir.path())
+        // No checkout around the command: the binding of the folder of the
+        // test run (KAIROS-T-0707: the top of the checkout) must not apply.
+        .current_dir(std::env::temp_dir())
         .env("XDG_CONFIG_HOME", config_dir.path())
         .env("HOME", config_dir.path())
         .env("CLAUDE_PROJECT_DIR", &repo)

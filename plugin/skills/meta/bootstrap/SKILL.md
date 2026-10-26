@@ -111,7 +111,7 @@ Strip a trailing `.git` and any leading `/`. Then match on `forge` + `full_name`
 - **Found** → its `slug` is the repository. The repository is a link: it does not choose the team board. Confirm with the user only if the remote matched more than one entry (it cannot: the pair is unique).
 - **Found, with no description** → `get_repository` prints `(no description yet)`. Offer to write one: draft it as in step 3 of "Add this repository", show it to the user, and on a yes call `update_repository` (`repository`, `description`).
 - **Not found** → add it with `add_repository`. See "Add this repository" below.
-- **No remote, or the user declines** → leave `repository:` empty and say what unblocks it. Everything else still works; the session is just board-scoped instead of repo-scoped.
+- **No remote, or the user declines** → leave `repository:` empty and say what unblocks it. Everything else still works; the session is just board-scoped instead of repo-scoped. With no remote, the entry of step 4 has `path` (see "A board folder, or a checkout with no remote").
 
 ### Add this repository
 
@@ -208,7 +208,21 @@ When you write the file, keep it out of git — it is org-specific wiring, not f
 .claude/kairos.local.md
 ```
 
-In a folder that is not a git checkout (a board folder that holds clones), stop before step 4: there is no remote to match and no exclude to write. Say: "This folder is not a repository. Run /kairos:bootstrap inside the clone of the repository you work on, or put the board wiring in `[default]` of `~/.config/kairos/config.toml` (deployment, tenant, team board, no repository)."
+### A board folder, or a checkout with no remote
+
+A board folder holds the clones of a team and is not a git checkout. A checkout with no `origin` remote has no remote to match. In these folders, `kairos config project` writes a `[[project]]` with `path`, the folder (KAIROS-T-0707). Do not write `[default]`: `[default]` binds no folder, so the hooks stay silent there.
+
+1. Leave out `--repository`: a board folder holds more than one repository, and a checkout with no remote has no match.
+2. Run the command in the folder, with the board values:
+
+   ```bash
+   kairos config project --deployment https://acme.kairos.example --tenant acme --delivery-stream platform --team-board platform-delivery --initiative-board initiatives --adr-board platform-adrs
+   ```
+
+3. Check the result with `kairos config show`: `bound` is `true`.
+4. Write no `.claude/kairos.local.md` and no exclude: the folder gets no file.
+
+The entry applies to the folder and to each folder below it. A clone under the board folder that has a `[[project]]` of its own uses its own entry. From the next session on, the SessionStart hook lists the clones of the board folder.
 
 ## 5. Report
 

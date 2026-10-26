@@ -85,6 +85,10 @@ async fn run_cli_with_key_env(
     let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_kairos"))
         .args(args)
         .env("KAIROS_CONFIG_DIR", config_dir)
+        // No checkout around the command: the binding of the folder of the
+        // test run (KAIROS-T-0707: the top of the checkout) must not apply.
+        .current_dir(std::env::temp_dir())
+        .env_remove("CLAUDE_PROJECT_DIR")
         .env_remove("KAIROS_KEY")
         .env_remove("KAIROS_MCP_KEY")
         .env_remove("KAIROS_QUIET")
@@ -108,6 +112,10 @@ async fn run_cli(config_dir: &std::path::Path, args: &[&str]) -> (i32, String, S
     let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_kairos"))
         .args(args)
         .env("KAIROS_CONFIG_DIR", config_dir)
+        // No checkout around the command: the binding of the folder of the
+        // test run (KAIROS-T-0707: the top of the checkout) must not apply.
+        .current_dir(std::env::temp_dir())
+        .env_remove("CLAUDE_PROJECT_DIR")
         // The key of a person's own shell must not stand in for the login
         // under test (KAIROS_KEY wins over the cache).
         .env_remove("KAIROS_KEY")
@@ -342,6 +350,10 @@ async fn cli_login_whoami_refresh_logout_live() {
     let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_kairos"))
         .args(["login", "--url", &base_url, "--tenant", TENANT])
         .env("KAIROS_CONFIG_DIR", config_dir.path())
+        // No checkout around the command: the binding of the folder of the
+        // test run (KAIROS-T-0707: the top of the checkout) must not apply.
+        .current_dir(std::env::temp_dir())
+        .env_remove("CLAUDE_PROJECT_DIR")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

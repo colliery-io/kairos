@@ -5,6 +5,10 @@
 //!   serves MCP with no tools, and its instructions say why and what to run.
 //!   A `config.toml` that does not parse is refused with the file and the
 //!   line, by the proxy and by the CLI verbs.
+//! - KAIROS-T-0707: a subfolder of a checkout has the binding of the top of
+//!   the checkout; a board folder (clones, no checkout) and a checkout with
+//!   no `origin` are bound by a `[[project]]` with `path`, which `kairos
+//!   config project` writes.
 //!
 //! Each test runs the binary in a temp folder with a clean environment: a
 //! temp HOME and KAIROS_CONFIG_DIR, no deployment and no key unless the test
@@ -98,6 +102,44 @@ impl Sandbox {
         self.command(args, env).output().unwrap()
     }
 
+    /// Run in `dir` in place of the work folder.
+    fn run_in(&self, dir: &Path, args: &[&str]) -> Output {
+        self.command(args, &[]).current_dir(dir).output().unwrap()
+    }
+
+    /// `kairos config show --json` in `dir`.
+    fn show(&self, dir: &Path) -> Value {
+        let output = self.run_in(dir, &["config", "show", "--json"]);
+        assert!(output.status.success(), "{}", stderr(&output));
+        serde_json::from_slice(&output.stdout).unwrap()
+    }
+
+    /// A git checkout `name` in `dir`, with `origin` when it is given, and
+    /// one commit.
+    fn checkout(&self, dir: &Path, name: &str, origin: Option<&str>) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        git(&path, &["init", "-q"]);
+        if let Some(origin) = origin {
+            git(&path, &["remote", "add", "origin", origin]);
+        }
+        git(
+            &path,
+            &[
+                "-c",
+                "user.name=Robin",
+                "-c",
+                "user.email=robin@example.com",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "first",
+            ],
+        );
+        path
+    }
+
     /// Start `kairos mcp-proxy`, send the handshake and `tools/list`, and
     /// give the answers of `initialize` and `tools/list`, and stderr.
     fn proxy(&self, env: &[(&str, &str)]) -> (Value, Value, String) {
@@ -151,6 +193,27 @@ impl Sandbox {
             String::from_utf8_lossy(&output.stderr).into_owned(),
         )
     }
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let ok = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap()
+        .status
+        .success();
+    assert!(ok, "git {args:?}");
+}
+
+fn stdout(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+fn same(a: &str, b: &Path) -> bool {
+    Path::new(a).canonicalize().unwrap() == b.canonicalize().unwrap()
 }
 
 fn stderr(output: &Output) -> String {
@@ -263,4 +326,128 @@ fn a_bad_config_with_json_is_the_error_envelope() {
     let message = envelope["error"]["message"].as_str().unwrap();
     assert!(message.contains("line 1"), "{message}");
     assert!(output.stdout.is_empty());
+}
+
+/// KAIROS-T-0707: `config project` and `config show` from a subfolder use
+/// the top of the checkout, and a worktree finds the same entry.
+#[test]
+fn a_subfolder_and_a_worktree_have_the_binding_of_the_checkout() {
+    let sandbox = Sandbox::new();
+    let clone = sandbox.checkout(
+        &sandbox.work(),
+        "app",
+        Some("git@github.com:example-org/app.git"),
+    );
+    let sub = clone.join("src").join("deep");
+    std::fs::create_dir_all(&sub).unwrap();
+    let output = sandbox.run_in(
+        &sub,
+        &["config", "project", "--team-board", "team-delivery"],
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("Added a [[project]] for github.com/example-org/app"),
+        "{}",
+        stdout(&output)
+    );
+    let show = sandbox.show(&sub);
+    assert_eq!(show["bound"], true, "{show}");
+    assert_eq!(show["remote"], "github.com/example-org/app");
+    assert!(same(show["folder"].as_str().unwrap(), &clone), "{show}");
+    assert_eq!(show["values"]["team_board"]["value"], "team-delivery");
+
+    let worktree = sandbox.work().join("wt-app");
+    git(
+        &clone,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "topic",
+            worktree.to_str().unwrap(),
+        ],
+    );
+    let show = sandbox.show(&worktree);
+    assert_eq!(show["bound"], true, "{show}");
+    assert_eq!(show["values"]["team_board"]["value"], "team-delivery");
+}
+
+/// KAIROS-T-0707: a board folder holds clones and is no checkout. `config
+/// project` there writes a `[[project]]` with `path`, which binds the folder
+/// and each clone under it with no entry of its own.
+#[test]
+fn a_board_folder_is_bound_by_a_path_entry() {
+    let sandbox = Sandbox::new();
+    let board = sandbox.work().join("board");
+    std::fs::create_dir_all(&board).unwrap();
+    let clone = sandbox.checkout(
+        &board,
+        "engine",
+        Some("https://github.com/example-org/engine"),
+    );
+    assert_eq!(sandbox.show(&board)["bound"], false);
+    let output = sandbox.run_in(
+        &board,
+        &[
+            "config",
+            "project",
+            "--deployment",
+            "https://192.0.2.10",
+            "--team-board",
+            "team-delivery",
+            "--json",
+        ],
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    let added: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(added["result"], "added", "{added}");
+    assert_eq!(added["remote"], Value::Null);
+    assert!(same(added["path"].as_str().unwrap(), &board), "{added}");
+    let text = std::fs::read_to_string(sandbox.config_file()).unwrap();
+    assert!(text.contains("[[project]]\npath = "), "{text}");
+    assert!(!text.contains("[default]"), "{text}");
+
+    let show = sandbox.show(&board);
+    assert_eq!(show["bound"], true, "{show}");
+    assert_eq!(show["values"]["deployment"]["value"], "https://192.0.2.10");
+    let show = sandbox.show(&clone);
+    assert_eq!(show["bound"], true, "{show}");
+    assert_eq!(show["values"]["team_board"]["value"], "team-delivery");
+
+    // The same entry again changes nothing.
+    let again = sandbox.run_in(
+        &board,
+        &[
+            "config",
+            "project",
+            "--deployment",
+            "https://192.0.2.10",
+            "--team-board",
+            "team-delivery",
+        ],
+    );
+    assert!(
+        stdout(&again).contains("already. Nothing changed."),
+        "{}",
+        stdout(&again)
+    );
+}
+
+/// KAIROS-T-0707: a checkout with no `origin` gets a `path` entry for the
+/// top of the checkout, also from a subfolder.
+#[test]
+fn a_checkout_with_no_origin_gets_a_path_entry() {
+    let sandbox = Sandbox::new();
+    let clone = sandbox.checkout(&sandbox.work(), "scratch", None);
+    let sub = clone.join("notes");
+    std::fs::create_dir_all(&sub).unwrap();
+    let output = sandbox.run_in(&sub, &["config", "project", "--tenant", "local", "--json"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let added: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(same(added["path"].as_str().unwrap(), &clone), "{added}");
+    let show = sandbox.show(&sub);
+    assert_eq!(show["bound"], true, "{show}");
+    assert_eq!(show["remote"], Value::Null);
+    assert_eq!(show["values"]["tenant"]["value"], "local");
 }

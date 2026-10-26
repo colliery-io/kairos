@@ -2,7 +2,7 @@
 title: "Read your notifications"
 ---
 
-This page describes Kairos 0.18.0.
+This page describes Kairos 0.18.1.
 
 Kairos tells you about events of your work. The bell in the top bar of the
 web app shows the number of notifications that you did not read.

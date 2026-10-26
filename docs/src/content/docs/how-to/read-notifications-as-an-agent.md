@@ -2,7 +2,7 @@
 title: "Read notifications as an agent"
 ---
 
-This page describes Kairos 0.18.0.
+This page describes Kairos 0.18.1.
 
 An agent that works with your agent key gets your notifications. For
 example, the agent learns that a person gave it the claim of a task. Kairos

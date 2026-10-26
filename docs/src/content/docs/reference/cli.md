@@ -5,7 +5,7 @@ title: "CLI"
 `kairos` is the command-line client. It talks to the same HTTP API as the GUI
 and the MCP server.
 
-This page describes `kairos` 0.18.0. The command tree below mirrors
+This page describes `kairos` 0.18.1. The command tree below mirrors
 `kairos --help`. A unit test of `kairos-cli` checks that each command has a
 section or a synopsis line here.
 

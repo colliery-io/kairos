@@ -212,6 +212,18 @@ pub fn wiring_warning(file: &str) -> String {
     )
 }
 
+/// [`wiring_warning`] on stderr when the file gives a value of `binding`,
+/// once per process (KAIROS-T-0710): each command that reads the binding,
+/// not only `config show` and the hooks.
+pub fn warn_wiring_once(binding: &Binding) {
+    static SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if let Some(file) = wiring_file(binding)
+        && !SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed)
+    {
+        eprintln!("{}", wiring_warning(&file));
+    }
+}
+
 /// The values of the binding that `.claude/kairos.local.md` gives.
 fn wiring_values(binding: &Binding) -> Values {
     let mut values = Values::default();

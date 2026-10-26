@@ -56,6 +56,7 @@ pub fn client_for(
     common: &Common,
     binding: &project_config::Binding,
 ) -> Result<(KairosClient, String), CliError> {
+    crate::commands::config::warn_wiring_once(binding);
     let timeout = kairos_client::timeout_from_env()?;
     let path = credentials::credentials_path()?;
     let env = auth::Env::from_process();

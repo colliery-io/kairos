@@ -438,6 +438,7 @@ fn login_tenant(
 /// (KAIROS-T-0706); before, the settings file alone was used.
 fn bound_settings(root: &Path) -> Result<HashMap<String, String>, String> {
     crate::project_config::binding(root)
+        .inspect(crate::commands::config::warn_wiring_once)
         .map(|b| b.as_settings())
         .map_err(|e| e.to_string())
 }

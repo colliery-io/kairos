@@ -56,10 +56,9 @@ use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 
 use commands::admin::AdminCommand;
+use commands::adr_check::AdrsCli;
 use commands::boards::BoardsCommand;
-use commands::entities::{
-    AdrsCommand, DocumentsCommand, InitiativesCommand, StrategiesCommand, TasksCommand,
-};
+use commands::entities::{DocumentsCommand, InitiativesCommand, StrategiesCommand, TasksCommand};
 use commands::grants::GrantsCommand;
 use commands::keys::KeysCommand;
 use commands::members::MembersCommand;
@@ -178,9 +177,9 @@ enum Command {
     /// Supporting documents (attached to a workflow item)
     #[command(subcommand)]
     Documents(DocumentsCommand),
-    /// Architecture Decision Records
-    #[command(subcommand)]
-    Adrs(AdrsCommand),
+    /// Architecture Decision Records, and the check of their citations in a tree
+    #[command(subcommand, visible_alias = "adr")]
+    Adrs(AdrsCli),
     /// Search and traverse all entity types (POST /api/search)
     Search(Box<SearchArgs>),
     /// The activity log of the organization, newest first: filter by item,
@@ -225,7 +224,7 @@ enum Command {
     #[command(subcommand)]
     Templates(commands::meta::TemplatesCommand),
     /// Make a relationship: parent, blocks, informs, supports, supersedes,
-    /// impacts (a repository) or external (a URI)
+    /// amends, impacts (a repository) or external (a URI)
     Link(commands::links::LinkArgs),
     /// Remove a relationship that `kairos link` makes
     Unlink(commands::links::UnlinkArgs),
@@ -305,6 +304,10 @@ async fn run(command: Command) -> Result<ExitCode, CliError> {
     let check = makes_daily_check(&command);
     // `self-update --check` has an exit code of its own (KAIROS-T-0588).
     if let Command::SelfUpdate(args) = command {
+        return args.run().await;
+    }
+    // KAIROS-T-0701: a citation that fails exits 1 after the report.
+    if let Command::Adrs(AdrsCli::Check(args)) = command {
         return args.run().await;
     }
     let result = dispatch(command).await;
@@ -1544,7 +1547,10 @@ mod tests {
             let cli = Cli::try_parse_from(["kairos", "adrs", verb, "ACME-A-0001", "--confirm"])
                 .expect("adrs archive parses");
             match cli.command {
-                Command::Adrs(AdrsCommand::Archive(args)) => assert!(args.confirm),
+                Command::Adrs(AdrsCli::Item(item)) => match *item {
+                    commands::entities::AdrsCommand::Archive(args) => assert!(args.confirm),
+                    _ => panic!("expected adrs archive"),
+                },
                 _ => panic!("expected adrs archive"),
             }
         }

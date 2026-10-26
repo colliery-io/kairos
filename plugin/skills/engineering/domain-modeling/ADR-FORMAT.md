@@ -22,17 +22,34 @@ Only include these when they add genuine value. Most ADRs won't need them.
 - **Considered Options** — only when the rejected alternatives are worth remembering
 - **Consequences** — only when non-obvious downstream effects need to be called out
 
-Status lives in the system, not the content: the ADR's board column tracks its lifecycle, and revisiting a decision means creating a new ADR and `link_items` (`supersedes`) from the new one to the old — never rewriting the old one.
+Status lives in the system, not the content: the ADR's board column tracks its lifecycle. To revisit a decision, create a new ADR and never rewrite the old one (KAIROS-A-0069):
+
+- The new ADR changes a part of the old one, and the rest stays in force: `link_items` (`amends`) from the new one to the old. Name the part in the new ADR ("amends rule 6 of KAIROS-A-0021"). `get_item` of the old ADR lists its amendments, oldest first.
+- The new ADR replaces all of the old one: `link_items` (`supersedes`) from the new one to the old.
+
+## Revisit when, and the commit at acceptance
+
+Three metadata values of an ADR tell `kairos adrs check` when the decision needs a new look (KAIROS-A-0070). Set them with `set_metadata` on the ADR:
+
+- `accepted_commit`: the commit of the main branch when the ADR moves to Decided (`git rev-parse --short origin/main`). Set it at that move, each time. The check then flags the ADR when the files that cite it changed by many lines since that commit.
+- `revisit_when`: one sentence, when the decision rests on a fact that can change: "when a second forge is added", "when the tenant count passes 100". Skip it when nothing foreseeable would change the decision.
+- `revisit_on`: a date (YYYY-MM-DD), only when the fact has a date: a contract end, a deprecation, a trial period. From that day the check flags the ADR.
+
+A flag is a reason to read the ADR again, not to change it. If the decision still holds, set a new `accepted_commit` or `revisit_on`. If it does not, write a new ADR: one that amends it when a part changes, one that supersedes it when all of it changes.
 
 ## When to offer an ADR
 
-All three of these must be true:
+Offer an ADR when a reader of the code would get the decision wrong without it. The reader can be a person or a later agent. That includes:
 
-1. **Hard to reverse** — the cost of changing your mind later is meaningful
-2. **Surprising without context** — a future reader will look at the code and wonder "why on earth did they do it this way?"
-3. **The result of a real trade-off** — there were genuine alternatives and you picked one for specific reasons
+1. **A choice against a library default.** The reader expects the default and "fixes" the code.
+2. **A rejected option that will come back.** Someone will suggest it again in six months.
+3. **A decision of the user.** The code does not show why, and a later agent would undo it. Examples: the alias list of KAIROS-T-0673, the reference forms of KAIROS-T-0689.
 
-If a decision is easy to reverse, skip it — you'll just reverse it. If it's not surprising, nobody will wonder why. If there was no real alternative, there's nothing to record beyond "we did the obvious thing."
+Skip routine bug fixes. Skip the choice that any reader expects: there is nothing to record beyond "we did the obvious thing."
+
+## Cite it, do not copy it
+
+The code that depends on the decision cites the ADR by its short code: a code comment (`// KAIROS-A-0069: amend for part, supersede for all`) or the name or doc comment of a test. The citation does not repeat the reasoning. The ADR holds it, and a copy goes stale when the ADR is amended.
 
 ### What qualifies
 

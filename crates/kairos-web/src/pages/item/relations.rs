@@ -86,6 +86,8 @@ pub(super) fn choices(family: Family) -> Vec<Choice> {
     if family == Family::Adr {
         out.push(choice("supersedes", true, "supersedes", ADR));
         out.push(choice("supersedes", false, "is superseded by", ADR));
+        out.push(choice("amends", true, "amends", ADR));
+        out.push(choice("amends", false, "is amended by", ADR));
     }
     out
 }
@@ -316,7 +318,9 @@ mod tests {
                 "supports:in",
                 "informs:out",
                 "supersedes:out",
-                "supersedes:in"
+                "supersedes:in",
+                "amends:out",
+                "amends:in"
             ]
         );
         let initiative = choices(Family::Initiative);

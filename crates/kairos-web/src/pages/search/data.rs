@@ -789,7 +789,7 @@ pub struct GraphNode {
 pub struct GraphEdge {
     pub source_id: String,
     pub target_id: String,
-    /// `parent|supports|informs|supersedes|blocks`.
+    /// `parent|supports|informs|supersedes|amends|blocks`.
     pub relationship: String,
     pub depth: i32,
 }

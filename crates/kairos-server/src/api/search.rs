@@ -703,7 +703,7 @@ fn traverse_to_core(
                 enum_field(
                     r,
                     "traverse.relationships",
-                    "parent, supports, informs, supersedes, blocks",
+                    "parent, supports, informs, supersedes, amends, blocks",
                 )
             })
             .collect::<Result<Vec<core_search::SearchRelationship>, _>>()?,

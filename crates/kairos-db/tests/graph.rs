@@ -11,6 +11,8 @@
 //!   `relationship_add` activity rows in the S-0004 details format
 //! - rejected type combinations return the typed rule error carrying the
 //!   offending `(relationship, source_type, target_type)`
+//! - `amends` (KAIROS-A-0069): ADR to ADR only, no cycle, listed in the
+//!   order of the edges
 //! - cycle prevention: A-blocks-B-blocks-A rejected, transitive blocks
 //!   cycle rejected, a malformed pre-existing parent chain cannot be
 //!   closed into a loop, diamonds are allowed (not cycles)
@@ -325,6 +327,7 @@ fn relationship_graph_service() {
     };
     let a1 = make_adr(&mut conn, "ADR One");
     let a2 = make_adr(&mut conn, "ADR Two");
+    let a3 = make_adr(&mut conn, "ADR Three");
 
     // ---- allowed links across the matrix, with activity rows ------------------
     // parent: exactly the workflow hierarchy.
@@ -352,6 +355,11 @@ fn relationship_graph_service() {
     // supersedes: ADR replacement chain.
     graph::link_items(&mut conn, a2.id, a1.id, RelationshipType::Supersedes, alice)
         .expect("supersedes adr -> adr");
+    // amends (KAIROS-A-0069): two ADRs change parts of a1, a3 after a2.
+    graph::link_items(&mut conn, a2.id, a1.id, RelationshipType::Amends, alice)
+        .expect("amends adr -> adr");
+    graph::link_items(&mut conn, a3.id, a1.id, RelationshipType::Amends, alice)
+        .expect("a second amends of the same adr");
     // blocks: same-type and cross-type workflow dependencies.
     graph::link_items(&mut conn, t1.id, t2.id, RelationshipType::Blocks, alice)
         .expect("blocks task -> task");
@@ -361,7 +369,7 @@ fn relationship_graph_service() {
     let added = relationship_activity(&mut conn, ActivityAction::RelationshipAdd);
     assert_eq!(
         added.len(),
-        11,
+        13,
         "one relationship_add row per link: {added:?}"
     );
     for expected in [
@@ -371,6 +379,8 @@ fn relationship_graph_service() {
         "relationship:supports:ACME-S-0001->ACME-A-0001",
         "relationship:informs:ACME-D-0001->ACME-S-0001",
         "relationship:supersedes:ACME-A-0002->ACME-A-0001",
+        "relationship:amends:ACME-A-0002->ACME-A-0001",
+        "relationship:amends:ACME-A-0003->ACME-A-0001",
         "relationship:blocks:ACME-T-0001->ACME-T-0002",
     ] {
         assert!(
@@ -476,6 +486,25 @@ fn relationship_graph_service() {
         Task,
         alice,
     );
+    // amends is ADR -> ADR only (KAIROS-A-0069).
+    assert_rule_rejected(
+        &mut conn,
+        a1.id,
+        d1.id,
+        RelationshipType::Amends,
+        Adr,
+        Document,
+        alice,
+    );
+    assert_rule_rejected(
+        &mut conn,
+        t3.id,
+        t4.id,
+        RelationshipType::Amends,
+        Task,
+        Task,
+        alice,
+    );
     // blocks is workflow-items-only, both ends.
     assert_rule_rejected(
         &mut conn,
@@ -510,6 +539,42 @@ fn relationship_graph_service() {
         ),
         "A-blocks-B-blocks-A must be rejected: {direct:?}"
     );
+    // amends must not make a cycle (KAIROS-A-0069 rule 3): a3 amends a1,
+    // so a1 amends a3 closes it.
+    let amends_cycle = graph::link_items(&mut conn, a1.id, a3.id, RelationshipType::Amends, alice);
+    assert!(
+        matches!(
+            &amends_cycle,
+            Err(GraphError::CycleDetected {
+                relationship: RelationshipType::Amends,
+                ..
+            })
+        ),
+        "an amends cycle must be rejected: {amends_cycle:?}"
+    );
+    let message = amends_cycle.unwrap_err().to_string();
+    assert!(
+        message.starts_with("An amends edge from") && message.ends_with("must not make a cycle."),
+        "{message}"
+    );
+    // The amended ADR lists its amendments in the order of the edges.
+    let a1_edges = graph::relationships_for(&mut conn, a1.id).expect("edges of a1");
+    let amended_by: Vec<&str> = a1_edges
+        .incoming
+        .iter()
+        .filter(|n| n.relationship == RelationshipType::Amends)
+        .map(|n| n.short_code.as_str())
+        .collect();
+    assert_eq!(amended_by, ["ACME-A-0002", "ACME-A-0003"]);
+    let a3_edges = graph::relationships_for(&mut conn, a3.id).expect("edges of a3");
+    assert!(
+        a3_edges
+            .outgoing
+            .iter()
+            .any(|n| n.relationship == RelationshipType::Amends && n.id == a1.id),
+        "{a3_edges:?}"
+    );
+
     // Transitive: t1 -> t2 -> t3, then t3 -> t1.
     graph::link_items(&mut conn, t2.id, t3.id, RelationshipType::Blocks, alice)
         .expect("blocks t2 -> t3");

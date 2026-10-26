@@ -190,6 +190,7 @@ pub(super) fn structure(report: &BuildReport, elapsed: Duration) -> Value {
             "made": report.token_vectors.made,
             "reused": report.token_vectors.reused,
         },
+        "adr_citations": report.citations,
         "seconds": elapsed.as_secs_f64(),
     })
 }
@@ -345,6 +346,31 @@ pub(super) fn references(
     Ok(Value::Object(out))
 }
 
+/// The `--json` object of `references` for an ADR short code
+/// (KAIROS-T-0703): the envelope of the places that cite it, and the code.
+pub(super) fn citations(
+    index: &kairos_index::Index,
+    code: &str,
+    limit: usize,
+) -> Result<Value, IndexError> {
+    let places = index.adr_citations(code)?;
+    let items = places
+        .iter()
+        .map(|p| {
+            json!({
+                "file": p.file,
+                "line": p.line,
+                "col": p.col,
+                "context": p.context,
+                "symbol": p.symbol.as_ref().map(symbol),
+            })
+        })
+        .collect();
+    let mut out = envelope(items, places.len(), limit);
+    out.insert("adr".into(), json!(code));
+    Ok(Value::Object(out))
+}
+
 /// What the index has for the uses of a symbol. Pure.
 fn coverage(c: Coverage) -> Value {
     match c {
@@ -400,6 +426,7 @@ mod tests {
             }],
             token_vectors: Default::default(),
             refs: 0,
+            citations: 3,
         };
         let v = structure(&report, Duration::from_secs(2));
         assert_eq!(v["files"], 10);
@@ -409,6 +436,7 @@ mod tests {
         assert_eq!(v["scip"][0]["language"], "python");
         assert_eq!(v["scip"][0]["documents"], 4);
         assert_eq!(v["scip_warnings"][0]["language"], "go");
+        assert_eq!(v["adr_citations"], 3);
         assert_eq!(v["seconds"], 2.0);
     }
 

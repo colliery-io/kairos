@@ -1,0 +1,24 @@
+{
+  "about": "The examples of an ADR short code. The Rust rule (kairos_index::codes_in, which kairos adrs check and the code index use) and the pattern of adr_context.py both read this file in their tests, so the two stay equal.",
+  "examples": [
+    {"text": "// KAIROS-A-0031: the exit codes.", "codes": ["KAIROS-A-0031"]},
+    {"text": "see (ACME-A-0002) and WEB2-A-12345, KAIROS-A-0031.", "codes": ["ACME-A-0002", "WEB2-A-12345", "KAIROS-A-0031"]},
+    {"text": "`K8S-A-0001`", "codes": ["K8S-A-0001"]},
+    {"text": "K-A-0031", "codes": ["K-A-0031"]},
+    {"text": "x/KAIROS-A-0001", "codes": ["KAIROS-A-0001"]},
+    {"text": "KAIROS-A-0065, GQLITE-A-0002", "codes": ["KAIROS-A-0065", "GQLITE-A-0002"]},
+    {"text": "KAIROS-A-0001.KAIROS-A-0002", "codes": ["KAIROS-A-0001", "KAIROS-A-0002"]},
+    {"text": "KAIROS-T-0031", "codes": []},
+    {"text": "kairos-a-0031", "codes": []},
+    {"text": "KAIROS-A-031", "codes": []},
+    {"text": "KAIROS-A-0031x", "codes": []},
+    {"text": "KAIROS-A-0031_", "codes": []},
+    {"text": "xKAIROS-A-0031", "codes": []},
+    {"text": "_KAIROS-A-0031", "codes": []},
+    {"text": "x-KAIROS-A-0031", "codes": []},
+    {"text": "KAIROS-A-", "codes": []},
+    {"text": "KAIROS-A-A-0001", "codes": []},
+    {"text": "1KAIROS-A-0031 is not a code", "codes": []},
+    {"text": "retry_is_safe_kairos_a_0065", "codes": []}
+  ]
+}

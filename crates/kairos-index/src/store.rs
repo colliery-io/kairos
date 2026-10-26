@@ -49,6 +49,9 @@ pub struct Split {
     pub keys: Vec<String>,
     /// The model of the vectors of the pool, as `provider/model/dimension`.
     pub vector_model: Option<String>,
+    /// The ADRs that the code cites (KAIROS-T-0703), by code. The structure
+    /// keeps each place; the server keeps these counts.
+    pub citations: Vec<crate::CitedAdr>,
 }
 
 /// Read the index file at `db` in 2 parts. The file is not changed. A file
@@ -70,6 +73,7 @@ pub fn split(db: &Path) -> Result<Split, IndexError> {
     let pool = pool_rows(&conn)?;
     let keys = used_keys(&conn)?;
     let vector_model = vector_model(&conn)?;
+    let citations = crate::citations::cited(&conn)?;
     conn.execute("DELETE FROM summaries", [])?;
     // The parse cache is local (KAIROS-T-0297), and so is the record of the
     // base pool that a checkout took (KAIROS-T-0355).
@@ -91,6 +95,7 @@ pub fn split(db: &Path) -> Result<Split, IndexError> {
         pool,
         keys,
         vector_model,
+        citations,
     })
 }
 

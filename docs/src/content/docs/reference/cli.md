@@ -46,7 +46,7 @@ Command groups, each detailed below:
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | API or validation error: not found, forbidden, conflict, invalid transition, bad input. A transport failure: the deployment or the OIDC issuer gave no answer, also during a token refresh. Also the case of several cached deployments with no `--url`. |
+| 1 | API or validation error: not found, forbidden, conflict, invalid transition, bad input. A transport failure: the deployment or the OIDC issuer gave no answer, also during a token refresh. Also the case of several cached deployments with no `--url`. `adrs check`: a citation fails (the report is on stdout). |
 | 2 | Authentication error: no cached credentials, expired or rejected credentials, a token refresh that the issuer refused, an expired local session, a rejected email and password, HTTP 401, a corrupted credential cache. |
 | 3 | `self-update --check`: the server is newer than the CLI. |
 | 64 | Usage error: an argument or a command that this CLI does not know, a missing argument, two options that exclude each other. The message is the one of the argument parser. An older CLI exits with this code for a new option. |
@@ -326,6 +326,10 @@ differ.
 | `archive` (alias `delete`) | yes | yes | yes | yes | yes |
 | `purge` | no | no | yes | no | no |
 | `restore` | yes | yes | yes | yes | yes |
+| `check` | no | no | no | no | yes |
+
+`adrs check` checks the ADR citations of a tree; see
+[`adrs check`](#adrs-check). `adr` is an alias of the noun `adrs`.
 
 `documents` has no `transition` verb: documents have no board placement, and
 carry an editorial lifecycle instead of a column. `documents lifecycle` sets
@@ -456,7 +460,8 @@ In the text output, the command prints three more lists before the content
 
 An empty list prints `-`. The labels of `relationships` are `parent`,
 `child`, `blocked by`, `blocks`, `supported by`, `supports`, `informed by`,
-`informs`, `superseded by` and `supersedes`. A neighbour has the marks
+`informs`, `superseded by`, `supersedes`, `amended by` and `amends`. A
+neighbour has the marks
 `[archived]`, `[cancelled]` or `[done]`. For example:
 
 ```text
@@ -1047,6 +1052,105 @@ with `tasks archive`. Kairos refuses a live task with `TASK_LIVE`.
 You need the `purge` capability on the board of the task. Team membership does
 not give it, and an organization admin has it.
 
+### `adrs check`
+
+```
+kairos adrs check [PATH]... [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `[PATH]...` | path | `.` | The files and folders to check. |
+| `--prefix <PREFIX>` | string | all | Check only the codes with this prefix, for example `KAIROS`. More than one is allowed. |
+| `--snapshot <FILE>` | path | none | Read the states of the ADRs from this file, not from the deployment. |
+| `--save-snapshot <FILE>` | path | none | Write the states of the cited ADRs to this file, for a later `--snapshot`. |
+| `--stale-lines <N>` | integer | 50 | Flag an ADR when the files that cite it changed by this count of lines (added and removed) since its `accepted_commit`. |
+
+Finds each ADR short code (for example `KAIROS-A-0031`) in the files of the
+paths. Gives a finding for each citation. The walk skips the files that git
+ignores and the hidden folders. It also skips a file that is not UTF-8 or is
+larger than 2 MiB.
+
+A code is an upper-case prefix, `-A-`, and four digits or more. A letter, a
+digit, `_` or `-` just before the code makes it part of a longer word. A
+letter, a digit or `_` just after the code does the same. The code index and
+the plugin hook `adr_context.py` use the same rule. The
+check reads each text of a file, also the strings and the prose. It does not
+read the snake-case names of tests (`retry_kairos_a_0065`), as the code index
+does.
+
+| Finding | Severity | Meaning |
+|---|---|---|
+| `missing` | fail | No ADR has the code. |
+| `archived` | fail | The ADR is archived. |
+| `not_in_snapshot` | fail | The snapshot of `--snapshot` has no state for the code. Save the snapshot again. |
+| `superseded` | warn | An ADR supersedes the cited ADR. The finding names the successor. |
+| `ended_column` | warn | The ADR is in the column Superseded, Rejected or Deprecated, and no ADR supersedes it. |
+| `retired_code` | warn | The citation uses a retired code. The finding names the current code. |
+| `revisit_due` | warn | The `revisit_on` date of the ADR is today or earlier. The finding gives `revisit_when`. |
+| `stale_code` | warn | The files that cite the ADR changed by `--stale-lines` lines or more since its `accepted_commit`. The finding names each file with its count. |
+| `amended` | info | ADRs amend the cited ADR. The finding names them. |
+| `commit_unknown` | info | The checkout does not have the `accepted_commit` of the ADR, so the check cannot compare. |
+
+The text output gives one line for each finding, `FILE:LINE: CODE SEVERITY:
+MESSAGE`, and then the counts. A citation of a live ADR gives no line.
+
+The states come from the deployment. The CLI reads the item graph of each cited
+ADR once. It also reads the metadata of each live ADR: `revisit_when`,
+`revisit_on` and `accepted_commit` (KAIROS-A-0070).
+
+With `--snapshot`, the states come from a file that `--save-snapshot` wrote.
+Then the command needs no deployment and no key. Use this in CI: CI must not
+have a key of a deployment. With no deployment and no `--snapshot`, the CLI
+skips the check: it says so on stderr and exits with 0. A snapshot with no
+ADRs is a placeholder: the CLI skips the check in the same way.
+
+The CI of the kairos repository runs the check on the committed snapshot
+`.github/adr-snapshot.json`. The snapshot is in a hidden folder, so the walk
+does not read its codes as citations:
+
+```
+kairos adrs check --prefix KAIROS --snapshot .github/adr-snapshot.json
+```
+
+To update the snapshot, log in to the deployment and run this from the root
+of the checkout. Commit the file. Do this when a change cites a new ADR. Do it
+also when an ADR gets a successor or an amendment, or goes to the archive:
+
+```
+kairos adrs check --prefix KAIROS --save-snapshot .github/adr-snapshot.json
+```
+
+For `stale_code`, the CLI runs `git diff --numstat <accepted_commit> -- <file>`
+in the folder of each citing file. The diff is local, also with `--snapshot`.
+
+The exit code is 0 when no citation fails, also with warnings or a skipped
+check. It is 1 when a citation fails, and 2 for an error of the login. With
+`--json`, the report is one JSON object on stdout, also when a citation fails:
+
+```json
+{
+  "source": "deployment",
+  "skipped": false,
+  "ok": false,
+  "summary": {"citations": 3, "adrs": 2, "fail": 1, "warn": 1, "info": 0},
+  "citations": [
+    {"file": "src/main.rs", "line": 12, "code": "ACME-A-0002", "severity": "warn",
+     "findings": [{"severity": "warn", "reason": "superseded",
+                   "message": "The ADR ACME-A-0002 is superseded by ACME-A-0007. ..."}]}
+  ],
+  "adrs": [
+    {"code": "ACME-A-0002", "found": true, "current_code": "ACME-A-0002",
+     "title": "...", "status": "Superseded", "superseded_by": [{"code": "ACME-A-0007", "title": "..."}],
+     "amended_by": []}
+  ]
+}
+```
+
+`citations` has each citation, also the ones with no finding (`severity`
+`ok`). `adrs` has the state of each cited ADR. A skipped check has `source`
+`none`, `skipped` true and a `message`.
+
 ### `<noun> restore`
 
 ```
@@ -1119,7 +1223,7 @@ kairos link <SOURCE> <RELATIONSHIP> <TARGET> [--label <TEXT>] [OPTIONS]
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<SOURCE>` | string | required | The short code of the source item. |
-| `<RELATIONSHIP>` | relationship | required | `parent`, `blocks`, `informs`, `supports`, `supersedes`, `impacts` or `external`. |
+| `<RELATIONSHIP>` | relationship | required | `parent`, `blocks`, `informs`, `supports`, `supersedes`, `amends`, `impacts` or `external`. |
 | `<TARGET>` | string | required | The short code of the target item. For `impacts`, a repository (slug or UUID). For `external`, a URI. |
 | `--label` | string | none | The label of an external reference, at most 200 characters. Only with `external`. |
 
@@ -1133,11 +1237,12 @@ The command makes a relationship of an item (KAIROS-T-0591). `<SOURCE>` and
 | `informs` | document, ADR or task | strategy, initiative or task | The source informs the target. A task informs a task only. |
 | `supports` | strategy, initiative or task | document or ADR | The target supports the source. |
 | `supersedes` | ADR | ADR | The source replaces the target. |
+| `amends` | ADR | ADR | The source changes a part of the target (KAIROS-A-0069). |
 | `impacts` | document or ADR | repository | The source is about the repository. It gives no right. |
 | `external` | each type | URI | The item links to a document outside Kairos. |
 
-The server checks the types of the two ends, and refuses a cycle of `parent`
-or `blocks`. You must be able to edit one of the two items. For `impacts` and
+The server checks the types of the two ends, and refuses a cycle of `parent`,
+`blocks` or `amends`. You must be able to edit one of the two items. For `impacts` and
 `external`, you must be able to edit the source. An item has one parent. To
 change it, use [`set-parent`](#initiatives-set-parent-tasks-set-parent).
 
@@ -1312,7 +1417,7 @@ Traversal:
 |---|---|---|---|
 | `--from <SHORT_CODE>` | string | none | Starting entity, by short code. |
 | `--from-id <UUID>` | UUID | none | Starting entity, by id. |
-| `--relationships <REL>` | `parent` \| `supports` \| `informs` \| `supersedes` \| `blocks` | required with `--from` or `--from-id` | Relationship types to follow. Repeatable. |
+| `--relationships <REL>` | `parent` \| `supports` \| `informs` \| `supersedes` \| `amends` \| `blocks` | required with `--from` or `--from-id` | Relationship types to follow. Repeatable. |
 | `--direction <DIRECTION>` | `outbound` \| `inbound` \| `both` | `outbound` | Edge direction. |
 | `--depth <N>` | integer 1–10 | required with `--from` or `--from-id` | Maximum traversal depth. |
 
@@ -2976,7 +3081,7 @@ kairos index references <SYMBOL> [--root <ROOT>] [--file <FILE>] [--line <LINE>]
 
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
-| `<SYMBOL>` | string | required | A name, `Type::name` or `Type.name`, or a candidate `name (file:line)`. |
+| `<SYMBOL>` | string | required | A name, `Type::name` or `Type.name`, or a candidate `name (file:line)`. Or an ADR short code, as `KAIROS-A-0065`. |
 | `--file <FILE>` | path | none | The file of the symbol, when more than one symbol has the name. |
 | `--line <LINE>` | integer | none | A line of the symbol, when more than one symbol of one file has the name. |
 | `--possible` | flag | off | Also show the calls by a name that more than one function has. |
@@ -2984,6 +3089,11 @@ kairos index references <SYMBOL> [--root <ROOT>] [--file <FILE>] [--line <LINE>]
 
 Shows each use of a symbol. In Rust, a use is a type, a field, an import or
 a call. In the other languages, a use is a call.
+
+With an ADR short code, the command shows each place that cites the ADR.
+A place is a comment, a doc string or the name of a test. Each place has
+its line and its symbol. The command then takes no `--file`, `--line` or
+`--possible`.
 
 ### `kairos index upload`
 

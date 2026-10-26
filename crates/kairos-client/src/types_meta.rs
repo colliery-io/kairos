@@ -60,7 +60,7 @@ pub struct RelatedItem {
 /// All of an item's neighbors under ONE relationship type in one direction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct RelationshipGroup {
-    /// `parent|supports|informs|supersedes|blocks`.
+    /// `parent|supports|informs|supersedes|amends|blocks`.
     pub relationship: String,
     /// Hydrated neighbors, in edge-creation order.
     pub items: Vec<RelatedItem>,
@@ -155,7 +155,7 @@ pub struct CreateRelationshipRequest {
     pub source_short_code: String,
     /// Short code of the edge's target item.
     pub target_short_code: String,
-    /// `parent|supports|informs|supersedes|blocks`.
+    /// `parent|supports|informs|supersedes|amends|blocks`.
     pub relationship: String,
 }
 
@@ -215,7 +215,7 @@ pub struct Relationship {
     pub source_short_code: String,
     /// The current short code of the target (see `source_short_code`).
     pub target_short_code: String,
-    /// `parent|supports|informs|supersedes|blocks`.
+    /// `parent|supports|informs|supersedes|amends|blocks`.
     pub relationship: String,
     /// RFC 3339.
     pub created_at: String,

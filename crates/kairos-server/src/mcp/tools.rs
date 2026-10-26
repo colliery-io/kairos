@@ -497,7 +497,7 @@ pub struct SearchFilterParams {
 pub struct SearchTraverseParams {
     /// The starting item's short code (e.g. "ACME-S-0001").
     pub from: String,
-    /// Relationship types to follow: parent | supports | informs | supersedes | blocks.
+    /// Relationship types to follow: parent | supports | informs | supersedes | amends | blocks.
     pub relationships: Vec<String>,
     /// Edge direction: outbound | inbound | both.
     pub direction: String,
@@ -1027,7 +1027,7 @@ pub struct LinkItemsParams {
     /// Target item's short code. For `impacts`: the slug or the UUID of a
     /// repository. For `external`: a URI (http, https or mailto).
     pub target: String,
-    /// parent | supports | informs | supersedes | blocks | impacts | external.
+    /// parent | supports | informs | supersedes | amends | blocks | impacts | external.
     pub relationship: String,
     /// For `external` only: the label of the reference, at most 200
     /// characters ("RFC: zen as the policy engine, accepted 2026-10-05").
@@ -1049,7 +1049,7 @@ pub struct UnlinkItemsParams {
     /// Target item's short code. For `impacts`: the slug or the UUID of a
     /// repository. For `external`: the URI of the reference.
     pub target: String,
-    /// parent | supports | informs | supersedes | blocks | impacts | external.
+    /// parent | supports | informs | supersedes | amends | blocks | impacts | external.
     pub relationship: String,
 }
 
@@ -1864,7 +1864,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "One repository: owner team and its delivery board, open task count, default branch and where it comes from, the team's `description` of how to work in it (`update_repository` sets it; read it before working in an unfamiliar repository), the documents and ADRs that impact it, the other ADRs of the owner team (newest first, 50 at most, none superseded; read each with `get_item` before planning), its open branches and pull requests with their items and those not linked to an item (50 of each at most; `offset` gives the next part), the forge filters, and the lines read token, write-back, code index build and code index breaker (a tripped breaker stops builds until `rebuild_code_index`). `repository` is a slug or UUID; `include_deleted: true` adds archived documents and ADRs."
+        description = "One repository: owner team and its delivery board, open task count, default branch and where it comes from, the team's `description` of how to work in it (`update_repository` sets it; read it before working in an unfamiliar repository), the documents and ADRs that impact it, the other ADRs of the owner team (newest first, 50 at most, none superseded; read each with `get_item` before planning), the ADRs that the code cites (from the newest code index of the default branch, with the count of places and files), its open branches and pull requests with their items and those not linked to an item (50 of each at most; `offset` gives the next part), the forge filters, and the lines read token, write-back, code index build and code index breaker (a tripped breaker stops builds until `rebuild_code_index`). `repository` is a slug or UUID; `include_deleted: true` adds archived documents and ADRs."
     )]
     pub async fn get_repository(
         &self,
@@ -1993,6 +1993,16 @@ impl KairosMcp {
                     rendered.team.slug
                 ));
             }
+            // KAIROS-T-0703: the ADRs that the code cites, from the newest
+            // index of the default branch.
+            let cited = kairos_db::code_indexes::branch_citations(
+                conn,
+                repo_id,
+                &rendered.default_branch,
+                kairos_index::store::VERSION_PREFIX_BYTES as i32,
+            )
+            .map_err(ApiError::internal)?;
+            out.push_str(&cited_adrs_text(&rendered.default_branch, cited.as_ref()));
             out.push_str("\n## In flight\n");
             if in_flight.is_empty() {
                 out.push_str(&empty_page_text(
@@ -4481,7 +4491,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create an edge between two items by short code. The edge goes from `source` to `target`. The types of the two items must agree with this table; a `parent` or a `blocks` edge must not make a cycle.\n\n| relationship | source | target |\n|---|---|---|\n| parent | strategy | initiative |\n| parent | initiative | task |\n| supports | strategy, initiative, task | document, adr |\n| informs | document, adr | strategy, initiative, task |\n| informs | task | task |\n| supersedes | adr | adr |\n| blocks | strategy, initiative, task | strategy, initiative, task |\n| impacts | document, adr | repository (slug or UUID) |\n| external | any item | URI (http, https or mailto) |\n\nThere is no other relationship (no `relates_to`). `supports` goes from the work to the document that supports it. `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it. Send a `request_key` when you may retry this call."
+        description = "Create an edge between two items by short code. The edge goes from `source` to `target`. The types of the two items must agree with this table; a `parent`, a `blocks` or an `amends` edge must not make a cycle.\n\n| relationship | source | target |\n|---|---|---|\n| parent | strategy | initiative |\n| parent | initiative | task |\n| supports | strategy, initiative, task | document, adr |\n| informs | document, adr | strategy, initiative, task |\n| informs | task | task |\n| supersedes | adr | adr |\n| amends | adr | adr |\n| blocks | strategy, initiative, task | strategy, initiative, task |\n| impacts | document, adr | repository (slug or UUID) |\n| external | any item | URI (http, https or mailto) |\n\nThere is no other relationship (no `relates_to`). `supports` goes from the work to the document that supports it. `amends`: the source ADR changes a part of the target ADR; `supersedes`: it replaces all of it (KAIROS-A-0069). `blocks`: the target waits for the source; add it when a task must wait, none between parallel tasks. You need to be able to edit one of the two: you created it, or you hold `manage_<type>` on its board. A `blocks` edge needs the target: if you can edit only the source, the call makes a proposal, and the answer names it and who can confirm it. `impacts` goes from a document or an ADR (`source`) to a repository (`target`: slug or UUID): it says what the item is about and gives no right. A task links to a repository with `set_repository`. An item has one parent: `set_parent` replaces it. `external` links any item (`source`) to a URI (`target`: http, https or mailto) with an optional `label`: an RFC, a design page or an issue that Kairos does not hold; `get_item` and `related_work` show it. Send a `request_key` when you may retry this call."
     )]
     pub async fn link_items(
         &self,
@@ -8025,6 +8035,10 @@ fn relationship_hint(value: &str) -> &'static str {
         "supported_by" => " Use supports, and swap source and target.",
         "superseded_by" | "replaced_by" => " Use supersedes, and swap source and target.",
         "replaces" => " Use supersedes.",
+        "amended_by" => " Use amends, and swap source and target.",
+        "amend" | "amendment" => {
+            " Use amends: an adr changes a part of another adr. Use supersedes when it replaces all of it."
+        }
         "child_of" => " Use parent, and swap source and target: the source is the parent.",
         "child" | "parent_of" | "contains" | "has_child" => {
             " Use parent. The source is the parent, and the target is the child."
@@ -8036,6 +8050,77 @@ fn relationship_hint(value: &str) -> &'static str {
         "impact" => " Use impacts.",
         _ => "",
     }
+}
+
+/// The most ADRs that the section "ADRs that the code cites" of
+/// `get_repository` lists (KAIROS-T-0703).
+const CITED_ADRS_LIMIT: usize = 100;
+
+/// The section "ADRs that the code cites" of `get_repository`
+/// (KAIROS-T-0703): each ADR short code in the comments, the doc strings
+/// and the test names of the newest index of `branch`, with the ADR of the
+/// code, the count of its places and of its files.
+fn cited_adrs_text(
+    branch: &str,
+    cited: Option<&kairos_db::code_indexes::BranchCitations>,
+) -> String {
+    let mut out = String::from("\n## ADRs that the code cites\n");
+    let Some(cited) = cited else {
+        out.push_str(&format!(
+            "(the branch {branch} has no code index, so the citations are not known)\n"
+        ));
+        return out;
+    };
+    let short = &cited.commit_sha[..cited.commit_sha.len().min(12)];
+    if kairos_index::store::structure_version(&cited.prefix)
+        .is_some_and(|found| found < kairos_index::SCHEMA_VERSION)
+    {
+        out.push_str(&format!(
+            "(the newest code index of {branch}, at {short}, is from before the index read the citations; the next build of the repository reads them)\n"
+        ));
+        return out;
+    }
+    out.push_str(&format!(
+        "The ADR short codes in the comments, the doc strings and the test names of the newest code index of {branch}, at {short}. The tool `references` of kairos-code, with the short code as `symbol`, gives each place.\n"
+    ));
+    if cited.adrs.is_empty() {
+        out.push_str("(none)\n");
+    }
+    for adr in cited.adrs.iter().take(CITED_ADRS_LIMIT) {
+        let places = format!(
+            "{} {} in {} {}",
+            adr.places,
+            if adr.places == 1 { "place" } else { "places" },
+            adr.files,
+            if adr.files == 1 { "file" } else { "files" }
+        );
+        match &adr.title {
+            Some(title) => out.push_str(&format!(
+                "- {} — {title}{}{} · {places}\n",
+                adr.code,
+                adr.column_name
+                    .as_deref()
+                    .map(|c| format!(" · column: {c}"))
+                    .unwrap_or_default(),
+                if adr.archived_at.is_some() {
+                    " [archived]"
+                } else {
+                    ""
+                },
+            )),
+            None => out.push_str(&format!(
+                "- {} — no ADR of this organization has this code · {places}\n",
+                adr.code
+            )),
+        }
+    }
+    if cited.adrs.len() > CITED_ADRS_LIMIT {
+        out.push_str(&format!(
+            "- {} more.\n",
+            cited.adrs.len() - CITED_ADRS_LIMIT
+        ));
+    }
+    out
 }
 
 /// One line of a document or an ADR in a section of `get_repository`
@@ -8519,6 +8604,7 @@ fn relationship_lines(
             RelationshipType::Supports => push("supporting docs", entry),
             RelationshipType::Informs => push("informs", entry),
             RelationshipType::Supersedes => push("supersedes", entry),
+            RelationshipType::Amends => push("amends", entry),
             RelationshipType::Blocks => push(blocks_label, entry),
         }
     }
@@ -8529,6 +8615,9 @@ fn relationship_lines(
             RelationshipType::Supports => push("supports", entry),
             RelationshipType::Informs => push("informed by", entry),
             RelationshipType::Supersedes => push("superseded by", entry),
+            // KAIROS-A-0069 rule 4: the amendments in the order of the
+            // edges, oldest first (`neighbors_of` orders by `created_at`).
+            RelationshipType::Amends => push("amended by", entry),
             RelationshipType::Blocks => push(blocked_by_label, entry),
         }
     }
@@ -9552,7 +9641,7 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
                         enum_field(
                             r,
                             "traverse.relationships",
-                            "parent, supports, informs, supersedes, blocks",
+                            "parent, supports, informs, supersedes, amends, blocks",
                         )
                     })
                     .collect::<Result<Vec<core_search::SearchRelationship>, _>>()?,
@@ -10804,10 +10893,23 @@ mod t0677_tests {
         assert!(text.contains("swap source and target"), "{text}");
         let text = refusal("block");
         assert!(text.ends_with("Use blocks."), "{text}");
+        // KAIROS-A-0069: amends, and the other direction.
+        let text = refusal("amended_by");
+        assert!(
+            text.ends_with("Use amends, and swap source and target."),
+            "{text}"
+        );
+        let text = refusal("amend");
+        assert!(
+            text.contains("Use amends") && text.contains("Use supersedes"),
+            "{text}"
+        );
         // A value with no near relationship gets the list only.
         let text = refusal("is_about");
         assert!(
-            text.ends_with("parent, supports, informs, supersedes, blocks, impacts, external."),
+            text.ends_with(
+                "parent, supports, informs, supersedes, amends, blocks, impacts, external."
+            ),
             "{text}"
         );
     }

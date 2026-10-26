@@ -57,15 +57,19 @@ When a term is resolved, update `CONTEXT.md` right there. Don't batch these up �
 
 `CONTEXT.md` should be totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else.
 
-### Offer ADRs sparingly
+### Offer an ADR when a reader would get it wrong
 
-Only offer to create an ADR when all three are true:
+Offer an ADR when a reader of the code would get the decision wrong without it. The reader can be a person or a later agent. That includes:
 
-1. **Hard to reverse** — the cost of changing your mind later is meaningful
-2. **Surprising without context** — a future reader will wonder "why did they do it this way?"
-3. **The result of a real trade-off** — there were genuine alternatives and you picked one for specific reasons
+- **A choice against a library default.** The reader expects the default and "fixes" the code.
+- **A rejected option that will come back.** Someone will suggest it again.
+- **A decision of the user.** The code does not show why. Examples: the alias list of KAIROS-T-0673, the reference forms of KAIROS-T-0689.
 
-If any of the three is missing, skip the ADR. Create it per [ADR-FORMAT.md](./ADR-FORMAT.md).
+Skip routine bug fixes. Skip the choice that any reader expects. Create the ADR per [ADR-FORMAT.md](./ADR-FORMAT.md).
+
+### Cite, do not copy
+
+A code comment or a test that depends on the decision names the ADR short code, for example `// KAIROS-A-0069`. It does not repeat the reasoning. The ADR holds the reason; the citation leads the reader to it.
 
 ## Record this decision
 
@@ -75,6 +79,6 @@ One short path when the user says "record this decision", or when `implement` fi
 2. Draft from the conversation: the title (the decision in one clause), the context (what was true, what forced the choice), the decision, the consequences (what changes for the code and the people). Show the draft to the user. Keep the words the conversation used.
 3. `create_item` with `item_type: adr`, `board: <adr board>`, `parent: <the task or the initiative that produced it>`, the draft as `content` ([ADR-FORMAT.md](./ADR-FORMAT.md)).
 4. `link_items` with `impacts` from the ADR to each repository that it is about.
-5. A decision that changes an existing ADR: `link_items` with `supersedes` from the new ADR to the old one. The old one stays as it is.
+5. A decision that changes an existing ADR. It changes a part of it: `link_items` with `amends` from the new ADR to the old one, and the new ADR names the part. It replaces all of it: `link_items` with `supersedes` from the new ADR to the old one. The old one stays as it is (KAIROS-A-0069).
 6. Show the short code of the ADR, and write it on the task or the initiative.
 7. A spec or a plan that the decision needs is a document, not an ADR. `promote_note` with `kind: document` makes a draft. When the user agrees with the text, `set_lifecycle` with `lifecycle: published` publishes it. A document is not on a board, so `transition_item` does not move it.

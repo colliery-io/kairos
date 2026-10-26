@@ -399,6 +399,14 @@ jobs:
       - name: Gate 3 — angreal test unit
         run: angreal test unit
 
+      # KAIROS-T-0701: each KAIROS ADR that the tree cites exists, is not
+      # archived and is not superseded. CI has no key of a deployment: the
+      # states come from the committed snapshot. A snapshot with no ADRs is
+      # a placeholder, and the check is skipped. Save the snapshot again with
+      # `kairos adrs check --prefix KAIROS --save-snapshot .github/adr-snapshot.json`.
+      - name: The ADR citations of the tree
+        run: cargo run -q -p kairos-cli --bin kairos -- adrs check --prefix KAIROS --snapshot .github/adr-snapshot.json
+
       # KAIROS-T-0023 (A-0005 §6): the OpenAPI document is a CI artifact per
       # run. `write_spec_artifact` is a pure test (no services) that writes
       # the spec to target/openapi.json.

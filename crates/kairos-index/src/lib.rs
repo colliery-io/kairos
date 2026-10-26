@@ -24,6 +24,7 @@
 
 pub mod bedrock;
 mod calls;
+mod citations;
 mod duplicates;
 mod edges;
 mod extract;
@@ -62,6 +63,7 @@ use kairos_narsil::parser::LanguageParser;
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 
+pub use citations::{CitedAdr, codes_in, is_adr_code};
 pub use duplicates::{
     DEFAULT_MIN_LINES, DuplicateGroup, DuplicateKind, DuplicateOptions, Duplicates,
     MIN_NEAR_TOKENS, NEAR_THRESHOLD, SAME_IDEA_THRESHOLD,
@@ -69,9 +71,9 @@ pub use duplicates::{
 #[cfg(feature = "llama")]
 pub use llama::{LlamaModelFile, LlamaSummarizer, MAX_NEW_TOKENS};
 pub use query::{
-    CallEdge, Callees, Counts, Coverage, External, FileInfo, Lookup, ModuleInfo, NoSymbolCallee,
-    PathStep, Reference, References, SearchHit, SearchMode, SearchResult, SymbolInfo, SymbolSource,
-    TerraformFolder, TerraformModuleCall,
+    AdrCitation, CallEdge, Callees, Counts, Coverage, External, FileInfo, Lookup, ModuleInfo,
+    NoSymbolCallee, PathStep, Reference, References, SearchHit, SearchMode, SearchResult,
+    SymbolInfo, SymbolSource, TerraformFolder, TerraformModuleCall,
 };
 pub use rules::{Decision, Origin, RuleSet};
 pub use runners::{
@@ -119,6 +121,8 @@ pub struct BuildReport {
     /// The uses of symbols that SCIP gave, or that the base kept
     /// (KAIROS-T-0419).
     pub refs: usize,
+    /// The ADR citations of the code (KAIROS-T-0703).
+    pub citations: usize,
 }
 
 /// The token vectors of a build: made from the code, or reused from the
@@ -519,6 +523,7 @@ fn build(
         scip_warnings: Vec::new(),
         token_vectors: TokenVectorStats::default(),
         refs: 0,
+        citations: 0,
     };
     let cache = match parse {
         Parse::Changed => parse_cache::Reader::open(db)?,
@@ -668,7 +673,7 @@ fn build(
     let tx = conn.transaction()?;
     tx.execute_batch(
         "DELETE FROM edge_candidates; DELETE FROM edges; DELETE FROM scip_covered;
-         DELETE FROM refs; DELETE FROM refs_files;
+         DELETE FROM refs; DELETE FROM refs_files; DELETE FROM adr_citations;
          DELETE FROM symbols; DELETE FROM files; DELETE FROM modules;",
     )?;
     {
@@ -681,6 +686,11 @@ fn build(
                                   start_byte, end_byte, signature, tree_hash, is_test, token_vector,
                                   token_count)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        )?;
+
+        let mut insert_citation = tx.prepare(
+            "INSERT INTO adr_citations (file_id, code, symbol_id, line, col, context)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
 
         let mut parsed = Vec::new();
@@ -740,6 +750,18 @@ fn build(
                 });
             }
             report.symbols += symbols.len();
+            // The ADR citations (KAIROS-T-0703).
+            for c in citations::of_file(found, &p.file.text, &symbols) {
+                insert_citation.execute(params![
+                    file_id,
+                    c.code,
+                    c.symbol_id,
+                    c.line as i64,
+                    c.col as i64,
+                    c.context,
+                ])?;
+                report.citations += 1;
+            }
             parsed.push(edges::ParsedFile {
                 path: p.rel,
                 language,

@@ -728,7 +728,7 @@ Body of `POST /api/relationships`. The caller may edit the item at either end (t
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `relationship` | `string` | yes | `parent|supports|informs|supersedes|blocks`. |
+| `relationship` | `string` | yes | `parent|supports|informs|supersedes|amends|blocks`. |
 | `source_short_code` | `string` | yes | Short code of the edge's source item (KAIROS-A-0001 orientation). |
 | `target_short_code` | `string` | yes | Short code of the edge's target item. |
 
@@ -1217,7 +1217,7 @@ One typed directed edge between two returned nodes.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `depth` | `integer` | yes | Minimum view depth at which BOTH endpoints are visible. |
-| `relationship` | `string` | yes | `parent|supports|informs|supersedes|blocks`. |
+| `relationship` | `string` | yes | `parent|supports|informs|supersedes|amends|blocks`. |
 | `source_id` | `string` | yes | Source entity id (UUID). |
 | `target_id` | `string` | yes | Target entity id (UUID). |
 
@@ -2240,7 +2240,7 @@ A relationship edge, as returned by `POST /api/relationships`.
 |---|---|---|---|
 | `created_at` | `string` | yes | RFC 3339. |
 | `id` | `string` | yes | Edge id (UUID). |
-| `relationship` | `string` | yes | `parent|supports|informs|supersedes|blocks`. |
+| `relationship` | `string` | yes | `parent|supports|informs|supersedes|amends|blocks`. |
 | `source_id` | `string` | yes | Source entity id (UUID). |
 | `source_short_code` | `string` | yes | The current short code of the source. A retired code in the request follows to its item (KAIROS-T-0560), so this code can differ from the request. |
 | `target_id` | `string` | yes | Target entity id (UUID). |
@@ -2253,7 +2253,7 @@ All of an item's neighbors under ONE relationship type in one direction.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `items` | array of [`RelatedItem`](#relateditem) | yes | Hydrated neighbors, in edge-creation order. |
-| `relationship` | `string` | yes | `parent|supports|informs|supersedes|blocks`. |
+| `relationship` | `string` | yes | `parent|supports|informs|supersedes|amends|blocks`. |
 
 ## RemoveBoardMemberResponse
 
@@ -2538,7 +2538,7 @@ The `traverse` capability: recursive walk of the relationship graph from a start
 | `depth` | `integer`, nullable | no | Maximum traversal depth — required, `1..=10` (server-capped). Typed as optional so a missing depth is a field-level 400, not a parse error. |
 | `direction` | `string` | yes | Edge direction(s) to walk (`outbound|inbound|both`). |
 | `from` | [`SearchTraverseFrom`](#searchtraversefrom) | yes | The starting entity, identified by exactly one of `short_code`/`id`. |
-| `relationships` | array of `string` | yes | Relationship types to follow (non-empty; `parent|supports|informs|supersedes|blocks`). |
+| `relationships` | array of `string` | yes | Relationship types to follow (non-empty; `parent|supports|informs|supersedes|amends|blocks`). |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 

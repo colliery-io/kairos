@@ -481,7 +481,7 @@ pub fn manage_capability(item_type: crate::short_code::ItemType) -> &'static str
 /// is to create it or to remove it, when the principal may edit the item
 /// at EITHER end ([`may_edit_item`]). The rule is the same for each
 /// relationship type: `parent`, `blocks`, `supports`, `informs`,
-/// `supersedes`.
+/// `supersedes`, `amends`.
 ///
 /// Until COLLIERY-T-0228 `supports`, `informs` and `supersedes` needed the
 /// admin role, and `parent` and `blocks` looked at the creator of the
@@ -1194,6 +1194,7 @@ mod tests {
             Relationship::Supports,
             Relationship::Informs,
             Relationship::Supersedes,
+            Relationship::Amends,
         ] {
             assert_eq!(edge_create(relationship, true, false), EdgeCreate::Link);
             assert_eq!(edge_create(relationship, false, true), EdgeCreate::Link);

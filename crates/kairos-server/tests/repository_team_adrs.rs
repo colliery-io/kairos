@@ -207,10 +207,20 @@ fn put_in_column(conn: &mut PgConnection, short_code: &str, column: &str) {
     assert_eq!(changed, 1, "{short_code} to {column}");
 }
 
-#[tokio::test]
-async fn repository_lists_the_adrs_of_the_owner_team() {
-    let mut admin_conn = recreate_scratch_db(SCRATCH_DB);
-    let scratch_url = with_database(&common::admin_database_url(), SCRATCH_DB);
+/// A server on a new scratch database with the tenant `acme`, and its
+/// org admin `svc`: the admin connection (drop the database with it), the
+/// connection, the server, the client and the token of `svc`.
+async fn world(
+    scratch_db: &str,
+) -> (
+    common::ScratchConn,
+    PgConnection,
+    common::TestServer,
+    KairosClient,
+    String,
+) {
+    let admin_conn = recreate_scratch_db(scratch_db);
+    let scratch_url = with_database(&common::admin_database_url(), scratch_db);
     let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
     run_public_migrations(&mut conn).expect("running public migrations");
     provision_tenant(&mut conn, "acme", "Acme Inc").expect("provisioning acme");
@@ -245,6 +255,165 @@ async fn repository_lists_the_adrs_of_the_owner_team() {
         })
         .execute(&mut conn)
         .expect("granting membership");
+    (admin_conn, conn, server, svc, svc_token)
+}
+
+const CITED_HEADING: &str = "\n## ADRs that the code cites\n";
+
+/// The structure of an index of a folder with `src/lib.rs` = `text`, as
+/// the server keeps it, and the cited ADRs of it.
+fn index_of_text(text: &str) -> kairos_index::store::Split {
+    let dir = tempfile::tempdir().expect("a folder");
+    let root = dir.path().join("repo");
+    std::fs::create_dir_all(root.join("src")).expect("make src");
+    std::fs::write(root.join("src/lib.rs"), text).expect("write src/lib.rs");
+    let db = dir.path().join("index.db");
+    kairos_index::build_structure(&root, &db).expect("build the index");
+    kairos_index::store::split(&db).expect("split the index")
+}
+
+/// Store `split` as the index of `commit` of the branch main of `repo`.
+fn store_index(
+    conn: &mut PgConnection,
+    repo: Uuid,
+    commit: &str,
+    split: &kairos_index::store::Split,
+    structure: Vec<u8>,
+) {
+    diesel::sql_query("SET search_path TO org_acme, public")
+        .execute(conn)
+        .expect("pin the tenant");
+    kairos_db::code_indexes::put(
+        conn,
+        &kairos_db::code_indexes::NewCodeIndex {
+            repository_id: repo,
+            commit_sha: commit.to_string(),
+            ref_name: Some("main".into()),
+            source: "upload",
+            structure_bytes: structure.len() as i64,
+            structure,
+            summary_keys: 0,
+            vector_model: None,
+            created_by: None,
+            citations: split
+                .citations
+                .iter()
+                .map(|c| kairos_db::code_indexes::CitedCode {
+                    code: c.code.clone(),
+                    places: c.places as i32,
+                    files: c.files as i32,
+                })
+                .collect(),
+        },
+        &[],
+        &[],
+    )
+    .expect("store the index");
+}
+
+/// KAIROS-T-0703: `get_repository` lists the ADRs that the code of the
+/// newest index of the default branch cites, with the ADR of each code and
+/// the count of its places and files. A code that no ADR has is marked. An
+/// index from before the citations says so.
+#[tokio::test]
+async fn repository_lists_the_adrs_that_the_code_cites() {
+    let scratch = "kairos_repository_cited_adrs_t0703_test";
+    let (mut admin_conn, mut conn, server, svc, svc_token) = world(scratch).await;
+    let (platform, platform_adrs) = team(&svc, "platform", "PLAT").await;
+    repository(&svc, "app", &platform).await;
+    let detail = svc.get_repository("app").await.expect("the repository");
+    let repo: Uuid = detail.repository.id.parse().expect("a UUID");
+    assert_eq!(detail.repository.default_branch, "main");
+    let cited = adr(&svc, &platform_adrs, "Retries are safe").await;
+    put_in_column(&mut conn, &cited.short_code, "Decided");
+    let mut mcp = McpSession::open(&server.base_url, &svc_token).await;
+
+    // No index of the default branch: the citations are not known.
+    let (is_error, reply) = mcp
+        .call("get_repository", json!({"repository": "app"}))
+        .await;
+    assert!(!is_error, "{reply}");
+    assert_eq!(
+        section(&reply, CITED_HEADING),
+        "(the branch main has no code index, so the citations are not known)\n",
+        "{reply}"
+    );
+
+    // An index whose code cites the ADR 3 times and a code with no ADR once.
+    let code = &cited.short_code;
+    let split = index_of_text(&format!(
+        "//! The retry rules: {code}.\n\n\
+         /// A retried write is safe ({code}).\n\
+         pub fn retry() -> u32 {{\n\
+         \x20   // {code}, and PLAT-A-9999 that is not there.\n\
+         \x20   24\n\
+         }}\n"
+    ));
+    let a = "a".repeat(40);
+    store_index(&mut conn, repo, &a, &split, split.structure_gz.clone());
+    let (is_error, reply) = mcp
+        .call("get_repository", json!({"repository": "app"}))
+        .await;
+    assert!(!is_error, "{reply}");
+    assert_eq!(
+        section(&reply, CITED_HEADING),
+        format!(
+            "The ADR short codes in the comments, the doc strings and the test names of the \
+             newest code index of main, at aaaaaaaaaaaa. The tool `references` of kairos-code, \
+             with the short code as `symbol`, gives each place.\n\
+             - {code} — Retries are safe · column: Decided · 3 places in 1 file\n\
+             - PLAT-A-9999 — no ADR of this organization has this code · 1 place in 1 file\n"
+        ),
+        "{reply}"
+    );
+
+    // A second write of the commit replaces its rows.
+    let fewer = index_of_text(&format!("// {code}\npub fn retry() {{}}\n"));
+    store_index(&mut conn, repo, &a, &fewer, fewer.structure_gz.clone());
+    let (_, reply) = mcp
+        .call("get_repository", json!({"repository": "app"}))
+        .await;
+    assert!(
+        section(&reply, CITED_HEADING).ends_with(&format!(
+            "- {code} — Retries are safe · column: Decided · 1 place in 1 file\n"
+        )),
+        "{reply}"
+    );
+
+    // A newer index of an older schema version has no rows, and says so.
+    let mut sqlite = Vec::new();
+    std::io::Read::read_to_end(
+        &mut flate2::read::GzDecoder::new(fewer.structure_gz.as_slice()),
+        &mut sqlite,
+    )
+    .expect("gunzip");
+    sqlite[60..64].copy_from_slice(&((kairos_index::SCHEMA_VERSION - 1) as u32).to_be_bytes());
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut gz, &sqlite).expect("gzip");
+    let old = gz.finish().expect("gzip");
+    let mut no_citations = fewer.clone();
+    no_citations.citations.clear();
+    diesel::sql_query("SELECT pg_sleep(0.01)")
+        .execute(&mut conn)
+        .expect("a later write");
+    store_index(&mut conn, repo, &"b".repeat(40), &no_citations, old);
+    let (_, reply) = mcp
+        .call("get_repository", json!({"repository": "app"}))
+        .await;
+    assert_eq!(
+        section(&reply, CITED_HEADING),
+        "(the newest code index of main, at bbbbbbbbbbbb, is from before the index read the \
+         citations; the next build of the repository reads them)\n",
+        "{reply}"
+    );
+
+    drop(server);
+    drop_scratch_db(&mut admin_conn, scratch);
+}
+
+#[tokio::test]
+async fn repository_lists_the_adrs_of_the_owner_team() {
+    let (mut admin_conn, mut conn, server, svc, svc_token) = world(SCRATCH_DB).await;
 
     let (platform, platform_adrs) = team(&svc, "platform", "PLAT").await;
     let (_, web_adrs) = team(&svc, "web", "WEB").await;

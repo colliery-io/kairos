@@ -37,7 +37,8 @@ A task with code to change links to one repository (`repository` at create, or `
 | `parent` | strategy → initiative, initiative → task | The target is a part of the source. This is the group. A delete cascades along it. `create_item` with `parent` writes it. |
 | `supports` | strategy, initiative or task → document or ADR | The document or the ADR belongs to that item (a PRD of an initiative, the findings of a task). `create_item` of a document or an ADR with `parent` writes it. |
 | `informs` | document or ADR → strategy, initiative or task; task → task | The source gives context to the item but does not belong to it (an ADR that an initiative must follow, a research task that informs the implementation). |
-| `supersedes` | ADR → ADR | A new ADR replaces an old one. |
+| `supersedes` | ADR → ADR | A new ADR replaces all of an old one. |
+| `amends` | ADR → ADR | A new ADR changes a part of an old one; the rest stays in force. |
 | `blocks` | strategy, initiative or task → strategy, initiative or task | The target cannot start until the source is done. This is the order of the work. `/kairos:ralph-initiative` follows it. |
 | `impacts` | document or ADR → repository | The document or the ADR is about that repository. The target is a repository slug, not an item. A task does not impact a repository: `set_repository` links a task. |
 

@@ -49,7 +49,14 @@ const TASK_TYPES: [&str; 4] = ["task", "bug", "tech_debt", "support"];
 const WORK_CLASSES: [&str; 2] = ["planned", "support"];
 
 /// The relationship vocabulary (S-0005 `traverse.relationships`).
-const RELATIONSHIPS: [&str; 5] = ["parent", "supports", "informs", "supersedes", "blocks"];
+const RELATIONSHIPS: [&str; 6] = [
+    "parent",
+    "supports",
+    "informs",
+    "supersedes",
+    "amends",
+    "blocks",
+];
 
 /// The sort choices: `field:order`, and the label. The empty value is the
 /// default of the server.

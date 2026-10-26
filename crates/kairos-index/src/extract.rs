@@ -73,6 +73,9 @@ pub struct FileExtract {
     /// The imports of a Go file (KAIROS-T-0469), or the module calls of a
     /// Terraform file with their sources (KAIROS-T-0471).
     pub imports: Vec<Import>,
+    /// The ADR citations in the comments and the doc strings
+    /// (KAIROS-T-0703).
+    pub citations: Vec<crate::citations::Citation>,
 }
 
 /// Parse `content` and return its symbols in source order, and its call
@@ -194,6 +197,7 @@ pub fn extract(
             }
         })
         .collect();
+    let citations = crate::citations::in_tree(language, &tree, content);
     Ok(FileExtract {
         symbols,
         calls,
@@ -202,6 +206,7 @@ pub fn extract(
         macro_ranges,
         package,
         imports,
+        citations,
     })
 }
 

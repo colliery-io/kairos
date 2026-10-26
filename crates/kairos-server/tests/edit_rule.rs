@@ -975,6 +975,82 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         )
         .await;
     checks.mcp_allowed("4 MCP unlink_items informs", &reply);
+    // KAIROS-A-0069: amends, from an ADR to an ADR. adr_two amends adr_one
+    // by REST, then adr_three by MCP. get_item of adr_one lists the two in
+    // the order of the edges; adr_three lists what it amends.
+    checks.allowed(
+        "4d REST amends: he can edit the two ADRs",
+        bob.create_relationship(&edge(&adr_two.short_code, &adr_one.short_code, "amends"))
+            .await,
+    );
+    let reply = bob_mcp
+        .call(
+            "link_items",
+            json!({"source": adr_three.short_code, "target": adr_one.short_code,
+                   "relationship": "amends"}),
+        )
+        .await;
+    checks.mcp_allowed("4d MCP link_items amends", &reply);
+    let reply = bob_mcp
+        .call(
+            "link_items",
+            json!({"source": adr_one.short_code, "target": adr_three.short_code,
+                   "relationship": "amends"}),
+        )
+        .await;
+    checks.check(
+        "4d MCP amends cycle is CYCLE_DETECTED",
+        reply.0 && reply.1.contains("CYCLE_DETECTED") && reply.1.contains("An amends edge"),
+        &reply.1,
+    );
+    let (_, read) = bob_mcp
+        .call("get_item", json!({"short_code": adr_one.short_code}))
+        .await;
+    let amended_by = read
+        .lines()
+        .find(|line| line.starts_with("- amended by: "))
+        .unwrap_or_default();
+    let two = amended_by.find(&adr_two.short_code);
+    let three = amended_by.find(&adr_three.short_code);
+    checks.check(
+        "4d get_item lists amended by in the order of the edges",
+        matches!((two, three), (Some(two), Some(three)) if two < three),
+        &read,
+    );
+    let (_, read) = bob_mcp
+        .call("get_item", json!({"short_code": adr_three.short_code}))
+        .await;
+    checks.check(
+        "4d get_item of the amending ADR lists amends",
+        read.lines()
+            .any(|line| line.starts_with("- amends: ") && line.contains(&adr_one.short_code)),
+        &read,
+    );
+    let edges = svc
+        .relationships(EntityKind::Adr, &adr_one.short_code)
+        .await
+        .expect("edges");
+    checks.check(
+        "4d REST relationships: adr_one has an incoming amends group",
+        edges.incoming.iter().any(|group| {
+            group.relationship == "amends"
+                && group.items.len() == 2
+                && group.items[0].short_code == adr_two.short_code
+        }),
+        format!("{edges:?}"),
+    );
+    let (_, found) = bob_mcp
+        .call(
+            "search",
+            json!({"traverse": {"from": adr_one.short_code, "relationships": ["amends"],
+                                "direction": "inbound", "depth": 1}}),
+        )
+        .await;
+    checks.check(
+        "4d search traverse follows amends",
+        found.contains(&adr_two.short_code) && found.contains(&adr_three.short_code),
+        &found,
+    );
     // Criterion a, by creation and not by a grant: alice can edit her
     // initiative (she created it). She cannot edit the ADR.
     checks.allowed(

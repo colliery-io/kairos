@@ -1,5 +1,5 @@
 //! Pure relationship-graph rules (KAIROS-A-0001, KAIROS-T-0013): the
-//! type-rule matrix for the five edge types and cycle detection over
+//! type-rule matrix for the six edge types and cycle detection over
 //! already-loaded edges.
 //!
 //! Per KAIROS-A-0009 everything here is a function over in-memory data — no
@@ -17,6 +17,7 @@
 //! | `informs` | document/adr | strategy/initiative/task |
 //! | `informs` | task | task |
 //! | `supersedes` | adr | adr |
+//! | `amends` | adr | adr |
 //! | `blocks` | strategy/initiative/task | strategy/initiative/task |
 //!
 //! `parent` is exactly the workflow hierarchy (S-0004: "strategy ->
@@ -33,12 +34,16 @@
 //! are out of scope here (recorded in KAIROS-T-0013). `informs` is not
 //! cycle-checked: it is context, not an order of work. `blocks` allows
 //! same-type and cross-type dependencies between workflow items.
+//!
+//! `amends` (KAIROS-A-0069, KAIROS-T-0700): the source ADR changes a part
+//! of the target ADR, and the rest of the target stays in force.
+//! `supersedes` replaces all of it. `amends` must not make a cycle.
 
 use uuid::Uuid;
 
 use crate::short_code::ItemType;
 
-/// The five KAIROS-A-0001 edge types. This is the pure mirror of
+/// The KAIROS-A-0001 edge types, and `amends` (KAIROS-A-0069). This is the pure mirror of
 /// `kairos-db`'s TEXT-backed `RelationshipType`; it exists so the rule
 /// matrix stays free of diesel types (KAIROS-A-0009).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -52,6 +57,8 @@ pub enum Relationship {
     Informs,
     /// ADR replacement chain: source supersedes target.
     Supersedes,
+    /// ADR change of a part: source amends target (KAIROS-A-0069).
+    Amends,
     /// Dependency: source blocks target.
     Blocks,
 }
@@ -63,6 +70,7 @@ impl Relationship {
         Relationship::Supports,
         Relationship::Informs,
         Relationship::Supersedes,
+        Relationship::Amends,
         Relationship::Blocks,
     ];
 
@@ -73,7 +81,17 @@ impl Relationship {
             Relationship::Supports => "supports",
             Relationship::Informs => "informs",
             Relationship::Supersedes => "supersedes",
+            Relationship::Amends => "amends",
             Relationship::Blocks => "blocks",
+        }
+    }
+
+    /// The article of the name in a sentence: "An informs edge", "An
+    /// amends edge", "A parent edge".
+    pub fn article(self) -> &'static str {
+        match self {
+            Relationship::Informs | Relationship::Amends => "An",
+            _ => "A",
         }
     }
 
@@ -81,9 +99,14 @@ impl Relationship {
     /// prevention (e.g., A blocks B blocks A) is enforced at the
     /// application level"). `parent` cycles are additionally precluded by
     /// the type matrix (the hierarchy only descends), so the check there is
-    /// defense-in-depth against malformed pre-existing edges.
+    /// defense-in-depth against malformed pre-existing edges. `amends`
+    /// must not make a cycle either (KAIROS-A-0069 rule 3): two ADRs that
+    /// each change the other give no rule in force.
     pub fn requires_acyclicity(self) -> bool {
-        matches!(self, Relationship::Parent | Relationship::Blocks)
+        matches!(
+            self,
+            Relationship::Parent | Relationship::Blocks | Relationship::Amends
+        )
     }
 }
 
@@ -98,7 +121,8 @@ impl std::fmt::Display for Relationship {
 /// shape for the relationship, for error messages.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error(
-    "A {relationship} edge cannot go from {source_type} to {target_type}. {rule}{}.",
+    "{} {relationship} edge cannot go from {source_type} to {target_type}. {rule}{}.",
+    .relationship.article(),
     swap_text(*.reversed_allowed)
 )]
 pub struct GraphRuleError {
@@ -140,6 +164,7 @@ fn rule_text(relationship: Relationship) -> &'static str {
             "An informs edge goes from a document or an adr to a strategy, an initiative or a task, or from a task to a task"
         }
         Relationship::Supersedes => "A supersedes edge goes from an adr to an adr",
+        Relationship::Amends => "An amends edge goes from an adr to an adr",
         Relationship::Blocks => {
             "A blocks edge goes between two items of the types strategy, initiative and task"
         }
@@ -191,7 +216,9 @@ fn is_allowed(relationship: Relationship, source_type: ItemType, target_type: It
             (matches!(source_type, Document | Adr) && is_workflow(target_type))
                 || matches!((source_type, target_type), (Task, Task))
         }
-        Relationship::Supersedes => matches!((source_type, target_type), (Adr, Adr)),
+        Relationship::Supersedes | Relationship::Amends => {
+            matches!((source_type, target_type), (Adr, Adr))
+        }
         Relationship::Blocks => is_workflow(source_type) && is_workflow(target_type),
     }
 }
@@ -236,8 +263,8 @@ mod tests {
     use ItemType::{Adr, Document, Initiative, Strategy, Task};
 
     /// The COMPLETE allowed set: every `(relationship, source, target)`
-    /// combination not listed here must be rejected. 5 relationships × 5 × 5
-    /// types = 125 combinations checked exhaustively.
+    /// combination not listed here must be rejected. 6 relationships × 5 × 5
+    /// types = 150 combinations checked exhaustively.
     fn is_allowed(relationship: Relationship, source: ItemType, target: ItemType) -> bool {
         let workflow = [Strategy, Initiative, Task];
         let attachment = [Document, Adr];
@@ -250,7 +277,7 @@ mod tests {
                 (attachment.contains(&source) && workflow.contains(&target))
                     || (source, target) == (Task, Task)
             }
-            Relationship::Supersedes => (source, target) == (Adr, Adr),
+            Relationship::Supersedes | Relationship::Amends => (source, target) == (Adr, Adr),
             Relationship::Blocks => workflow.contains(&source) && workflow.contains(&target),
         }
     }
@@ -320,6 +347,11 @@ mod tests {
         // supersedes is ADR-only, both ends.
         assert!(check_link(Relationship::Supersedes, Adr, Document).is_err());
         assert!(check_link(Relationship::Supersedes, Strategy, Strategy).is_err());
+        // amends is ADR-only, both ends (KAIROS-A-0069).
+        assert!(check_link(Relationship::Amends, Adr, Adr).is_ok());
+        assert!(check_link(Relationship::Amends, Adr, Document).is_err());
+        assert!(check_link(Relationship::Amends, Document, Adr).is_err());
+        assert!(check_link(Relationship::Amends, Initiative, Initiative).is_err());
         // Documents never block or get blocked.
         assert!(check_link(Relationship::Blocks, Document, Task).is_err());
         assert!(check_link(Relationship::Blocks, Task, Adr).is_err());
@@ -380,13 +412,31 @@ mod tests {
     }
 
     #[test]
-    fn acyclicity_applies_to_parent_and_blocks_only() {
+    fn amends_rule_names_the_adr_pair() {
+        let message = check_link(Relationship::Amends, Task, Adr)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            message,
+            "An amends edge cannot go from task to adr. An amends edge goes from an adr to an adr."
+        );
+    }
+
+    #[test]
+    fn acyclicity_applies_to_parent_blocks_and_amends_only() {
         let acyclic: Vec<Relationship> = Relationship::ALL
             .iter()
             .copied()
             .filter(|r| r.requires_acyclicity())
             .collect();
-        assert_eq!(acyclic, [Relationship::Parent, Relationship::Blocks]);
+        assert_eq!(
+            acyclic,
+            [
+                Relationship::Parent,
+                Relationship::Amends,
+                Relationship::Blocks
+            ]
+        );
     }
 
     fn edge(source_id: Uuid, target_id: Uuid) -> Edge {

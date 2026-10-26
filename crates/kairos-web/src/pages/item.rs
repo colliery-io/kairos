@@ -2477,6 +2477,9 @@ fn relationship_label(relationship: &str, outgoing: bool) -> String {
         ("informs", false) => "informed by".to_string(),
         ("supersedes", true) => "supersedes".to_string(),
         ("supersedes", false) => "superseded by".to_string(),
+        // KAIROS-A-0069: source ADR changes a part of the target ADR.
+        ("amends", true) => "amends".to_string(),
+        ("amends", false) => "amended by".to_string(),
         // Unknown types stay honest about their direction.
         (other, true) => format!("{other} (outgoing)"),
         (other, false) => format!("{other} (incoming)"),
@@ -2672,6 +2675,8 @@ mod tests {
         assert_eq!(relationship_label("supports", true), "supporting material");
         assert_eq!(relationship_label("informs", false), "informed by");
         assert_eq!(relationship_label("supersedes", false), "superseded by");
+        assert_eq!(relationship_label("amends", false), "amended by");
+        assert_eq!(relationship_label("amends", true), "amends");
         assert_eq!(relationship_label("mystery", true), "mystery (outgoing)");
     }
 }

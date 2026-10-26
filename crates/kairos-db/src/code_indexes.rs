@@ -15,6 +15,11 @@
 //!   commit replaces the row. The retention pass keeps the newest indexes
 //!   of each repository and ref, and deletes the others (KAIROS-T-0638).
 //!
+//! - `code_index_citations`: the ADRs that the code of each indexed commit
+//!   cites (KAIROS-T-0703), with the count of their places and of their
+//!   files. [`put`] replaces the rows of the commit; a delete of the index
+//!   deletes them.
+//!
 //! The connection must be pinned to a tenant schema. This module does not
 //! check rights: the caller does.
 
@@ -70,6 +75,48 @@ pub struct NewCodeIndex {
     pub vector_model: Option<String>,
     /// `None` for the builder of the server.
     pub created_by: Option<Uuid>,
+    /// The ADRs that the code cites (KAIROS-T-0703), one row for each code.
+    pub citations: Vec<CitedCode>,
+}
+
+/// An ADR that the code of a commit cites (KAIROS-T-0703).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CitedCode {
+    /// The ADR short code, as `KAIROS-A-0065`.
+    pub code: String,
+    /// The count of the places that cite it.
+    pub places: i32,
+    /// The count of the files that cite it.
+    pub files: i32,
+}
+
+/// An ADR that the newest index of a branch cites, with the item of the
+/// code when the organization has one (KAIROS-T-0703).
+#[derive(Debug, Clone, PartialEq, QueryableByName)]
+pub struct CitedAdr {
+    #[diesel(sql_type = Text)]
+    pub code: String,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    pub places: i32,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    pub files: i32,
+    /// `None` when no ADR has the code.
+    #[diesel(sql_type = Nullable<Text>)]
+    pub title: Option<String>,
+    #[diesel(sql_type = Nullable<Text>)]
+    pub column_name: Option<String>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub archived_at: Option<DateTime<Utc>>,
+}
+
+/// The newest index of a branch, and the ADRs that its code cites.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BranchCitations {
+    pub commit_sha: String,
+    /// The first bytes of the structure, for the schema version.
+    pub prefix: Vec<u8>,
+    /// By code.
+    pub adrs: Vec<CitedAdr>,
 }
 
 #[derive(Insertable)]
@@ -198,6 +245,27 @@ pub fn put(
                 code_indexes::updated_at.eq(diesel::dsl::now),
             ))
             .execute(conn)?;
+        // KAIROS-T-0703: the cited ADRs of the commit, replaced.
+        sql_query("DELETE FROM code_index_citations WHERE repository_id = $1 AND commit_sha = $2")
+            .bind::<SqlUuid, _>(index.repository_id)
+            .bind::<Text, _>(&index.commit_sha)
+            .execute(conn)?;
+        for chunk in index.citations.chunks(INSERT_CHUNK) {
+            let codes: Vec<&str> = chunk.iter().map(|c| c.code.as_str()).collect();
+            let places: Vec<i32> = chunk.iter().map(|c| c.places).collect();
+            let files: Vec<i32> = chunk.iter().map(|c| c.files).collect();
+            sql_query(
+                "INSERT INTO code_index_citations (repository_id, commit_sha, code, places, files) \
+                 SELECT $1, $2, u.code, u.places, u.files \
+                   FROM unnest($3::text[], $4::int[], $5::int[]) AS u(code, places, files)",
+            )
+            .bind::<SqlUuid, _>(index.repository_id)
+            .bind::<Text, _>(&index.commit_sha)
+            .bind::<Array<Text>, _>(&codes)
+            .bind::<Array<diesel::sql_types::Integer>, _>(&places)
+            .bind::<Array<diesel::sql_types::Integer>, _>(&files)
+            .execute(conn)?;
+        }
         Ok(PutOutcome {
             created: !existed,
             new_summaries,
@@ -444,6 +512,53 @@ pub fn pool_size(conn: &mut PgConnection, repository_id: Uuid) -> QueryResult<i6
         .filter(code_index_summaries::repository_id.eq(repository_id))
         .count()
         .get_result(conn)
+}
+
+/// The newest index of the branch `ref_name` of a repository, and the ADRs
+/// that its code cites (KAIROS-T-0703), by code. Each code has the title,
+/// the column and the archive time of the ADR with that short code, when
+/// there is one. `prefix_bytes` of the structure come with it, for the
+/// schema version: an index from before the citations has none. `None`
+/// when the branch has no index.
+pub fn branch_citations(
+    conn: &mut PgConnection,
+    repository_id: Uuid,
+    ref_name: &str,
+    prefix_bytes: i32,
+) -> QueryResult<Option<BranchCitations>> {
+    // `prefix_bytes` is a number, so the text of the SQL is safe.
+    let prefix =
+        diesel::dsl::sql::<Bytea>(&format!("substring(structure from 1 for {prefix_bytes})"));
+    let newest: Option<(String, Vec<u8>)> = code_indexes::table
+        .filter(code_indexes::repository_id.eq(repository_id))
+        .filter(code_indexes::ref_name.eq(ref_name))
+        .order((
+            code_indexes::updated_at.desc(),
+            code_indexes::commit_sha.asc(),
+        ))
+        .select((code_indexes::commit_sha, prefix))
+        .first(conn)
+        .optional()?;
+    let Some((commit_sha, prefix)) = newest else {
+        return Ok(None);
+    };
+    let adrs = sql_query(
+        "SELECT c.code, c.places, c.files, a.title, col.name AS column_name, \
+                a.deleted_at AS archived_at \
+           FROM code_index_citations c \
+           LEFT JOIN adrs a ON a.short_code = c.code \
+           LEFT JOIN board_columns col ON col.id = a.column_id \
+          WHERE c.repository_id = $1 AND c.commit_sha = $2 \
+          ORDER BY c.code",
+    )
+    .bind::<SqlUuid, _>(repository_id)
+    .bind::<Text, _>(&commit_sha)
+    .load(conn)?;
+    Ok(Some(BranchCitations {
+        commit_sha,
+        prefix,
+        adrs,
+    }))
 }
 
 /// Each indexed commit of a repository, newest write first.

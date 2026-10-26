@@ -200,9 +200,21 @@ async fn models_round_trip() {
         .await
         .expect("selecting system metadata definitions");
     // 3 since KAIROS-T-0078 retired 'Document status' (lifecycle is a
-    // documents column now).
-    assert_eq!(sys_defs.len(), 3);
-    assert!(sys_defs.iter().all(|d| d.field_type == FieldType::Enum));
+    // documents column now), and 3 more for ADRs since KAIROS-T-0705.
+    assert_eq!(sys_defs.len(), 6);
+    let type_of = |slug: &str| {
+        sys_defs
+            .iter()
+            .find(|d| d.slug == slug)
+            .map(|d| d.field_type)
+            .unwrap_or_else(|| panic!("no system definition {slug}"))
+    };
+    for slug in ["priority", "complexity", "document_type"] {
+        assert_eq!(type_of(slug), FieldType::Enum, "{slug}");
+    }
+    assert_eq!(type_of("revisit_when"), FieldType::String);
+    assert_eq!(type_of("revisit_on"), FieldType::Date);
+    assert_eq!(type_of("accepted_commit"), FieldType::String);
 
     let delivery_default: SystemBoardDefault = s::system_board_defaults::table
         .filter(s::system_board_defaults::board_level.eq(BoardLevel::Delivery))

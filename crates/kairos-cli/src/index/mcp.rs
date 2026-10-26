@@ -213,7 +213,8 @@ pub struct EdgeParams {
 #[serde(deny_unknown_fields)]
 pub struct ReferencesParams {
     /// A name, `Type::name` (Rust) or `Type.name`. A candidate from the list
-    /// of an AMBIGUOUS error, `name (file:line)`, is also correct.
+    /// of an AMBIGUOUS error, `name (file:line)`, is also correct. An ADR
+    /// short code (`KAIROS-A-0065`) gives each place that cites the ADR.
     pub symbol: String,
     /// The file of the symbol, when more than one symbol has the name.
     pub file: Option<String>,
@@ -940,6 +941,55 @@ pub(super) fn references_text(
     Ok(out)
 }
 
+/// The text of `references` for an ADR short code, for the MCP tool and
+/// for `kairos index references` (KAIROS-T-0703): the count of the places
+/// by context, then the places by file, each with its symbol.
+pub(super) fn citations_text(
+    index: &Index,
+    code: &str,
+    limit: usize,
+) -> Result<String, IndexError> {
+    let places = index.adr_citations(code)?;
+    if places.is_empty() {
+        return Ok(format!(
+            "No place in the code of this checkout cites {code}. The index reads the ADR short \
+             codes in comments, in doc strings and in the names of tests."
+        ));
+    }
+    let files: std::collections::BTreeSet<&str> = places.iter().map(|p| p.file.as_str()).collect();
+    let contexts: Vec<String> = ["doc", "comment", "test"]
+        .iter()
+        .filter_map(|context| {
+            let n = places.iter().filter(|p| p.context == *context).count();
+            (n > 0).then(|| format!("{n} {context}"))
+        })
+        .collect();
+    let mut out = format!(
+        "{} {code} in {}: {}.",
+        plural(places.len(), "place cites", "places cite"),
+        plural(files.len(), "file", "files"),
+        contexts.join(", ")
+    );
+    if places.len() > limit {
+        out.push_str(&format!(
+            " Only the first {limit} are shown. Give a larger `limit`, up to {MAX_USES}."
+        ));
+    }
+    let mut file = "";
+    for p in places.iter().take(limit) {
+        if p.file != file {
+            file = &p.file;
+            out.push_str(&format!("\n{file}:"));
+        }
+        let place = match &p.symbol {
+            Some(s) => format!("about {}", s.qualified()),
+            None => "at the top of the file".to_string(),
+        };
+        out.push_str(&format!("\n- line {}: {}, {place}", p.line, p.context));
+    }
+    Ok(out)
+}
+
 /// The text of `duplicates`, for the MCP tool and for `kairos index
 /// duplicates` (COLLIERY-T-1857): the count, what was left out, then each
 /// group with its kind, its score and its symbols.
@@ -1287,7 +1337,7 @@ impl CodeTools {
     }
 
     #[tool(
-        description = "Each use of a symbol of this checkout, not only the calls: in Rust, each use as a type, a field (a field of a type is a use of the type), an import, a call or other (a constant, a module), from the SCIP data of rust-analyzer. Each use has its file, its line, its kind and the symbol that holds it, by file. For Python, TypeScript, JavaScript and Go, the index has the calls only, and the result says so. Give the symbol as for the tool `symbol`, with `file` and `line` when more than one symbol has the name. Possible calls (by a name that more than one function has) are not shown, unless `possible` is true. `limit`: the most uses to give, from 1 to 1000, default 100."
+        description = "Each use of a symbol of this checkout, not only the calls: in Rust, each use as a type, a field (a field of a type is a use of the type), an import, a call or other (a constant, a module), from the SCIP data of rust-analyzer. Each use has its file, its line, its kind and the symbol that holds it, by file. For Python, TypeScript, JavaScript and Go, the index has the calls only, and the result says so. Give the symbol as for the tool `symbol`, with `file` and `line` when more than one symbol has the name. Possible calls (by a name that more than one function has) are not shown, unless `possible` is true. Give an ADR short code as `symbol` (for example `KAIROS-A-0065`) to get each place that cites the ADR: a comment, a doc string or the name of a test, with its file, its line and its symbol. `limit`: the most uses to give, from 1 to 1000, default 100."
     )]
     async fn references(
         &self,
@@ -1299,6 +1349,24 @@ impl CodeTools {
                 return Err(ToolError::Limit(MAX_USES));
             }
             let (_, index) = self.open_index(params.checkout.as_deref())?;
+            // KAIROS-T-0703: an ADR short code gives the places that cite it.
+            if kairos_index::is_adr_code(&params.symbol) {
+                let extra = [
+                    ("file", params.file.is_some()),
+                    ("line", params.line.is_some()),
+                    ("possible", params.possible.is_some()),
+                ]
+                .into_iter()
+                .find(|(_, given)| *given);
+                if let Some((field, _)) = extra {
+                    return Err(ToolError::AdrCodeArgument {
+                        symbol: params.symbol.clone(),
+                        field: field.to_string(),
+                        others: "`file`, `line` or `possible`".to_string(),
+                    });
+                }
+                return Ok(citations_text(&index, &params.symbol, limit)?);
+            }
             let s = find(
                 &index,
                 &params.symbol,
@@ -1494,7 +1562,8 @@ impl ServerHandler for CodeTools {
                 "{} Use these tools before you read files: \
                  `module_map` for the map, `code_search` to find code by what it does, \
                  `symbol` for one symbol, `callers` and `callees` for the call graph, \
-                 `references` for each use of a symbol (types, fields, imports and calls), \
+                 `references` for each use of a symbol (types, fields, imports and calls) or \
+                 each place that cites an ADR, \
                  `path` for how one symbol reaches another, and `duplicates` for repeated \
                  code. `fetch_index` opens a checkout: it takes the nearest index of the \
                  repository from Kairos. More than one checkout can be open: each tool \

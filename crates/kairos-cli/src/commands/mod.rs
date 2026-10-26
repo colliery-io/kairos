@@ -4,6 +4,7 @@
 
 pub mod activity;
 pub mod admin;
+pub mod adr_check;
 pub mod boards;
 pub mod columns;
 pub mod config;

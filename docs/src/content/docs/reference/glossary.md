@@ -619,15 +619,16 @@ See sense 1 of [archived](#archived).
 
 ## relationship
 
-A directed edge between two items. Five types of edge exist. A sixth
-relationship goes to a repository, and a seventh to a URI:
+A directed edge between two items. Six types of edge exist. A seventh
+relationship goes to a repository, and an eighth to a URI:
 
 | Type | Meaning |
 |---|---|
 | `parent` | Hierarchy. A delete [cascades](#cascade) along these edges, and they are what a traversal follows to build a parent chain. |
 | `supports` | A document or an ADR supporting the item it is attached to. The source is the item, and the target is the document. For a document, the edge has [rules of its own](../capabilities/#the-supports-edge-of-a-document). |
 | `informs` | One item informs another without owning it. |
-| `supersedes` | One item replaces another. |
+| `supersedes` | One ADR replaces all of another ADR. |
+| `amends` | One ADR changes a part of another ADR. The rest of the other ADR stays in force (KAIROS-A-0069). |
 | `blocks` | The source blocks the target. |
 | [`impacts`](#impacts) | A document or an ADR is about a repository. The target is a repository and not an item. Kairos does not keep this link as an edge between two items. |
 | [`external`](#external-reference) | An item names a document outside Kairos. The target is a URI with a label, and not an item. |

@@ -1,5 +1,5 @@
 //! Relationship-graph services (KAIROS-T-0013, semantics per KAIROS-A-0001,
-//! layering per KAIROS-A-0009): link/unlink for the five edge types with
+//! layering per KAIROS-A-0009): link/unlink for the six edge types with
 //! application-enforced type rules and cycle prevention, plus the
 //! both-direction neighbor query.
 //!
@@ -8,7 +8,7 @@
 //! SQL side of the same contract: it resolves both UUIDs to entity types
 //! through the `entity_directory` view under an explicit `deleted_at IS
 //! NULL` (so soft-deleted items are typed [`GraphError::ItemNotFound`]),
-//! runs the cycle check in the database (`parent` and `blocks` only,
+//! runs the cycle check in the database (`parent`, `blocks` and `amends`,
 //! [`check_acyclic`]), inserts, and writes `activity_log`.
 //!
 //! Every public function operates in the CURRENT `search_path` tenant
@@ -138,7 +138,8 @@ pub enum GraphError {
     /// Adding this edge would create a directed cycle in an acyclic
     /// relationship (`parent`/`blocks`, KAIROS-A-0001).
     #[error(
-        "A {relationship} edge from {source_id} to {target_id} makes a cycle. A {relationship} edge must not make a cycle."
+        "{article} {relationship} edge from {source_id} to {target_id} makes a cycle. {article} {relationship} edge must not make a cycle.",
+        article = core_relationship(*.relationship).article()
     )]
     CycleDetected {
         relationship: RelationshipType,
@@ -189,6 +190,7 @@ pub fn core_relationship(relationship: RelationshipType) -> rules::Relationship 
         RelationshipType::Supports => rules::Relationship::Supports,
         RelationshipType::Informs => rules::Relationship::Informs,
         RelationshipType::Supersedes => rules::Relationship::Supersedes,
+        RelationshipType::Amends => rules::Relationship::Amends,
         RelationshipType::Blocks => rules::Relationship::Blocks,
     }
 }
@@ -453,7 +455,7 @@ fn insert_edge(
 ///    (unknown/soft-deleted → [`GraphError::ItemNotFound`]);
 /// 2. the pure type-rule matrix admits the combination
 ///    ([`kairos_core::graph::check_link`] → [`GraphError::Rule`]);
-/// 3. for the acyclic relationships (`parent`/`blocks`) the edge must not
+/// 3. for the acyclic relationships (`parent`/`blocks`/`amends`) the edge must not
 ///    close a directed cycle over the relationship's existing edges
 ///    ([`check_acyclic`], under a lock → [`GraphError::CycleDetected`]);
 /// 4. a `parent` edge to an item that has a different parent is

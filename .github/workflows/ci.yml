@@ -401,7 +401,9 @@ jobs:
 
       # KAIROS-T-0701: each KAIROS ADR that the tree cites exists, is not
       # archived and is not superseded. CI has no key of a deployment: the
-      # states come from the committed snapshot. A snapshot with no ADRs is
+      # states come from the committed snapshot. A citation that the snapshot
+      # does not hold is a warn (KAIROS-T-0711), so a contributor with no
+      # login passes. A snapshot with no ADRs is
       # a placeholder, and the check is skipped. Save the snapshot again with
       # `kairos adrs check --prefix KAIROS --save-snapshot .github/adr-snapshot.json`.
       - name: The ADR citations of the tree

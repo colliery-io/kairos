@@ -162,12 +162,35 @@ class GivesTheAdrs(AdrContextCase):
         self.assertIn("- ACME-A-0002 [Superseded]: Refunds are async", text)
         self.assertIn("Superseded by ACME-A-0007 (Refunds are sync).", text)
         self.assertIn("Amended by ACME-A-0008 (Refund limits).", text)
-        self.assertIn("- ACME-A-0003: no ADR has this code.", text)
+        self.assertIn("- ACME-A-0003: not known to this deployment.", text)
+        self.assertNotIn("Do not cite", text)
         self.assertEqual(text.count("ACME-A-0001"), 1)
         calls = self.calls()
         self.assertEqual(len(calls), 1, calls)
         self.assertTrue(calls[0].startswith("adrs check "), calls)
-        self.assertTrue(calls[0].endswith("src/refund.rs --json"), calls)
+        self.assertTrue(calls[0].endswith("src/refund.rs --board-prefixes --json"), calls)
+
+    def test_a_code_of_another_deployment_is_not_known_and_not_refused(self):
+        # KAIROS-T-0711: the CLI reads only the prefixes of the ADR boards of
+        # the bound deployment; another prefix comes back as unknown-prefix.
+        self.write("b.md", "OTHER-A-0001\n")
+        self.set_report(
+            {
+                "source": "deployment",
+                "adrs": [
+                    {
+                        "code": "OTHER-A-0001",
+                        "found": False,
+                        "status": "unknown-prefix",
+                        "superseded_by": [],
+                        "amended_by": [],
+                    }
+                ],
+            }
+        )
+        text = self.context(self.run_hook(self.payload(file_path="b.md")))
+        self.assertIn("- OTHER-A-0001: not known to this deployment.", text)
+        self.assertNotIn("Do not cite", text)
 
     def test_each_write_tool_fires(self):
         for index, tool in enumerate(("Write", "Edit", "MultiEdit")):

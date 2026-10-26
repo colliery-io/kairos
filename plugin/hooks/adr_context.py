@@ -6,9 +6,13 @@ the title and the column of each cited ADR, the successor of a superseded
 ADR, and the amendments. Then the agent edits with the decisions of the
 file in view, not only the decisions of the repository.
 
-The states come from `kairos adrs check <file> --json` (the resolver of
-KAIROS-T-0701), with the exit code and the JSON only (KAIROS-A-0031 rule
-4). The hook runs only in a wired checkout: the nearest folder with `.git`
+The states come from `kairos adrs check <file> --board-prefixes --json`
+(the resolver of KAIROS-T-0701), with the exit code and the JSON only
+(KAIROS-A-0031 rule 4). The CLI uses the binding of the checkout of the
+file, and reads only the codes with the prefix of an ADR board of that
+deployment (KAIROS-T-0711). A code that the deployment does not know (a
+code of another organization or deployment, or a typo) is "not known to
+this deployment": the hook does not tell the agent to remove it. The hook runs only in a wired checkout: the nearest folder with `.git`
 above the file has the wiring (`.claude/kairos.local.md`, or a
 `[[project]]` of the config of the person), or the session folder above it
 has.
@@ -161,7 +165,7 @@ def check(path, checkout):
     env = dict(os.environ, KAIROS_UPDATE_CHECK="0", KAIROS_QUIET="1")
     try:
         out = subprocess.run(
-            [binary, "adrs", "check", path, "--json"],
+            [binary, "adrs", "check", path, "--board-prefixes", "--json"],
             capture_output=True,
             text=True,
             timeout=CHECK_SECONDS,
@@ -171,7 +175,8 @@ def check(path, checkout):
     except (OSError, subprocess.SubprocessError):
         return None
     # 0: no citation fails; 1 with a report: a citation fails. Each other
-    # code (2 auth, 64 an older CLI with no `adrs check`) gives nothing.
+    # code (2 auth, 64 an older CLI with no `adrs check` or no
+    # `--board-prefixes`) gives nothing.
     if out.returncode not in (0, 1):
         return None
     try:
@@ -205,7 +210,10 @@ def adr_line(code, state):
     if not isinstance(state, dict) or not state.get("found"):
         if isinstance(state, dict) and state.get("status") == "not-in-snapshot":
             return f"- {code}: not in the snapshot of the check."
-        return f"- {code}: no ADR has this code. Do not cite it."
+        return (
+            f"- {code}: not known to this deployment. It can be a code of another "
+            "organization or deployment. Check it before you change the citation."
+        )
     current = state.get("current_code") or code
     name = current if current == code else f"{code} (now {current})"
     line = f"- {name} [{state.get('status') or 'unknown'}]: {state.get('title') or ''}".rstrip()

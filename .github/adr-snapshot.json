@@ -482,6 +482,15 @@
       "status": "Decided",
       "superseded_by": [],
       "amended_by": []
+    },
+    {
+      "code": "KAIROS-A-0072",
+      "found": true,
+      "current_code": "KAIROS-A-0072",
+      "title": "The local code index of a checkout is in the user cache, one folder per checkout, not in the checkout",
+      "status": "Draft",
+      "superseded_by": [],
+      "amended_by": []
     }
   ]
 }

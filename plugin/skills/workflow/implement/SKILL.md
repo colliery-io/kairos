@@ -9,7 +9,7 @@ Execute one Kairos task from Todo to Completed.
 
 ## Pick up
 
-Your **queue** is the board of your team, filtered by the repository of this checkout. The SessionStart context gives both: `team_board` and `repository` (`.claude/kairos.local.md`, COLLIERY-A-0023). Given a short code, `get_item` it. Given nothing, `board_items` with `board=<team_board>`, `repository=<this repo>`, `column=Todo` and `details: true` → the highest-priority item with no unresolved `blocks` edge; state the pick and why before starting. With `details`, each card shows its priority, the date of its last change and its claim, so you need no `get_item` for each card. `list_metadata_definitions` gives the order of the priority values. (No `repository` wired? Fall back to `my_boards` → the delivery board → `board_items` unfiltered, and suggest `/kairos:bootstrap`.)
+Your **queue** is the board of your team, filtered by the repository of this checkout. The SessionStart context gives both: `team_board` and `repository` (the wiring of `kairos config show`, COLLIERY-A-0023). Given a short code, `get_item` it. Given nothing, `board_items` with `board=<team_board>`, `repository=<this repo>`, `column=Todo` and `details: true` → the highest-priority item with no unresolved `blocks` edge; state the pick and why before starting. With `details`, each card shows its priority, the date of its last change and its claim, so you need no `get_item` for each card. `list_metadata_definitions` gives the order of the priority values. (No `repository` wired? Fall back to `my_boards` → the delivery board → `board_items` unfiltered, and suggest `/kairos:bootstrap`.)
 
 **Read each part of the board before you pick.** `board_items` gives 200 items at most in one result. When the result is a part of the board, its first lines say so and give the `offset` of the next part. Call `board_items` again with that `offset` until you have each part. Then make the decision. To read one column only, send `column` (`column=Todo`).
 
@@ -43,7 +43,7 @@ Do the work in a worktree of the clone, not in the clone. Other sessions use the
 6. Open the code index of the worktree: `fetch_index` with `root=<worktree>`.
 7. Write the branch: `set_state` with `branch=<code>` and the next step.
 
-The worktree has no `.claude/kairos.local.md`. The hooks read the wiring of its clone. Each later step runs in the worktree. Use `git -C <worktree>` and absolute paths. Do not use `cd` in commands that run in parallel, because they share one shell.
+The worktree needs no Kairos file. The `[[project]]` of `config.toml` matches the `origin` remote, so the worktree has the wiring of its clone: `kairos config show` in the worktree gives it. Each later step runs in the worktree. Use `git -C <worktree>` and absolute paths. Do not use `cd` in commands that run in parallel, because they share one shell.
 
 ## Ground
 

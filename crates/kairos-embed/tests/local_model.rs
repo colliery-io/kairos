@@ -11,7 +11,6 @@
 //! `target/` is what CI caches, so it is usually warm. That is also why this is
 //! an integration test rather than a unit one.
 
-use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use kairos_embed::local::{LocalConfig, LocalProvider};
@@ -29,7 +28,9 @@ use kairos_embed::{EmbeddingProvider, cosine};
 /// The product avoids the race for a different reason: the image is built with
 /// the cache already populated, so nothing downloads at runtime at all.
 static PROVIDER: LazyLock<LocalProvider> = LazyLock::new(|| {
-    let cache = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/embed-cache");
+    let cache = kairos_embed::dev::model_cache(&kairos_embed::dev::workspace_of(env!(
+        "CARGO_MANIFEST_DIR"
+    )));
     std::fs::create_dir_all(&cache).expect("creating the model cache directory");
     LocalProvider::new(&LocalConfig {
         cache_dir: cache,

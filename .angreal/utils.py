@@ -12,6 +12,20 @@ from pathlib import Path
 import angreal  # type: ignore
 
 PROJECT_ROOT = Path(angreal.get_root()).parent
+
+
+def target_dir() -> Path:
+    """The cargo target folder (KAIROS-T-0712): `CARGO_TARGET_DIR`, else the
+    `target/` folder of the workspace. A relative value is relative to the
+    workspace root, as for a cargo command in the root."""
+    configured = os.environ.get("CARGO_TARGET_DIR")
+    if not configured:
+        return PROJECT_ROOT / "target"
+    path = Path(configured)
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+TARGET_DIR = target_dir()
 DOCKER_COMPOSE_FILE = Path(angreal.get_root()) / "docker-compose.yaml"
 MIGRATIONS_DIR = PROJECT_ROOT / "crates" / "kairos-db" / "migrations"
 
@@ -114,7 +128,7 @@ def sweep_target(days: float = SWEEP_DAYS) -> tuple:
     deps/, incremental/, build/ and .fingerprint/ that is older than the cutoff.
     Returns (entries removed, bytes freed).
     """
-    target = PROJECT_ROOT / "target"
+    target = TARGET_DIR
     if not target.is_dir():
         return 0, 0
     cutoff = time.time() - days * 86400

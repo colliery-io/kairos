@@ -914,8 +914,8 @@ pub struct UpdateRepositoryParams {
     /// The code index builder for the repository: "on" or "off" ("off"
     /// cancels the waiting builds).
     pub code_index_build: Option<String>,
-    /// The new slug (KAIROS-T-0443). Each checkout keeps the slug in
-    /// `.claude/kairos.local.md`: a new slug breaks that reference.
+    /// The new slug (KAIROS-T-0443). The `[[project]]` of each checkout in
+    /// `config.toml` keeps the slug: a new slug breaks that reference.
     pub slug: Option<String>,
     /// The new owner team, by slug or UUID (KAIROS-T-0443). You need the
     /// right on the old team and on the new team.
@@ -4032,8 +4032,8 @@ impl KairosMcp {
     }
 
     // COLLIERY-T-0266. KAIROS-T-0443 added `slug` and `team`, as the REST
-    // route has them. A checkout keeps the slug in
-    // `.claude/kairos.local.md`, so a new slug breaks each checkout. A new
+    // route has them. The `[[project]]` of a checkout keeps the slug, so a
+    // new slug breaks each checkout. A new
     // owner team needs the right on the two teams.
     //
     // The gate and the write are those of `PATCH /api/repositories/{slug}`
@@ -4044,7 +4044,7 @@ impl KairosMcp {
     // COLLIERY-T-0267 the tool made the comparison, and the REST route
     // always wrote.
     #[tool(
-        description = "Change a repository of the directory: `description` (how to work in it; replaces the full text, so read it with `get_repository` first), `default_branch` (set by hand; the code index builder indexes it), `default_branch_source: forge` (follow the forge's default branch again; not with `default_branch`), `repo_url` (absolute http or https, no credentials), `code_index_build` (`on` or `off`; off cancels waiting builds), `slug` (breaks `.claude/kairos.local.md` in each checkout: run /kairos:bootstrap there), the owner `team` (you need the right on both teams), `forge_filters` (org admin: include and exclude regex per field for the branches, pull requests and issues that the forge webhook picks up), and `issue_import_interval` (org admin: `off`, or `15m`, `1h`, `1d`: the repository takes its open issues on that cadence, with a read token and no webhook). Send one or more; a value it has already changes nothing. `repository` is a slug or UUID. Needs membership of the owner team, or the org admin role. `set_repository` links a task; `delete_repository` removes a repository."
+        description = "Change a repository of the directory: `description` (how to work in it; replaces the full text, so read it with `get_repository` first), `default_branch` (set by hand; the code index builder indexes it), `default_branch_source: forge` (follow the forge's default branch again; not with `default_branch`), `repo_url` (absolute http or https, no credentials), `code_index_build` (`on` or `off`; off cancels waiting builds), `slug` (breaks the `repository` of the binding of each checkout: run /kairos:bootstrap there), the owner `team` (you need the right on both teams), `forge_filters` (org admin: include and exclude regex per field for the branches, pull requests and issues that the forge webhook picks up), and `issue_import_interval` (org admin: `off`, or `15m`, `1h`, `1d`: the repository takes its open issues on that cadence, with a read token and no webhook). Send one or more; a value it has already changes nothing. `repository` is a slug or UUID. Needs membership of the owner team, or the org admin role. `set_repository` links a task; `delete_repository` removes a repository."
     )]
     pub async fn update_repository(
         &self,

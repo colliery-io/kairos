@@ -16,7 +16,7 @@ Everything this skill needs is already in the conversation — stress-testing a 
 
 3. Publish to Kairos:
 
-   - The board of the initiative is `initiative_board` in `.claude/kairos.local.md`. With no value there, find it with `my_boards`. If more than one board can hold this work, or none exists, ask the user.
+   - The board of the initiative is `initiative_board` of the wiring (the SessionStart context, or `kairos config show`). With no value there, find it with `my_boards`. If more than one board can hold this work, or none exists, ask the user.
    - `create_item(item_type: initiative, board: <initiative board>, title: ...)` — a title in the domain glossary's words, content stating the problem and intended outcome in a few sentences.
    - `create_item(item_type: document, template: prd, board: <team board>, parent: <initiative short code>, title: ..., content: <the PRD>)` using the template below. `board` is the owner board of the PRD (required); the `parent` edge attaches the PRD to the initiative — no other wiring needed. The PRD is done when every decision made in the conversation lands in a template section — implementation, testing, or Out of Scope; nothing decided in-chat is left implicit.
 

@@ -9,6 +9,13 @@ The tests run `git_guard.py` as a subprocess, the way Claude Code runs it.
 The push policy (KAIROS-T-0542) is tested with a fake ref lookup, and once
 on a temporary repository with git. No test calls a server."""
 
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import hook_test_env  # noqa: E402,F401  (KAIROS-T-0712: no live env, a temp HOME)
+
+
 import importlib.util
 import json
 import os

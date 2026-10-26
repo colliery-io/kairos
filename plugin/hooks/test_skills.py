@@ -8,6 +8,13 @@ Stdlib only; run with `python3 -m unittest plugin/hooks/test_skills.py` (or
 These tests read the files as text. What an agent does with a skill is a
 manual check in a real session: the steps are on each task."""
 
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import hook_test_env  # noqa: E402,F401  (KAIROS-T-0712: no live env, a temp HOME)
+
+
 import json
 import os
 import re
@@ -751,12 +758,27 @@ class SkillsWriteNoRepoFileForWiringOrNotes(unittest.TestCase):
     local exclude of the clone, never the tracked .gitignore; prototype
     keeps its answer in Kairos, never in a NOTES.md next to the code."""
 
-    def test_bootstrap_writes_the_local_exclude_not_gitignore(self):
+    def test_bootstrap_writes_no_wiring_file(self):
+        # KAIROS-T-0710: the wiring is a [[project]] of config.toml; the
+        # file is retired, so bootstrap writes no file and no ignore rule.
         text = read(os.path.join(PLUGIN, "skills", "meta", "bootstrap", "SKILL.md"))
-        self.assertIn("info/exclude", text)
-        self.assertIn("git rev-parse --git-common-dir", text)
+        self.assertIn("kairos config project", text)
+        self.assertIn("**Do not write `.claude/kairos.local.md`.**", text)
+        self.assertIn("kairos config migrate", text)
+        self.assertNotIn("info/exclude", text)
         self.assertNotIn("If `.gitignore` does not already cover it, append", text)
+        self.assertNotIn("Frontmatter keys are exactly", text)
         self.assertIn("not a git checkout", text)
+
+    def test_no_skill_tells_an_agent_to_read_the_retired_file(self):
+        # KAIROS-T-0710: only bootstrap names the file, to retire it.
+        named = []
+        for folder, _, files in os.walk(SKILLS):
+            for name in files:
+                path = os.path.join(folder, name)
+                if name.endswith(".md") and "kairos.local.md" in read(path):
+                    named.append(os.path.relpath(path, SKILLS))
+        self.assertEqual(named, [os.path.join("meta", "bootstrap", "SKILL.md")])
 
     def test_prototype_keeps_its_answer_in_kairos(self):
         text = read(os.path.join(PLUGIN, "skills", "engineering", "prototype", "SKILL.md"))

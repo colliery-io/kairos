@@ -40,8 +40,9 @@ The next step is the text after the last `Next step:` (or `Next:`) in the
 notes of the task. Without one, the last line of the notes.
 
 Each error gives no output and exit 0: a hook must never block a tool call
-or a compaction. Not a Kairos repository (no `.claude/kairos.local.md`):
-no output.
+or a compaction. `record` keeps the tasks in each session, wired or not, and
+`compact` names them in each session (KAIROS-T-0708). A folder with no
+wiring, no task in the record and no loop: no output.
 """
 
 import json
@@ -57,7 +58,7 @@ if HERE not in sys.path:
 
 import ralph  # noqa: E402  (the Ralph state: read_state, state_dir)
 import kairos_rules  # noqa: E402
-import session_start  # noqa: E402  (the wiring: read_frontmatter)
+import session_start  # noqa: E402  (the wiring: session_start.wiring)
 
 TASK_CODE = re.compile(r"^[A-Z][A-Z0-9]*-T-[0-9]+$")
 SESSION_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -477,21 +478,35 @@ def index_failure_line():
 
 
 def cmd_compact(payload):
+    """The context after a compaction. With no wiring the record still
+    gives the Active tasks and the loop (KAIROS-T-0708): `record` keeps
+    them in each session, so `compact` names them in each session. With no
+    wiring, no task and no loop, there is no output."""
     session = payload.get("session_id")
     if not isinstance(session, str) or not SESSION_ID.match(session):
         return
     values = session_start.wiring()
-    if values is None:
-        return
-    context = build_context(values, read_record(session), session)
-    failure = index_failure_line()
-    if failure:
-        context += "\n" + failure
-    # KAIROS-T-0525: the wiring summary again, from the file and with no
-    # probe, and the rules again; the compaction keeps neither.
-    wiring = session_start.build_context(values, "not probed after a compaction")
-    rules = kairos_rules.build_context(values.get("deployment_url", ""))
-    context = "\n\n".join([context, wiring, rules])
+    error = getattr(values, "error", None)
+    record = read_record(session)
+    if values is None or error:
+        if not error and not active_tasks(record, None) and not loop_lines(session, record):
+            return
+        context = build_context({}, record, session)
+        parts = [context]
+        if error:
+            parts.append(session_start.error_context(error))
+        parts.append(kairos_rules.build_context(""))
+        context = "\n\n".join(parts)
+    else:
+        context = build_context(values, record, session)
+        failure = index_failure_line()
+        if failure:
+            context += "\n" + failure
+        # KAIROS-T-0525: the wiring summary again, from the file and with no
+        # probe, and the rules again; the compaction keeps neither.
+        wiring = session_start.build_context(values, "not probed after a compaction")
+        rules = kairos_rules.build_context(values.get("deployment_url", ""))
+        context = "\n\n".join([context, wiring, rules])
     sys.stdout.write(
         json.dumps(
             {

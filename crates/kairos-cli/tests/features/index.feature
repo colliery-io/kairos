@@ -8,7 +8,14 @@ Feature: The CLI and the code tools
     Given the polyglot fixture with no index
     When I run "kairos index build" and then "kairos index status"
     Then the status shows the count of files, symbols, edges and summaries
-    And the index is in .kairos/index.db and git ignores it
+    And the index is in the user cache and no file of it is in the checkout
+
+  # KAIROS-T-0709: an index of an older CLI in the checkout moves to the
+  # user cache on the first open.
+  Scenario: An old index in the checkout moves to the user cache
+    Given the polyglot fixture with an index of an older CLI in .kairos/index.db
+    When I run "kairos index update --link-only" and then "kairos index status"
+    Then the old index is moved to the user cache
 
   # KAIROS-T-0654: with --json, each command prints one JSON object.
   Scenario: Build and status with --json give one JSON object each

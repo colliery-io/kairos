@@ -24,7 +24,8 @@ stdio). Each is described below.
   from outside words to item types), `grill-me`,
   `handoff`, `writing-great-skills` (the normative authoring reference), `bootstrap`
   (wires a repo to a deployment — detects the repository from the git remote, takes the
-  team board from the team of the principal — and writes `.claude/kairos.local.md`).
+  team board from the team of the principal — and adds a `[[project]]` to `config.toml` with
+  `kairos config project`).
   It reads `/api/config` to choose the authentication path: OAuth, or the agent key of the
   user on a deployment with no issuer, or with an issuer that has no dynamic client
   registration (Google). Each person makes their own agent key with
@@ -52,16 +53,24 @@ router maps the whole user-invoked surface; changing the skill set without re-sy
 
 `hooks/hooks.json` registers `hooks/session_start.py` (python3, stdlib only) for SessionStart.
 It reads the wiring (absent → silent no-op): `kairos config show --json` gives the
-`[[project]]` of the config of the person, else `.claude/kairos.local.md`, with `KAIROS_URL`
-first (#270; with no CLI that has the verb, the hook reads the file). It probes `<deployment_url>/healthz`
+`[[project]]` of the config of the person, else the retired `.claude/kairos.local.md`, with `KAIROS_URL`
+first (#270; with no CLI that has the verb, the hook reads the file). With no deployment in the
+binding, the only login of the CLI gives it (`login_url`). Each value in the summary names its
+source: `KAIROS_URL`, a `[[project]]` or `[default]` of `config.toml`, the file, or the login.
+When `kairos config show` fails (a `config.toml` that does not parse), the context gives the
+message of the CLI and the hook does not read the file in its place. Each hook fails open: an
+error goes to stderr (the debug log) with exit 0 (KAIROS-T-0708). It probes `<deployment_url>/healthz`
 unauthenticated, and injects the wiring summary as `additionalContext` with an instruction to
 pull live state over the **authenticated MCP connection**: with a `repository` wired
 (KAIROS-A-0019) that is `get_repository` + `board_items` on the team board narrowed to the
 repository — the session's queue; without one, `my_boards`/`board_items` as before. The hint
 also says to name a board at create and how to send a request (COLLIERY-A-0023). Its pure parts are unit
 tested (`hooks/test_session_start.py`, part of `angreal test unit`).
-In a worktree, which has no `.claude/kairos.local.md` (the file is git-excluded), each hook
-reads the file of the clone, the folder above `git rev-parse --git-common-dir` (KAIROS-T-0520).
+A worktree has the `[[project]]` of its clone: the entry matches the `origin` remote. With the
+retired `.claude/kairos.local.md` (git-excluded, so a worktree has none), the CLI and the hooks
+read the file of the clone, the folder above `git rev-parse --git-common-dir` (KAIROS-T-0520).
+While the file gives a value, the start of each session says to move it to `config.toml` with
+`kairos config migrate` (KAIROS-T-0710); the next release does not read the file.
 In a board folder (`~/Boards/<board>/`: clones and worktrees, no `.git` of its own) the hook
 lists each checkout with its origin remote, its branch and the count of commits behind the
 origin default branch, from the local refs with no fetch (KAIROS-T-0521).
@@ -122,6 +131,9 @@ Ralph loop of the session: the iteration and the tasks left.
   to find its Active tasks with `board_items` (`repository=<repo>`, `column=Active`). With no
   record, that instruction is all the text. Each error gives no output; the hook never blocks a
   tool call or a compaction.
+- The record and the compaction text work with or without wiring (KAIROS-T-0708). In a
+  folder with no wiring, the text names the tasks and the loop of the record and gives the
+  rules; with no task and no loop, there is no output.
 - Tests: `hooks/test_active_work.py`, part of `angreal test unit`.
 
 ## Each session gets the code index
@@ -141,7 +153,9 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   path of the checkout, and the server takes the nearest index of the repository from Kairos
   (KAIROS-T-0348). The instructions of the server, and the error of a tool with no open
   checkout, name each clone and worktree below the start folder, with its `origin` remote and
-  whether it has a local index (#272). Each `fetch_index` adds a checkout: the tools read the
+  whether it has a local index (#272). The local index of a checkout is in the user cache,
+  not in the checkout (KAIROS-A-0072): `$XDG_CACHE_HOME/kairos/index/` (else
+  `~/.cache/kairos/index/`, or `KAIROS_INDEX_DIR`), one folder for each checkout and worktree. Each `fetch_index` adds a checkout: the tools read the
   last one opened, or the one that their `checkout` argument names, and `code_search` with no
   `checkout` searches each open checkout. If `kairos` is not on PATH, `bin/kairos-code` is an MCP server with no
   tools (COLLIERY-T-2529). Its instructions tell the agent that `kairos` is not on PATH, and
@@ -151,7 +165,7 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   name both versions and `kairos self-update`. `hooks/session_start.py` says the same in one
   line. A plugin update does not update the CLI: run `kairos self-update` after it.
 - **The update at the start.** `hooks/index_update.py start` is a `SessionStart` hook. If
-  `kairos` is on PATH and the checkout has `.claude/kairos.local.md`, it starts
+  `kairos` is on PATH and `kairos config show` binds the checkout, it starts
   `kairos index update --link-only` as a detached process and does not wait for it. The
   update runs no model: it links the summaries that are in the pool and makes no new ones
   (COLLIERY-T-2529). Summaries come from Kairos, or from a `kairos index update` that a person
@@ -293,8 +307,11 @@ tool decides. It does not read the text of the write.
 `KAIROS-A-0031`), it gives the agent one block before the edit: the code, the column and the
 title of each cited ADR, the successor of a superseded ADR, the amendments, the revisit
 condition and date (`revisit_when`, `revisit_on`, KAIROS-A-0070), and a line for a code that
-no ADR has. The states come from `kairos adrs check <file> --json`, with the login
-or the key of the person.
+the deployment does not know. The states come from
+`kairos adrs check <file> --board-prefixes --json`, with the login or the key of the person
+(KAIROS-T-0711). The CLI uses the binding of the checkout of the file, and reads only the codes
+with the prefix of an ADR board of that deployment. A code of another organization or
+deployment is "not known to this deployment": the hook does not tell the agent to remove it.
 
 - It runs in a wired checkout only: the nearest folder with `.git` above the file has the
   wiring, or the session folder above it has.
@@ -309,10 +326,10 @@ or the key of the person.
 
 ## Sessions are scoped to a team board and a repository
 
-`/kairos:bootstrap` records the checkout's repository (`repository:` in
-`.claude/kairos.local.md`, matched from `git remote get-url origin` against the tenant's
-directory), the delivery board of the team of the principal that connects (`team_board:`), and the
-ADR board of that team, or of the organization when the team has none (`adr_board:`).
+`/kairos:bootstrap` records the checkout's repository (`repository` of the `[[project]]` in
+`config.toml`, matched from `git remote get-url origin` against the tenant's
+directory), the delivery board of the team of the principal that connects (`team_board`), and the
+ADR board of that team, or of the organization when the team has none (`adr_board`).
 The team decides the board of a task; the repository is an optional link that says where the
 code is (COLLIERY-A-0023). Every repository has exactly one owning team, and a task on any
 team's board may link to it. `implement` works the team board filtered by this repository and
@@ -327,8 +344,8 @@ flags a change whose task links to a different repository. Work for a different 
 `.claude-plugin/plugin.json` declares a `kairos` stdio server, `bin/kairos-mcp`. It runs
 `kairos mcp-proxy` (#270), which forwards MCP over stdio to `/mcp` of the deployment of the
 project. The deployment is the first of: `KAIROS_URL`, the `[[project]]` of the origin remote
-of the session folder in `~/.config/kairos/config.toml`, `.claude/kairos.local.md`, `[default]`
-of that file, and the deployment of `kairos login`. So two repositories can use two
+of the session folder in `~/.config/kairos/config.toml`, the retired `.claude/kairos.local.md`,
+`[default]` of that file, and the deployment of `kairos login`. So two repositories can use two
 deployments in one Claude Code, with no `.mcp.json` and no direnv. The credential is
 `KAIROS_KEY` or `KAIROS_MCP_KEY` (the agent-key path, KAIROS-A-0024), else the token of
 `kairos login`, which the proxy refreshes. An OAuth deployment therefore works through the plugin
@@ -375,8 +392,9 @@ Without the server, the CLI does the same work with the same login (`kairos team
 `/kairos:bootstrap` writes no MCP config in the repository by default. The connection is the
 plugin server (an agent key or `kairos login`) or a user-scope entry (OAuth), and each
 repository of the user uses it. By default the skill writes the wiring as a `[[project]]` of
-`~/.config/kairos/config.toml` (`kairos config project`), so the repository gets no file; it
-writes `.claude/kairos.local.md` only when the user asks for it or the CLI cannot. A second
+`~/.config/kairos/config.toml` (`kairos config project`), so the repository gets no file. It
+does not write `.claude/kairos.local.md`: that file is retired, and `kairos config migrate`
+moves an old one to `config.toml`. A second
 deployment is a `[[project]]` with its own `deployment`, not a project `.mcp.json`.
 
 ## `references/` are rendered artifacts

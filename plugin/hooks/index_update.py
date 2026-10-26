@@ -4,7 +4,7 @@
 Four modes:
 
 - `start` (SessionStart): if `kairos` is on PATH and the checkout has the
-  Kairos wiring (`.claude/kairos.local.md`), start `worker` as a detached
+  Kairos wiring (`kairos config show`), start `worker` as a detached
   process and give the agent the text about the code tools of the local
   `kairos-code` MCP server. The hook does not wait for the update, so the
   start of the session is not slower. With no `kairos` or no wiring: no
@@ -58,7 +58,7 @@ The state is outside the checkout: `~/.claude/kairos-index/<name>-<hash>/`
 `last-edit`, `debounce.lock`);
 KAIROS_INDEX_STATE_DIR overrides the parent folder. The hook holds no
 credentials: `kairos index update` reads KAIROS_KEY or KAIROS_MCP_KEY and
-`.claude/kairos.local.md` itself (COLLIERY-T-1854). Each error gives no
+the binding of the checkout itself (COLLIERY-T-1854). Each error gives no
 output and exit 0: the hook never blocks a session or a tool call. Python
 stdlib only.
 """
@@ -69,6 +69,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -129,9 +130,10 @@ def is_wired(project):
         sys.path.insert(0, here)
     import session_start
 
-    # The file first, with no process; else a [[project]] of the config of
-    # the person (#270).
-    return session_start.wiring_path(project) is not None or session_start.wiring(project) is not None
+    # The CLI gives the binding (#270, KAIROS-T-0708): a [[project]] of the
+    # config of the person, else the file. A CLI that fails is no wiring.
+    values = session_start.wiring(project)
+    return values is not None and not getattr(values, "error", None)
 
 
 def is_checkout(project):
@@ -277,6 +279,59 @@ def spawn(args, cwd):
     )
 
 
+# ----------------------------------------------------------------- the index
+
+
+def index_home():
+    """The folder of the code indexes (KAIROS-A-0072), as the CLI finds it:
+    KAIROS_INDEX_DIR, else $XDG_CACHE_HOME/kairos/index, else
+    ~/.cache/kairos/index."""
+    configured = os.environ.get("KAIROS_INDEX_DIR")
+    if configured:
+        return configured
+    cache = os.environ.get("XDG_CACHE_HOME")
+    if cache:
+        return os.path.join(cache, "kairos", "index")
+    home = os.environ.get("HOME")
+    if home:
+        return os.path.join(home, ".cache", "kairos", "index")
+    return os.path.join(os.environ.get("TMPDIR") or "/tmp", "kairos-index")
+
+
+def checkout_key(root):
+    """The key of the index folder of a checkout (KAIROS-A-0072), the rule of
+    `checkout_key` in the CLI: the folder name (each character that is not a
+    letter, a digit, `.`, `_` or `-` is `_`; at most 40), `-`, and 16 hex
+    digits of the SHA-256 of the canonical path (pure; testable)."""
+    real = os.path.realpath(root)
+    digest = hashlib.sha256(os.fsencode(real)).hexdigest()[:16]
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(real))[:40]
+    return f"{name}-{digest}" if name else digest
+
+
+def checkout_top(folder):
+    """The top of the checkout that holds `folder`: the folder itself when
+    it has `.git`, else the nearest folder above it with `.git`, else the
+    folder (KAIROS-T-0707)."""
+    real = os.path.realpath(folder)
+    if is_checkout(real):
+        return real
+    return checkout_of(real) or real
+
+
+def index_file(root):
+    """The index file of the checkout at `root` in the user cache. A
+    subfolder has the file of the top of its checkout, as in the CLI."""
+    return os.path.join(index_home(), checkout_key(checkout_top(root)), "index.db")
+
+
+def has_index(root):
+    """The checkout has a local index: in the user cache, or an old one in
+    the checkout that the next open of the CLI moves."""
+    old = os.path.join(root, ".kairos", "index.db")
+    return os.path.isfile(index_file(root)) or os.path.isfile(old)
+
+
 # ----------------------------------------------------------------- start
 
 
@@ -300,7 +355,7 @@ def session_text(project, log):
         f"makes the background update run the model. Its log: {log}.",
         after_edit_text(),
     ]
-    if not os.path.isfile(os.path.join(project, ".kairos", "index.db")):
+    if not has_index(project):
         lines.append(
             "This checkout has no local index yet. The update tries to download "
             "the base index from Kairos. If the log says that no base index is "
@@ -435,6 +490,9 @@ def start(payload):
     project = project_dir()
     if shutil.which("kairos") is None or not is_wired(project):
         return
+    # A session in a subfolder of a checkout (KAIROS-T-0707): the index of
+    # the top of the checkout, under its key (KAIROS-A-0072).
+    project = checkout_top(project)
     if not is_checkout(project):
         # A board folder (#272): the update of each clone and worktree below
         # it, with the wiring of the board folder, as after an edit
@@ -675,7 +733,8 @@ def main():
             start(payload)
         elif mode == "record":
             record(payload)
-    except Exception:  # never block a session or a tool call
+    except Exception as error:  # never block a session or a tool call (KAIROS-T-0708: the reason goes to the log)
+        sys.stderr.write(f"kairos index update: the hook failed: {error}\n")
         return
 
 

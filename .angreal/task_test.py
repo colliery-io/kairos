@@ -33,7 +33,7 @@ import angreal  # type: ignore
 # `unit()`/`integration()`.
 from task_web import build as _web_build
 
-from utils import docker_up, docker_down, run_cargo_command, PROJECT_ROOT
+from utils import docker_up, docker_down, run_cargo_command, PROJECT_ROOT, TARGET_DIR
 
 test = angreal.command_group(name="test", about="commands for running tests")
 
@@ -81,9 +81,9 @@ def _index_model_features():
 # services afterwards (soak is nightly-scale; the dev stack stays up).
 SOAK_PORT = int(os.environ.get("KAIROS_SOAK_PORT", "41189"))
 SOAK_BASE_URL = f"http://127.0.0.1:{SOAK_PORT}"
-SOAK_BIN = PROJECT_ROOT / "target" / "debug" / "kairos-soak"
+SOAK_BIN = TARGET_DIR / "debug" / "kairos-soak"
 SOAK_REPORT = os.environ.get(
-    "KAIROS_SOAK_REPORT", str(PROJECT_ROOT / "target" / "soak-report.json")
+    "KAIROS_SOAK_REPORT", str(TARGET_DIR / "soak-report.json")
 )
 # alice's OIDC sub (kairos-db/src/seed.rs DEMO_USERS): made a deployment
 # admin so the driver can provision the bystander tenant used by the
@@ -105,8 +105,8 @@ E2E_ISSUER = "http://localhost:41558/dex"
 # not a default the product ships, and nothing outside this file knows it.
 E2E_LOCAL_EMAIL = "alice@kairos.test"
 E2E_LOCAL_PASSWORD = "alice-local-password"
-SERVER_BIN = PROJECT_ROOT / "target" / "debug" / "kairos-server"
-E2E_RUNNER_BIN = PROJECT_ROOT / "target" / "debug" / "examples" / "e2e_golden_path"
+SERVER_BIN = TARGET_DIR / "debug" / "kairos-server"
+E2E_RUNNER_BIN = TARGET_DIR / "debug" / "examples" / "e2e_golden_path"
 
 # GUI smoke leg (KAIROS-T-0045): the Leptos SPA is served on :41080 because
 # that is the ONLY redirect_uri Dex registers for the `kairos-web` public
@@ -123,7 +123,7 @@ WEB_DIST = PROJECT_ROOT / "crates" / "kairos-web" / "dist"
 # against any deployment via --server. alice is made a deployment admin so
 # the onboarding journey can prove tenant provisioning (compose only).
 UAT_DIR = PROJECT_ROOT / "uat"
-CLI_BIN = PROJECT_ROOT / "target" / "debug" / "kairos"
+CLI_BIN = TARGET_DIR / "debug" / "kairos"
 
 
 def _integration_test_targets():
@@ -250,7 +250,20 @@ def unit():
         os.path.join(hooks, "test_kairos_rules.py"),  # the rules once per session, KAIROS-T-0498
         os.path.join(hooks, "test_memory_reminder.py"),  # decisions go to Kairos, KAIROS-T-0502
         os.path.join(hooks, "test_adr_context.py"),  # the ADRs of a file, KAIROS-T-0702
+        os.path.join(hooks, "test_kairos_code.py"),  # the code server of the plugin
+        os.path.join(hooks, "test_channel.py"),  # the dispatch channel
+        os.path.join(hooks, "test_hook_test_env.py"),  # no live env, KAIROS-T-0712
     ]
+    # KAIROS-T-0712: CI runs each test file of the hooks. This list must
+    # name each one too.
+    listed = {os.path.basename(path) for path in hook_tests}
+    missing = sorted(
+        name for name in os.listdir(hooks)
+        if name.startswith("test_") and name.endswith(".py") and name not in listed
+    )
+    if missing:
+        print(f"angreal test unit does not run these hook tests: {missing}", file=sys.stderr)
+        return 1
     code = subprocess.run(
         [sys.executable, "-B", "-m", "unittest", *hook_tests],
         cwd=PROJECT_ROOT,
@@ -523,7 +536,7 @@ def _gui_server_env(env, extra=None):
         # for the wrong reason. Downloading is allowed HERE and nowhere else:
         # this is a test harness on a developer machine or a CI runner, not a
         # deployment.
-        "KAIROS_EMBED_CACHE": str(PROJECT_ROOT / "target" / "embed-cache"),
+        "KAIROS_EMBED_CACHE": str(TARGET_DIR / "embed-cache"),
         "KAIROS_EMBED_ALLOW_DOWNLOAD": "1",
         # Two seconds rather than the default ten, and deliberately NOT zero:
         # embedding happens off the write path by design, so a journey that
@@ -535,7 +548,7 @@ def _gui_server_env(env, extra=None):
         # takes the request when it has the folder of the clones. The test
         # server has no summarizer, so the builder does not run: the run
         # stays `running`, which is what the spec watches arrive live.
-        "KAIROS_CODE_INDEX_DIR": str(PROJECT_ROOT / "target" / "e2e-code-index"),
+        "KAIROS_CODE_INDEX_DIR": str(TARGET_DIR / "e2e-code-index"),
         # KAIROS-T-0341 lets the builder start with no model, so it would
         # download its tools and fetch the fake repositories of the demo on
         # each tick. 0 keeps the service (requests are taken and stay
@@ -544,7 +557,7 @@ def _gui_server_env(env, extra=None):
         # KAIROS-T-0453: the docs sites (pages-web, site-sandbox) publish
         # sites, so the GUI server has a site store: a folder of target/.
         "KAIROS_PAGES_STORE": "disk",
-        "KAIROS_PAGES_DIR": str(PROJECT_ROOT / "target" / "e2e-pages"),
+        "KAIROS_PAGES_DIR": str(TARGET_DIR / "e2e-pages"),
         # KAIROS-T-0387: the dispatch spec sends a delivery to a receiver of
         # the spec on 127.0.0.1, which the address guard refuses unless this
         # is on. A short first wait, so a failed try comes back fast.
@@ -1204,7 +1217,7 @@ def uat(server=None, journey=None, keep_running=False, headed=False, report_dir=
 
         gui_server, exit_code = _boot_gui_server(
             _gui_server_env(env, {"KAIROS_DEPLOYMENT_ADMINS": SOAK_DEPLOYMENT_ADMIN}),
-            log_path=(PROJECT_ROOT / "target" / "uat-server.log") if keep_running else None,
+            log_path=(TARGET_DIR / "uat-server.log") if keep_running else None,
         )
         if exit_code != 0:
             return exit_code

@@ -14,6 +14,13 @@ CLAUDE_PROJECT_DIR pointing at a temporary directory. The parts that need a
 live session (the start time of a real session, the tools of the MCP server)
 are the manual check on the task."""
 
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import hook_test_env  # noqa: E402,F401  (KAIROS-T-0712: no live env, a temp HOME)
+
+
 import fcntl
 import hashlib
 import json
@@ -26,9 +33,14 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
+import importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "index_update.py")
+_SPEC = importlib.util.spec_from_file_location("index_update", SCRIPT)
+index_update = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(index_update)
 ACTIVE_WORK = os.path.join(HERE, "active_work.py")
 ROOT = os.path.dirname(os.path.dirname(HERE))
 WRAPPER = os.path.join(ROOT, "plugin", "bin", "kairos-code")
@@ -206,6 +218,42 @@ class SessionStart(Harness):
         self.assertIn("before you read files", text)
         self.assertIn("kairos-code", text)
         self.assertIn("update.log", text)
+
+    def test_the_text_says_when_the_checkout_has_no_index_in_the_user_cache(self):
+        # KAIROS-A-0072: the index is in the user cache, not in the checkout.
+        result = self.run_hook("start", {"session_id": "s1", "source": "startup"})
+        text = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("This checkout has no local index yet.", text)
+        cache = os.path.join(self.tmp.name, "index-home")
+        env = self.env(KAIROS_INDEX_DIR=cache)
+        with unittest.mock.patch.dict(os.environ, {"KAIROS_INDEX_DIR": cache}):
+            db = index_update.index_file(self.project)
+        self.assertTrue(db.startswith(cache + os.sep), db)
+        os.makedirs(os.path.dirname(db))
+        with open(db, "w") as handle:
+            handle.write("")
+        result = self.run_hook("start", {"session_id": "s2", "source": "startup"}, env=env)
+        text = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("no local index yet", text)
+        self.assertFalse(os.path.exists(os.path.join(self.project, ".kairos")))
+
+    def test_a_subfolder_has_the_index_of_the_top_of_its_checkout(self):
+        # KAIROS-T-0707: the key is made from the top of the checkout.
+        sub = os.path.join(self.project, "src", "deep")
+        os.makedirs(sub)
+        self.assertEqual(index_update.checkout_top(sub), os.path.realpath(self.project))
+        self.assertEqual(index_update.index_file(sub), index_update.index_file(self.project))
+
+    def test_the_key_of_a_checkout_is_the_key_of_the_cli(self):
+        # The same example as the test of `checkout_key` in the CLI.
+        self.assertEqual(
+            index_update.checkout_key("/nonexistent-kairos/my repo"),
+            "my_repo-4a68e4c25d4d38c3",
+        )
+        with unittest.mock.patch.dict(
+            os.environ, {"KAIROS_INDEX_DIR": "", "XDG_CACHE_HOME": "/xdg"}
+        ):
+            self.assertEqual(index_update.index_home(), "/xdg/kairos/index")
 
     def test_the_text_says_that_the_background_update_runs_no_model(self):
         result = self.run_hook("start", {"session_id": "s1", "source": "startup"})

@@ -20,7 +20,7 @@ The item is the record of the interview. A compaction loses the conversation, bu
   - the parent strategy of an initiative;
   - the ADRs that support it;
   - the ADRs and the documents that impact the repository, and `related_work` on the item: [GROUND.md](../../meta/kairos/GROUND.md). Write its "Read: ..." sentence before the first question.
-- **A title**: confirm the title and the board with the user. The board is `initiative_board` in `.claude/kairos.local.md`, else find it with `my_boards`. Then call `create_item` (`item_type: initiative`). Send `parent` only when the user names a parent strategy. From then on, name the initiative only by the short code in the result.
+- **A title**: confirm the title and the board with the user. The board is `initiative_board` of the wiring (the SessionStart context, or `kairos config show`), else find it with `my_boards`. Then call `create_item` (`item_type: initiative`). Send `parent` only when the user names a parent strategy. From then on, name the initiative only by the short code in the result.
 - **No argument**: ask the user which item to grill. Do not guess.
 
 Every answer must trace back to the parent strategy, when there is one. When an answer does not, say so.

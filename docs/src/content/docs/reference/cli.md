@@ -1065,11 +1065,19 @@ kairos adrs check [PATH]... [OPTIONS]
 | `--snapshot <FILE>` | path | none | Read the states of the ADRs from this file, not from the deployment. |
 | `--save-snapshot <FILE>` | path | none | Write the states of the cited ADRs to this file, for a later `--snapshot`. |
 | `--stale-lines <N>` | integer | 50 | Flag an ADR when the files that cite it changed by this count of lines (added and removed) since its `accepted_commit`. |
+| `--board-prefixes` | flag | off | Read only the codes with the prefix of an ADR board of the deployment. Each other code is an `unknown_prefix` info. Not with `--snapshot`. |
 
 Finds each ADR short code (for example `KAIROS-A-0031`) in the files of the
-paths. Gives a finding for each citation. The walk skips the files that git
-ignores and the hidden folders. It also skips a file that is not UTF-8 or is
-larger than 2 MiB.
+paths. Gives a finding for each citation. The walk reads the hidden folders
+(`.github/`, `.angreal/`). It skips these files:
+
+- the files that the `.gitignore` files of the checkout ignore;
+- each `.git` folder or file;
+- the file of `--snapshot` or `--save-snapshot`;
+- a file that is not UTF-8 or is larger than 2 MiB.
+
+The walk does not read your global gitignore, so the result is the same on
+each machine.
 
 A code is an upper-case prefix, `-A-`, and four digits or more. A letter, a
 digit, `_` or `-` just before the code makes it part of a longer word. A
@@ -1083,7 +1091,7 @@ does.
 |---|---|---|
 | `missing` | fail | No ADR has the code. |
 | `archived` | fail | The ADR is archived. |
-| `not_in_snapshot` | fail | The snapshot of `--snapshot` has no state for the code. Save the snapshot again. |
+| `not_in_snapshot` | warn | The snapshot of `--snapshot` has no state for the code. Save the snapshot again. |
 | `superseded` | warn | An ADR supersedes the cited ADR. The finding names the successor. |
 | `ended_column` | warn | The ADR is in the column Superseded, Rejected or Deprecated, and no ADR supersedes it. |
 | `retired_code` | warn | The citation uses a retired code. The finding names the current code. |
@@ -1091,23 +1099,34 @@ does.
 | `stale_code` | warn | The files that cite the ADR changed by `--stale-lines` lines or more since its `accepted_commit`. The finding names each file with its count. |
 | `amended` | info | ADRs amend the cited ADR. The finding names them. |
 | `commit_unknown` | info | The checkout does not have the `accepted_commit` of the ADR, so the check cannot compare. |
+| `unknown_prefix` | info | With `--board-prefixes`: no ADR board of the deployment has the prefix of the code. It is not known to this deployment. |
 
 The text output gives one line for each finding, `FILE:LINE: CODE SEVERITY:
 MESSAGE`, and then the counts. A citation of a live ADR gives no line.
 
-The states come from the deployment. The CLI reads the item graph of each cited
-ADR once. It also reads the metadata of each live ADR: `revisit_when`,
+The states come from the deployment of the checkout of the first path. The
+checkout is the nearest folder with `.git` at or above the path. The binding
+of that checkout gives the deployment. In a board folder with several
+checkouts, the binding of the board folder does not apply. The CLI reads the
+item graph of each cited ADR once. It also reads the metadata of each live ADR: `revisit_when`,
 `revisit_on` and `accepted_commit` (KAIROS-A-0070).
 
 With `--snapshot`, the states come from a file that `--save-snapshot` wrote.
 Then the command needs no deployment and no key. Use this in CI: CI must not
-have a key of a deployment. With no deployment and no `--snapshot`, the CLI
-skips the check: it says so on stderr and exits with 0. A snapshot with no
-ADRs is a placeholder: the CLI skips the check in the same way.
+have a key of a deployment.
+
+A citation that the snapshot does not hold is a warn, not a fail. Thus CI
+passes for a contributor with no login. A person with a login then saves the
+snapshot again. With `--snapshot`, a citation fails only when the snapshot
+gives its ADR as missing or archived.
+
+With no deployment and no `--snapshot`, the CLI skips the check: it says so on
+stderr and exits with 0. A snapshot with no ADRs is a placeholder: the CLI
+skips the check in the same way.
 
 The CI of the kairos repository runs the check on the committed snapshot
-`.github/adr-snapshot.json`. The snapshot is in a hidden folder, so the walk
-does not read its codes as citations:
+`.github/adr-snapshot.json`. The walk does not read the snapshot file, so its
+codes are not citations:
 
 ```
 kairos adrs check --prefix KAIROS --snapshot .github/adr-snapshot.json
@@ -2992,8 +3011,11 @@ Drops the tenant's organization and schema. Destructive and unrecoverable.
 ## The code index of a checkout
 
 `kairos index` builds the code index of a git checkout, and serves its code
-tools to an agent. The index is the file `.kairos/index.db` in the checkout.
-A build adds it to `.git/info/exclude`, so git does not track it.
+tools to an agent. The index is in the user cache, not in the checkout
+(KAIROS-A-0072). Each checkout and each worktree has its own folder. See
+[The place of the code index](../configuration/#the-place-of-the-code-index).
+The CLI writes no file into the checkout. On the first open, it moves an old
+`.kairos/index.db` of the checkout to the user cache.
 
 Each `index` command takes `--root`. Only `index update` takes `--url` and
 `--tenant`. Each `index` command except `index mcp` takes `--json`. See
@@ -3003,6 +3025,15 @@ Each `index` command takes `--root`. Only `index update` takes `--url` and
 |---|---|---|---|
 | `--root <ROOT>` | path | the root of the git repository of the current folder | The root of the checkout. |
 | `--json` | flag | off | Print one JSON object with the result, in place of the text. |
+
+`index build`, `index update`, `index status` and `index --full` need a
+checkout. The CLI refuses a folder that is not in a git checkout, for example
+a board folder that holds clones. It does not index the clones as one tree.
+
+The refusal `NOT_A_CHECKOUT` (exit 1) lists the checkouts below the folder.
+Run the command in one of them, or give one with `--root`. A `--root` that is
+not in a checkout and holds no checkout is a root, as before. `index mcp` in a
+board folder opens no checkout and names the checkouts.
 
 ### `kairos index`
 
@@ -3037,14 +3068,18 @@ kairos index update [--root <ROOT>] [--rust-edges] [--link-only] [--max-changed 
 | `--rust-edges` (alias `--scip`) | flag | off | Run the SCIP indexers again for the precise edges of the changed code: rust-analyzer, scip-go, scip-typescript and scip-python. |
 | `--link-only` | flag | off | Run no model. Link the summaries of the pool, and make no new summaries. |
 | `--max-changed <MAX_CHANGED>` | integer | 200 when a model runs, else no limit | The most files that can change since the base index. Above it, the CLI builds nothing. With `--link-only` or on a hosted repository, no model runs. |
-| `--repo <REPOSITORY>` | slug or UUID | `repository` in `.claude/kairos.local.md`, else the repository of the `origin` remote | The repository in Kairos. The old name `--repository` still works. |
+| `--repo <REPOSITORY>` | slug or UUID | `repository` of the binding of the checkout (`kairos config show`), else the repository of the `origin` remote | The repository in Kairos. The old name `--repository` still works. |
 | `--url <URL>` | string | `KAIROS_URL`, else the binding of the checkout (see [`config.toml`](../configuration/#configtoml)), else the only deployment of `kairos login` | The deployment. |
-| `--tenant <TENANT>` | string | `tenant` in `.claude/kairos.local.md`, else the tenant of the login | The tenant, for a token from `kairos login`. A key carries its tenant. |
+| `--tenant <TENANT>` | string | `tenant` of the binding of the checkout (`kairos config show`), else the tenant of the login | The tenant, for a token from `kairos login`. A key carries its tenant. |
 
 Updates the index for the changes in the checkout, also the changes that are
-not committed. Git excludes `.claude/kairos.local.md`, so a worktree has no
-such file. In a worktree, the command reads the file of the main clone. The
-main clone is the folder above `git rev-parse --git-common-dir`. With no index, the command starts from the nearest base index
+not committed.
+
+A worktree has the `[[project]]` of its clone (the entry
+matches the `origin` remote). Git excludes the retired
+`.claude/kairos.local.md`, so a worktree has no such file. In a worktree, the
+command reads the file of the main clone. The main clone is the folder above
+`git rev-parse --git-common-dir`. With no index, the command starts from the nearest base index
 in Kairos. See
 [`kairos index update` and the base index](../configuration/#kairos-index-update-and-the-base-index).
 
@@ -3154,8 +3189,8 @@ text. A refusal is the error envelope on stderr (see
 ```json
 {
   "command": "update",
-  "index": "/work/app/.kairos/index.db",
-  "git_exclude": null,
+  "index": "/home/robin/.cache/kairos/index/app-4a68e4c25d4d38c3/index.db",
+  "moved_from": null,
   "start": {
     "from": "base",
     "base": { "repository": "app", "branch": "main", "commit": "9f2c…", "changed": 3, … },
@@ -3173,7 +3208,7 @@ text. A refusal is the error envelope on stderr (see
 |---|---|
 | `command` | `build` or `update`. `index --full` gives `build`. |
 | `index` | The path of the index file. |
-| `git_exclude` | The exclude file of git, when the run added the line of the index. Else `null`. |
+| `moved_from` | The old index of the checkout (`.kairos/index.db`), when the run moved it to the user cache. Else `null`. |
 | `start` | Where the update started. It is `null` for a build. |
 | `start.from` | `base`: the update downloaded the base index of Kairos. `local`: the update changed the local index. |
 | `start.base` | The base index that Kairos gave: the repository, the branch, the commit, the changed files and the count of its summaries. The update can keep the local index and not use it. |
@@ -3208,6 +3243,7 @@ A refusal of `index` has one of these codes in the error envelope:
 | `NO_START` | The update has no index to start from. The details give the `path` and the reason. |
 | `TOO_FAR` | More files than the limit changed since the base index. The details give `changed`, `limit`, `commit`, `branch` and `behind`. `local` is `true` when the count is that of the local index. |
 | `NO_ROOT` | The folder of `--root` is not there. |
+| `NOT_A_CHECKOUT` | `index build`, `index update`, `index status` or `index --full` in a folder that is not in a git checkout. The details give the `path` and the `checkouts` below it. |
 | `NOT_FOUND`, `AMBIGUOUS` | `index references` found no symbol, or more than one. The details of `AMBIGUOUS` give the `candidates`. |
 | `CLI_ERROR` | Any other failure. |
 
@@ -3217,9 +3253,10 @@ A refusal of `index` has one of these codes in the error envelope:
 
 ```
 kairos config show [FOLDER] [--json]
-kairos config project [FOLDER] [--remote <REMOTE>] [--deployment <URL>] [--tenant <TENANT>]
+kairos config project [FOLDER] [--remote <REMOTE> | --path] [--deployment <URL>] [--tenant <TENANT>]
     [--repository <SLUG>] [--team-board <SLUG>] [--initiative-board <SLUG>]
     [--adr-board <SLUG>] [--delivery-stream <SLUG>] [--json]
+kairos config migrate [FOLDER] [--remote <REMOTE>] [--json]
 kairos config path
 ```
 
@@ -3227,17 +3264,41 @@ These commands read and write the config of the person, `config.toml` in the
 config directory (see [`config.toml`](../configuration/#configtoml)).
 
 `config show` gives the binding of the folder: the deployment, the tenant,
-the repository and the boards. For each value it gives where the value comes
-from: the `[[project]]` of the folder, `.claude/kairos.local.md`, or
-`[default]`. When `KAIROS_URL` is set, the output says that commands use it.
+the repository and the boards. A subfolder of a checkout has the binding of
+the top of the checkout. For each value it gives the source: the
+`[[project]]` of the folder, `.claude/kairos.local.md`, or `[default]`. For
+the file, see `config migrate`. When `KAIROS_URL` is set, the output says
+that commands use it.
+
 The hooks of the plugin read `config show --json`. The JSON has `bound`, which
 is `true` when a `[[project]]` or `.claude/kairos.local.md` binds the folder.
+It also has `env_url`, the value of `KAIROS_URL`. It has `login_url`: the
+deployment of the only login of the CLI, else `null`. When the binding has
+no deployment, the hooks use `login_url` and name it as the source.
 
 `config project` adds a `[[project]]` for the `origin` remote of the folder, or
 for `--remote`. The command adds the text to the end of the file and does not
 change the other lines. When the file has an entry for the remote with the
 same values, the command changes nothing. When the entry has other values, the
 command refuses. Then you edit the entry in the file.
+
+A folder with no `origin` remote gets a `[[project]]` with `path`. Examples
+are a board folder that holds clones, and a checkout with no remote. In a
+checkout, the path is the top of the checkout. With `--path`, a folder that
+has a remote also gets a `path` entry.
+
+`config migrate` moves the values of `.claude/kairos.local.md` to a
+`[[project]]` for the `origin` remote of the folder, or for `--remote`. It
+moves only the values that the file gives to the binding: a value of the
+`[[project]]` stays. When the file gives no value, the command changes
+nothing.
+
+The command does not remove the file: check the result with `config show`,
+then remove the file. This release still reads the file. While the file gives
+a value, `config show` gives a warning (`wiring_warning` in the JSON). Each
+other command that reads the binding gives the warning once on stderr.
+`mcp-proxy` also adds it to the instructions of the server.
+The next release does not read the file.
 
 `config path` prints the path of `config.toml`.
 
@@ -3267,6 +3328,20 @@ command refreshes the token when it expires.
 
 When the deployment refuses a request or does not answer, the client gets a
 JSON-RPC error with the reason.
+
+When the command cannot find a deployment or a credential, it does not stop.
+It serves MCP with no tools, and the instructions of the server give the
+reason and the commands to run. Standard error has the same text. These
+faults give the server with no tools:
+
+- There is no login, and no key with a URL.
+- `KAIROS_KEY` or `KAIROS_MCP_KEY` is set, but no URL names the deployment.
+- The credential cache has logins for more than one deployment, and no flag,
+  no `KAIROS_URL` and no binding names one.
+- `config.toml` does not parse. The reason gives the file and the line.
+
+After the fix, reconnect the server with `/mcp` in Claude Code, or start the
+session again.
 
 ### `kairos self-update`
 

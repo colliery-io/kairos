@@ -298,8 +298,9 @@ mod tests {
     #[test]
     #[ignore = "loads the 65 MB vector model"]
     fn the_local_model_embeds_a_query() {
-        let cache =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/embed-cache");
+        let cache = kairos_embed::dev::model_cache(&kairos_embed::dev::workspace_of(env!(
+            "CARGO_MANIFEST_DIR"
+        )));
         let source = query_source_with(
             LOCAL,
             || {

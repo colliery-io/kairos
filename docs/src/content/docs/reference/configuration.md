@@ -1099,6 +1099,8 @@ cached credentials, the daily version check, and the settings of
 | `KAIROS_CONFIG_DIR` | The config directory, taken verbatim. Highest precedence. |
 | `XDG_CONFIG_HOME` | Used as `$XDG_CONFIG_HOME/kairos` when `KAIROS_CONFIG_DIR` is unset or empty. |
 | `HOME` | Used as `$HOME/.config/kairos` when neither of the above is set. |
+| `KAIROS_INDEX_DIR` | The folder of the code indexes, taken verbatim. See [The place of the code index](#the-place-of-the-code-index). |
+| `XDG_CACHE_HOME` | Used as `$XDG_CACHE_HOME/kairos/index` for the code indexes when `KAIROS_INDEX_DIR` is unset or empty. Else the CLI uses `$HOME/.cache/kairos/index`. |
 | `KAIROS_UPDATE_CHECK` | `0` turns off the daily version check of the CLI. |
 | `KAIROS_AUTO_UPDATE` | `1` makes the daily check install the newer version of the server. It does not install from an `http://` deployment. |
 | `KAIROS_RELEASES_URL` | The base URL of the published releases, for a mirror. `kairos self-update` takes each checksum from it, and the tarballs of `--version` and `--latest`. The default is the GitHub releases. |
@@ -1139,7 +1141,7 @@ team_board = "other-delivery"
 | Key | Description |
 |---|---|
 | `remote` | `[[project]]` only. The `origin` remote of the repository. Each form that git takes is correct. The CLI compares it as `host/path` in lower case, so each clone and each worktree finds the entry. |
-| `path` | `[[project]]` only, in place of `remote`. A folder of a checkout with no remote. The entry applies to the folder and to each folder below it. `~/` is the home folder. |
+| `path` | `[[project]]` only, in place of `remote`. A folder with no remote: a checkout with no remote, or a board folder that holds clones. The entry applies to the folder and to each folder below it. `~/` is the home folder. `kairos config project` writes it in a folder with no `origin` remote. |
 | `deployment` | The deployment URL. |
 | `tenant` | The tenant of a login. A key carries its tenant, so the CLI does not send this value with a key. |
 | `repository` | The slug of the repository in Kairos. |
@@ -1153,17 +1155,34 @@ one order for each value:
 2. The environment: `KAIROS_URL`.
 3. The `[[project]]` of the checkout.
 4. `.claude/kairos.local.md` of the checkout, or of its clone in a worktree.
+   This release reads this file and gives a warning. The next release does
+   not read it. `kairos config migrate` moves its values
+   to a `[[project]]`.
 5. `[default]`.
 6. The deployment and the tenant of `kairos login`.
 
-`[default]` alone does not wire a repository. The hooks of the plugin give
-the Kairos context only when a `[[project]]` or `.claude/kairos.local.md`
-binds the folder. `kairos config show` gives each value of a folder and where
-it comes from.
+A subfolder of a checkout has the binding of the top of the checkout: its
+remote and its `.claude/kairos.local.md`.
 
-The CLI refuses a `config.toml` with an unknown key, or with a `[[project]]`
-that has no `remote` and no `path`. A typo must not send work to the wrong
-deployment.
+`[default]` alone does not wire a repository. The hooks of the plugin give
+the Kairos context only when a `[[project]]` (or the retired
+`.claude/kairos.local.md`) binds the folder. To wire a board folder, use a
+`[[project]]` with `path`, not `[default]`. `kairos config show` gives each
+value of a folder and where it comes from.
+
+The CLI refuses a `config.toml` that does not parse. It also refuses an
+unknown key, and a `[[project]]` with no `remote` and no `path`. The message
+gives the file and the line. These commands read the binding, so they refuse
+the file:
+
+- each command that talks to the API (exit 1);
+- `kairos config show`;
+- `kairos adrs check` with no `--snapshot`;
+- the index commands that ask Kairos for a base index;
+- `kairos mcp-proxy`: it serves no tools, and gives the reason.
+
+The CLI never ignores the file. It does not use `[default]` or a login in its
+place. A typo must not send work to the wrong deployment.
 
 ### `credentials.json`
 
@@ -1224,6 +1243,32 @@ A file that does not parse is an authentication error (exit 2). The message
 names the file and the fault. The JSON is not valid, it stops early, or it does
 not have the fields of a credential cache.
 
+### The place of the code index
+
+The local code index of a checkout is in the user cache, not in the checkout
+(KAIROS-A-0072). The file is `<home>/<key>/index.db`. Its lock file
+`index.db.lock` is next to it.
+
+- `<home>` is `KAIROS_INDEX_DIR`. When it is unset or empty, `<home>` is
+  `$XDG_CACHE_HOME/kairos/index`, else `$HOME/.cache/kairos/index`. macOS
+  uses the same folders.
+- `<key>` is the folder name of the checkout, `-`, and the first 16 hex
+  digits of the SHA-256 of the canonical path of the checkout. For example:
+  `app-4a68e4c25d4d38c3`. The checkout is its top folder: a subfolder, and
+  a `--root` in a subfolder, have the key of the top.
+
+Each worktree has its own key, so it has its own index. When you move or
+rename a checkout, its key changes. Then the CLI builds the index again, or
+it downloads the base index from Kairos.
+
+An index of an older CLI is in the checkout, at `.kairos/index.db`. On the
+first open, the CLI moves it to the user cache with a rename. When the
+rename fails, the CLI leaves the old file, and it builds the index again. The
+CLI does not change the line of `.kairos/index.db` in `.git/info/exclude`.
+You can remove that line. The CLI writes no line there now.
+
+The plugin hooks find the index with the same rule.
+
 ### `kairos index update` and the base index
 
 `kairos index update` asks Kairos for the nearest base index of the checkout.
@@ -1238,17 +1283,18 @@ index. The output says so. The tool `fetch_index` of the code tools does the sam
 
 | Setting | Description |
 |---|---|
-| `--url`, then `KAIROS_URL`, then the binding of the checkout (the `[[project]]` of [`config.toml`](#configtoml), `.claude/kairos.local.md`, `[default]`) | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |
+| `--url`, then `KAIROS_URL`, then the binding of the checkout (the `[[project]]` of [`config.toml`](#configtoml), the retired `.claude/kairos.local.md`, `[default]`) | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |
 | `KAIROS_KEY`, then `KAIROS_MCP_KEY` | An agent key or a service-account key, sent as the bearer, as for each other command ([CLI → Authentication](../cli/#authentication)). With neither, the CLI uses the credentials of `kairos login`. |
-| `--tenant`, then `tenant` in `.claude/kairos.local.md` | The tenant, for the credentials of `kairos login`. With neither, the CLI uses the tenant of the login. A key carries its tenant. |
-| `--repository`, then `repository` in `.claude/kairos.local.md` | The repository in Kairos. With neither, the CLI uses the repository whose `repo_url` is the `origin` remote of the checkout. |
+| `--tenant`, then `tenant` of the binding of the checkout (`kairos config show`) | The tenant, for the credentials of `kairos login`. With neither, the CLI uses the tenant of the login. A key carries its tenant. |
+| `--repository`, then `repository` of the binding of the checkout (`kairos config show`) | The repository in Kairos. With neither, the CLI uses the repository whose `repo_url` is the `origin` remote of the checkout. |
 | `--max-changed` | The most files that can change since the base index. When the update runs a model, the default is 200. With `--link-only` or on a hosted repository, there is no default limit. |
 | `--link-only` | Do not run the summary model. The update links the summaries that are in the pool of the index, and it does not make new summaries. The background update of the Claude Code plugin uses this option. |
 
-Git excludes `.claude/kairos.local.md`, so a worktree has no such file. In
-a worktree, the CLI reads the file of the main clone. The main clone is the
-folder above `git rev-parse --git-common-dir`. The plugin hooks use the same
-rule.
+A worktree has the `[[project]]` of its clone, because the entry matches the
+`origin` remote. Git excludes the retired `.claude/kairos.local.md`, so a
+worktree has no such file. In a worktree, the CLI reads the file of the main
+clone. The main clone is the folder above `git rev-parse --git-common-dir`.
+The plugin hooks use the same rule.
 
 A repository can opt in to the hosted provider of its organization
 (`code_index_summaries = hosted`). On such a repository, the update makes

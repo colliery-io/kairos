@@ -10,6 +10,13 @@ it, with KAIROS_WORK_STATE_DIR, KAIROS_RALPH_STATE_DIR and
 CLAUDE_PROJECT_DIR pointing at a temporary directory. The part that needs a
 live session (a real compaction) is the manual check on the task."""
 
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import hook_test_env  # noqa: E402,F401  (KAIROS-T-0712: no live env, a temp HOME)
+
+
 import json
 import os
 import subprocess
@@ -425,6 +432,30 @@ class WiringAndRulesAfterACompaction(ActiveWorkCase):
 
     def test_the_context_has_the_wiring_and_the_rules(self):
         _, context = self.compact()
-        self.assertIn("Kairos wiring for this repo", context)
+        self.assertIn("Kairos wiring for this folder", context)
         self.assertIn("status: not probed after a compaction", context)
         self.assertIn("Kairos rules (once per session", context)
+
+
+class UnwiredSessionsKeepTheirTasks(ActiveWorkCase):
+    """KAIROS-T-0708: `record` keeps the tasks with or without wiring, so
+    `compact` names them with or without wiring."""
+
+    def unwire(self):
+        os.remove(os.path.join(self.project, ".claude", "kairos.local.md"))
+        self.env["PATH"] = "/usr/bin:/bin"  # no CLI: no binding
+
+    def test_an_unwired_session_gets_its_active_task_back(self):
+        self.unwire()
+        self.tool_use("get_item", {"short_code": "ACME-T-0042"}, get_item_text())
+        _, context = self.compact()
+        self.assertIn("ACME-T-0042", context)
+        self.assertIn("Kairos: Claude Code compacted the context.", context)
+        self.assertIn("Kairos rules (once per session", context)
+        self.assertNotIn("Kairos wiring for this folder", context)
+
+    def test_an_unwired_session_with_no_task_gives_no_output(self):
+        self.unwire()
+        result, context = self.compact()
+        self.assertEqual(context, "")
+        self.assertEqual(result.stdout, "")

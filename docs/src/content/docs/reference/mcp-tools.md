@@ -521,8 +521,9 @@ The call must have one or more of `description`, `default_branch`,
 `default_branch_source`, `repo_url`, `code_index_build`, `slug`, `team`,
 `forge_filters` and `issue_import_interval`. The tool refuses an invalid or too long pattern with
 `VALIDATION`. The error names it (`forge_filters.pr_author.exclude`).
-Each checkout keeps the slug in `.claude/kairos.local.md`, and a new slug
-breaks that reference: run `/kairos:bootstrap` in the checkout again.
+Each checkout keeps the slug as `repository` of its `[[project]]` in
+`config.toml`. A new slug breaks that reference: run `/kairos:bootstrap` in
+the checkout again.
 
 Requires membership of the owner team, or the organization admin role. A new
 `team` also requires membership of that team.

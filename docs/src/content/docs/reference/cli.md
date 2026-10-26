@@ -3037,14 +3037,18 @@ kairos index update [--root <ROOT>] [--rust-edges] [--link-only] [--max-changed 
 | `--rust-edges` (alias `--scip`) | flag | off | Run the SCIP indexers again for the precise edges of the changed code: rust-analyzer, scip-go, scip-typescript and scip-python. |
 | `--link-only` | flag | off | Run no model. Link the summaries of the pool, and make no new summaries. |
 | `--max-changed <MAX_CHANGED>` | integer | 200 when a model runs, else no limit | The most files that can change since the base index. Above it, the CLI builds nothing. With `--link-only` or on a hosted repository, no model runs. |
-| `--repo <REPOSITORY>` | slug or UUID | `repository` in `.claude/kairos.local.md`, else the repository of the `origin` remote | The repository in Kairos. The old name `--repository` still works. |
+| `--repo <REPOSITORY>` | slug or UUID | `repository` of the binding of the checkout (`kairos config show`), else the repository of the `origin` remote | The repository in Kairos. The old name `--repository` still works. |
 | `--url <URL>` | string | `KAIROS_URL`, else the binding of the checkout (see [`config.toml`](../configuration/#configtoml)), else the only deployment of `kairos login` | The deployment. |
-| `--tenant <TENANT>` | string | `tenant` in `.claude/kairos.local.md`, else the tenant of the login | The tenant, for a token from `kairos login`. A key carries its tenant. |
+| `--tenant <TENANT>` | string | `tenant` of the binding of the checkout (`kairos config show`), else the tenant of the login | The tenant, for a token from `kairos login`. A key carries its tenant. |
 
 Updates the index for the changes in the checkout, also the changes that are
-not committed. Git excludes `.claude/kairos.local.md`, so a worktree has no
-such file. In a worktree, the command reads the file of the main clone. The
-main clone is the folder above `git rev-parse --git-common-dir`. With no index, the command starts from the nearest base index
+not committed.
+
+A worktree has the `[[project]]` of its clone (the entry
+matches the `origin` remote). Git excludes the retired
+`.claude/kairos.local.md`, so a worktree has no such file. In a worktree, the
+command reads the file of the main clone. The main clone is the folder above
+`git rev-parse --git-common-dir`. With no index, the command starts from the nearest base index
 in Kairos. See
 [`kairos index update` and the base index](../configuration/#kairos-index-update-and-the-base-index).
 
@@ -3220,6 +3224,7 @@ kairos config show [FOLDER] [--json]
 kairos config project [FOLDER] [--remote <REMOTE>] [--deployment <URL>] [--tenant <TENANT>]
     [--repository <SLUG>] [--team-board <SLUG>] [--initiative-board <SLUG>]
     [--adr-board <SLUG>] [--delivery-stream <SLUG>] [--json]
+kairos config migrate [FOLDER] [--remote <REMOTE>] [--json]
 kairos config path
 ```
 
@@ -3227,21 +3232,33 @@ These commands read and write the config of the person, `config.toml` in the
 config directory (see [`config.toml`](../configuration/#configtoml)).
 
 `config show` gives the binding of the folder: the deployment, the tenant,
-the repository and the boards. For each value it gives where the value comes
-from: the `[[project]]` of the folder, `.claude/kairos.local.md`, or
-`[default]`. When `KAIROS_URL` is set, the output says that commands use it.
+the repository and the boards. For each value it gives the source: the
+`[[project]]` of the folder, `.claude/kairos.local.md`, or `[default]`. For
+the file, see `config migrate`. When `KAIROS_URL` is set, the output says
+that commands use it.
+
 The hooks of the plugin read `config show --json`. The JSON has `bound`, which
 is `true` when a `[[project]]` or `.claude/kairos.local.md` binds the folder.
-It also has `env_url` (the value of `KAIROS_URL`) and `login_url`: the
-deployment of the only login of the CLI, or `null` when there is no login or
-more than one. When the binding has no deployment, the hooks use `login_url`
-and name it as the source.
+It also has `env_url`, the value of `KAIROS_URL`. It has `login_url`: the
+deployment of the only login of the CLI, else `null`. When the binding has
+no deployment, the hooks use `login_url` and name it as the source.
 
 `config project` adds a `[[project]]` for the `origin` remote of the folder, or
 for `--remote`. The command adds the text to the end of the file and does not
 change the other lines. When the file has an entry for the remote with the
 same values, the command changes nothing. When the entry has other values, the
 command refuses. Then you edit the entry in the file.
+
+`config migrate` moves the values of `.claude/kairos.local.md` to a
+`[[project]]` for the `origin` remote of the folder, or for `--remote`. It
+moves only the values that the file gives to the binding: a value of the
+`[[project]]` stays. When the file gives no value, the command changes
+nothing.
+
+The command does not remove the file: check the result with `config show`,
+then remove the file. This release still reads the file. While the file gives
+a value, `config show` gives a warning (`wiring_warning` in the JSON).
+The next release does not read the file.
 
 `config path` prints the path of `config.toml`.
 

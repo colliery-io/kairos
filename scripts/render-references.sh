@@ -19,20 +19,36 @@
 # Reproducible: output depends only on the documents. Needs the deployment reachable and a
 # bearer that can read them:
 #
-#   KAIROS_URL   defaults to `deployment_url` in .claude/kairos.local.md
+#   KAIROS_URL   defaults to the deployment of the binding of this checkout:
+#                `kairos config show --json` (a [[project]] of config.toml), else
+#                the only login of the CLI (KAIROS-T-0710)
 #   KAIROS_KEY   defaults to $KAIROS_MCP_KEY (what the Claude Code MCP client uses)
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WIRING="$REPO_ROOT/.claude/kairos.local.md"
 
-if [ -z "${KAIROS_URL:-}" ] && [ -f "$WIRING" ]; then
-  KAIROS_URL="$(sed -n 's/^deployment_url:[[:space:]]*//p' "$WIRING" | head -1)"
+# The deployment of the binding, from the CLI: the CLI is the one parser of
+# the binding. Empty when the CLI is not on PATH or gives no deployment.
+binding_url() {
+  command -v kairos >/dev/null 2>&1 || return 0
+  KAIROS_UPDATE_CHECK=0 kairos config show --json "$REPO_ROOT" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+value = ((data.get("values") or {}).get("deployment") or {}).get("value")
+print(value or data.get("login_url") or "")
+' || true
+}
+
+if [ -z "${KAIROS_URL:-}" ]; then
+  KAIROS_URL="$(binding_url)"
 fi
 KAIROS_KEY="${KAIROS_KEY:-${KAIROS_MCP_KEY:-}}"
 if [ -z "${KAIROS_URL:-}" ] || [ -z "$KAIROS_KEY" ]; then
-  echo "render-references: set KAIROS_URL and KAIROS_KEY (or run /kairos:bootstrap and set KAIROS_MCP_KEY)" >&2
+  echo "render-references: set KAIROS_URL and KAIROS_KEY, or bind this checkout with \`kairos config project --deployment <url>\` and set KAIROS_MCP_KEY" >&2
   exit 2
 fi
 export KAIROS_URL KAIROS_KEY

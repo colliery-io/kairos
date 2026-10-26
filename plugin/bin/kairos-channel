@@ -13,8 +13,9 @@ way: the session works the task with the Kairos MCP tools.
   (`CLAUDE_PROJECT_DIR`, else the current folder). Write it with
   `kairos-channel setup <board> --port <port>`, the secret on stdin.
 - With no config, the server serves MCP with no listener (KAIROS-T-0544).
-  In a folder with no Kairos wiring (`.claude/kairos.local.md`, or the one
-  of the clone of a worktree) it gives no instructions: dispatch is
+  In a folder with no Kairos wiring (`kairos config show`: a `[[project]]`
+  of `config.toml`, or the retired `.claude/kairos.local.md`) it gives no
+  instructions: dispatch is
   optional. In a wired folder its instructions give the three steps to turn
   dispatch on. A config that others can read, a bad config or a taken port
   turns the channel off, and the instructions say why.
@@ -105,7 +106,7 @@ def session_folder():
 def wiring():
     """The values of the Kairos wiring of the session folder, or None when
     the folder is not wired. It reads the wiring as the hooks do
-    (`session_start.wiring_path`: a worktree reads the file of its clone)."""
+    (`session_start.wiring`: `kairos config show`)."""
     sys.path.insert(0, HOOKS)
     try:
         import session_start

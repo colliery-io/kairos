@@ -273,6 +273,8 @@ class RulesAtTheStart(unittest.TestCase):
         self.assertIn("Kairos wiring for this folder", context)
         self.assertIn("Kairos rules (once per session", context)
         self.assertIn("http://127.0.0.1:9/items/COLLIERY-I-0627", context)
+        # KAIROS-T-0710: the file is retired, so the start says to move it.
+        self.assertIn("`kairos config migrate`", context)
         self.assertTrue(
             any(name.startswith("session-0525-") for name in os.listdir(self.rules_dir)),
             "the marker of the session is written",
@@ -1031,3 +1033,26 @@ class TheHookFailsOpen(unittest.TestCase):
             session_start.main()  # no exception: the hook exits 0
         self.assertEqual(out.getvalue(), "")
         self.assertIn("kairos session start: the hook failed: no state folder", err.getvalue())
+
+
+class TheFileIsRetired(unittest.TestCase):
+    """KAIROS-T-0710: this release reads .claude/kairos.local.md, and the
+    start of a session says once to move it to config.toml."""
+
+    def test_a_value_of_the_file_gives_the_warning(self):
+        values = session_start.Wiring({"team_board": "d"}, {"team_board": ".claude/kairos.local.md"})
+        warning = session_start.wiring_warning(values)
+        self.assertIn("kairos config migrate", warning)
+        self.assertIn("next release", warning)
+
+    def test_values_of_config_toml_give_no_warning(self):
+        values = session_start.Wiring({"team_board": "d"}, {"team_board": "config.toml [default]"})
+        self.assertIsNone(session_start.wiring_warning(values))
+        self.assertIsNone(session_start.wiring_warning({"team_board": "d"}))
+
+    def test_the_start_gives_the_warning_and_the_compaction_does_not(self):
+        text = session_start.build_context(
+            session_start.Wiring({"team_board": "d"}, {"team_board": ".claude/kairos.local.md"}),
+            "not probed after a compaction",
+        )
+        self.assertNotIn("kairos config migrate", text)

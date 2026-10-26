@@ -14,8 +14,9 @@ Once per session per file: the record is
 `~/.claude/kairos-memory/`, with the paths that got the reminder. Records
 older than 30 days are removed.
 
-The ADR board comes from `adr_board` in `.claude/kairos.local.md` (read with
-session_start.read_frontmatter); without one the text says `my_boards`.
+The ADR board comes from `adr_board` of the wiring (read with
+session_start.wiring: `kairos config show`); without one the text says
+`my_boards`.
 
 The output is `additionalContext` only. No `permissionDecision`: the
 normal permission flow of the tool decides, and "allow" would skip the
@@ -33,7 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-import session_start  # noqa: E402  (read_frontmatter)
+import session_start  # noqa: E402  (the wiring)
 
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit")
 SESSION_ID = re.compile(r"^[A-Za-z0-9_.-]+$")

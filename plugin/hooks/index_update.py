@@ -4,7 +4,7 @@
 Four modes:
 
 - `start` (SessionStart): if `kairos` is on PATH and the checkout has the
-  Kairos wiring (`.claude/kairos.local.md`), start `worker` as a detached
+  Kairos wiring (`kairos config show`), start `worker` as a detached
   process and give the agent the text about the code tools of the local
   `kairos-code` MCP server. The hook does not wait for the update, so the
   start of the session is not slower. With no `kairos` or no wiring: no
@@ -58,7 +58,7 @@ The state is outside the checkout: `~/.claude/kairos-index/<name>-<hash>/`
 `last-edit`, `debounce.lock`);
 KAIROS_INDEX_STATE_DIR overrides the parent folder. The hook holds no
 credentials: `kairos index update` reads KAIROS_KEY or KAIROS_MCP_KEY and
-`.claude/kairos.local.md` itself (COLLIERY-T-1854). Each error gives no
+the binding of the checkout itself (COLLIERY-T-1854). Each error gives no
 output and exit 0: the hook never blocks a session or a tool call. Python
 stdlib only.
 """

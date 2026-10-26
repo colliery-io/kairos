@@ -54,6 +54,7 @@ FRONTMATTER_KEYS = (
 
 
 WIRING_FILE = os.path.join(".claude", "kairos.local.md")
+WIRING_SOURCE = ".claude/kairos.local.md"  # retired (KAIROS-T-0710): read with a warning
 
 
 def wiring_path(project_dir=None):
@@ -340,7 +341,7 @@ def source_label(item):
     if origin == "default":
         return "config.toml [default]"
     if origin == "wiring":
-        return ".claude/kairos.local.md"
+        return WIRING_SOURCE
     return "kairos config show"
 
 
@@ -360,7 +361,7 @@ def wiring(project_dir=None):
         if not path:
             return None
         values = read_frontmatter(path)
-        return Wiring(values, {key: ".claude/kairos.local.md" for key in values})
+        return Wiring(values, {key: WIRING_SOURCE for key in values})
     if isinstance(data.get("error"), str):
         return Wiring(error=data["error"])
     if not data.get("bound"):
@@ -602,6 +603,20 @@ NO_DEPLOYMENT = (
 )
 
 
+def wiring_warning(values):
+    """One line at the start of a session when `.claude/kairos.local.md`
+    gives a value (KAIROS-T-0710), else None. The compaction does not
+    repeat it."""
+    sources = getattr(values, "sources", None) or {}
+    if WIRING_SOURCE not in sources.values():
+        return None
+    return (
+        "- warning: .claude/kairos.local.md gives values of this wiring. Tell the "
+        "user: move them to config.toml with `kairos config migrate`, then remove "
+        "the file. The next release does not read this file."
+    )
+
+
 def error_context(error):
     """The context when `kairos config show` fails (KAIROS-T-0708)."""
     return (
@@ -647,6 +662,9 @@ def run(payload):
     if checkouts is None:
         checkouts = board_checkouts(project_dir)
     context = build_context(values, status, note, checkouts)
+    warning = wiring_warning(values)
+    if warning:
+        context = context + "\n" + warning
     try:
         rules = rules_at_start(values, session)
     except Exception as error:  # a state folder that cannot be written

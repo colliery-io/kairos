@@ -19,8 +19,8 @@ The marker carries the version of the rules, so a plugin update with a
 higher RULES_VERSION gives the new text once more. Markers older than 30
 days are removed.
 
-The rules cite items. With `deployment_url` in `.claude/kairos.local.md`
-(read with session_start.read_frontmatter), each short code in the rules is
+The rules cite items. With a `deployment_url` in the wiring (read with
+session_start.wiring: `kairos config show`), each short code in the rules is
 the link `<deployment_url>/items/<CODE>`, and the rules say to cite that
 way. With no URL, the codes stay bare and the rules say so.
 
@@ -39,7 +39,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import git_guard  # noqa: E402  (simple_commands, words_of)
-import session_start  # noqa: E402  (read_frontmatter)
+import session_start  # noqa: E402  (the wiring)
 
 RULES_VERSION = 2
 
@@ -61,8 +61,8 @@ CITE_WITH_URL = (
     "Never a bare short code when a deployment URL is wired."
 )
 CITE_BARE = (
-    "Cite every item by its bare short code (no deployment_url is wired in "
-    ".claude/kairos.local.md; `/kairos:bootstrap` wires one)."
+    "Cite every item by its bare short code (no deployment is wired for this "
+    "folder; `kairos config show` gives the wiring, and /kairos:bootstrap wires one)."
 )
 
 

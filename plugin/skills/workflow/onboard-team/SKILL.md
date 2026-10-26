@@ -123,7 +123,7 @@ Ask the person whether an agent session works the board of the team. If no, skip
 
 ## 7. Local wiring
 
-In each checkout of a repository of the team, run `/kairos:bootstrap`. It writes `.claude/kairos.local.md` with the team board and the repository. Then check that the repository has a code index: `rebuild_code_index` builds one when it is missing.
+In each checkout of a repository of the team, run `/kairos:bootstrap`. It adds a `[[project]]` with the team board and the repository to `config.toml` of the user (`kairos config project`). The repository gets no file. Then check that the repository has a code index: `rebuild_code_index` builds one when it is missing.
 
 ## 8. Close
 

@@ -1,16 +1,17 @@
 //! The base index in Kairos, for `kairos index update` (COLLIERY-T-1854,
 //! COLLIERY-I-0264 "The flow").
 //!
-//! - **The connection.** The URL: `--url`, else `KAIROS_URL`, else
-//!   `deployment_url` in `.claude/kairos.local.md` of the checkout, else the
-//!   credential cache of `kairos login`. A worktree has no such file (git
-//!   excludes it): the CLI then reads the file of its main clone
+//! - **The connection.** The URL: `--url`, else `KAIROS_URL`, else the
+//!   binding of the checkout ([`crate::project_config`]: a `[[project]]` of
+//!   `config.toml`, then the retired `.claude/kairos.local.md`, KAIROS-T-0710),
+//!   else the credential cache of `kairos login`. A worktree has no file of
+//!   its own (git excludes it): the CLI then reads the file of its main clone
 //!   ([`settings_path`], KAIROS-T-0646), as the plugin hooks do. The token: `KAIROS_KEY`, else
 //!   `KAIROS_MCP_KEY` (an agent key or a service-account key, as the plugin
 //!   and `scripts/render-references.sh` use), else the credential cache.
 //!   [`crate::auth`] resolves both, as for each other command.
-//! - **The repository.** `--repo`, else `repository` in
-//!   `.claude/kairos.local.md`, else the repository of Kairos whose
+//! - **The repository.** `--repo`, else `repository` of the binding of the
+//!   checkout, else the repository of Kairos whose
 //!   `repo_url` is the `origin` remote of the checkout.
 //! - **The branch point.** `git merge-base HEAD origin/<default branch>`
 //!   (then the local default branch), else HEAD. Kairos gives the nearest
@@ -45,13 +46,13 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 /// The flags that choose the Kairos deployment and the repository.
 #[derive(clap::Args, Debug, Default)]
 pub struct RemoteArgs {
-    /// The Kairos deployment. Default: KAIROS_URL, else `deployment_url` in .claude/kairos.local.md, else the only deployment of `kairos login`
+    /// The Kairos deployment. Default: KAIROS_URL, else the binding of the checkout (`kairos config show`), else the only deployment of `kairos login`
     #[arg(long)]
     pub url: Option<String>,
-    /// The tenant, when the token is from `kairos login`. Default: `tenant` in .claude/kairos.local.md, else the tenant of the login
+    /// The tenant, when the token is from `kairos login`. Default: `tenant` of the binding of the checkout (`kairos config show`), else the tenant of the login
     #[arg(long)]
     pub tenant: Option<String>,
-    /// The repository in Kairos. Default: `repository` in .claude/kairos.local.md, else the repository of the `origin` remote. The old name --repository still works
+    /// The repository in Kairos. Default: `repository` of the binding of the checkout (`kairos config show`), else the repository of the `origin` remote. The old name --repository still works
     #[arg(long = "repo", alias = "repository", value_name = "REPOSITORY")]
     pub repository: Option<String>,
 }

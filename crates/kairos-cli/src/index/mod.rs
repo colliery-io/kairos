@@ -668,7 +668,7 @@ pub(super) fn reason(found: &base::Found) -> String {
     match found {
         base::Found::Base(b) => format!("the index of {} is not used", b.short()),
         base::Found::NotSet => {
-            "no Kairos deployment is set (KAIROS_URL, .claude/kairos.local.md or `kairos login`)"
+            "no Kairos deployment is set (KAIROS_URL, a [[project]] of config.toml or `kairos login`)"
                 .to_string()
         }
         base::Found::Unreachable { url, why } => {

@@ -237,6 +237,13 @@ class SessionStart(Harness):
         self.assertNotIn("no local index yet", text)
         self.assertFalse(os.path.exists(os.path.join(self.project, ".kairos")))
 
+    def test_a_subfolder_has_the_index_of_the_top_of_its_checkout(self):
+        # KAIROS-T-0707: the key is made from the top of the checkout.
+        sub = os.path.join(self.project, "src", "deep")
+        os.makedirs(sub)
+        self.assertEqual(index_update.checkout_top(sub), os.path.realpath(self.project))
+        self.assertEqual(index_update.index_file(sub), index_update.index_file(self.project))
+
     def test_the_key_of_a_checkout_is_the_key_of_the_cli(self):
         # The same example as the test of `checkout_key` in the CLI.
         self.assertEqual(

@@ -309,9 +309,20 @@ def checkout_key(root):
     return f"{name}-{digest}" if name else digest
 
 
+def checkout_top(folder):
+    """The top of the checkout that holds `folder`: the folder itself when
+    it has `.git`, else the nearest folder above it with `.git`, else the
+    folder (KAIROS-T-0707)."""
+    real = os.path.realpath(folder)
+    if is_checkout(real):
+        return real
+    return checkout_of(real) or real
+
+
 def index_file(root):
-    """The index file of the checkout at `root` in the user cache."""
-    return os.path.join(index_home(), checkout_key(root), "index.db")
+    """The index file of the checkout at `root` in the user cache. A
+    subfolder has the file of the top of its checkout, as in the CLI."""
+    return os.path.join(index_home(), checkout_key(checkout_top(root)), "index.db")
 
 
 def has_index(root):
@@ -479,6 +490,9 @@ def start(payload):
     project = project_dir()
     if shutil.which("kairos") is None or not is_wired(project):
         return
+    # A session in a subfolder of a checkout (KAIROS-T-0707): the index of
+    # the top of the checkout, under its key (KAIROS-A-0072).
+    project = checkout_top(project)
     if not is_checkout(project):
         # A board folder (#272): the update of each clone and worktree below
         # it, with the wiring of the board folder, as after an edit

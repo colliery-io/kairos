@@ -1514,7 +1514,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src")).unwrap();
         std::fs::write(dir.path().join("src/a.rs"), "").unwrap();
-        assert_eq!(folder_of(&dir.path().join("src/a.rs")), dir.path().join("src"));
+        assert_eq!(
+            folder_of(&dir.path().join("src/a.rs")),
+            dir.path().join("src")
+        );
         assert_eq!(folder_of(&dir.path().join("src")), dir.path().join("src"));
     }
 

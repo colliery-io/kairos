@@ -317,8 +317,14 @@ fn resolve_root(arg: RootArg) -> Result<PathBuf, IndexCommandError> {
                 .unwrap_or(here)
         }
     };
-    root.canonicalize()
-        .map_err(|_| IndexCommandError::NoRoot(root))
+    let root = root
+        .canonicalize()
+        .map_err(|_| IndexCommandError::NoRoot(root))?;
+    // A `--root` in a subfolder of a checkout is the top of the checkout:
+    // one index per checkout, under the key of its top (KAIROS-A-0072).
+    Ok(crate::project_config::checkout_top(&root)
+        .and_then(|top| top.canonicalize().ok())
+        .unwrap_or(root))
 }
 
 /// The root for `build`, `update`, `status` and `--full` (KAIROS-T-0713):
@@ -392,11 +398,13 @@ fn index_home() -> PathBuf {
 /// The key of the folder of the index of the checkout at `root`: the
 /// folder name of the checkout (letters, digits, `.`, `_` and `-`; each
 /// other character is `_`; at most 40), `-`, and the first 16 hex digits of
-/// the SHA-256 of the canonical path. Each worktree has its own key. The
-/// hook `index_update.py` uses the same rule.
+/// the SHA-256 of the canonical path. Each worktree has its own key. A
+/// subfolder of a checkout has the key of the top of the checkout
+/// (KAIROS-T-0707). The hook `index_update.py` uses the same rule.
 pub(crate) fn checkout_key(root: &Path) -> String {
     use sha2::Digest;
-    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let root = crate::project_config::checkout_top(root).unwrap_or_else(|| root.to_path_buf());
+    let root = root.canonicalize().unwrap_or(root);
     let digest = sha2::Sha256::digest(root.as_os_str().as_encoded_bytes());
     let hex: String = digest
         .iter()
@@ -1402,6 +1410,14 @@ mod tests {
         assert!(key.starts_with("my_repo-"), "{key}");
         assert_eq!(key.len(), "my_repo-".len() + 16);
         assert_eq!(checkout_key(&main), checkout_key(&main.join("../my repo")));
+        // A subfolder has the key of the top of its checkout (KAIROS-T-0707).
+        std::fs::create_dir_all(main.join("src/deep")).expect("a folder");
+        assert_eq!(checkout_key(&main.join("src/deep")), key);
+        let root = resolve_root(RootArg {
+            root: Some(main.join("src")),
+        })
+        .expect("the root");
+        assert_eq!(checkout_key(&root), key);
         for root in [&main, &worktree] {
             assert!(!root.join(".kairos").exists(), "{}", root.display());
         }

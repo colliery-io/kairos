@@ -2610,7 +2610,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-cli"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -2647,7 +2647,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-client"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "axum",
  "futures-util",
@@ -2662,7 +2662,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-core"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "chrono",
  "kairos-markdown",
@@ -2678,7 +2678,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-db"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "bb8",
  "chrono",
@@ -2700,7 +2700,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-embed"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "fastembed",
  "reqwest 0.12.28",
@@ -2713,7 +2713,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-index"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "chrono",
  "cucumber",
@@ -2742,7 +2742,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-markdown"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "pulldown-cmark",
 ]
@@ -2767,7 +2767,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-server"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "argon2",
  "axum",
@@ -2824,7 +2824,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-soak"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "chrono",
  "clap",
@@ -2838,7 +2838,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-web"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "colliery-io-aurora",
  "console_error_panic_hook",
@@ -2858,7 +2858,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-web-css"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "colliery-io-aurora",
 ]

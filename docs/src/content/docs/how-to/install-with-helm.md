@@ -2,7 +2,7 @@
 title: "Install Kairos on Kubernetes with Helm"
 ---
 
-Get a Kairos 0.18.0 deployment serving on a cluster you already run.
+Get a Kairos 0.18.1 deployment serving on a cluster you already run.
 
 **Before you start**, have all four:
 
@@ -123,7 +123,7 @@ mounts the Swagger UI at `/api/docs`.
 
 ```sh
 helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
-  --version 0.18.0 -f my-values.yaml
+  --version 0.18.1 -f my-values.yaml
 ```
 
 `--version` is not optional in practice: the chart publishes no floating tag.
@@ -525,6 +525,15 @@ Changes that people and agents see:
   `set_transition` takes `from_column` and `to_column`, `my_boards` takes
   `board_level`, and the metadata definition is `definition`. A reference
   of a person accepts `me` in more tools.
+
+### From 0.18.0 to 0.18.1
+
+0.18.1 repairs the release of 0.18.0. It has no migration and no new
+setting. A 0.18.0 server and a 0.18.1 server can serve together.
+
+- The CLI of 0.18.0 did not build for Intel macOS, so the release has no
+  CLI tarballs and `kairos self-update` cannot install 0.18.0. 0.18.1 has
+  all four tarballs again. The image of 0.18.1 is the same code as 0.18.0.
 
 ## Trying it out without a database
 

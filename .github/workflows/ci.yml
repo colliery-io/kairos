@@ -213,6 +213,13 @@ jobs:
         if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.web == 'true'
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # The Intel macOS release binary is built with no default features
+      # (no local vector model). Check that build here, so a feature gate
+      # that moves fails the PR, not the tag (v0.18.0).
+      - name: Gate 2 — the CLI builds with no default features
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo check -p kairos-cli --no-default-features
+
       - name: Set up Helm
         if: needs.changes.outputs.helm == 'true'
         uses: azure/setup-helm@v5

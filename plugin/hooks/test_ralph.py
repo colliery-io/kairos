@@ -10,6 +10,13 @@ KAIROS_RALPH_STATE_DIR pointing at a temporary directory. The part of a
 scenario that needs a live session (the agent doing the work) is the manual
 run on the task."""
 
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import hook_test_env  # noqa: E402,F401  (KAIROS-T-0712: no live env, a temp HOME)
+
+
 import importlib.util
 import json
 import os

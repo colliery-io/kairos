@@ -17,7 +17,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from utils import PROJECT_ROOT
+from utils import PROJECT_ROOT, TARGET_DIR
 
 web = angreal.command_group(name="web", about="GUI (kairos-web) build commands")
 
@@ -28,7 +28,7 @@ WASM_PROFILE = "wasm-release"
 # The largest .wasm the release build may write, in bytes. Raise it on purpose,
 # in the same change that grows the bundle, with the reason in the commit.
 WASM_BUDGET_FILE = WEB_CRATE / "wasm-size-budget"
-TOOLS_ROOT = PROJECT_ROOT / "target" / "tools"
+TOOLS_ROOT = TARGET_DIR / "tools"
 # Pinned like the diesel CLI in task_db.py: upgrades are deliberate.
 TRUNK_VERSION = "0.21.14"
 WASM_TARGET = "wasm32-unknown-unknown"

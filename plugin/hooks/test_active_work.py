@@ -10,6 +10,13 @@ it, with KAIROS_WORK_STATE_DIR, KAIROS_RALPH_STATE_DIR and
 CLAUDE_PROJECT_DIR pointing at a temporary directory. The part that needs a
 live session (a real compaction) is the manual check on the task."""
 
+import os as _os  # noqa: E402
+import sys as _sys  # noqa: E402
+
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import hook_test_env  # noqa: E402,F401  (KAIROS-T-0712: no live env, a temp HOME)
+
+
 import json
 import os
 import subprocess

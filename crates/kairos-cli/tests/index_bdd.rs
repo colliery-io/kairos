@@ -34,6 +34,29 @@ use tempfile::TempDir;
 /// The built `kairos` binary.
 const KAIROS: &str = env!("CARGO_BIN_EXE_kairos");
 
+/// The temp home of each `kairos` that a scenario runs (KAIROS-T-0712).
+static HOME: std::sync::LazyLock<TempDir> =
+    std::sync::LazyLock::new(|| tempfile::tempdir().expect("a temp home"));
+
+/// A clean environment for a `kairos` of a scenario (KAIROS-T-0712): no
+/// `KAIROS_*` variable of the person (the deployment, the key), no session
+/// folder, and a temp home, config folder and cache folder. A scenario
+/// that needs a variable sets it after this.
+fn clean_env(command: &mut Command) -> &mut Command {
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("KAIROS_") {
+            command.env_remove(&name);
+        }
+    }
+    let home = HOME.path();
+    command
+        .env_remove("CLAUDE_PROJECT_DIR")
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("XDG_CACHE_HOME", home.join(".cache"))
+        .env("KAIROS_CONFIG_DIR", home.join(".config/kairos"))
+}
+
 /// The index in a checkout.
 const INDEX_DB: &str = ".kairos/index.db";
 
@@ -165,7 +188,9 @@ impl Agent {
     /// (the Kairos deployment of a base-index scenario).
     fn start_with_env(root: &Path, env: &[(&str, &str)]) -> Agent {
         let mut command = Command::new(KAIROS);
-        command.args(["index", "mcp", "--root"]).arg(root);
+        clean_env(&mut command)
+            .args(["index", "mcp", "--root"])
+            .arg(root);
         for (name, value) in env {
             command.env(name, value);
         }
@@ -384,7 +409,7 @@ fn git(root: &Path, args: &[&str]) -> std::process::Output {
 }
 
 fn kairos(args: &[&str], root: &Path) -> String {
-    let out = Command::new(KAIROS)
+    let out = clean_env(&mut Command::new(KAIROS))
         .args(args)
         .arg("--root")
         .arg(root)

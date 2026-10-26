@@ -3232,6 +3232,10 @@ from: the `[[project]]` of the folder, `.claude/kairos.local.md`, or
 `[default]`. When `KAIROS_URL` is set, the output says that commands use it.
 The hooks of the plugin read `config show --json`. The JSON has `bound`, which
 is `true` when a `[[project]]` or `.claude/kairos.local.md` binds the folder.
+It also has `env_url` (the value of `KAIROS_URL`) and `login_url`: the
+deployment of the only login of the CLI, or `null` when there is no login or
+more than one. When the binding has no deployment, the hooks use `login_url`
+and name it as the source.
 
 `config project` adds a `[[project]]` for the `origin` remote of the folder, or
 for `--remote`. The command adds the text to the end of the file and does not

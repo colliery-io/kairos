@@ -129,9 +129,10 @@ def is_wired(project):
         sys.path.insert(0, here)
     import session_start
 
-    # The file first, with no process; else a [[project]] of the config of
-    # the person (#270).
-    return session_start.wiring_path(project) is not None or session_start.wiring(project) is not None
+    # The CLI gives the binding (#270, KAIROS-T-0708): a [[project]] of the
+    # config of the person, else the file. A CLI that fails is no wiring.
+    values = session_start.wiring(project)
+    return values is not None and not getattr(values, "error", None)
 
 
 def is_checkout(project):
@@ -675,7 +676,8 @@ def main():
             start(payload)
         elif mode == "record":
             record(payload)
-    except Exception:  # never block a session or a tool call
+    except Exception as error:  # never block a session or a tool call (KAIROS-T-0708: the reason goes to the log)
+        sys.stderr.write(f"kairos index update: the hook failed: {error}\n")
         return
 
 

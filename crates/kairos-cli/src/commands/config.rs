@@ -11,6 +11,7 @@ use serde_json::json;
 
 use crate::auth;
 use crate::context::print_json;
+use crate::credentials;
 use crate::error::CliError;
 use crate::project_config::{self, Added, Binding, Origin, Values};
 
@@ -105,6 +106,7 @@ fn show(args: ShowArgs) -> Result<(), CliError> {
             "bound": binding.is_bound(),
             "values": binding.values,
             "env_url": env_url,
+            "login_url": login_url(),
         }));
     }
     print!(
@@ -112,6 +114,23 @@ fn show(args: ShowArgs) -> Result<(), CliError> {
         show_text(&config.display().to_string(), &binding, env_url.as_deref())
     );
     Ok(())
+}
+
+/// The deployment of the only login in the credential cache, or None
+/// (no login, more than one, or a cache that cannot be read). A command
+/// with no deployment in the binding uses it (KAIROS-T-0708); the hooks
+/// name it as the source of the deployment.
+fn login_url() -> Option<String> {
+    let store = credentials::load(&credentials::credentials_path().ok()?).ok()?;
+    only_login(&store)
+}
+
+fn only_login(store: &credentials::CredentialStore) -> Option<String> {
+    let mut deployments = store.deployments.keys();
+    match (deployments.next(), deployments.next()) {
+        (Some(only), None) => Some(only.clone()),
+        _ => None,
+    }
 }
 
 /// The text of `kairos config show`.
@@ -192,6 +211,31 @@ fn project(args: ProjectArgs) -> Result<(), CliError> {
 mod tests {
     use super::*;
     use crate::project_config::Resolved;
+
+    /// KAIROS-T-0708: the only login gives the deployment of a binding with
+    /// none; no login or two logins give none.
+    #[test]
+    fn the_login_url_is_the_only_login() {
+        let entry = credentials::DeploymentCredentials::local_session(
+            &kairos_client::types_auth::Secret::new("not-a-secret"),
+            0,
+            "robin@example.com".into(),
+            None,
+        );
+        let mut store = credentials::CredentialStore::default();
+        assert_eq!(only_login(&store), None);
+        store
+            .deployments
+            .insert("https://kairos.example.com".into(), entry.clone());
+        assert_eq!(
+            only_login(&store).as_deref(),
+            Some("https://kairos.example.com")
+        );
+        store
+            .deployments
+            .insert("https://other.example.com".into(), entry);
+        assert_eq!(only_login(&store), None);
+    }
 
     #[test]
     fn show_names_the_origin_of_each_value_and_kairos_url() {

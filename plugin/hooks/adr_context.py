@@ -281,7 +281,8 @@ def main():
             },
             sys.stdout,
         )
-    except Exception:  # never block a write
+    except Exception as error:  # never block a write (KAIROS-T-0708: the reason goes to the log)
+        sys.stderr.write(f"kairos adr context: the hook failed: {error}\n")
         return
 
 

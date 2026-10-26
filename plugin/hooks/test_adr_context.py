@@ -30,6 +30,10 @@ SESSION = "session-0001"
 WIRING = "---\ndeployment_url: https://kairos.example.com\ntenant: acme\n---\n"
 
 STUB = """#!/bin/sh
+# An older kairos with no `config` verb: the hooks read the wiring file.
+if [ "$1" = "config" ]; then
+  exit 64
+fi
 echo "$*" >> "$STUB_LOG"
 if [ "$1" = "adrs" ] && [ "$2" = "check" ]; then
   cat "$STUB_REPORT"

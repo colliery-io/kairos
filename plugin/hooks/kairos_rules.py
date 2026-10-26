@@ -187,7 +187,8 @@ def main():
             },
             sys.stdout,
         )
-    except Exception:  # never block a tool call
+    except Exception as error:  # never block a tool call (KAIROS-T-0708: the reason goes to the log)
+        sys.stderr.write(f"kairos rules: the hook failed: {error}\n")
         return
 
 

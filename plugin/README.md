@@ -53,7 +53,12 @@ router maps the whole user-invoked surface; changing the skill set without re-sy
 `hooks/hooks.json` registers `hooks/session_start.py` (python3, stdlib only) for SessionStart.
 It reads the wiring (absent → silent no-op): `kairos config show --json` gives the
 `[[project]]` of the config of the person, else `.claude/kairos.local.md`, with `KAIROS_URL`
-first (#270; with no CLI that has the verb, the hook reads the file). It probes `<deployment_url>/healthz`
+first (#270; with no CLI that has the verb, the hook reads the file). With no deployment in the
+binding, the only login of the CLI gives it (`login_url`). Each value in the summary names its
+source: `KAIROS_URL`, a `[[project]]` or `[default]` of `config.toml`, the file, or the login.
+When `kairos config show` fails (a `config.toml` that does not parse), the context gives the
+message of the CLI and the hook does not read the file in its place. Each hook fails open: an
+error goes to stderr (the debug log) with exit 0 (KAIROS-T-0708). It probes `<deployment_url>/healthz`
 unauthenticated, and injects the wiring summary as `additionalContext` with an instruction to
 pull live state over the **authenticated MCP connection**: with a `repository` wired
 (KAIROS-A-0019) that is `get_repository` + `board_items` on the team board narrowed to the
@@ -122,6 +127,9 @@ Ralph loop of the session: the iteration and the tasks left.
   to find its Active tasks with `board_items` (`repository=<repo>`, `column=Active`). With no
   record, that instruction is all the text. Each error gives no output; the hook never blocks a
   tool call or a compaction.
+- The record and the compaction text work with or without wiring (KAIROS-T-0708). In a
+  folder with no wiring, the text names the tasks and the loop of the record and gives the
+  rules; with no task and no loop, there is no output.
 - Tests: `hooks/test_active_work.py`, part of `angreal test unit`.
 
 ## Each session gets the code index

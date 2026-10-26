@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""SessionStart hook: inject the repo's Kairos wiring as session context.
+"""SessionStart hook: inject the Kairos wiring of the folder as session context.
 
-Reads `.claude/kairos.local.md` (written by /kairos:bootstrap per
-KAIROS-A-0014) and emits its contents — deployment, tenant, repository,
-stream, boards — as `additionalContext`, plus an instruction to pull live
-state. With a `repository` (KAIROS-A-0019, T-0108) the hint is
-repo-scoped: read the repository (its "how to work here" description and
-in-flight PRs), then the team board narrowed to that repository — the
-session's queue. Without one it stays board-scoped as before. The team
-decides the board and the repository is a link (COLLIERY-A-0023), so the
-hint also says to name a board at create and how to send a request.
+The CLI gives the wiring: `kairos config show --json` (#270), a
+`[[project]]` of the config of the person, `.claude/kairos.local.md`, then
+`[default]`. The hook emits the values — deployment, tenant, repository,
+stream, boards, each with its source (KAIROS-T-0708) — as
+`additionalContext`, plus an instruction to pull live state. With a
+`repository` (KAIROS-A-0019, T-0108) the hint is repo-scoped: read the
+repository (its "how to work here" description and in-flight PRs), then the
+team board narrowed to that repository — the session's queue. Without one
+it stays board-scoped as before. The team decides the board and the
+repository is a link (COLLIERY-A-0023), so the hint also says to name a
+board at create and how to send a request.
 
 v1 design decision (KAIROS-T-0034): hooks have no OAuth token broker —
 tokens live with the MCP client (A-0014), and a shell hook cannot drive the
@@ -26,8 +28,10 @@ In a worktree the wiring is the file of its clone (KAIROS-T-0520,
 (KAIROS-T-0646), the CLI gives the list, with the repository of each clone:
 the CLI uses its own credentials (a key in the environment or its login),
 and the hook still holds none. An older CLI, or a CLI that fails, gives the
-listing of the hook. Not configured (no kairos.local.md) -> silent exit 0.
-Python stdlib only.
+listing of the hook. An older CLI with no `kairos config` gives the parser
+of the hook (`read_frontmatter`, the rule of the CLI). Not wired -> silent
+exit 0. Each error goes to stderr with exit 0: the hook fails open
+(KAIROS-T-0708). Python stdlib only.
 """
 
 import json
@@ -278,7 +282,11 @@ def config_binding(project, timeout=CONFIG_SHOW_SECONDS):
     the `[[project]]` of its origin remote in the config of the person,
     then `.claude/kairos.local.md`, then `[default]`, in the order of the
     CLI. None when `kairos` is not on PATH, when it has no such verb (an
-    older CLI), or when it fails: then the hook reads the file itself."""
+    older CLI: the usage exit code 64), or when it does not
+    answer in time: then the hook reads the file itself. When the CLI has
+    the verb and fails (a `config.toml` that does not parse), the result
+    is `{"error": <the message of the CLI>}`: the hook does not read the
+    file in place of a broken config (KAIROS-T-0708)."""
     binary = shutil.which("kairos")
     if not binary:
         return None
@@ -291,41 +299,108 @@ def config_binding(project, timeout=CONFIG_SHOW_SECONDS):
             timeout=timeout,
             env=env,
         )
-        data = json.loads(out.stdout) if out.returncode == 0 else None
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
+    if out.returncode != 0:
+        if older_cli(out.returncode, out.stderr):
+            return None
+        message = " ".join(out.stderr.split()) or f"exit code {out.returncode}"
+        return {"error": message[:400]}
+    try:
+        data = json.loads(out.stdout)
+    except ValueError:
+        return None
     return data if isinstance(data, dict) else None
+
+
+def older_cli(code, stderr):
+    """True when the CLI refused the verb or a flag: the usage exit code of
+    the CLI (64), or the words of clap for an unknown verb or flag."""
+    text = stderr or ""
+    return code == 64 or "unrecognized subcommand" in text or "unexpected argument" in text
+
+
+class Wiring(dict):
+    """The values of the wiring, with the keys of the front matter, and
+    `sources`: the source of each value, by key, in words (KAIROS-T-0708).
+    `error` is the message of a CLI that failed: then there are no values."""
+
+    def __init__(self, values=None, sources=None, error=None):
+        super().__init__(values or {})
+        self.sources = dict(sources or {})
+        self.error = error
+
+
+def source_label(item):
+    """The source of one value of `kairos config show --json`, in words."""
+    origin = item.get("from")
+    if origin == "project":
+        entry = item.get("entry")
+        return f"config.toml [[project]] {entry}" if entry else "config.toml [[project]]"
+    if origin == "default":
+        return "config.toml [default]"
+    if origin == "wiring":
+        return ".claude/kairos.local.md"
+    return "kairos config show"
 
 
 def wiring(project_dir=None):
     """The wiring of the project, with the keys of the front matter, or None
     when nothing binds it to Kairos (#270). The CLI gives the binding: a
     `[[project]]` of the config of the person, else the file. KAIROS_URL
-    comes first for `deployment_url`, as in the CLI. With no CLI that has
-    `kairos config`, the hook reads `.claude/kairos.local.md` itself."""
+    comes first for `deployment_url`, as in the CLI. With a `[[project]]`
+    that has no deployment, the only login of the CLI gives it
+    (`login_url`, KAIROS-T-0708). With no CLI that has `kairos config`, the
+    hook reads `.claude/kairos.local.md` itself. A CLI that fails gives a
+    Wiring with `error` and no values."""
     project = project_dir or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     data = config_binding(project)
     if data is None:
-        path = wiring_path(project_dir)
-        return read_frontmatter(path) if path else None
+        path = wiring_path(project)
+        if not path:
+            return None
+        values = read_frontmatter(path)
+        return Wiring(values, {key: ".claude/kairos.local.md" for key in values})
+    if isinstance(data.get("error"), str):
+        return Wiring(error=data["error"])
     if not data.get("bound"):
         return None
-    values = {}
-    for key, item in (data.get("values") or {}).items():
+    values, sources = {}, {}
+    found = data.get("values")
+    for key, item in (found.items() if isinstance(found, dict) else ()):
         name = "deployment_url" if key == "deployment" else key
         value = item.get("value") if isinstance(item, dict) else None
         if name in FRONTMATTER_KEYS and isinstance(value, str) and value:
             values[name] = value
-    env_url = data.get("env_url")
-    if isinstance(env_url, str) and env_url:
-        values["deployment_url"] = env_url
-    return values
+            sources[name] = source_label(item)
+    for field, label in (("env_url", "KAIROS_URL"), ("login_url", "the login of the CLI")):
+        url = data.get(field)
+        if field == "login_url" and "deployment_url" in values:
+            continue
+        if isinstance(url, str) and url:
+            values["deployment_url"] = url
+            sources["deployment_url"] = label
+    return Wiring(values, sources)
+
+
+def front_value(raw):
+    """The value of one `key: value` line of the front matter, by the rule
+    of the CLI (`index::base::settings`, KAIROS-T-0708): one pair of
+    matching quotes is removed; with no quotes, a ` #` comment is cut."""
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    cut = value.find(" #")
+    return (value[:cut] if cut >= 0 else value).strip()
 
 
 def read_frontmatter(path):
     """Parse the YAML frontmatter's simple `key: value` pairs (no external
-    YAML dependency; the /bootstrap contract writes flat scalar keys)."""
-    with open(path, encoding="utf-8") as f:
+    YAML dependency; the /bootstrap contract writes flat scalar keys). The
+    rule is the rule of the CLI: an indented line, a blank line and a `#`
+    line are not keys. The CLI is the parser of the hooks; this one is for
+    an older CLI only. A file that is not UTF-8 gives no values."""
+    with open(path, encoding="utf-8", errors="replace") as f:
         lines = f.read().splitlines()
     if not lines or lines[0].strip() != "---":
         return {}
@@ -333,10 +408,10 @@ def read_frontmatter(path):
     for line in lines[1:]:
         if line.strip() == "---":
             break
-        if ":" not in line or line.lstrip() != line:
+        if ":" not in line or line.lstrip() != line or line.startswith("#"):
             continue
         key, _, raw = line.partition(":")
-        value = raw.strip().strip("'\"")
+        value = front_value(raw)
         if key.strip() in FRONTMATTER_KEYS and value:
             values[key.strip()] = value
     return values
@@ -497,13 +572,19 @@ def cli_note(cli, server, plugin=None):
 
 def build_context(values, status, note=None, checkouts=None):
     """The full additionalContext text (pure; testable). `checkouts`: the
-    list of `board_checkouts` in a board folder."""
+    list of `board_checkouts` in a board folder. Each value names its
+    source (`values.sources` of a Wiring, KAIROS-T-0708)."""
+    sources = getattr(values, "sources", None) or {}
     lines = [
-        "Kairos wiring for this repo (.claude/kairos.local.md; "
-        "re-run /kairos:bootstrap to change):",
+        "Kairos wiring for this folder (the source of each value is in "
+        "brackets; `kairos config project` or /kairos:bootstrap changes it):",
     ]
     for key in FRONTMATTER_KEYS:
-        lines.append(f"- {key}: {values.get(key) or '(not set)'}")
+        value = values.get(key)
+        if value and sources.get(key):
+            lines.append(f"- {key}: {value} [{sources[key]}]")
+        else:
+            lines.append(f"- {key}: {value or '(not set)'}")
     lines.append(f"- status: {status}")
     if note:
         lines.append(note)
@@ -513,6 +594,22 @@ def build_context(values, status, note=None, checkouts=None):
     if "NOT reachable" not in status and values.get("deployment_url"):
         lines.append(live_state_hint(values, board_folder=bool(clones)))
     return "\n".join(lines)
+
+
+NO_DEPLOYMENT = (
+    "no deployment: set `deployment` in the [[project]] or in [default] of "
+    "config.toml (`kairos config path` names it), or run `kairos login --url <deployment>`"
+)
+
+
+def error_context(error):
+    """The context when `kairos config show` fails (KAIROS-T-0708)."""
+    return (
+        "Kairos: `kairos config show` failed in this folder, so the hooks have no "
+        f"wiring. The CLI said: {error} Tell the user. Fix the file that the "
+        "message names (`kairos config path` names config.toml), then start the "
+        "session again."
+    )
 
 
 def rules_at_start(values, session):
@@ -526,19 +623,18 @@ def rules_at_start(values, session):
     return kairos_rules.build_context(values.get("deployment_url", ""))
 
 
-def main():
-    try:
-        payload = json.loads(sys.stdin.read() or "null")
-    except ValueError:
-        payload = None
+def run(payload):
+    """The hook for one SessionStart. Returns the context, or None."""
     session = payload.get("session_id") if isinstance(payload, dict) else None
     values = wiring()
     if values is None:
-        return  # not a Kairos-bootstrapped repo: stay silent
+        return None  # not a Kairos-bootstrapped repo: stay silent
+    if values.error:
+        return error_context(values.error)
 
     deployment = values.get("deployment_url", "")
     budget = Budget()
-    status = probe(deployment, budget.left()) if deployment else "no deployment_url configured"
+    status = probe(deployment, budget.left()) if deployment else NO_DEPLOYMENT
     server = None
     if deployment and "NOT reachable" not in status:
         server = server_version(deployment, budget.left())
@@ -551,18 +647,38 @@ def main():
     if checkouts is None:
         checkouts = board_checkouts(project_dir)
     context = build_context(values, status, note, checkouts)
-    rules = rules_at_start(values, session)
+    try:
+        rules = rules_at_start(values, session)
+    except Exception as error:  # a state folder that cannot be written
+        sys.stderr.write(f"kairos session start: the rules marker failed: {error}\n")
+        rules = ""
     if rules:
         context = context + "\n\n" + rules
-    json.dump(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": context,
-            }
-        },
-        sys.stdout,
-    )
+    return context
+
+
+def main():
+    """Fail open (KAIROS-T-0708): each error goes to stderr (the debug log
+    of Claude Code) with exit 0, and the session starts."""
+    try:
+        try:
+            payload = json.loads(sys.stdin.read() or "null")
+        except ValueError:
+            payload = None
+        context = run(payload)
+        if context is None:
+            return
+        json.dump(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": context,
+                }
+            },
+            sys.stdout,
+        )
+    except Exception as error:  # a hook must never break the session
+        sys.stderr.write(f"kairos session start: the hook failed: {error}\n")
 
 
 if __name__ == "__main__":

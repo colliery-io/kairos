@@ -461,21 +461,43 @@ pub(crate) fn settings_path(root: &Path) -> Option<PathBuf> {
 /// The `key: value` lines of the front matter of the settings file of the
 /// checkout at `root` ([`settings_path`]).
 pub(crate) fn settings(root: &Path) -> HashMap<String, String> {
-    let Some(text) = settings_path(root).and_then(|path| std::fs::read_to_string(path).ok()) else {
+    let Some(text) = settings_path(root).and_then(|path| std::fs::read(path).ok()) else {
         return HashMap::new();
     };
+    front_matter(&String::from_utf8_lossy(&text))
+}
+
+/// The `key: value` lines of a front matter. The rule is also the rule of
+/// `read_frontmatter` of the plugin hooks (KAIROS-T-0708): an indented
+/// line, a blank line and a `#` line are not keys; one pair of matching
+/// quotes is removed from a value; with no quotes, a ` #` comment is cut;
+/// an empty value is not set.
+pub(crate) fn front_matter(text: &str) -> HashMap<String, String> {
     let mut lines = text.lines();
     if lines.next().map(str::trim) != Some("---") {
         return HashMap::new();
     }
     lines
         .take_while(|line| line.trim() != "---")
+        .filter(|line| !line.starts_with(char::is_whitespace) && !line.starts_with('#'))
         .filter_map(|line| {
             let (key, value) = line.split_once(':')?;
-            let value = value.trim().trim_matches('"');
+            let value = front_value(value);
             (!value.is_empty()).then(|| (key.trim().to_string(), value.to_string()))
         })
         .collect()
+}
+
+/// One value of a front matter line ([`front_matter`]).
+fn front_value(raw: &str) -> &str {
+    let value = raw.trim();
+    let quoted = value.len() >= 2
+        && (value.starts_with('"') && value.ends_with('"')
+            || value.starts_with('\'') && value.ends_with('\''));
+    if quoted {
+        return &value[1..value.len() - 1];
+    }
+    value.find(" #").map_or(value, |cut| value[..cut].trim())
 }
 
 /// A remote URL as `host/path`, in lower case, with no scheme, user,
@@ -618,6 +640,22 @@ mod tests {
         assert_eq!(settings["repository"], "kairos");
         assert_eq!(settings.len(), 3);
         assert!(super::settings(&dir.path().join("none")).is_empty());
+    }
+
+    /// KAIROS-T-0708: the CLI and the plugin hooks read each front matter
+    /// to the same values (the cases are shared with the hook tests).
+    #[test]
+    fn the_front_matter_rule_is_the_rule_of_the_hooks() {
+        let cases: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../plugin/hooks/frontmatter_cases.json"
+        ))
+        .expect("the cases parse");
+        for case in cases["cases"].as_array().expect("a list of cases") {
+            let text = case["text"].as_str().expect("a text");
+            let want: HashMap<String, String> =
+                serde_json::from_value(case["values"].clone()).expect("the values");
+            assert_eq!(front_matter(text), want, "{}", case["name"]);
+        }
     }
 
     /// KAIROS-T-0646: a worktree has no settings file (git excludes it).

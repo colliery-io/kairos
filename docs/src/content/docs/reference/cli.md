@@ -3295,7 +3295,9 @@ nothing.
 
 The command does not remove the file: check the result with `config show`,
 then remove the file. This release still reads the file. While the file gives
-a value, `config show` gives a warning (`wiring_warning` in the JSON).
+a value, `config show` gives a warning (`wiring_warning` in the JSON). Each
+other command that reads the binding gives the warning once on stderr.
+`mcp-proxy` also adds it to the instructions of the server.
 The next release does not read the file.
 
 `config path` prints the path of `config.toml`.

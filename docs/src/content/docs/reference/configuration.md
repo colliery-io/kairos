@@ -1254,7 +1254,8 @@ The local code index of a checkout is in the user cache, not in the checkout
   uses the same folders.
 - `<key>` is the folder name of the checkout, `-`, and the first 16 hex
   digits of the SHA-256 of the canonical path of the checkout. For example:
-  `app-4a68e4c25d4d38c3`.
+  `app-4a68e4c25d4d38c3`. The checkout is its top folder: a subfolder, and
+  a `--root` in a subfolder, have the key of the top.
 
 Each worktree has its own key, so it has its own index. When you move or
 rename a checkout, its key changes. Then the CLI builds the index again, or

@@ -845,7 +845,7 @@ impl CheckArgs {
                 Source::Snapshot(states)
             }
             None => {
-                if !deployment_known(&self.common) {
+                if !deployment_known(&self.common)? {
                     return self.skip(SKIPPED);
                 }
                 Source::Deployment(context::client(&self.common)?)
@@ -891,22 +891,22 @@ impl CheckArgs {
 
 /// True when a deployment is named: `--url`, `KAIROS_URL`, a key in the
 /// environment, the project config, or a login in the credential cache.
-fn deployment_known(common: &Common) -> bool {
+/// A `config.toml` that does not parse is refused, not skipped
+/// (KAIROS-T-0706): the check must not pass on a typo.
+fn deployment_known(common: &Common) -> Result<bool, CliError> {
+    let binding = crate::project_config::binding_here()?;
     let env = crate::auth::Env::from_process();
     if common.url.is_some() || env.url.is_some() || env.key.is_some() {
-        return true;
+        return Ok(true);
     }
-    if crate::project_config::binding_here()
-        .get("deployment")
-        .is_some()
-    {
-        return true;
+    if binding.get("deployment").is_some() {
+        return Ok(true);
     }
-    crate::credentials::credentials_path()
+    Ok(crate::credentials::credentials_path()
         .and_then(|path| crate::credentials::load(&path))
         // A cache that the CLI cannot read is an error of the login: the
         // client says so.
-        .map_or(true, |store| !store.deployments.is_empty())
+        .map_or(true, |store| !store.deployments.is_empty()))
 }
 
 #[cfg(test)]

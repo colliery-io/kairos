@@ -3268,6 +3268,20 @@ command refreshes the token when it expires.
 When the deployment refuses a request or does not answer, the client gets a
 JSON-RPC error with the reason.
 
+When the command cannot find a deployment or a credential, it does not stop.
+It serves MCP with no tools, and the instructions of the server give the
+reason and the commands to run. Standard error has the same text. These
+faults give the server with no tools:
+
+- There is no login, and no key with a URL.
+- `KAIROS_KEY` or `KAIROS_MCP_KEY` is set, but no URL names the deployment.
+- The credential cache has logins for more than one deployment, and no flag,
+  no `KAIROS_URL` and no binding names one.
+- `config.toml` does not parse. The reason gives the file and the line.
+
+After the fix, reconnect the server with `/mcp` in Claude Code, or start the
+session again.
+
 ### `kairos self-update`
 
 ```

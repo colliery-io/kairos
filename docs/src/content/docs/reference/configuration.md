@@ -1161,9 +1161,19 @@ the Kairos context only when a `[[project]]` or `.claude/kairos.local.md`
 binds the folder. `kairos config show` gives each value of a folder and where
 it comes from.
 
-The CLI refuses a `config.toml` with an unknown key, or with a `[[project]]`
-that has no `remote` and no `path`. A typo must not send work to the wrong
-deployment.
+The CLI refuses a `config.toml` that does not parse. It also refuses an
+unknown key, and a `[[project]]` with no `remote` and no `path`. The message
+gives the file and the line. These commands read the binding, so they refuse
+the file:
+
+- each command that talks to the API (exit 1);
+- `kairos config show`;
+- `kairos adrs check` with no `--snapshot`;
+- the index commands that ask Kairos for a base index;
+- `kairos mcp-proxy`: it serves no tools, and gives the reason.
+
+The CLI never ignores the file. It does not use `[default]` or a login in its
+place. A typo must not send work to the wrong deployment.
 
 ### `credentials.json`
 

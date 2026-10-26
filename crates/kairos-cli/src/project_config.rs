@@ -162,13 +162,17 @@ pub fn load(path: &Path) -> Result<UserConfig, CliError> {
             e.to_string().trim_end()
         ))
     })?;
-    if let Some(bad) = config
+    if let Some((index, bad)) = config
         .projects
         .iter()
-        .find(|p| p.remote.is_none() == p.path.is_none())
+        .enumerate()
+        .find(|(_, p)| p.remote.is_none() == p.path.is_none())
     {
+        let line = project_line(&text, index)
+            .map(|line| format!(" at line {line}"))
+            .unwrap_or_default();
         return Err(CliError::Failure(format!(
-            "A [[project]] of {} has {}. Give it `remote` or `path`, not both and not neither.",
+            "The [[project]]{line} of {} has {}. Give it `remote` or `path`, not both and not neither.",
             path.display(),
             if bad.remote.is_some() {
                 "both `remote` and `path`"
@@ -178,6 +182,26 @@ pub fn load(path: &Path) -> Result<UserConfig, CliError> {
         )));
     }
     Ok(config)
+}
+
+/// The line (from 1) of the header of the `[[project]]` at `index` in
+/// `text`, for the message of a refusal (KAIROS-T-0706).
+fn project_line(text: &str, index: usize) -> Option<usize> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| {
+            let line = line.trim();
+            line.strip_prefix("[[")
+                .and_then(|rest| rest.split_once("]]"))
+                .is_some_and(|(name, after)| {
+                    name.trim() == "project" && {
+                        let after = after.trim();
+                        after.is_empty() || after.starts_with('#')
+                    }
+                })
+        })
+        .nth(index)
+        .map(|(n, _)| n + 1)
 }
 
 /// Where a value comes from.
@@ -355,18 +379,25 @@ pub fn binding(folder: &Path) -> Result<Binding, CliError> {
     binding_with(folder, &config_path()?)
 }
 
-/// The binding of the folder of the command: `CLAUDE_PROJECT_DIR` when a
-/// hook or an MCP server of the plugin runs it, else the current folder.
-/// A config that cannot be read is no binding, so a command that needs no
-/// project still runs; `kairos config show` gives the error.
-pub fn binding_here() -> Binding {
-    let folder = std::env::var_os("CLAUDE_PROJECT_DIR")
+/// The folder of the command: `CLAUDE_PROJECT_DIR` when a hook or an MCP
+/// server of the plugin runs it, else the current folder.
+pub fn folder_here() -> Option<PathBuf> {
+    std::env::var_os("CLAUDE_PROJECT_DIR")
         .filter(|d| !d.is_empty())
         .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok());
-    folder
-        .and_then(|folder| binding(&folder).ok())
-        .unwrap_or_default()
+        .or_else(|| std::env::current_dir().ok())
+}
+
+/// The binding of the folder of the command ([`folder_here`]).
+/// KAIROS-T-0706: a `config.toml` that does not parse is an error that
+/// names the file and the line. It is never ignored: before, the command
+/// used `[default]` or the login, which can be another deployment. With no
+/// folder or no config directory there is no binding.
+pub fn binding_here() -> Result<Binding, CliError> {
+    let (Some(folder), Ok(config)) = (folder_here(), config_path()) else {
+        return Ok(Binding::default());
+    };
+    binding_with(&folder, &config)
 }
 
 /// The text of a new `[[project]]` for `remote`, with the values that are
@@ -607,12 +638,21 @@ team_board = "other-delivery"
         std::fs::write(&config, "[default]\ndeploymnet = \"x\"\n").unwrap();
         let err = load(&config).unwrap_err().to_string();
         assert!(
-            err.contains("config.toml is not correct") && err.contains("deploymnet"),
+            err.contains("config.toml is not correct")
+                && err.contains("line 2")
+                && err.contains("deploymnet"),
             "{err}"
         );
-        std::fs::write(&config, "[[project]]\ntenant = \"x\"\n").unwrap();
+        std::fs::write(
+            &config,
+            "[[project]]\nremote = \"a/b\"\n\n# two\n[[project]] # no remote\ntenant = \"x\"\n",
+        )
+        .unwrap();
         let err = load(&config).unwrap_err().to_string();
-        assert!(err.contains("no `remote` and no `path`"), "{err}");
+        assert!(
+            err.contains("no `remote` and no `path`") && err.contains("at line 5"),
+            "{err}"
+        );
     }
 
     /// `add_project` appends and keeps the comments; the same values again

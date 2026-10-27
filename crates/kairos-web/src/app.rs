@@ -145,6 +145,7 @@ fn Shell() -> impl IntoView {
     // Pages under the shell consume the same identity (KAIROS-T-0072: the
     // board view derives its capability mirror from it).
     provide_context(whoami);
+    pages::provide_code_peek_mode();
     view! {
         <Show when=move || auth.is_authenticated() fallback=GuardFallback>
             <AppShell
@@ -160,6 +161,7 @@ fn Shell() -> impl IntoView {
                         </span>
                         <pages::NotificationBell/>
                         <WhoamiBadge whoami/>
+                        <pages::CodePeekSetting/>
                         <ThemeToggle hyper=OFFER_HYPER/>
                         <LogoutButton/>
                     </Group>
@@ -179,6 +181,7 @@ fn Shell() -> impl IntoView {
             >
                 <Outlet/>
             </AppShell>
+            <pages::CodePeek/>
         </Show>
     }
 }

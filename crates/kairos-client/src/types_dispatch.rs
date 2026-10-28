@@ -69,7 +69,9 @@ pub struct CreatedWebhookTarget {
 }
 
 /// A dispatch rule of a board. With the trigger `entered_column`, the rule
-/// fires when a task that matches the filter enters `column`. With
+/// fires when a task that matches the filter enters `column`. On an
+/// initiative or a strategy board the item is an initiative or a strategy
+/// (KAIROS-T-0719: the event `initiative.entered_column`). With
 /// `unblocked` (KAIROS-T-0427), it fires when the last open blocker of a task
 /// that matches closes. Then the task must be in `column`, if the rule names
 /// one. Kairos sends one signed delivery to the target.
@@ -114,7 +116,8 @@ pub struct CreateDispatchRuleRequest {
     pub column: Option<String>,
     /// The id of a webhook target of the board.
     pub target_id: String,
-    /// Only tasks of this type: `task|bug|tech_debt|support`.
+    /// Only tasks of this type: `task|bug|tech_debt|support`. Refused on an
+    /// initiative or a strategy board (KAIROS-T-0719).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_type: Option<String>,
     /// Only tasks with this metadata: the slug of a definition. Send it
@@ -125,7 +128,8 @@ pub struct CreateDispatchRuleRequest {
     /// The value of `metadata_slug` that matches.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_value: Option<String>,
-    /// Only tasks of this repository: its slug or its id.
+    /// Only tasks of this repository: its slug or its id. Refused on an
+    /// initiative or a strategy board (KAIROS-T-0719).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
 }

@@ -62,7 +62,13 @@ SEEN_LIMIT = 2000
 NO_CONFIG = "no config"
 PLAIN_NAME = re.compile(r"[A-Za-z0-9_.-]+")
 HOOKS = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "hooks")
-TASK_EVENTS = ("task.entered_column", "task.unblocked", "task.review_changed")
+PUSHED_EVENTS = (
+    "task.entered_column",
+    "initiative.entered_column",
+    "strategy.entered_column",
+    "task.unblocked",
+    "task.review_changed",
+)
 
 INSTRUCTIONS = (
     "Kairos dispatch deliveries arrive as <channel source=\"kairos-dispatch\" "
@@ -331,7 +337,7 @@ def event_of(payload):
             "content": "A test delivery (ping) from the Kairos board settings arrived.",
             "meta": {"event": "ping", "delivery": safe(payload.get("id", ""))},
         }
-    if event not in TASK_EVENTS or not isinstance(data, dict):
+    if event not in PUSHED_EVENTS or not isinstance(data, dict):
         return None
     board = data.get("board") or {}
     column = data.get("column") or {}

@@ -118,6 +118,17 @@ class Events(unittest.TestCase):
         self.assertEqual(event["meta"]["blocker"], "PLSKN-T-0059")
         self.assertIn("is unblocked", event["content"])
 
+    def test_an_initiative_that_enters_a_column_arrives(self):
+        body, _ = delivery(event="initiative.entered_column", data={
+            "code": "COLLIERY-I-0662", "entity_type": "initiative",
+            "board": {"slug": "initiatives"}, "column": {"name": "Active"},
+            "rule_id": "r-4",
+        })
+        event = channel.event_of(json.loads(body))
+        self.assertEqual(event["meta"]["event"], "initiative.entered_column")
+        self.assertIn("COLLIERY-I-0662", event["content"])
+        self.assertIn("entered Active", event["content"])
+
     def test_review_changed_names_the_review_state(self):
         body, _ = delivery(event="task.review_changed", data={
             "code": "WEB-T-0014", "task_type": "task", "work_class": "planned",

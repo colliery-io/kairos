@@ -627,9 +627,9 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 | `column` | `string`, nullable | no | The name or the id of a column of the board. Required for `entered_column`; for `unblocked` and `review_changed`, the column the task must be in. |
 | `metadata_slug` | `string`, nullable | no | Only tasks with this metadata: the slug of a definition. Send it with `metadata_value`. KAIROS-T-0696: the server also accepts the name `definition`, the name on MCP. |
 | `metadata_value` | `string`, nullable | no | The value of `metadata_slug` that matches. |
-| `repository` | `string`, nullable | no | Only tasks of this repository: its slug or its id. |
+| `repository` | `string`, nullable | no | Only tasks of this repository: its slug or its id. Refused on an initiative or a strategy board (KAIROS-T-0719). |
 | `target_id` | `string` | yes | The id of a webhook target of the board. |
-| `task_type` | `string`, nullable | no | Only tasks of this type: `task|bug|tech_debt|support`. |
+| `task_type` | `string`, nullable | no | Only tasks of this type: `task|bug|tech_debt|support`. Refused on an initiative or a strategy board (KAIROS-T-0719). |
 | `trigger` | `string`, nullable | no | `entered_column` (the default), `unblocked` or `review_changed` (KAIROS-T-0718: the review state of a task changed). |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
@@ -1002,7 +1002,7 @@ A delivery stream (`/api/delivery-streams`).
 
 ## DispatchRule
 
-A dispatch rule of a board. With the trigger `entered_column`, the rule fires when a task that matches the filter enters `column`. With `unblocked` (KAIROS-T-0427), it fires when the last open blocker of a task that matches closes. Then the task must be in `column`, if the rule names one. Kairos sends one signed delivery to the target.
+A dispatch rule of a board. With the trigger `entered_column`, the rule fires when a task that matches the filter enters `column`. On an initiative or a strategy board the item is an initiative or a strategy (KAIROS-T-0719: the event `initiative.entered_column`). With `unblocked` (KAIROS-T-0427), it fires when the last open blocker of a task that matches closes. Then the task must be in `column`, if the rule names one. Kairos sends one signed delivery to the target.
 
 | Field | Type | Required | Description |
 |---|---|---|---|

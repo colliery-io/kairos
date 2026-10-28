@@ -185,6 +185,12 @@ pub struct Task {
     /// has no `state`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<TaskState>,
+    /// The review state of the task (KAIROS-T-0718): `not_needed`, `needed`
+    /// or `done`, and who set it when. Absent while nobody decided. Present
+    /// on the task endpoints and the board items. The default is for the
+    /// client only: a response of an older server has no `review`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<TaskReview>,
     /// The notes of the item, in the order of their ids (KAIROS-T-0630).
     /// Present on the read of one item (`GET /api/{family}/{short_code}`),
     /// empty when the item has none. Absent from lists and from the answers
@@ -219,6 +225,29 @@ pub struct TaskState {
     pub updated_by: String,
     /// The display name of who wrote the state.
     pub updated_by_name: String,
+}
+
+/// The review state of a task (KAIROS-T-0718): whether it needs a review
+/// before it is done, and who decided when. A reserved field, like the
+/// claim and the live state: not a column, not a metadata value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TaskReview {
+    /// `not_needed`, `needed` or `done`.
+    pub review: String,
+    /// RFC 3339.
+    pub updated_at: String,
+    /// The user id (UUID) of who set it.
+    pub updated_by: String,
+    /// The display name of who set it.
+    pub updated_by_name: String,
+}
+
+/// Body of `PUT /api/tasks/{short_code}/review` (KAIROS-T-0718).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetTaskReviewRequest {
+    /// `not_needed`, `needed` or `done`.
+    pub review: String,
 }
 
 /// Body of `PUT /api/tasks/{short_code}/state` (KAIROS-T-0506). Each field

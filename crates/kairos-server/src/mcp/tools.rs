@@ -3,7 +3,7 @@
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
 //! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
 //! (COLLIERY-T-0220), and `add_repository` and `update_repository`
-//! (COLLIERY-T-0266); later tasks added more (80 in all, in the profiles
+//! (COLLIERY-T-0266); later tasks added more (81 in all, in the profiles
 //! of `profiles.rs`, KAIROS-T-0454) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
@@ -844,6 +844,17 @@ pub struct SetStateParams {
     pub next_step: Option<Option<String>>,
 }
 
+/// Parameters for `set_review` (KAIROS-T-0718).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct SetReviewParams {
+    /// The short code of the task (e.g. "ACME-T-0012").
+    pub short_code: String,
+    /// The review state: `not_needed`, `needed` or `done`.
+    pub review: String,
+}
+
 /// Parameters for `set_team` and `clear_team` (KAIROS-T-0321).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -1515,7 +1526,7 @@ pub struct SaveTemplateParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (80; the list of each profile is asserted in tests/mcp.rs)
+// The tools (81; the list of each profile is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -3918,6 +3929,40 @@ impl KairosMcp {
                 "State of {}: {}",
                 item.short_code,
                 crate::task_state::state_text(&state, chrono::Utc::now())
+            ))
+        })
+        .await
+    }
+
+    // KAIROS-T-0718: the review state of a task.
+    #[tool(
+        description = "Set the review state of a TASK: `not_needed`, `needed` or `done`. A reserved field like the claim and the live state: not a column, not a metadata value. Absent means nobody decided. A coordinator sets `needed` or `not_needed` when the work has a PR and no claim; a reviewer sets `done` after the record is on the task. Set it before anything moves to Completed. A change emits `task_review_changed` and fires the `review_changed` dispatch rules of the board. The edit rule applies: the creator of the task, the holder of its claim, or `manage_tasks` on its board."
+    )]
+    pub async fn set_review(
+        &self,
+        Parameters(params): Parameters<SetReviewParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let role = tenant.role;
+        self.run_tool(&tenant, move |conn| {
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
+            if item.item_type != ItemType::Task {
+                return Err(ApiError::validation(format!(
+                    "The {} {} is not a task. set_review applies to tasks only.",
+                    item.item_type, item.short_code
+                ))
+                .with_details(json!({ "field": "short_code" })));
+            }
+            let body = kairos_client::types::SetTaskReviewRequest {
+                review: params.review,
+            };
+            let review = crate::task_review::write_review(conn, role, user, item.id, &body)?;
+            Ok(format!(
+                "Review of {}: {}",
+                item.short_code,
+                crate::task_review::review_text(&review, chrono::Utc::now())
             ))
         })
         .await
@@ -6490,6 +6535,8 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
         if let Some((state, name)) = facts.state(item.id) {
             out.push_str(&crate::task_state::state_line_of(&state, name, Utc::now()));
         }
+        // KAIROS-T-0718: the review state of the task.
+        out.push_str(&crate::task_review::review_line(conn, item.id)?);
     }
     // KAIROS-T-0411: the owner of a strategy or an initiative, in
     // each column and in the archive.

@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::types::{ItemOwner, TaskCancellation, TaskClaim, TaskState};
+use crate::types::{ItemOwner, TaskCancellation, TaskClaim, TaskReview, TaskState};
 use crate::types_repositories::{Impact, RepositoryRef};
 
 /// The `fields` of `GET /api/boards/{id}/items` (KAIROS-T-0602).
@@ -205,6 +205,10 @@ pub struct TaskCard {
     /// has no state. Present on the board route; absent on a search hit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<TaskState>,
+    /// The review state of the task (KAIROS-T-0718). Absent while nobody
+    /// decided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<TaskReview>,
     /// When the card entered its column, RFC 3339: its last move, or its
     /// creation (KAIROS-T-0649). Present on the board route; absent on a
     /// search hit.

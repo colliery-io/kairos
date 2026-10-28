@@ -107,6 +107,8 @@ impl IntoDto<dto::Task> for Task {
             cancellation: None,
             // [`crate::task_state::attach_states`] fills it (KAIROS-T-0506).
             state: None,
+            // [`crate::task_review::attach_reviews`] fills it (KAIROS-T-0718).
+            review: None,
         }
     }
 }
@@ -297,6 +299,7 @@ impl IntoCard<cards::TaskCard> for Task {
             claim: None,
             cancellation: None,
             state: None,
+            review: None,
             entered_column_at: None,
             notes_count: None,
             snippet: None,
@@ -327,6 +330,7 @@ impl IntoCard<cards::TaskCard> for TaskCardRow {
             claim: None,
             cancellation: None,
             state: None,
+            review: None,
             entered_column_at: None,
             notes_count: None,
             snippet: None,
@@ -417,6 +421,7 @@ pub trait TaskDto {
     fn set_claim(&mut self, claim: Option<dto::TaskClaim>);
     fn set_cancellation(&mut self, cancellation: Option<dto::TaskCancellation>);
     fn set_state(&mut self, state: Option<dto::TaskState>);
+    fn set_review(&mut self, review: Option<dto::TaskReview>);
 }
 
 macro_rules! task_dto {
@@ -439,6 +444,9 @@ macro_rules! task_dto {
             }
             fn set_state(&mut self, state: Option<dto::TaskState>) {
                 self.state = state;
+            }
+            fn set_review(&mut self, review: Option<dto::TaskReview>) {
+                self.review = review;
             }
         }
     };

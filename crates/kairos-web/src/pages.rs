@@ -330,6 +330,10 @@ pub use notifications::{NotificationBell, NotificationsPage};
 mod for_me;
 pub use for_me::ForMePage;
 
+// The stand-up of a team at `/teams/:slug/standup` (KAIROS-T-0723).
+mod standup;
+pub use standup::StandupPage;
+
 /// Router fallback.
 #[component]
 pub fn NotFoundPage() -> impl IntoView {

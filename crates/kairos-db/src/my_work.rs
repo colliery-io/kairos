@@ -41,7 +41,9 @@ use diesel::sql_types::{Array, Bool, Text, Uuid as SqlUuid};
 use uuid::Uuid;
 
 use crate::item_owners::{self, ItemOwner};
+use crate::item_teams;
 use crate::models::claims::TaskClaim;
+use crate::models::public::USER_KIND_HUMAN;
 use crate::task_claims;
 
 /// The state of an item of the work: the column of the page.
@@ -75,6 +77,8 @@ pub enum WorkReason {
     UnderMyInitiative,
     /// A task of the work blocks the task.
     BlockedByMyWork,
+    /// The stand-up: a task of the team that no one claims.
+    Unclaimed,
 }
 
 impl WorkReason {
@@ -85,6 +89,7 @@ impl WorkReason {
             WorkReason::Claimed => "claimed",
             WorkReason::UnderMyInitiative => "under_my_initiative",
             WorkReason::BlockedByMyWork => "blocked_by_my_work",
+            WorkReason::Unclaimed => "unclaimed",
         }
     }
 }
@@ -351,43 +356,169 @@ pub fn my_work(conn: &mut PgConnection, user: Uuid) -> Result<MyWork, DieselErro
         }
     }
 
-    // The blockers, the claims and the owners of each card.
-    let all: Vec<Uuid> = owned_cards
-        .iter()
-        .chain(task_cards.iter())
-        .map(|c| c.id)
-        .collect();
-    let mut blockers = open_blockers(conn, &all)?;
-    let task_ids: Vec<Uuid> = task_cards.iter().map(|c| c.id).collect();
-    let mut claims_by_task = task_claims::claims_of(conn, &task_ids)?;
-    let mut owners_by_item = item_owners::owners_of(conn, &owned_ids)?;
+    let initiatives = assemble(conn, owned_cards, &mut reasons)?;
+    let tasks = assemble(conn, task_cards, &mut reasons)?;
+    Ok(MyWork { initiatives, tasks })
+}
 
-    let mut build = |card: CardRow| -> WorkItem {
-        let item_blockers = blockers.remove(&card.id).unwrap_or_default();
-        let state = state_of(&card, !item_blockers.is_empty());
-        WorkItem {
-            id: card.id,
-            reasons: reasons.remove(&card.id).unwrap_or_default(),
-            claim: claims_by_task.remove(&card.id),
-            owner: owners_by_item.remove(&card.id),
-            short_code: card.short_code,
-            title: card.title,
-            entity_type: card.entity_type,
-            board_id: card.board_id,
-            board_slug: card.board_slug,
-            board_name: card.board_name,
-            column_id: card.column_id,
-            column_name: card.column_name,
-            state,
-            blockers: item_blockers,
-        }
-    };
-    let mut work = MyWork {
-        initiatives: owned_cards.into_iter().map(&mut build).collect(),
-        tasks: task_cards.into_iter().map(&mut build).collect(),
-    };
-    work.initiatives
-        .sort_by(|a, b| a.short_code.cmp(&b.short_code));
-    work.tasks.sort_by(|a, b| a.short_code.cmp(&b.short_code));
-    Ok(work)
+/// The cards as items of the work, sorted by short code: their blockers,
+/// claims and owners, and their states. Three queries.
+fn assemble(
+    conn: &mut PgConnection,
+    cards: Vec<CardRow>,
+    reasons: &mut HashMap<Uuid, BTreeSet<WorkReason>>,
+) -> Result<Vec<WorkItem>, DieselError> {
+    let ids: Vec<Uuid> = cards.iter().map(|c| c.id).collect();
+    let mut blockers = open_blockers(conn, &ids)?;
+    let mut claims_by_task = task_claims::claims_of(conn, &ids)?;
+    let mut owners_by_item = item_owners::owners_of(conn, &ids)?;
+    let mut items: Vec<WorkItem> = cards
+        .into_iter()
+        .map(|card| {
+            let item_blockers = blockers.remove(&card.id).unwrap_or_default();
+            let state = state_of(&card, !item_blockers.is_empty());
+            WorkItem {
+                id: card.id,
+                reasons: reasons.remove(&card.id).unwrap_or_default(),
+                claim: claims_by_task.remove(&card.id),
+                owner: owners_by_item.remove(&card.id),
+                short_code: card.short_code,
+                title: card.title,
+                entity_type: card.entity_type,
+                board_id: card.board_id,
+                board_slug: card.board_slug,
+                board_name: card.board_name,
+                column_id: card.column_id,
+                column_name: card.column_name,
+                state,
+                blockers: item_blockers,
+            }
+        })
+        .collect();
+    items.sort_by(|a, b| a.short_code.cmp(&b.short_code));
+    Ok(items)
+}
+
+/// The live boards of `team`. One query.
+fn team_boards(conn: &mut PgConnection, team: Uuid) -> Result<HashSet<Uuid>, DieselError> {
+    use crate::schema::boards;
+    Ok(boards::table
+        .filter(boards::team_id.eq(team))
+        .filter(boards::deleted_at.is_null())
+        .select(boards::id)
+        .load::<Uuid>(conn)?
+        .into_iter()
+        .collect())
+}
+
+/// The work of `user` in `team`, for the stand-up (module docs). A fixed
+/// number of queries, whatever the size of the work.
+pub fn team_work(conn: &mut PgConnection, team: Uuid, user: Uuid) -> Result<MyWork, DieselError> {
+    use crate::schema::{item_owners as owners, task_claims as claims};
+
+    let mut reasons: HashMap<Uuid, BTreeSet<WorkReason>> = HashMap::new();
+
+    // The initiatives that the person owns and that have the team.
+    let owned_ids: Vec<Uuid> = owners::table
+        .filter(owners::user_id.eq(user))
+        .select(owners::item_id)
+        .load(conn)?;
+    let owned: Vec<CardRow> = cards(conn, &owned_ids)?
+        .into_iter()
+        .filter(|c| c.entity_type == "initiative")
+        .collect();
+    let ids: Vec<Uuid> = owned.iter().map(|c| c.id).collect();
+    let teams = item_teams::teams_of_items(conn, &ids)?;
+    let initiative_cards: Vec<CardRow> = owned
+        .into_iter()
+        .filter(|c| {
+            teams
+                .get(&c.id)
+                .is_some_and(|ts| ts.iter().any(|t| t.team_id == team))
+        })
+        .collect();
+    for card in &initiative_cards {
+        reasons
+            .entry(card.id)
+            .or_default()
+            .insert(WorkReason::Owned);
+    }
+
+    // The claims of the person on the boards of the team.
+    let boards = team_boards(conn, team)?;
+    let claimed: Vec<Uuid> = claims::table
+        .filter(claims::user_id.eq(user))
+        .select(claims::task_id)
+        .load(conn)?;
+    let task_cards: Vec<CardRow> = cards(conn, &claimed)?
+        .into_iter()
+        .filter(|c| c.entity_type == "task" && boards.contains(&c.board_id))
+        .collect();
+    for card in &task_cards {
+        reasons
+            .entry(card.id)
+            .or_default()
+            .insert(WorkReason::Claimed);
+    }
+
+    let initiatives = assemble(conn, initiative_cards, &mut reasons)?;
+    let tasks = assemble(conn, task_cards, &mut reasons)?;
+    Ok(MyWork { initiatives, tasks })
+}
+
+#[derive(QueryableByName)]
+struct IdRow {
+    #[diesel(sql_type = SqlUuid)]
+    id: Uuid,
+}
+
+/// The tasks of `team` that no one claims, in the state Todo or Blocked
+/// (module docs), by short code. A fixed number of queries.
+pub fn unclaimed_work(conn: &mut PgConnection, team: Uuid) -> Result<Vec<WorkItem>, DieselError> {
+    let ids: Vec<Uuid> = sql_query(
+        "SELECT t.id FROM tasks t \
+           JOIN boards b ON b.id = t.board_id AND b.deleted_at IS NULL \
+           JOIN board_columns c ON c.id = t.column_id \
+          WHERE b.team_id = $1 AND t.deleted_at IS NULL AND NOT c.is_done \
+            AND NOT EXISTS (SELECT 1 FROM task_claims k WHERE k.task_id = t.id)",
+    )
+    .bind::<SqlUuid, _>(team)
+    .load::<IdRow>(conn)?
+    .into_iter()
+    .map(|row| row.id)
+    .collect();
+    let candidates: Vec<CardRow> = cards(conn, &ids)?.into_iter().filter(in_flight).collect();
+    let mut reasons: HashMap<Uuid, BTreeSet<WorkReason>> = candidates
+        .iter()
+        .map(|c| (c.id, BTreeSet::from([WorkReason::Unclaimed])))
+        .collect();
+    Ok(assemble(conn, candidates, &mut reasons)?
+        .into_iter()
+        .filter(|item| matches!(item.state, WorkState::Todo | WorkState::Blocked))
+        .collect())
+}
+
+/// A person of a team, for the round of the stand-up.
+#[derive(Debug, Clone, PartialEq, Eq, QueryableByName)]
+pub struct TeamPerson {
+    #[diesel(sql_type = SqlUuid)]
+    pub user_id: Uuid,
+    #[diesel(sql_type = Text)]
+    pub user_name: String,
+    #[diesel(sql_type = Text)]
+    pub display_name: String,
+}
+
+/// The people of `team`, by display name. Service accounts are not
+/// people. One query.
+pub fn team_people(conn: &mut PgConnection, team: Uuid) -> Result<Vec<TeamPerson>, DieselError> {
+    sql_query(
+        "SELECT u.id AS user_id, u.user_name, u.display_name \
+           FROM team_members m JOIN users u ON u.id = m.user_id \
+          WHERE m.team_id = $1 AND u.kind = $2 \
+          ORDER BY u.display_name, u.id",
+    )
+    .bind::<SqlUuid, _>(team)
+    .bind::<Text, _>(USER_KIND_HUMAN)
+    .load(conn)
 }

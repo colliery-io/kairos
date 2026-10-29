@@ -13,7 +13,8 @@ use kairos_client::types::{
     Adr, AppendNoteResponse, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest,
     CreateStrategyRequest, CreateTaskRequest, DeleteResponse, Document, ImpactListQuery,
     Initiative, ItemNote, ListEnvelope, ListQuery, Pagination, PromoteNoteRequest,
-    PromoteNoteResponse, RestoreResponse, Strategy, Task, UpdateContentRequest,
+    PromoteNoteResponse, RestoreResponse, SetTaskReviewRequest, Strategy, Task,
+    UpdateContentRequest,
 };
 use kairos_client::types_meta::{
     HistoryVersion, ItemActivityEntry, ItemMetadataResponse, ItemRelationshipsResponse,
@@ -396,6 +397,18 @@ pub struct LaneArgs {
     pub common: Common,
 }
 
+/// Arguments of `kairos tasks review` (KAIROS-T-0718).
+#[derive(Args, Debug)]
+pub struct ReviewArgs {
+    /// The task's short code (e.g. ACME-T-0001)
+    pub short_code: String,
+    /// The review state: not_needed, needed or done
+    #[arg(value_name = "REVIEW", value_parser = ["not_needed", "needed", "done"])]
+    pub review: String,
+    #[command(flatten)]
+    pub common: Common,
+}
+
 /// Arguments of `kairos initiatives complexity`.
 #[derive(Args, Debug)]
 pub struct ComplexityArgs {
@@ -638,6 +651,26 @@ pub fn emit_lane(common: &Common, task: &Task) -> Result<(), CliError> {
     }
     println!("{}", lane_line(&task.short_code, &task.work_class));
     Ok(())
+}
+
+/// `tasks review` output (KAIROS-T-0718): the review state of the task.
+pub fn emit_review(common: &Common, task: &Task) -> Result<(), CliError> {
+    if common.json {
+        return print_json(task);
+    }
+    println!("{}", review_line(task));
+    Ok(())
+}
+
+/// The line of [`emit_review`].
+fn review_line(task: &Task) -> String {
+    match &task.review {
+        Some(review) => format!(
+            "Review of {}: {} (set by {}).",
+            task.short_code, review.review, review.updated_by_name
+        ),
+        None => format!("{} has no review state.", task.short_code),
+    }
 }
 
 /// The line of [`emit_lane`]: the lane of the task after the call, from
@@ -2011,6 +2044,7 @@ macro_rules! entity_family_cli {
         $(, claims($claim_variant:ident = $claim_fn:ident, $hand_variant:ident = $hand_fn:ident, $release_variant:ident = $release_fn:ident))?
         $(, task_end($cancel_variant:ident = $cancel_fn:ident, $reopen_variant:ident = $reopen_fn:ident, $purge_variant:ident = $purge_fn:ident))?
         $(, lane($lane_variant:ident = $lane_fn:ident))?
+        $(, review($review_variant:ident = $review_fn:ident))?
         $(, parent($parent_variant:ident))?
         $(, lifecycle($lifecycle_variant:ident = $lifecycle_fn:ident))?
         $(, complexity($complexity_variant:ident = $complexity_fn:ident))?
@@ -2095,6 +2129,11 @@ macro_rules! entity_family_cli {
             #[command(about = concat!("Change the lane of a ", $noun,
                                       ": planned or support (needs transition_items)"))]
             $lane_variant(LaneArgs),
+            )?
+            $(
+            #[command(about = concat!("Set the review state of a ", $noun,
+                                      ": not_needed, needed or done (the edit rule applies)"))]
+            $review_variant(ReviewArgs),
             )?
             $(
             #[command(about = concat!("Set the parent of a ", $noun,
@@ -2316,6 +2355,16 @@ macro_rules! entity_family_cli {
                     }
                     )?
                     $(
+                    Self::$review_variant(args) => {
+                        let client = client(&args.common)?;
+                        let body = SetTaskReviewRequest {
+                            review: args.review.clone(),
+                        };
+                        let task = client.$review_fn(&args.short_code, &body).await?;
+                        emit_review(&args.common, &task)
+                    }
+                    )?
+                    $(
                     Self::$parent_variant(args) => {
                         let client = client(&args.common)?;
                         let response = client
@@ -2419,6 +2468,7 @@ entity_family_cli!(
         Purge = purge_task
     ),
     lane(Lane = set_task_work_class),
+    review(Review = set_task_review),
     parent(SetParent)
 );
 

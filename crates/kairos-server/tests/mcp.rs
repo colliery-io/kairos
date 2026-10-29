@@ -87,8 +87,8 @@ const TENANT: &str = "acme";
 
 /// How many tools `tools/list` returns, and the word the reference pages
 /// use for that number (COLLIERY-T-0220, COLLIERY-T-0266).
-const TOOL_COUNT: usize = 80;
-const TOOL_COUNT_WORD: &str = "eighty";
+const TOOL_COUNT: usize = 81;
+const TOOL_COUNT_WORD: &str = "eighty-one";
 
 /// Every request carries a real `Host` header and the tenant resolves from
 /// its subdomain against the configured base domain — the S-0006 REQ-1.2
@@ -688,6 +688,8 @@ async fn mcp_endpoint_against_live_stack() {
         "set_lifecycle",
         // KAIROS-T-0506: the live state of a task.
         "set_state",
+        // KAIROS-T-0718: the review state of a task.
+        "set_review",
         // KAIROS-T-0368: the scales and the templates, for triage.
         "list_metadata_definitions",
         "list_templates",
@@ -793,6 +795,8 @@ async fn mcp_endpoint_against_live_stack() {
             "promote_note",
             "set_lifecycle",
             "set_state",
+            // KAIROS-T-0718: the review state of a task.
+            "set_review",
             "set_metadata",
             "set_repository",
             "set_parent",

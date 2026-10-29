@@ -511,10 +511,14 @@ pub fn create_rule_as(
         Some(column) => {
             let id = column_of(conn, &board, &column)?;
             // KAIROS-T-0457: an unblocked rule on a done column never fires
-            // (a task in a done column waits for nothing).
-            if trigger == dispatch::TRIGGER_UNBLOCKED && column_is_done(conn, id)? {
+            // (a task in a done column waits for nothing). KAIROS-T-0718: a
+            // review_changed rule neither (the review of done work fires
+            // nothing).
+            if dispatch::TRIGGERS_WITH_OPTIONAL_COLUMN.contains(&trigger.as_str())
+                && column_is_done(conn, id)?
+            {
                 return Err(ApiError::validation(format!(
-                    "An unblocked rule cannot name a done column: a task in {} waits for \
+                    "A {trigger} rule cannot name a done column: a task in {} waits for \
                      nothing.",
                     column.trim()
                 ))
@@ -522,7 +526,7 @@ pub fn create_rule_as(
             }
             Some(id)
         }
-        None if trigger == dispatch::TRIGGER_UNBLOCKED => None,
+        None if dispatch::TRIGGERS_WITH_OPTIONAL_COLUMN.contains(&trigger.as_str()) => None,
         None => {
             return Err(ApiError::validation(
                 "A rule with the trigger entered_column needs a column.",

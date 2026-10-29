@@ -118,6 +118,16 @@ class Events(unittest.TestCase):
         self.assertEqual(event["meta"]["blocker"], "PLSKN-T-0059")
         self.assertIn("is unblocked", event["content"])
 
+    def test_review_changed_names_the_review_state(self):
+        body, _ = delivery(event="task.review_changed", data={
+            "code": "WEB-T-0014", "task_type": "task", "work_class": "planned",
+            "board": {"slug": "web-delivery"}, "column": {"name": "Active"},
+            "rule_id": "r-3", "review": "needed",
+        })
+        event = channel.event_of(json.loads(body))
+        self.assertEqual(event["meta"]["review"], "needed")
+        self.assertIn("has the review state needed", event["content"])
+
     def test_ping_arrives_and_other_events_do_not(self):
         body, _ = delivery(event="ping", data={})
         self.assertEqual(channel.event_of(json.loads(body))["meta"]["event"], "ping")

@@ -84,6 +84,7 @@ pub const TOOLS: &[(&str, ToolKind)] = &[
     ("set_complexity", ToolKind::Idempotent),
     ("set_lifecycle", ToolKind::Idempotent),
     ("set_state", ToolKind::Idempotent),
+    ("set_review", ToolKind::Idempotent),
     ("set_team", ToolKind::Idempotent),
     ("clear_team", ToolKind::Idempotent),
     ("set_metadata", ToolKind::Idempotent),
@@ -197,7 +198,7 @@ mod tests {
             .iter()
             .filter(|(_, k)| *k == ToolKind::Idempotent)
             .count();
-        assert_eq!(idempotent, 21);
+        assert_eq!(idempotent, 22);
         assert!(is_idempotent("set_state") && is_idempotent("set_metadata"));
         assert!(!is_idempotent("get_item") && !is_idempotent("create_item"));
         assert!(!is_idempotent("claim_item") && !is_idempotent("no_such_tool"));

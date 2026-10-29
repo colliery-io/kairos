@@ -60,6 +60,10 @@ pub fn router() -> Router<AppState> {
             "/api/tasks/{short_code}/state",
             axum::routing::put(set_state),
         )
+        .route(
+            "/api/tasks/{short_code}/review",
+            axum::routing::put(set_review),
+        )
 }
 
 pub(crate) use kairos_db::repositories::TaskRoute;
@@ -333,6 +337,8 @@ fn embed(conn: &mut PgConnection, task: dto::Task) -> Result<dto::Task, ApiError
         .map_err(ApiError::internal)?;
     crate::task_state::attach_states(conn, std::slice::from_mut(&mut task))
         .map_err(ApiError::internal)?;
+    crate::task_review::attach_reviews(conn, std::slice::from_mut(&mut task))
+        .map_err(ApiError::internal)?;
     Ok(task)
 }
 
@@ -387,6 +393,7 @@ pub(crate) async fn list_tasks(
             crate::claims::attach_claims(conn, &mut items).map_err(ApiError::internal)?;
             crate::cancel::attach_cancellations(conn, &mut items).map_err(ApiError::internal)?;
             crate::task_state::attach_states(conn, &mut items).map_err(ApiError::internal)?;
+            crate::task_review::attach_reviews(conn, &mut items).map_err(ApiError::internal)?;
             Ok(dto::ListEnvelope {
                 items,
                 total,
@@ -863,6 +870,45 @@ pub(crate) async fn set_state(
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
             crate::task_state::write_state(conn, role, user, task.id, &body)?;
+            embed(conn, task.into_dto())
+        })
+        .await?;
+    Ok(Json(updated))
+}
+
+/// Set the review state of a task (KAIROS-T-0718): `not_needed`, `needed`
+/// or `done`. A reserved field, like the claim and the live state: not a
+/// column, not a metadata value. The edit rule applies. A write that
+/// changes the value writes one activity row and emits
+/// `task_review_changed`. It fires the `review_changed` dispatch rules of
+/// the board.
+#[utoipa::path(
+    put,
+    path = "/api/tasks/{short_code}/review",
+    tag = "tasks",
+    params(("short_code" = String, Path, description = "Task short code")),
+    request_body = dto::SetTaskReviewRequest,
+    responses(
+        (status = 200, description = "The task, with its review state", body = dto::Task),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the task, has no claim on it, and lacks manage_tasks", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code, or the task is archived", body = dto::ErrorEnvelope),
+        (status = 422, description = "The value is not not_needed, needed or done, or the body has an unknown field", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn set_review(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+    ApiJson(body): ApiJson<dto::SetTaskReviewRequest>,
+) -> Result<Json<dto::Task>, ApiError> {
+    let user = auth.user_id;
+    let role = tenant.role;
+    let updated = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
+            crate::task_review::write_review(conn, role, user, task.id, &body)?;
             embed(conn, task.into_dto())
         })
         .await?;

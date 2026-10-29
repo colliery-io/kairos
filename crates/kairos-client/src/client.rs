@@ -31,8 +31,8 @@ use crate::types::{
     CreateDocumentRequest, CreateInitiativeRequest, CreateStrategyRequest, CreateTaskRequest,
     DeleteResponse, Document, ErrorEnvelope, ImpactListQuery, Initiative, ListEnvelope, ListQuery,
     Pagination, PromoteNoteRequest, PromoteNoteResponse, RestoreResponse, SetComplexityRequest,
-    SetDocumentBoardRequest, SetLifecycleRequest, SetTaskStateRequest, SetWorkClassRequest,
-    Strategy, Task, TransitionRequest, UpdateContentRequest,
+    SetDocumentBoardRequest, SetLifecycleRequest, SetTaskReviewRequest, SetTaskStateRequest,
+    SetWorkClassRequest, Strategy, Task, TransitionRequest, UpdateContentRequest,
 };
 use crate::types_auth::{DeploymentConfig, LoginRequest, LoginResponse};
 use crate::types_meta::{
@@ -684,6 +684,17 @@ impl KairosClient {
             request,
         )
         .await
+    }
+
+    /// `PUT /api/tasks/{short_code}/review` — set the review state of a
+    /// task (KAIROS-T-0718): `not_needed`, `needed` or `done`.
+    pub async fn set_task_review(
+        &self,
+        short_code: &str,
+        review: &SetTaskReviewRequest,
+    ) -> Result<Task, Error> {
+        self.put_ok(&format!("/api/tasks/{short_code}/review"), review)
+            .await
     }
 
     /// `PUT /api/tasks/{short_code}/state` — write the live state of a task

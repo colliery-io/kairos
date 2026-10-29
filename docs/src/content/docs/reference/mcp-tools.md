@@ -3,8 +3,8 @@ title: "MCP tools"
 ---
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-eighty tools. A drift gate in the test suite
-asserts that `tools/list` returns these eighty and no others. The same
+eighty-one tools. A drift gate in the test suite
+asserts that `tools/list` returns these eighty-one and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -22,7 +22,7 @@ organization.
 
 | URL | Profile | Tools |
 |---|---|---|
-| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read: 48 tools. |
+| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read: 49 tools. |
 | `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge, the count of the refusals: the other 32 tools. |
 | `/mcp?profile=all` | all | Each tool. |
 
@@ -37,7 +37,7 @@ The work tools:
 - items: `whoami`, `my_boards`, `my_work`, `board_items`, `search`, `get_item`,
   `get_history`, `related_work`, `create_item`, `edit_item`, `update_item`,
   `transition_item`, `move_item`, `append_note`, `promote_note`,
-  `set_lifecycle`, `set_state`, `set_metadata`;
+  `set_lifecycle`, `set_state`, `set_review`, `set_metadata`;
 - links and fields: `link_items`, `unlink_items`, `propose_edge`,
   `set_repository`, `set_parent`, `set_work_class`, `set_complexity`,
   `set_team`, `clear_team`;
@@ -814,6 +814,13 @@ with a value, the next step, and who wrote it when:
 
 ```text
 - state: branch acme-t-0012 at abc1234, pushed, PR https://github.com/acme/app/pull/12. Next: Wait for CI. (updated 5 min ago by Robin)
+```
+
+A task with a [review state](#set_review) has the line `review`
+(KAIROS-T-0718):
+
+```text
+- review: needed (set 5 min ago by Robin)
 ```
 
 An initiative or a strategy has the line `teams` in the section of the
@@ -1595,6 +1602,40 @@ Refuses: `NOT_FOUND` for an unknown short code or an archived task.
 `VALIDATION` when the item is not a task, when no field has a value, and
 for an unknown argument. `FORBIDDEN` by the edit rule. `CONFLICT` when the
 state changed after `expected_updated_at`.
+
+### `set_review`
+
+Sets the review state of a task (KAIROS-T-0718): `not_needed`, `needed` or
+`done`. The review state is a reserved field, like the claim and the live
+state. It is not a column and not a metadata value. No value means nobody
+decided.
+
+A coordinator sets `needed` or `not_needed` when the work has a PR and no
+claim. A reviewer sets `done` after the record is on the task. Set it before
+anything moves to Completed; Kairos does not gate the move.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | string | yes | The short code of the task. |
+| `review` | string | yes | `not_needed`, `needed` or `done` (no case, no space at the ends). |
+
+The review state is not content: the write makes no new version of the
+task. A write of the value the task has changes nothing. A change writes one
+activity row (`review: needed`) and emits `item_updated`, then
+`task_review_changed`. It fires the dispatch rules of the board with the
+trigger `review_changed` (see [`create_dispatch_rule`](#create_dispatch_rule)).
+The value stays when the task reaches a done column.
+
+The edit rule applies, as for `set_state`. The rule is that of
+`PUT /api/tasks/{short_code}/review`. The result is one line:
+
+```text
+Review of ACME-T-0012: needed (set just now by Robin)
+```
+
+Refuses: `NOT_FOUND` for an unknown short code or an archived task.
+`VALIDATION` for an item that is not a task, for a bad value, or for an
+unknown argument. `FORBIDDEN` by the edit rule.
 
 ### The teams of an initiative or a strategy
 
@@ -3056,6 +3097,13 @@ The rule can name a column: the task must be in it. With no column, a task
 in each column that is not done matches. A task with two blockers fires once,
 when the second closes. A blocker that opens again blocks the task again, so
 its next close fires again.
+
+A rule with the trigger `review_changed` (KAIROS-T-0718) fires when the
+review state of a task changes ([`set_review`](#set_review)). The event is
+`task.review_changed`. Its `data` has the fields above and `review`, the new
+value: `not_needed`, `needed` or `done`. The rule can name a column, as an
+`unblocked` rule can, and names no done column. A write of the value the
+task has fires nothing.
 
 ### `set_agent_triage`
 

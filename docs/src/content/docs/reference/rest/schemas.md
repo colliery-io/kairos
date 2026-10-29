@@ -624,13 +624,13 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `column` | `string`, nullable | no | The name or the id of a column of the board. Required for `entered_column`; for `unblocked`, the column the task must be in. |
+| `column` | `string`, nullable | no | The name or the id of a column of the board. Required for `entered_column`; for `unblocked` and `review_changed`, the column the task must be in. |
 | `metadata_slug` | `string`, nullable | no | Only tasks with this metadata: the slug of a definition. Send it with `metadata_value`. KAIROS-T-0696: the server also accepts the name `definition`, the name on MCP. |
 | `metadata_value` | `string`, nullable | no | The value of `metadata_slug` that matches. |
 | `repository` | `string`, nullable | no | Only tasks of this repository: its slug or its id. |
 | `target_id` | `string` | yes | The id of a webhook target of the board. |
 | `task_type` | `string`, nullable | no | Only tasks of this type: `task|bug|tech_debt|support`. |
-| `trigger` | `string`, nullable | no | `entered_column` (the default) or `unblocked`. |
+| `trigger` | `string`, nullable | no | `entered_column` (the default), `unblocked` or `review_changed` (KAIROS-T-0718: the review state of a task changed). |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
@@ -1018,7 +1018,7 @@ A dispatch rule of a board. With the trigger `entered_column`, the rule fires wh
 | `target` | `string` | yes | The name of the target. |
 | `target_id` | `string` | yes |  |
 | `task_type` | `string`, nullable | no | `task|bug|tech_debt|support`; `null`: each type. |
-| `trigger` | `string` | yes | `entered_column` or `unblocked`. |
+| `trigger` | `string` | yes | `entered_column`, `unblocked` or `review_changed` (KAIROS-T-0718). |
 
 ## Document
 
@@ -2727,6 +2727,16 @@ Body of `PUT /api/tasks/{short_code}/repository` — set the repository the task
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
+## SetTaskReviewRequest
+
+Body of `PUT /api/tasks/{short_code}/review` (KAIROS-T-0718).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `review` | `string` | yes | `not_needed`, `needed` or `done`. |
+
+The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
+
 ## SetTaskStateRequest
 
 Body of `PUT /api/tasks/{short_code}/state` (KAIROS-T-0506). Each field is optional. The write is a patch (KAIROS-T-0533): a field that you do not send keeps its value, `null` clears it. Send at least one field. `expected_updated_at` refuses a stale write with CONFLICT.
@@ -2868,6 +2878,7 @@ A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
 | `notes` | `array`, nullable | no | The notes of the item, in the order of their ids (KAIROS-T-0630). Present on the read of one item (`GET /api/{family}/{short_code}`), empty when the item has none. Absent from lists and from the answers of writes. A note is not part of `content`. |
 | `repository` | [`RepositoryRef`](#repositoryref), nullable | no |  |
 | `repository_id` | `string`, nullable | no | The repository this task is issued against (UUID), if bound (KAIROS-T-0104, A-0019). |
+| `review` | [`TaskReview`](#taskreview), nullable | no |  |
 | `short_code` | `string` | yes | Tenant-scoped short code (`{PREFIX}-T-{NNNN}`). |
 | `state` | [`TaskState`](#taskstate), nullable | no |  |
 | `task_type` | `string` | yes | `task|bug|tech_debt|support`. |
@@ -2908,6 +2919,7 @@ A task on a board or in a search (KAIROS-T-0602).
 | `notes_count` | `integer`, nullable | no | The number of the notes of the item (KAIROS-T-0649). Present on the board route; absent on a search hit. |
 | `repository` | [`RepositoryRef`](#repositoryref), nullable | no |  |
 | `repository_id` | `string`, nullable | no | The repository this task is issued against (UUID), if bound. |
+| `review` | [`TaskReview`](#taskreview), nullable | no |  |
 | `short_code` | `string` | yes | Tenant-scoped short code (`{PREFIX}-T-{NNNN}`). |
 | `snippet` | `string`, nullable | no | About 200 characters of the content, near the first match of `q`. Only on a search hit. |
 | `state` | [`TaskState`](#taskstate), nullable | no |  |
@@ -2929,6 +2941,17 @@ The claim of a task (KAIROS-T-0359, KAIROS-A-0024): the person who has the task 
 | `claimed_at` | `string` | yes | RFC 3339. |
 | `display_name` | `string` | yes | The display name of the person. |
 | `user_id` | `string` | yes | The person (UUID). |
+
+## TaskReview
+
+The review state of a task (KAIROS-T-0718): whether it needs a review before it is done, and who decided when. A reserved field, like the claim and the live state: not a column, not a metadata value.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `review` | `string` | yes | `not_needed`, `needed` or `done`. |
+| `updated_at` | `string` | yes | RFC 3339. |
+| `updated_by` | `string` | yes | The user id (UUID) of who set it. |
+| `updated_by_name` | `string` | yes | The display name of who set it. |
 
 ## TaskState
 

@@ -1,6 +1,10 @@
 //! Wire types of the work of a person (KAIROS-T-0489, COLLIERY-I-0624):
 //! `GET /api/me/work`, the "for me" page, the MCP tool `my_work` and the
 //! CLI `kairos me`.
+//!
+//! The stand-up of a team (KAIROS-T-0722, COLLIERY-I-0663): `GET
+//! /api/teams/{id}/standup`, `GET /api/teams/{id}/standup/people/{user_id}`
+//! and `GET /api/teams/{id}/standup/unclaimed`.
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -33,7 +37,8 @@ pub struct WorkItem {
     /// blocker, or it is in a column named Blocked.
     pub state: String,
     /// Why the item is in the work: `owned`, `claimed`,
-    /// `under_my_initiative`, `blocked_by_my_work`.
+    /// `under_my_initiative`, `blocked_by_my_work`, and `unclaimed` (the
+    /// last stop of a stand-up).
     pub reasons: Vec<String>,
     /// The board of the item.
     pub board: WorkBoard,
@@ -66,4 +71,40 @@ pub struct WorkBoard {
 pub struct WorkBlocker {
     pub short_code: String,
     pub title: String,
+}
+
+/// `GET /api/teams/{id}/standup` response: the team and its people, for
+/// the round of a stand-up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct Standup {
+    pub team: StandupTeam,
+    /// The people of the team, by display name. No service accounts.
+    pub people: Vec<StandupPerson>,
+}
+
+/// The team of a stand-up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StandupTeam {
+    /// Team id (UUID).
+    pub id: String,
+    pub slug: String,
+    pub name: String,
+}
+
+/// A person of the round of a stand-up.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StandupPerson {
+    /// User id (UUID).
+    pub user_id: String,
+    pub user_name: String,
+    pub display_name: String,
+}
+
+/// `GET /api/teams/{id}/standup/unclaimed` response: the last stop of a
+/// stand-up.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct UnclaimedWork {
+    /// The tasks on the boards of the team that no one claims, in the
+    /// state `todo` or `blocked`, by short code.
+    pub tasks: Vec<WorkItem>,
 }

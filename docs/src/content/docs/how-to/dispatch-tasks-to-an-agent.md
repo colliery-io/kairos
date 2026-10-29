@@ -141,6 +141,19 @@ kairos boards dispatch add-rule platform-delivery \
 # → Made the dispatch rule 9c2d…: each task whose review state changes goes to Agent runner.
 ```
 
+A rule can also fire when a worker releases the claim of a task
+(`release_item`, `kairos tasks release`). A move out of the claims column
+that ends the claim fires it too; a hand-off does not. The event is
+`task.claim_released`. Its `state` is the live state as the worker left
+it: the branch, the commit, the PR, the next step. Use this trigger to send
+the work to a coordinator:
+
+```sh
+kairos boards dispatch add-rule platform-delivery \
+  --trigger claim_released --column Active --target 6f1a…
+# → Made the dispatch rule 1b3e…: each task in Active whose claim is released goes to Agent runner.
+```
+
 An agent can make the same rule with the MCP tool `create_dispatch_rule`. With
 `url` in place of `target_id`, the tool makes the target too, and its answer
 has the secret.

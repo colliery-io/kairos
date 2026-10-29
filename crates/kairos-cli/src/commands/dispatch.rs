@@ -105,12 +105,13 @@ pub enum DispatchCommand {
         #[arg(value_name = "BOARD")]
         board: String,
         /// When the rule fires: entered_column (a task enters --column),
-        /// unblocked (the last open blocker of a task closes) or
-        /// review_changed (the review state of a task changes)
+        /// unblocked (the last open blocker of a task closes),
+        /// review_changed (the review state of a task changes) or
+        /// claim_released (the claim of a task is released)
         #[arg(long, default_value = "entered_column")]
         trigger: String,
-        /// Column name or id (UUID). Required for entered_column; for
-        /// unblocked and review_changed, the column the task must be in
+        /// Column name or id (UUID). Required for entered_column; for the
+        /// other triggers, the column the task must be in
         #[arg(long)]
         column: Option<String>,
         /// The id of a webhook target of the board
@@ -222,6 +223,8 @@ fn when_text(rule: &DispatchRule) -> String {
         ("unblocked", None) => "that is unblocked".to_string(),
         ("review_changed", Some(column)) => format!("in {column} whose review state changes"),
         ("review_changed", None) => "whose review state changes".to_string(),
+        ("claim_released", Some(column)) => format!("in {column} whose claim is released"),
+        ("claim_released", None) => "whose claim is released".to_string(),
         (_, column) => format!("that enters {}", column.unwrap_or("?")),
     }
 }

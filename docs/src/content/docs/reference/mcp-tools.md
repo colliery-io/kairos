@@ -3356,6 +3356,17 @@ value: `not_needed`, `needed` or `done`. The rule can name a column, as an
 `unblocked` rule can, and names no done column. A write of the value the
 task has fires nothing.
 
+A rule with the trigger `claim_released` (KAIROS-T-0720) fires when the
+claim of a task ends. A release (`release_item`) ends it, and so does a
+move out of the claims column; a hand-off does not. The event is
+`task.claim_released`. Its `data` has the fields above and `state`, the
+live state of the task, or `null`. The state has `branch`, `commit`,
+`pushed`, `pr_url` and `next_step`, as the holder left them. Kairos clears
+the next step after the delivery: it was the plan of the holder.
+
+The rule can name a column: the column of the task after the move. A task
+that moves to a done column fires nothing.
+
 ### `set_agent_triage`
 
 Sets who decides the triage of intake on a board (KAIROS-T-0428). Intake is a
@@ -3461,8 +3472,8 @@ time. Requires `configure_boards` on the board.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `board` | string | yes | — | Slug or UUID. |
-| `trigger` | string | no | `entered_column` | `entered_column`: an item enters `column` (a task on a delivery board, an initiative or a strategy on its board). `unblocked`: the last open blocker of a task closes. `review_changed`: the review state of a task changes. |
-| `column` | string | for `entered_column` | — | The name or the UUID of a column of the board. For `unblocked`, the column the task must be in. |
+| `trigger` | string | no | `entered_column` | `entered_column`: an item enters `column` (a task on a delivery board, an initiative or a strategy on its board). `unblocked`: the last open blocker of a task closes. `review_changed`: the review state of a task changes. `claim_released`: the claim of a task is released. |
+| `column` | string | for `entered_column` | — | The name or the UUID of a column of the board. For the other triggers, the column the task must be in. |
 | `target_id` | string | no | — | A webhook target of the board. |
 | `url` | string | no | — | The URL of a new target (`http` or `https`). |
 | `target_name` | string | no | `Agent runner` | The name of the new target. |

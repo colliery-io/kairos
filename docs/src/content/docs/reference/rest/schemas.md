@@ -624,13 +624,13 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `column` | `string`, nullable | no | The name or the id of a column of the board. Required for `entered_column`; for `unblocked` and `review_changed`, the column the task must be in. |
+| `column` | `string`, nullable | no | The name or the id of a column of the board. Required for `entered_column`; for the other triggers, the column the task must be in. |
 | `metadata_slug` | `string`, nullable | no | Only tasks with this metadata: the slug of a definition. Send it with `metadata_value`. KAIROS-T-0696: the server also accepts the name `definition`, the name on MCP. |
 | `metadata_value` | `string`, nullable | no | The value of `metadata_slug` that matches. |
 | `repository` | `string`, nullable | no | Only tasks of this repository: its slug or its id. Refused on an initiative or a strategy board (KAIROS-T-0719). |
 | `target_id` | `string` | yes | The id of a webhook target of the board. |
 | `task_type` | `string`, nullable | no | Only tasks of this type: `task|bug|tech_debt|support`. Refused on an initiative or a strategy board (KAIROS-T-0719). |
-| `trigger` | `string`, nullable | no | `entered_column` (the default), `unblocked` or `review_changed` (KAIROS-T-0718: the review state of a task changed). |
+| `trigger` | `string`, nullable | no | `entered_column` (the default), `unblocked`, `review_changed` (KAIROS-T-0718: the review state of a task changed) or `claim_released` (KAIROS-T-0720: the claim of a task was released). |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
@@ -1028,7 +1028,7 @@ A dispatch rule of a board. With the trigger `entered_column`, the rule fires wh
 |---|---|---|---|
 | `board_id` | `string` | yes |  |
 | `column` | `string`, nullable | no | The name of the column. |
-| `column_id` | `string`, nullable | no | `null`: an `unblocked` rule with no column. |
+| `column_id` | `string`, nullable | no | `null`: a rule with no column (`unblocked`, `review_changed` or `claim_released`). |
 | `created_at` | `string` | yes |  |
 | `created_by` | `string` | yes |  |
 | `id` | `string` | yes |  |
@@ -1038,7 +1038,7 @@ A dispatch rule of a board. With the trigger `entered_column`, the rule fires wh
 | `target` | `string` | yes | The name of the target. |
 | `target_id` | `string` | yes |  |
 | `task_type` | `string`, nullable | no | `task|bug|tech_debt|support`; `null`: each type. |
-| `trigger` | `string` | yes | `entered_column`, `unblocked` or `review_changed` (KAIROS-T-0718). |
+| `trigger` | `string` | yes | `entered_column`, `unblocked`, `review_changed` (KAIROS-T-0718) or `claim_released` (KAIROS-T-0720). |
 
 ## Document
 

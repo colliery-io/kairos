@@ -214,7 +214,7 @@ pub fn cancel_task(
         // are told; Kairos unblocks nothing.
         crate::notifications::on_blocker_cancelled(conn, task_id, reason, actor_id)?;
         // KAIROS-T-0385: the dispatch rules of the done column.
-        crate::dispatch::on_task_entered_column(conn, task_id, to_column_id, actor_id)?;
+        crate::dispatch::on_item_entered_column(conn, task_id, to_column_id, actor_id)?;
         // KAIROS-T-0386: the GitHub write-back of its pull requests.
         crate::writeback::on_item_changed(conn, task_id)?;
         events::emit_item_event_by_id(
@@ -306,6 +306,8 @@ pub fn cancel_initiative(
         // KAIROS-A-0038: a cancelled blocker still blocks. Its dependants
         // are told; Kairos unblocks nothing.
         crate::notifications::on_blocker_cancelled(conn, initiative_id, reason, actor_id)?;
+        // KAIROS-T-0719: the dispatch rules of the done column, as for a task.
+        crate::dispatch::on_item_entered_column(conn, initiative_id, to_column_id, actor_id)?;
         events::emit_item_event_by_id(
             conn,
             EventKind::ItemTransitioned,

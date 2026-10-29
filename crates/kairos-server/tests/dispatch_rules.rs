@@ -31,6 +31,10 @@
 //!     its filter must match; a write of the value the task has fires
 //!     nothing; the task reads carry the review; MCP `set_review` and the
 //!     line of `get_item`.
+//! 11. KAIROS-T-0719: an `entered_column` rule on the initiatives board
+//!     fires `initiative.entered_column` on a transition and on a create,
+//!     with `entity_type` initiative and no task type; a rule there cannot
+//!     filter on a task type or a repository.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`), with
 //! KAIROS_WEBHOOK_ALLOW_PRIVATE on (the receiver is on 127.0.0.1). Owns the
@@ -50,7 +54,7 @@ use uuid::Uuid;
 use common::{
     AUDIENCE, ISSUER, base_config, recreate_scratch_db, spawn_server, user_token, with_database,
 };
-use kairos_client::types::{CreateTaskRequest, SetTaskReviewRequest};
+use kairos_client::types::{CreateInitiativeRequest, CreateTaskRequest, SetTaskReviewRequest};
 use kairos_client::types_dispatch::{
     CreateDispatchRuleRequest, CreateWebhookTargetRequest, RedeliverQuery, WebhookDeliveriesQuery,
 };
@@ -1380,4 +1384,125 @@ async fn a_task_that_enters_the_column_of_a_rule_fires_one_signed_delivery() {
         .await;
     assert!(error, "{text}");
     assert!(text.contains("not_needed, needed, done"), "{text}");
+
+    // --- 11. KAIROS-T-0719: an initiative enters a column -----------------
+    let initiatives = admin
+        .get_board("initiatives")
+        .await
+        .expect("initiatives board");
+    let initiative_column: HashMap<String, String> = initiatives
+        .columns
+        .iter()
+        .map(|c| (c.name.clone(), c.id.clone()))
+        .collect();
+    let initiative_target = admin
+        .create_webhook_target(
+            "initiatives",
+            &CreateWebhookTargetRequest {
+                name: "Coordinator".into(),
+                url: receiver.url.clone(),
+            },
+        )
+        .await
+        .expect("initiatives target")
+        .target
+        .id;
+    let initiative_rule = |column: &str| CreateDispatchRuleRequest {
+        column: Some(column.into()),
+        target_id: initiative_target.clone(),
+        ..Default::default()
+    };
+    // A task filter has no meaning on an initiative board.
+    for request in [
+        CreateDispatchRuleRequest {
+            task_type: Some("bug".into()),
+            ..initiative_rule("Design")
+        },
+        CreateDispatchRuleRequest {
+            repository: Some("kairos".into()),
+            ..initiative_rule("Design")
+        },
+    ] {
+        let err = admin
+            .create_dispatch_rule("initiatives", &request)
+            .await
+            .expect_err("no task filter on an initiative board");
+        assert!(err.to_string().contains("initiative board"), "{err}");
+    }
+    // The metadata filter stays.
+    admin
+        .create_dispatch_rule(
+            "initiatives",
+            &CreateDispatchRuleRequest {
+                metadata_slug: Some("priority".into()),
+                metadata_value: Some("high".into()),
+                ..initiative_rule("Ready")
+            },
+        )
+        .await
+        .expect("a metadata filter on an initiative board");
+    admin
+        .create_dispatch_rule("initiatives", &initiative_rule("Discovery"))
+        .await
+        .expect("rule on Discovery");
+    let design_rule = admin
+        .create_dispatch_rule("initiatives", &initiative_rule("Design"))
+        .await
+        .expect("rule on Design");
+    let before_initiative = receiver.received().len();
+    let initiative = admin
+        .create_initiative(&CreateInitiativeRequest {
+            board_id: "initiatives".into(),
+            column_id: None,
+            title: "Fleet".into(),
+            content: String::new(),
+            complexity: None,
+            bucket_type: None,
+            parent: None,
+        })
+        .await
+        .expect("initiative")
+        .short_code;
+    admin
+        .transition_initiative(&initiative, &initiative_column["Design"])
+        .await
+        .expect("to Design");
+    deliver(&worker, &scratch_url).await;
+    let entered: Vec<Value> = receiver.received()[before_initiative..]
+        .iter()
+        .filter(|r| r.headers["x-kairos-event"] == "initiative.entered_column")
+        .map(|r| r.json())
+        .collect();
+    assert_eq!(entered.len(), 2, "{entered:?}");
+    for body in &entered {
+        assert_eq!(body["event"], "initiative.entered_column");
+        assert_eq!(body["data"]["entity_type"], "initiative");
+        assert_eq!(body["data"]["code"], initiative);
+        assert_eq!(body["data"]["board"]["slug"], "initiatives");
+        assert!(body["data"]["task_type"].is_null(), "{body}");
+        assert!(body["data"]["work_class"].is_null(), "{body}");
+        assert!(body["data"]["repository"].is_null(), "{body}");
+    }
+    // The two deliveries went in parallel: compare as a set.
+    let mut columns: Vec<(String, String)> = entered
+        .iter()
+        .map(|body| {
+            (
+                body["data"]["column"]["name"].as_str().unwrap().to_string(),
+                body["data"]["rule_id"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    columns.sort();
+    assert_eq!(columns[0].0, "Design");
+    assert_eq!(columns[0].1, design_rule.id);
+    assert_eq!(columns[1].0, "Discovery");
+    // A task that enters a column still fires `task.entered_column`, no
+    // other event (the rules of the delivery board are unchanged).
+    assert!(
+        receiver.received()[before_initiative..]
+            .iter()
+            .all(|r| r.headers["x-kairos-event"] != "task.entered_column"),
+        "no task moved"
+    );
 }

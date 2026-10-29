@@ -3060,11 +3060,15 @@ start a session itself: the runner does. See
 tries. To push the deliveries into a running Claude Code session, see
 [Receive dispatch in a Claude Code session](../../how-to/receive-dispatch-in-a-session/).
 
-The event is `task.entered_column`. Its `data` has these fields:
+The event is `task.entered_column`. On an initiative or a strategy board
+(KAIROS-T-0719) the rule fires when an initiative or a strategy enters the
+column. Then the event is `initiative.entered_column` or
+`strategy.entered_column`. Such a rule cannot filter on a task type or a
+repository. Its `data` has these fields:
 
 | Field | Description |
 |---|---|
-| `entity_type` | `task`. For `task.unblocked`, also `strategy` or `initiative`. |
+| `entity_type` | `task`, `initiative` or `strategy`. |
 | `code`, `title`, `task_type` | The item. `task_type` is `null` for a strategy or an initiative. |
 | `work_class` | The lane of the task: `planned` or `support`. `null` for a strategy or an initiative. |
 | `link` | The URL of the task in the GUI. |
@@ -3210,15 +3214,15 @@ time. Requires `configure_boards` on the board.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `board` | string | yes | — | Slug or UUID. |
-| `trigger` | string | no | `entered_column` | `entered_column`: a task enters `column`. `unblocked`: the last open blocker of a task closes. |
+| `trigger` | string | no | `entered_column` | `entered_column`: an item enters `column` (a task on a delivery board, an initiative or a strategy on its board). `unblocked`: the last open blocker of a task closes. `review_changed`: the review state of a task changes. |
 | `column` | string | for `entered_column` | — | The name or the UUID of a column of the board. For `unblocked`, the column the task must be in. |
 | `target_id` | string | no | — | A webhook target of the board. |
 | `url` | string | no | — | The URL of a new target (`http` or `https`). |
 | `target_name` | string | no | `Agent runner` | The name of the new target. |
-| `task_type` | string | no | — | Only tasks of this type: `task`, `bug`, `tech_debt` or `support`. |
+| `task_type` | string | no | — | Only tasks of this type: `task`, `bug`, `tech_debt` or `support`. Refused on an initiative or a strategy board. |
 | `definition` | string | no | — | Only tasks with this metadata: the slug of a definition. Send it with `metadata_value`. The old name `metadata_slug` is an alias. |
 | `metadata_value` | string | no | — | The value that matches. Case is not significant. |
-| `repository` | string | no | — | Only tasks of this repository: its slug or UUID. |
+| `repository` | string | no | — | Only tasks of this repository: its slug or UUID. Refused on an initiative or a strategy board. |
 
 Each part of the filter that you set must match.
 

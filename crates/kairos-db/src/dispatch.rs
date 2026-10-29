@@ -41,6 +41,13 @@
 //! event [`EVENT_REVIEW_CHANGED`], with the value in `data.review`. The
 //! rule can name a column that the task must be in.
 //!
+//! A rule with the trigger [`TRIGGER_CLAIM_RELEASED`] (KAIROS-T-0720) fires
+//! when the claim of a task ends by a release or by a move out of the
+//! claims column, not by a hand-off ([`on_claim_released`]): the event
+//! [`EVENT_CLAIM_RELEASED`], with the live state of the task in
+//! `data.state` as the holder left it (the release clears the next step
+//! after). The rule can name a column that the task must be in.
+//!
 //! The connection must be pinned to a tenant schema. This module does not
 //! check rights: the caller does.
 
@@ -79,16 +86,28 @@ pub const EVENT_REVIEW_CHANGED: &str = "task.review_changed";
 /// changes (KAIROS-T-0718).
 pub const TRIGGER_REVIEW_CHANGED: &str = "review_changed";
 
+/// The event of a task whose claim was released (KAIROS-T-0720).
+pub const EVENT_CLAIM_RELEASED: &str = "task.claim_released";
+
+/// The trigger of a rule that fires when the claim of a task is released
+/// (KAIROS-T-0720).
+pub const TRIGGER_CLAIM_RELEASED: &str = "claim_released";
+
 /// The triggers that a rule can name.
-pub const TRIGGERS: [&str; 3] = [
+pub const TRIGGERS: [&str; 4] = [
     TRIGGER_ENTERED_COLUMN,
     TRIGGER_UNBLOCKED,
     TRIGGER_REVIEW_CHANGED,
+    TRIGGER_CLAIM_RELEASED,
 ];
 
 /// The triggers whose rule can have no column: the task can be in any
 /// column that is not done.
-pub const TRIGGERS_WITH_OPTIONAL_COLUMN: [&str; 2] = [TRIGGER_UNBLOCKED, TRIGGER_REVIEW_CHANGED];
+pub const TRIGGERS_WITH_OPTIONAL_COLUMN: [&str; 3] = [
+    TRIGGER_UNBLOCKED,
+    TRIGGER_REVIEW_CHANGED,
+    TRIGGER_CLAIM_RELEASED,
+];
 
 /// The task types that a rule can name.
 pub const TASK_TYPES: [&str; 4] = ["task", "bug", "tech_debt", "support"];
@@ -334,6 +353,39 @@ struct TaskColumn {
     column_id: Uuid,
 }
 
+/// The column of the live task `task_id` and the rules of its board with
+/// `trigger` that it matches: a rule with no column, or with its column.
+/// `None` for a task in a done column or an archived one: such a task
+/// fires nothing.
+fn task_rules(
+    conn: &mut PgConnection,
+    task_id: Uuid,
+    trigger: &str,
+) -> Result<Option<(Uuid, Vec<Match>)>, DieselError> {
+    let Some(task) = sql_query(
+        "SELECT t.column_id FROM tasks t \
+           JOIN board_columns c ON c.id = t.column_id AND NOT c.is_done \
+          WHERE t.id = $1 AND t.deleted_at IS NULL",
+    )
+    .bind::<SqlUuid, _>(task_id)
+    .get_result::<TaskColumn>(conn)
+    .optional()?
+    else {
+        return Ok(None);
+    };
+    let matches: Vec<Match> = sql_query(format!(
+        "SELECT r.id AS rule_id, r.target_id FROM dispatch_rules r \
+           JOIN tasks t ON t.id = $1 \
+          WHERE r.trigger = $2 AND r.board_id = t.board_id \
+            AND (r.column_id IS NULL OR r.column_id = t.column_id) \
+            {RULE_FILTER}"
+    ))
+    .bind::<SqlUuid, _>(task_id)
+    .bind::<Text, _>(trigger)
+    .load(conn)?;
+    Ok(Some((task.column_id, matches)))
+}
+
 /// The review state of the task `task_id` changed to `review`, by `actor`
 /// (KAIROS-T-0718): queue one delivery of [`EVENT_REVIEW_CHANGED`] for
 /// each `review_changed` rule of its board that it matches. The rule's
@@ -345,30 +397,13 @@ pub fn on_review_changed(
     review: &str,
     actor: Uuid,
 ) -> Result<Vec<crate::webhooks::Delivery>, DieselError> {
-    let Some(task) = sql_query(
-        "SELECT t.column_id FROM tasks t \
-           JOIN board_columns c ON c.id = t.column_id AND NOT c.is_done \
-          WHERE t.id = $1 AND t.deleted_at IS NULL",
-    )
-    .bind::<SqlUuid, _>(task_id)
-    .get_result::<TaskColumn>(conn)
-    .optional()?
-    else {
+    let Some((column_id, matches)) = task_rules(conn, task_id, TRIGGER_REVIEW_CHANGED)? else {
         return Ok(Vec::new());
     };
-    let matches: Vec<Match> = sql_query(format!(
-        "SELECT r.id AS rule_id, r.target_id FROM dispatch_rules r \
-           JOIN tasks t ON t.id = $1 \
-          WHERE r.trigger = 'review_changed' AND r.board_id = t.board_id \
-            AND (r.column_id IS NULL OR r.column_id = t.column_id) \
-            {RULE_FILTER}"
-    ))
-    .bind::<SqlUuid, _>(task_id)
-    .load(conn)?;
     queue(
         conn,
         task_id,
-        task.column_id,
+        column_id,
         actor,
         &matches,
         Event::ReviewChanged,
@@ -376,13 +411,46 @@ pub fn on_review_changed(
     )
 }
 
+/// The claim of the task `task_id` ended by a release or by a move out of
+/// the claims column, by `actor` (KAIROS-T-0720): queue one delivery of
+/// [`EVENT_CLAIM_RELEASED`] for each `claim_released` rule of its board
+/// that it matches, with the live state of the task in `data.state`. The
+/// rule's column, if any, must be the column of the task after the move.
+/// Nothing for a task in a done column or an archived one. Runs in the
+/// transaction of the release, before the next step is cleared, so the
+/// delivery carries the state as the holder left it.
+pub fn on_claim_released(
+    conn: &mut PgConnection,
+    task_id: Uuid,
+    actor: Uuid,
+) -> Result<Vec<crate::webhooks::Delivery>, DieselError> {
+    let Some((column_id, matches)) = task_rules(conn, task_id, TRIGGER_CLAIM_RELEASED)? else {
+        return Ok(Vec::new());
+    };
+    // No state query for no rule.
+    if matches.is_empty() {
+        return Ok(Vec::new());
+    }
+    let state = crate::task_state::state_of(conn, task_id)?;
+    queue(
+        conn,
+        task_id,
+        column_id,
+        actor,
+        &matches,
+        Event::ClaimReleased,
+        Detail::State(state.as_ref()),
+    )
+}
+
 /// Which event a delivery is. The name of `EnteredColumn` depends on the
-/// type of the item (KAIROS-T-0719); the two others are task events.
+/// type of the item (KAIROS-T-0719); the others are task events.
 #[derive(Debug, Clone, Copy)]
 enum Event {
     EnteredColumn,
     Unblocked,
     ReviewChanged,
+    ClaimReleased,
 }
 
 impl Event {
@@ -392,6 +460,7 @@ impl Event {
             Event::EnteredColumn => entered_column_event(entity_type),
             Event::Unblocked => EVENT_UNBLOCKED.to_string(),
             Event::ReviewChanged => EVENT_REVIEW_CHANGED.to_string(),
+            Event::ClaimReleased => EVENT_CLAIM_RELEASED.to_string(),
         }
     }
 }
@@ -405,6 +474,8 @@ enum Detail<'a> {
     Blocker(&'a str),
     /// [`EVENT_REVIEW_CHANGED`]: the new review state.
     Review(&'a str),
+    /// [`EVENT_CLAIM_RELEASED`]: the live state of the task, or none.
+    State(Option<&'a crate::models::TaskState>),
 }
 
 /// Queue one delivery of `event` for each of `matches`, for the item
@@ -488,6 +559,18 @@ fn queue(
             }
             Detail::Review(value) => {
                 data["review"] = serde_json::Value::String(value.to_string());
+            }
+            Detail::State(state) => {
+                data["state"] = match state {
+                    Some(s) => serde_json::json!({
+                        "branch": s.branch,
+                        "commit": s.commit,
+                        "pushed": s.pushed,
+                        "pr_url": s.pr_url,
+                        "next_step": s.next_step,
+                    }),
+                    None => serde_json::Value::Null,
+                };
             }
         }
         if let Some(delivery) = crate::webhooks::queue_delivery(

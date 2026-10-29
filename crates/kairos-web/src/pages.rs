@@ -269,6 +269,10 @@ pub fn CallbackPage() -> impl IntoView {
 
 // ---- feature pages ---------------------------------------------------------
 
+// The preview of an item link on Shift or Ctrl + hover: one in the shell.
+pub(crate) mod code_peek;
+pub use code_peek::{CodePeek, CodePeekSetting, provide_mode as provide_code_peek_mode};
+
 // Copy-link button (KAIROS-T-0076): shared by the board cards and the
 // item detail header.
 pub(crate) mod copy_link;

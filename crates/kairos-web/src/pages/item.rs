@@ -45,7 +45,7 @@ mod end;
 mod external;
 mod item_owner;
 mod live;
-pub(crate) use kairos_markdown as markdown;
+pub(crate) mod markdown;
 mod metadata;
 mod notes;
 mod owner;

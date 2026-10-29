@@ -578,6 +578,31 @@
   overflow-y: auto;
 }
 
+/* The preview of a short code (Shift or Ctrl + hover on a link to an item). */
+.kairos-code-peek {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: min(480px, calc(100vw - 16px));
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: var(--space-sm);
+}
+
+.kairos-code-peek__head {
+  color: var(--muted);
+}
+
+.kairos-code-peek__title {
+  color: var(--fg-bright);
+  font-weight: 600;
+  margin: 4px 0;
+}
+
 /* Metadata panel rows. */
 .kairos-metadata {
   display: flex;

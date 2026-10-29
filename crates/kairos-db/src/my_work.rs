@@ -17,6 +17,25 @@
 //! An item in a done column (`board_columns.is_done`) or archived is not in
 //! the work. A cancelled task is in a done column.
 //!
+//! # The stand-up of a team (COLLIERY-I-0663, KAIROS-A-0077)
+//!
+//! [`team_work`] gives the work of one person in one team, for the
+//! stand-up. Only the items of the team show, so a person in several
+//! stand-ups sees each one apart:
+//!
+//! - **Initiatives**: the initiatives that the person owns and that have
+//!   the team ([`crate::item_teams`]: from their tasks or set by hand). No
+//!   strategies.
+//! - **Tasks**: the tasks on a live board of the team that the person (or
+//!   an agent key of the person) claims. Only the claims: not the tasks
+//!   under the initiatives of the person, and not the tasks that the claims
+//!   block.
+//!
+//! [`unclaimed_work`] gives the last stop of the round: the tasks on the
+//! boards of the team that no one claims, in the state Todo or Blocked. A
+//! task in Backlog is not in it. [`team_people`] gives the people of the
+//! round.
+//!
 //! # The state of an item
 //!
 //! Each item has a state: Todo, Active or Blocked ([`WorkState`]).

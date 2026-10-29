@@ -7,7 +7,7 @@
 //! the person of the key. A service account owns nothing and has no claim,
 //! so its work is empty.
 //!
-//! # The stand-up of a team (KAIROS-T-0722, COLLIERY-I-0663)
+//! # The stand-up of a team (KAIROS-T-0722, COLLIERY-I-0663, KAIROS-A-0077)
 //!
 //! Three read-only routes give a stand-up: the people of the team, the
 //! work of one person in the team, and the tasks of the team that no one

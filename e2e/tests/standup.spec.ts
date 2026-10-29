@@ -6,7 +6,9 @@
 //   2. the round has a stop for each person of the team and ends with
 //      Unclaimed; `?stop=unclaimed` shows a Todo task that no one claims,
 //      and Next is off at the last stop;
-//   3. Previous goes back to a person; Reshuffle goes to the first person.
+//   3. Previous goes back to a person; Reshuffle goes to the first person;
+//   4. KAIROS-T-0724: the team page and the delivery board have a
+//      "Stand-up" button that opens the stand-up of the team.
 //
 // The tasks are new for each run (timestamped titles), so a retry starts
 // clean.
@@ -99,5 +101,17 @@ test('the stand-up goes around the team and ends with the unclaimed tasks', asyn
     await page.getByRole('button', { name: 'Reshuffle' }).click();
     await expect(page).toHaveURL(/person=/);
     await expect(page.locator('[data-testid="standup-current"]')).not.toContainText('Unclaimed');
+  });
+
+  await test.step('the team page and the delivery board open the stand-up', async () => {
+    await page.goto(`/teams/${team.slug}`);
+    await page.getByRole('link', { name: 'Stand-up' }).click();
+    await expect(page).toHaveURL(new RegExp(`/teams/${team.slug}/standup`));
+    await expect(page.locator('[data-testid="standup"]')).toBeVisible({ timeout: 30_000 });
+    await page.goto(`/boards/${board.slug ?? 'platform-delivery'}`);
+    await page.getByRole('link', { name: 'Stand-up' }).click();
+    await expect(page).toHaveURL(/\/standup/);
+    await expect(page.locator('[data-testid="standup-current"]')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('h1, [class*="page-header"]').first()).toContainText(team.name);
   });
 });

@@ -6403,6 +6403,31 @@ fn slug_from_title(title: &str) -> String {
 // can count their statements)
 // ---------------------------------------------------------------------------
 
+/// KAIROS-T-0730: refuse new content of a document that does not pass the
+/// typed sections of its template. Only the sections that the write
+/// changes are checked (note n-4). Only a document has a template; for the
+/// other types this reads nothing.
+fn refuse_failing_sections(
+    conn: &mut PgConnection,
+    short_code: &str,
+    id: Uuid,
+    item_type: ItemType,
+    content: &str,
+) -> Result<(), ApiError> {
+    if item_type != ItemType::Document {
+        return Ok(());
+    }
+    let (sections, board, old) = super::typed_sections::of_document(conn, id)?;
+    super::typed_sections::refuse_failing(
+        conn,
+        Some(short_code),
+        &sections,
+        board,
+        Some(&old),
+        content,
+    )
+}
+
 /// The answer text of `update_item`.
 pub fn update_item_text(
     conn: &mut PgConnection,
@@ -6413,6 +6438,13 @@ pub fn update_item_text(
     // KAIROS-T-0635: the rights need no content.
     let item = load_item_key(conn, &params.short_code)?;
     require_item_edit(conn, role, user, item.id, item.item_type)?;
+    refuse_failing_sections(
+        conn,
+        &item.short_code,
+        item.id,
+        item.item_type,
+        &params.content,
+    )?;
     let update = items::ContentUpdate {
         new_title: params.title.as_deref(),
         new_content: &params.content,
@@ -6469,6 +6501,13 @@ pub fn edit_item_text(
         } else {
             item.content.replacen(&params.search, &params.replace, 1)
         };
+        refuse_failing_sections(
+            conn,
+            &item.short_code,
+            item.id,
+            item.item_type,
+            &new_content,
+        )?;
         let update = items::ContentUpdate {
             new_title: None,
             new_content: &new_content,
@@ -9472,6 +9511,38 @@ fn create_item_impl(
             .as_deref()
             .map(|t| resolve_template(conn, t))
             .transpose()?;
+        // KAIROS-T-0730: the content to write must pass each typed section
+        // of the template. `create` runs this after its create gate (a
+        // caller with no right gets FORBIDDEN first) and before the first
+        // write. With no `content`, the content is that of the template.
+        let check_sections = |conn: &mut PgConnection, board: Uuid| -> Result<(), ApiError> {
+            let Some(template_id) = template_id else {
+                return Ok(());
+            };
+            let sections = super::typed_sections::of_template(conn, template_id)?;
+            if sections.is_empty() {
+                return Ok(());
+            }
+            let content = match params.content.clone() {
+                Some(content) => content,
+                None => {
+                    use kairos_db::schema::templates;
+                    templates::table
+                        .filter(templates::id.eq(template_id))
+                        .select(templates::content)
+                        .first::<String>(conn)
+                        .map_err(ApiError::internal)?
+                }
+            };
+            super::typed_sections::refuse_failing(
+                conn,
+                None,
+                &sections,
+                Some(board),
+                None,
+                &content,
+            )
+        };
         let created = crate::api::documents::create(
             conn,
             slug,
@@ -9483,6 +9554,7 @@ fn create_item_impl(
                 template_id,
                 board: params.board.as_deref(),
                 parent: params.parent.as_deref(),
+                before_write: Some(&check_sections),
             },
             crate::api::documents::CreateWording {
                 request: "call",

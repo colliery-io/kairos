@@ -201,6 +201,122 @@ fn heading(line: &str) -> Option<(u8, String)> {
     Some((hashes as u8, text))
 }
 
+/// One rule that the text of a `plain` section breaks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SectionViolation {
+    /// The rule id, as `STE-S2`.
+    pub rule: &'static str,
+    /// The text that breaks the rule: a sentence, a paragraph or a word.
+    pub text: String,
+    /// What is wrong, then what to do.
+    pub fix: String,
+}
+
+/// Why a typed section does not pass.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SectionProblem {
+    /// No heading of the content has the text of the section.
+    Missing,
+    /// The section is there, but it has no text.
+    Empty,
+    /// The text breaks the rules of the type of the section.
+    Violations(Vec<SectionViolation>),
+}
+
+/// A typed section of a template that the content does not pass.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SectionFailure {
+    pub heading: String,
+    pub section_type: SectionType,
+    pub problem: SectionProblem,
+}
+
+/// Check `content` against the typed sections of its template
+/// (KAIROS-T-0730, COLLIERY-I-0664 decision 1). Each section must be there
+/// and have text. The text of a `plain` section must also pass the
+/// plain-language checker and the vocabulary. A `free` section gets no
+/// language check. A heading that the content repeats: each occurrence is
+/// checked. Gives the failures in the order of `sections`; empty when the
+/// content passes.
+pub fn check_sections(
+    content: &str,
+    sections: &[(String, SectionType)],
+    vocabulary: &kairos_plain::Vocabulary,
+) -> Vec<SectionFailure> {
+    let parsed = parse_sections(content);
+    let mut failures = Vec::new();
+    for (heading, section_type) in sections {
+        let found: Vec<&Section> = parsed.iter().filter(|s| &s.heading == heading).collect();
+        let problem = if found.is_empty() {
+            Some(SectionProblem::Missing)
+        } else if found.iter().any(|s| s.is_empty()) {
+            Some(SectionProblem::Empty)
+        } else {
+            match section_type {
+                SectionType::Free => None,
+                SectionType::Plain => {
+                    let violations: Vec<SectionViolation> = found
+                        .iter()
+                        .flat_map(|s| plain_violations(&s.body, vocabulary))
+                        .collect();
+                    (!violations.is_empty()).then_some(SectionProblem::Violations(violations))
+                }
+            }
+        };
+        if let Some(problem) = problem {
+            failures.push(SectionFailure {
+                heading: heading.clone(),
+                section_type: *section_type,
+                problem,
+            });
+        }
+    }
+    failures
+}
+
+/// The typed sections that a write from `old` to `new` changes
+/// (KAIROS-T-0730 n-4): a section whose text (each occurrence, trimmed) is
+/// the same in the two is left out. A section that is missing in the two is
+/// not a change. An edit checks only these; a create checks each section.
+pub fn changed_sections(
+    old: &str,
+    new: &str,
+    sections: &[(String, SectionType)],
+) -> Vec<(String, SectionType)> {
+    let (old, new) = (parse_sections(old), parse_sections(new));
+    let bodies = |parsed: &[Section], heading: &str| -> Vec<String> {
+        parsed
+            .iter()
+            .filter(|s| s.heading == heading)
+            .map(|s| s.body.trim().to_string())
+            .collect()
+    };
+    sections
+        .iter()
+        .filter(|(heading, _)| bodies(&old, heading) != bodies(&new, heading))
+        .cloned()
+        .collect()
+}
+
+/// The violations of one `plain` text, in the order of the text.
+fn plain_violations(body: &str, vocabulary: &kairos_plain::Vocabulary) -> Vec<SectionViolation> {
+    let mut found = kairos_plain::check_text(body);
+    found.extend(vocabulary.check_text(body));
+    found.sort_by_key(|v| (v.span.start, v.span.end));
+    found
+        .into_iter()
+        .map(|v| SectionViolation {
+            rule: v.rule,
+            text: body
+                .get(v.span.clone())
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            fix: v.message,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +332,112 @@ mod tests {
         - Two.\n\
         \n\
         ## Notes\n";
+
+    fn typed() -> Vec<(String, SectionType)> {
+        vec![
+            ("Goal".to_string(), SectionType::Plain),
+            ("Notes".to_string(), SectionType::Free),
+        ]
+    }
+
+    fn small_vocabulary() -> kairos_plain::Vocabulary {
+        kairos_plain::Vocabulary::new(["the", "server", "checks", "text"], Vec::<&str>::new())
+    }
+
+    #[test]
+    fn only_the_sections_that_a_write_changes_are_checked() {
+        let old = "## Goal\nOld goal.\n\n## Notes\nA note.\n";
+        // Goal changed, Notes the same (white space only).
+        let new = "## Goal\nNew goal.\n\n## Notes\nA note.\n\n";
+        assert_eq!(
+            changed_sections(old, new, &typed()),
+            vec![("Goal".to_string(), SectionType::Plain)]
+        );
+        // Missing in the two: not a change. Added: a change.
+        let typed = vec![("Risks".to_string(), SectionType::Free)];
+        assert_eq!(changed_sections(old, new, &typed), vec![]);
+        let added = format!("{new}## Risks\nNone.\n");
+        assert_eq!(changed_sections(old, &added, &typed), typed);
+        // Removed: a change.
+        assert_eq!(
+            changed_sections(&added, new, &typed),
+            vec![("Risks".to_string(), SectionType::Free)]
+        );
+    }
+
+    #[test]
+    fn content_that_passes_gives_no_failure() {
+        let content = "## Goal\nThe server checks the text.\n\n## Notes\nAnything, utilize it.\n";
+        assert_eq!(
+            check_sections(content, &typed(), &small_vocabulary()),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn a_missing_and_an_empty_section_are_named() {
+        let content = "## Notes\n\n## Other\ntext\n";
+        let failures = check_sections(content, &typed(), &small_vocabulary());
+        assert_eq!(
+            failures,
+            vec![
+                SectionFailure {
+                    heading: "Goal".into(),
+                    section_type: SectionType::Plain,
+                    problem: SectionProblem::Missing,
+                },
+                SectionFailure {
+                    heading: "Notes".into(),
+                    section_type: SectionType::Free,
+                    problem: SectionProblem::Empty,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_plain_section_names_each_violation() {
+        let content = "## Goal\nThe text is checked by the server. The server utilize the text.\n\n## Notes\nfree text\n";
+        let failures = check_sections(content, &typed(), &small_vocabulary());
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].heading, "Goal");
+        let SectionProblem::Violations(violations) = &failures[0].problem else {
+            panic!("expected violations, got {:?}", failures[0].problem);
+        };
+        let rules: Vec<&str> = violations.iter().map(|v| v.rule).collect();
+        let passive = violations
+            .iter()
+            .find(|v| v.fix.starts_with("Passive"))
+            .unwrap();
+        assert_eq!(passive.text, "is checked");
+        assert!(rules.contains(&"STE-V1"), "{violations:?}");
+        let v1 = violations.iter().find(|v| v.text == "utilize").unwrap();
+        assert_eq!(v1.rule, "STE-V1");
+        assert_eq!(v1.text, "utilize");
+        assert!(v1.fix.contains("not in the vocabulary"), "{}", v1.fix);
+    }
+
+    #[test]
+    fn a_free_section_gets_no_language_check() {
+        let content =
+            "## Goal\nThe server checks the text.\n## Notes\nWe utilize words nobody listed.\n";
+        assert!(check_sections(content, &typed(), &small_vocabulary()).is_empty());
+    }
+
+    #[test]
+    fn each_occurrence_of_a_repeated_heading_is_checked() {
+        let content = "## Goal\nThe server checks the text.\n## Notes\nx\n## Goal\n\n";
+        let failures = check_sections(content, &typed(), &small_vocabulary());
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].problem, SectionProblem::Empty);
+    }
+
+    #[test]
+    fn the_standard_vocabulary_knows_plain_words() {
+        let vocabulary = kairos_plain::Vocabulary::standard(Vec::<&str>::new());
+        let content = "## Goal\nWrite the item.\n## Notes\nx\n";
+        assert_eq!(check_sections(content, &typed(), &vocabulary), vec![]);
+    }
 
     #[test]
     fn known_types_parse_and_round_trip() {

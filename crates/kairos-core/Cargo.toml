@@ -22,3 +22,5 @@ regex = { workspace = true }
 kairos-markdown = { workspace = true }
 # KAIROS-T-0651: the line diff of item_history (history_diff.rs).
 similar = { workspace = true }
+# KAIROS-T-0730: the check of the typed sections (sections.rs).
+kairos-plain = { workspace = true }

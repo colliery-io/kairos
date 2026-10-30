@@ -12,11 +12,15 @@
 //! - [`Vocabulary`]: STE-V1, a word that is in no list. The caller gives the
 //!   lists, or takes the vendored word list with [`Vocabulary::standard`]
 //!   ([`approved_words`], [`not_approved_words`], KAIROS-T-0728).
+//! - [`parse_dictionary`] and [`resolve`]: the entries of a dictionary
+//!   document, and the dictionary of a team on the organization dictionary
+//!   (KAIROS-T-0733).
 //!
 //! Each [`Violation`] names its rule, the byte range of the input that it is
 //! about, and a message that names the fix.
 
 mod code;
+mod dictionary;
 mod mapped;
 mod prose;
 mod standard;
@@ -25,6 +29,9 @@ mod vocabulary;
 use std::ops::Range;
 
 pub use code::check_code_text;
+pub use dictionary::{
+    DictionaryEntry, DictionaryProblem, Layer, ParsedDictionary, Term, parse_dictionary, resolve,
+};
 pub use prose::check_text;
 pub use standard::{ApprovedWord, NotApprovedWord, approved_words, not_approved_words};
 pub use vocabulary::Vocabulary;

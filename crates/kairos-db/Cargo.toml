@@ -13,6 +13,8 @@ diesel_migrations = { workspace = true }
 kairos-core = { workspace = true }
 # The text of a note as a `## Note` section (KAIROS-T-0630).
 kairos-markdown = { workspace = true }
+# The entries of a dictionary document (KAIROS-T-0733).
+kairos-plain = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

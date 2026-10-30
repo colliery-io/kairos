@@ -1040,7 +1040,7 @@ pub struct HandOffItemParams {
 pub struct WatchItemParams {
     /// The short code of the item to watch.
     pub short_code: String,
-    /// `true`: a change of a child of the item (its `parent` edges, one
+    /// `true`: a change of a child of the item (its parent edges, one
     /// level) tells you too. Default false. A second call changes it.
     #[serde(default)]
     pub with_children: Option<bool>,
@@ -3572,7 +3572,7 @@ impl KairosMcp {
 
     // KAIROS-T-0736: the watches of the person of the key.
     #[tool(
-        description = "Watch an item. When the item moves, is edited, gets a note, or is done, you get a `watch` notification (`get_events`), except for a change that you made. `with_children: true`: a change of a child of the item (one level of `parent` edges) tells you too. A second call changes `with_children`. An agent key watches for its person: the watch is the person's. A service account cannot watch."
+        description = "Watch an item. When the item moves, is edited, gets a note, or is done, you get a `watch` notification (`get_events`), except for a change that you made. `with_children: true`: a change of a child of the item (one level of parent edges) tells you too. A second call changes `with_children`. An agent key watches for its person: the watch is the person's. A service account cannot watch."
     )]
     pub async fn watch_item(
         &self,

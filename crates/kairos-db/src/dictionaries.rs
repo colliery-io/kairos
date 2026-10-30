@@ -14,13 +14,22 @@
 //! then the team entries, and the team entry wins for the same word (case
 //! ignored, `kairos_plain::resolve`). A bad row does not stop the read: it
 //! is in [`TeamDictionary::problems`] with its document and its line.
+//!
+//! [`dictionaries_json_of_item`] and [`merge_layers`] give the terms of an
+//! item, for the block "Terms used" of `get_item` (KAIROS-T-0735), in the
+//! statement that reads the other facts of the item. The teams of an item:
+//! the team of its board when the board is a delivery board, and the teams
+//! of an initiative or a strategy (`crate::item_teams`). An item with no
+//! team has the organization terms only (a default, for Dylan to confirm).
 
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::result::Error as DieselError;
 use uuid::Uuid;
 
-use kairos_plain::{DictionaryProblem, ParsedDictionary, Term, Vocabulary, parse_dictionary};
+use kairos_plain::{
+    DictionaryEntry, DictionaryProblem, Layer, ParsedDictionary, Term, Vocabulary, parse_dictionary,
+};
 
 use crate::models::enums::BoardLevel;
 
@@ -254,4 +263,207 @@ pub fn team_dictionary(
         terms,
         problems,
     })
+}
+
+/// An SQL expression (a JSON array as `text`) of the dictionary documents
+/// that apply to an item: the organization dictionary first, then the
+/// dictionary of each team of the item by the slug of the team. `item` and
+/// `board` are the SQL of the id of the item and of its board (nullable),
+/// as `$1` and `$2`. [`parse_dictionaries_json`] reads it.
+pub fn dictionaries_json_of_item(item: &str, board: &str) -> String {
+    let teams = crate::item_teams::team_ids_sql(&format!("SELECT {item}::uuid AS id"));
+    format!(
+        "(SELECT coalesce(json_agg(json_build_object( \
+             'team', d.team, 'code', d.code, 'content', d.content) \
+             ORDER BY d.team NULLS FIRST, d.code), '[]')::text \
+           FROM ((SELECT NULL::text AS team, dd.short_code AS code, dd.content \
+                    FROM documents dd \
+                    JOIN templates dtp ON dtp.id = dd.template_id AND dtp.slug = '{DICTIONARY_TEMPLATE_SLUG}' \
+                    JOIN boards db ON db.id = dd.board_id AND db.deleted_at IS NULL \
+                   WHERE db.slug = '{ORGANIZATION_BOARD_SLUG}' AND dd.deleted_at IS NULL \
+                   ORDER BY dd.short_code LIMIT 1) \
+                 UNION ALL \
+                 (SELECT DISTINCT ON (db.id) dt.slug, dd.short_code, dd.content \
+                    FROM documents dd \
+                    JOIN templates dtp ON dtp.id = dd.template_id AND dtp.slug = '{DICTIONARY_TEMPLATE_SLUG}' \
+                    JOIN boards db ON db.id = dd.board_id AND db.deleted_at IS NULL \
+                                  AND db.board_level = 'delivery' \
+                    JOIN teams dt ON dt.id = db.team_id AND dt.deleted_at IS NULL \
+                   WHERE dd.deleted_at IS NULL \
+                     AND dt.id IN (SELECT ib.team_id FROM boards ib \
+                                    WHERE ib.id = {board} AND ib.board_level = 'delivery' \
+                                   UNION {teams}) \
+                   ORDER BY db.id, dd.short_code)) AS d)"
+    )
+}
+
+/// One dictionary document that applies to an item, as
+/// [`dictionaries_json_of_item`] gives it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct DictionaryDocument {
+    /// The slug of the team, or `None` for the organization dictionary.
+    pub team: Option<String>,
+    pub code: String,
+    pub content: String,
+}
+
+/// Read the JSON of [`dictionaries_json_of_item`].
+pub fn parse_dictionaries_json(json: &str) -> Result<Vec<DictionaryDocument>, serde_json::Error> {
+    serde_json::from_str(json)
+}
+
+/// A term that applies to an item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemTerm {
+    pub entry: DictionaryEntry,
+    pub layer: Layer,
+    /// The slug of the team of a team entry, when an other team of the item
+    /// gives the same word an other meaning. `None` when the word has one
+    /// entry.
+    pub team: Option<String>,
+}
+
+/// The terms of an item from its dictionary documents: the organization
+/// entries, then the entries of each team. A team entry wins over the
+/// organization entry for the same word (case ignored), as
+/// `kairos_plain::resolve` does for one team. When two teams give the same
+/// word different entries, each one stays and names its team. Sorted by
+/// the word, case ignored. A bad row is not a term (the dictionary
+/// document reports it).
+pub fn merge_layers(documents: &[DictionaryDocument]) -> Vec<ItemTerm> {
+    use std::collections::BTreeMap;
+    let key = |word: &str| {
+        word.split_whitespace()
+            .map(str::to_lowercase)
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut terms: BTreeMap<String, Vec<(ItemTerm, Option<String>)>> = BTreeMap::new();
+    for document in documents.iter().filter(|d| d.team.is_none()) {
+        for entry in parse_dictionary(&document.content).entries {
+            let term = ItemTerm {
+                entry,
+                layer: Layer::Organization,
+                team: None,
+            };
+            terms
+                .entry(key(&term.entry.word))
+                .or_insert_with(|| vec![(term, None)]);
+        }
+    }
+    for document in documents.iter().filter(|d| d.team.is_some()) {
+        for entry in parse_dictionary(&document.content).entries {
+            let slot = terms.entry(key(&entry.word)).or_default();
+            slot.retain(|(term, _)| term.layer == Layer::Team);
+            let same = slot.iter().any(|(term, _)| {
+                term.entry.part_of_speech == entry.part_of_speech
+                    && term.entry.meaning == entry.meaning
+            });
+            if !same {
+                let term = ItemTerm {
+                    entry,
+                    layer: Layer::Team,
+                    team: None,
+                };
+                slot.push((term, document.team.clone()));
+            }
+        }
+    }
+    terms
+        .into_values()
+        .flat_map(|slot| {
+            let several = slot.len() > 1;
+            slot.into_iter().map(move |(mut term, team)| {
+                if several {
+                    term.team = team;
+                }
+                term
+            })
+        })
+        .collect()
+}
+
+/// The terms of `terms` that the prose of `texts` uses
+/// (`kairos_plain::terms_used`: case ignored, the longest term first at
+/// each word, code is not prose), in the order of `terms`.
+pub fn terms_used_by<X>(texts: X, terms: &[ItemTerm]) -> Vec<&ItemTerm>
+where
+    X: IntoIterator,
+    X::Item: AsRef<str>,
+{
+    let words: Vec<&str> = terms.iter().map(|t| t.entry.word.as_str()).collect();
+    kairos_plain::terms_used(texts, &words)
+        .into_iter()
+        .map(|index| &terms[index])
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn document(team: Option<&str>, rows: &[(&str, &str)]) -> DictionaryDocument {
+        let mut content = String::from("| Word | Part of speech | Meaning |\n|---|---|---|\n");
+        for (word, meaning) in rows {
+            content.push_str(&format!("| {word} | noun | {meaning} |\n"));
+        }
+        DictionaryDocument {
+            team: team.map(str::to_string),
+            code: "X-D-0001".to_string(),
+            content,
+        }
+    }
+
+    #[test]
+    fn a_team_entry_wins_over_the_organization_entry() {
+        let terms = merge_layers(&[
+            document(None, &[("production", "Org."), ("board", "A board.")]),
+            document(Some("payments"), &[("Production", "Team.")]),
+        ]);
+        let got: Vec<(&str, &str, Layer, Option<&str>)> = terms
+            .iter()
+            .map(|t| {
+                (
+                    t.entry.word.as_str(),
+                    t.entry.meaning.as_str(),
+                    t.layer,
+                    t.team.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("board", "A board.", Layer::Organization, None),
+                ("Production", "Team.", Layer::Team, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn two_teams_with_two_meanings_each_name_the_team() {
+        let terms = merge_layers(&[
+            document(None, &[("lane", "Org.")]),
+            document(Some("data"), &[("lane", "Data lane."), ("feed", "Feed.")]),
+            document(Some("web"), &[("lane", "Web lane."), ("feed", "Feed.")]),
+        ]);
+        let got: Vec<(&str, &str, Option<&str>)> = terms
+            .iter()
+            .map(|t| {
+                (
+                    t.entry.word.as_str(),
+                    t.entry.meaning.as_str(),
+                    t.team.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("feed", "Feed.", None),
+                ("lane", "Data lane.", Some("data")),
+                ("lane", "Web lane.", Some("web")),
+            ]
+        );
+    }
 }

@@ -907,6 +907,25 @@ The fix is in PR #12.
 Promoted to ACME-A-0029.
 ```
 
+The section `Terms used` is at the end (KAIROS-T-0735). It gives the meaning of
+each [dictionary](../glossary/#dictionary) term that the title, the content or
+the notes use. The longest term is first. A term in code is not used. These
+dictionaries apply:
+
+- An item on a delivery board: the dictionary of the team of the board.
+- An initiative or a strategy: the dictionary of each of its teams.
+- Each item: the dictionary of the organization. A team term wins over an
+  organization term with the same word.
+
+When two teams give a word two meanings, each line names its team. A
+dictionary does not have this section.
+
+```text
+## Terms used
+- production document (noun): The document that the team gives to its users.
+- board (noun): A set of columns for the work of a team.
+```
+
 Refuses: `NOT_FOUND` only when the short code names nothing at all.
 
 ### `get_history`

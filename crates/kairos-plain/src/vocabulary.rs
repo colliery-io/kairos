@@ -230,6 +230,98 @@ impl Vocabulary {
     }
 }
 
+/// Which of `terms` the prose of `texts` uses (KAIROS-T-0735): the index of
+/// each term that is used, in the order of `terms`.
+///
+/// The texts are cleaned as [`crate::check_text`] cleans them, so a word in
+/// code is not used. A match ignores case. At each word the longest term
+/// that matches wins and takes its words: in "the production document",
+/// the term "production document" is used and "production" is not. The
+/// last word of a term also matches in its regular plural or its
+/// possessive ("production documents", "team's"), as
+/// [`Vocabulary::check_text`] lets them pass.
+pub fn terms_used<X, T>(texts: X, terms: &[T]) -> Vec<usize>
+where
+    X: IntoIterator,
+    X::Item: AsRef<str>,
+    T: AsRef<str>,
+{
+    // The terms by their first word, longest first.
+    let mut by_first: HashMap<String, Vec<(Vec<String>, usize)>> = HashMap::new();
+    for (index, term) in terms.iter().enumerate() {
+        let words: Vec<String> = term.as_ref().split_whitespace().map(normalize).collect();
+        if let Some(first) = words.first() {
+            by_first
+                .entry(first.clone())
+                .or_default()
+                .push((words, index));
+        }
+    }
+    for candidates in by_first.values_mut() {
+        candidates.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.1.cmp(&b.1)));
+    }
+    let mut used = vec![false; terms.len()];
+    for text in texts {
+        for block in prose_blocks(text.as_ref()) {
+            let tokens = tokens(&block);
+            let mut i = 0;
+            while i < tokens.len() {
+                let found = term_at(&block, &tokens, i, &by_first);
+                match found {
+                    Some((len, index)) => {
+                        used[index] = true;
+                        i += len;
+                    }
+                    None => i += 1,
+                }
+            }
+        }
+    }
+    used.iter()
+        .enumerate()
+        .filter_map(|(index, used)| used.then_some(index))
+        .collect()
+}
+
+/// The longest term that starts at token `i`, as (word count, index).
+fn term_at(
+    block: &Mapped,
+    tokens: &[Token],
+    i: usize,
+    by_first: &HashMap<String, Vec<(Vec<String>, usize)>>,
+) -> Option<(usize, usize)> {
+    // The first word can be the last word too, in its plural.
+    let first = tokens[i].word.as_ref()?;
+    let keys = std::iter::once(first.clone()).chain(noun_bases(first));
+    let mut best: Option<(usize, usize)> = None;
+    for key in keys {
+        for (words, index) in by_first.get(&key).into_iter().flatten() {
+            if best.is_some_and(|(len, _)| len >= words.len()) {
+                continue;
+            }
+            let Some(window) = tokens.get(i..i + words.len()) else {
+                continue;
+            };
+            let last = words.len() - 1;
+            let words_match = window.iter().zip(words).enumerate().all(|(n, (t, w))| {
+                let Some(word) = t.word.as_ref() else {
+                    return false;
+                };
+                word == w || (n == last && noun_bases(word).iter().any(|base| base == w))
+            });
+            let adjacent = window.windows(2).all(|pair| {
+                block.text[pair[0].at.end..pair[1].at.start]
+                    .chars()
+                    .all(char::is_whitespace)
+            });
+            if words_match && adjacent {
+                best = Some((words.len(), *index));
+            }
+        }
+    }
+    best
+}
+
 /// The nouns that `word` can be the regular plural or the possessive of:
 /// "boxes" gives "box" and "boxe", "entries" gives "entry" and "entrie",
 /// "team's" gives "team". The caller checks which one is a noun. A plural
@@ -305,6 +397,32 @@ fn tokens(block: &Mapped) -> Vec<Token> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terms_used_takes_the_longest_term_first() {
+        let terms = ["production", "production document", "board"];
+        let used = terms_used(["The Production Document is ready."], &terms);
+        assert_eq!(used, vec![1]);
+        let used = terms_used(["A production document.", "Production starts."], &terms);
+        assert_eq!(used, vec![0, 1]);
+    }
+
+    #[test]
+    fn terms_used_matches_a_plural_and_a_possessive() {
+        let terms = ["production document", "team", "entry"];
+        let used = terms_used(["Two production documents of the team's entries."], &terms);
+        assert_eq!(used, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn terms_used_skips_code_and_split_words() {
+        let terms = ["production document", "board"];
+        let used = terms_used(
+            ["Run `board`.\n\n```\nboard\n```\n\nThe production, document."],
+            &terms,
+        );
+        assert!(used.is_empty(), "{used:?}");
+    }
 
     #[test]
     fn a_code_placeholder_is_not_a_word() {

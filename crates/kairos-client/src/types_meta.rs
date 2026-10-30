@@ -404,6 +404,10 @@ pub struct TemplateDetail {
     pub is_system_default: bool,
     /// The metadata fields this template carries, ordered by slug.
     pub metadata: Vec<TemplateMetadataField>,
+    /// The typed sections of the template, in the order that the admin
+    /// sent (KAIROS-T-0729).
+    #[serde(default)]
+    pub sections: Vec<TemplateSection>,
     /// RFC 3339.
     pub created_at: String,
     /// RFC 3339.
@@ -425,6 +429,20 @@ pub struct TemplateMetadataEntry {
     pub required: bool,
 }
 
+/// A typed section of a template (KAIROS-T-0729). It has the text of a
+/// heading in the content, and the type of check on the text under it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TemplateSection {
+    /// The text of the heading, with no `#`. It matches a heading of each
+    /// level. One line, not empty, one time in each template.
+    pub heading: String,
+    /// `free` (text that is not empty) or `plain` (text that passes the
+    /// plain-language check). The server refuses each other value.
+    #[serde(rename = "type")]
+    pub section_type: String,
+}
+
 /// Body of `POST /api/templates` (org admin).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -437,6 +455,11 @@ pub struct CreateTemplateRequest {
     /// Metadata fields the template carries.
     #[serde(default)]
     pub metadata: Vec<TemplateMetadataEntry>,
+    /// The typed sections of the template (KAIROS-T-0729). Default: none.
+    /// Not sent when empty, so that a server from before the field takes
+    /// the body.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<TemplateSection>,
 }
 
 /// Body of `PATCH /api/templates/{id}` (org admin). Omitted fields are
@@ -453,6 +476,10 @@ pub struct UpdateTemplateRequest {
     /// Replacement metadata association list.
     #[serde(default)]
     pub metadata: Option<Vec<TemplateMetadataEntry>>,
+    /// Replacement list of the typed sections (KAIROS-T-0729); `[]`
+    /// removes each one. Not sent when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sections: Option<Vec<TemplateSection>>,
 }
 
 /// Response of the T-0020 hard-delete endpoints

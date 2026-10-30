@@ -16,9 +16,10 @@ use diesel::prelude::*;
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use kairos_client::types as dto_base;
 use kairos_client::types_meta as dto;
+use kairos_core::sections::{SectionType, normalize_heading};
 use kairos_db::models::templates::{
-    MetadataDefinition, NewTemplate, NewTemplateMetadata, Template, TemplateChangeset,
-    TemplateMetadata,
+    MetadataDefinition, NewTemplate, NewTemplateMetadata, NewTemplateSection, Template,
+    TemplateChangeset, TemplateMetadata, TemplateSection,
 };
 use uuid::Uuid;
 
@@ -121,7 +122,96 @@ pub(crate) fn detail(
     template: Template,
 ) -> Result<dto::TemplateDetail, ApiError> {
     let metadata = metadata_fields(conn, template.id)?;
-    Ok(template_detail_dto(template, metadata))
+    let sections = stored_sections(conn, template.id)?;
+    Ok(template_detail_dto(template, metadata, sections))
+}
+
+/// The typed sections of a template, in the order that the admin sent
+/// (KAIROS-T-0729).
+pub(crate) fn stored_sections(
+    conn: &mut PgConnection,
+    template_id: Uuid,
+) -> Result<Vec<dto::TemplateSection>, ApiError> {
+    use kairos_db::schema::template_sections;
+    let rows: Vec<TemplateSection> = template_sections::table
+        .filter(template_sections::template_id.eq(template_id))
+        .order(template_sections::position.asc())
+        .select(TemplateSection::as_select())
+        .load(conn)
+        .map_err(ApiError::internal)?;
+    Ok(rows
+        .into_iter()
+        .map(|row| dto::TemplateSection {
+            heading: row.heading,
+            section_type: row.section_type,
+        })
+        .collect())
+}
+
+/// Check the typed sections of a template write (KAIROS-T-0729): each type
+/// is known (an unknown type is refused and named), each heading is one
+/// line of text with no `#`, and no heading is repeated. Gives the
+/// sections with the trimmed heading. Pure.
+fn resolve_sections(
+    sections: &[dto::TemplateSection],
+) -> Result<Vec<dto::TemplateSection>, ApiError> {
+    let mut resolved: Vec<dto::TemplateSection> = Vec::with_capacity(sections.len());
+    for (index, section) in sections.iter().enumerate() {
+        let section_type: SectionType = section.section_type.parse().map_err(
+            |e: kairos_core::sections::UnknownSectionType| {
+                ApiError::validation(e.to_string()).with_details(serde_json::json!({
+                    "field": format!("sections[{index}].type"),
+                    "value": section.section_type,
+                    "allowed": SectionType::names(),
+                }))
+            },
+        )?;
+        let heading = normalize_heading(&section.heading).map_err(|e| {
+            ApiError::validation(e.to_string()).with_details(serde_json::json!({
+                "field": format!("sections[{index}].heading"),
+            }))
+        })?;
+        if resolved.iter().any(|seen| seen.heading == heading) {
+            return Err(ApiError::validation(format!(
+                "The request has the heading {heading:?} two times. Send each heading one time."
+            ))
+            .with_details(serde_json::json!({
+                "field": format!("sections[{index}].heading"),
+            })));
+        }
+        resolved.push(dto::TemplateSection {
+            heading,
+            section_type: section_type.as_str().to_string(),
+        });
+    }
+    Ok(resolved)
+}
+
+/// Replace the typed sections of a template (caller's transaction).
+fn replace_sections(
+    conn: &mut PgConnection,
+    template_id: Uuid,
+    sections: &[dto::TemplateSection],
+) -> Result<(), DieselError> {
+    use kairos_db::schema::template_sections;
+    diesel::delete(template_sections::table.filter(template_sections::template_id.eq(template_id)))
+        .execute(conn)?;
+    let rows: Vec<NewTemplateSection> = sections
+        .iter()
+        .enumerate()
+        .map(|(position, section)| NewTemplateSection {
+            template_id,
+            heading: section.heading.clone(),
+            section_type: section.section_type.clone(),
+            position: i32::try_from(position).unwrap_or(i32::MAX),
+        })
+        .collect();
+    if !rows.is_empty() {
+        diesel::insert_into(template_sections::table)
+            .values(&rows)
+            .execute(conn)?;
+    }
+    Ok(())
 }
 
 /// Resolve + validate a template write's metadata entries (KAIROS-A-0003:
@@ -330,7 +420,7 @@ pub(crate) async fn get_template(
     responses(
         (status = 201, description = "Created", body = dto::TemplateDetail),
         (status = 403, description = "Caller is not an org admin", body = dto_base::ErrorEnvelope),
-        (status = 422, description = "Unknown definition slug, invalid default, or duplicate slug", body = dto_base::ErrorEnvelope),
+        (status = 422, description = "Unknown definition slug, invalid default, duplicate slug, or an unknown section type or bad heading", body = dto_base::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_template(
@@ -355,6 +445,7 @@ pub(crate) fn create_template_in(
 ) -> Result<dto::TemplateDetail, ApiError> {
     use kairos_db::schema::templates;
     let entries = resolve_entries(conn, &body.metadata)?;
+    let sections = resolve_sections(&body.sections)?;
     let created = conn
         .transaction::<Template, DieselError, _>(|conn| {
             let created: Template = diesel::insert_into(templates::table)
@@ -367,6 +458,7 @@ pub(crate) fn create_template_in(
                 .returning(Template::as_returning())
                 .get_result(conn)?;
             replace_associations(conn, created.id, &entries)?;
+            replace_sections(conn, created.id, &sections)?;
             Ok(created)
         })
         .map_err(map_write_error)?;
@@ -390,7 +482,7 @@ pub(crate) fn create_template_in(
         (status = 200, description = "Updated", body = dto::TemplateDetail),
         (status = 403, description = "Caller is not an org admin", body = dto_base::ErrorEnvelope),
         (status = 404, description = "Unknown slug or id", body = dto_base::ErrorEnvelope),
-        (status = 422, description = "No field to change, unknown definition slug, invalid default, or duplicate slug", body = dto_base::ErrorEnvelope),
+        (status = 422, description = "No field to change, unknown definition slug, invalid default, duplicate slug, or an unknown section type or bad heading", body = dto_base::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn update_template(
@@ -425,14 +517,15 @@ pub(crate) fn update_template_in(
         && body.slug.is_none()
         && body.content.is_none()
         && body.metadata.is_none()
+        && body.sections.is_none()
     {
         return Err(ApiError::validation(
-            "The request has no field to change. Send one or more of name, slug, content and \
-             metadata.",
+            "The request has no field to change. Send one or more of name, slug, content, \
+             metadata and sections.",
         )
         .with_details(serde_json::json!({
             "field": "name",
-            "fields": ["name", "slug", "content", "metadata"],
+            "fields": ["name", "slug", "content", "metadata", "sections"],
         })));
     }
     use kairos_db::schema::templates;
@@ -449,6 +542,13 @@ pub(crate) fn update_template_in(
         Some(entries) if same_entries(&entries, &stored_entries(conn, id)?) => None,
         entries => entries,
     };
+    // KAIROS-T-0729: the order of the sections is a value, so the list is
+    // a change when it is different in any way.
+    let sections = body.sections.as_deref().map(resolve_sections).transpose()?;
+    let sections = match sections {
+        Some(sections) if sections == stored_sections(conn, id)? => None,
+        sections => sections,
+    };
     let changes = TemplateChangeset {
         name: body.name.clone().filter(|name| *name != current.name),
         slug: body.slug.clone().filter(|slug| *slug != current.slug),
@@ -460,6 +560,7 @@ pub(crate) fn update_template_in(
         && changes.slug.is_none()
         && changes.content.is_none()
         && entries.is_none()
+        && sections.is_none()
     {
         return detail(conn, current);
     }
@@ -471,6 +572,9 @@ pub(crate) fn update_template_in(
                 .get_result(conn)?;
             if let Some(entries) = &entries {
                 replace_associations(conn, id, entries)?;
+            }
+            if let Some(sections) = &sections {
+                replace_sections(conn, id, sections)?;
             }
             super::log_meta_activity(
                 conn,

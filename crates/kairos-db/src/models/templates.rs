@@ -9,7 +9,8 @@ use uuid::Uuid;
 use super::enums::FieldType;
 use crate::schema::metadata_definition_scopes;
 use crate::schema::{
-    item_metadata, metadata_definitions, metadata_enum_options, template_metadata, templates,
+    item_metadata, metadata_definitions, metadata_enum_options, template_metadata,
+    template_sections, templates,
 };
 
 // ---------------------------------------------------------------------------
@@ -177,6 +178,35 @@ pub struct NewTemplateMetadata {
 pub struct TemplateMetadataChangeset {
     pub default_value: Option<Option<String>>,
     pub required: Option<bool>,
+}
+
+// ---------------------------------------------------------------------------
+// template_sections (KAIROS-T-0729)
+// ---------------------------------------------------------------------------
+
+/// A typed section of a template (`template_sections`): the heading text
+/// (no `#`) and the type (`kairos_core::sections::SectionType`, stored as
+/// its name). `position` is the order that the admin sent.
+#[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Identifiable, Associations)]
+#[diesel(table_name = template_sections)]
+#[diesel(belongs_to(Template, foreign_key = template_id))]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct TemplateSection {
+    pub id: Uuid,
+    pub template_id: Uuid,
+    pub heading: String,
+    pub section_type: String,
+    pub position: i32,
+}
+
+/// Insert for [`TemplateSection`].
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = template_sections)]
+pub struct NewTemplateSection {
+    pub template_id: Uuid,
+    pub heading: String,
+    pub section_type: String,
+    pub position: i32,
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,16 @@
+[package]
+name = "kairos-plain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# The plain-language checker (KAIROS-T-0727, COLLIERY-I-0664): the mechanical
+# rules of scripts/ste-check.py in Rust, and a vocabulary hook. Pure Rust, no
+# I/O, so the server and the worker can both use it.
+
+[dependencies]
+regex = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

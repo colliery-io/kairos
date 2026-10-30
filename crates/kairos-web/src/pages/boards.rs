@@ -2110,6 +2110,14 @@ fn BoardBody(
                             "New document"
                         </Button>
                     })}
+                    // KAIROS-T-0724: the stand-up of the team of a delivery
+                    // board, for each reader.
+                    {is_delivery.then(|| team_id.get_value()).flatten().map(|team| view! {
+                        <Button variant="default" size="xs"
+                            href=super::standup::standup_href(&team)>
+                            "Stand-up"
+                        </Button>
+                    })}
                     // KAIROS-T-0372: the flow metrics, for each reader.
                     <Button variant="default" size="xs"
                         on_click=Callback::new(move |_| flow_open.update(|open| *open = !*open))>

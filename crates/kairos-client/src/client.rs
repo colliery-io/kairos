@@ -1574,6 +1574,33 @@ impl KairosClient {
         self.get("/api/me/work").await
     }
 
+    /// `GET /api/teams/{id}/standup` (KAIROS-T-0722): the team and its
+    /// people, for a stand-up.
+    pub async fn standup(&self, team: &str) -> Result<crate::types_work::Standup, Error> {
+        self.get(&format!("/api/teams/{team}/standup")).await
+    }
+
+    /// `GET /api/teams/{id}/standup/people/{user_id}` (KAIROS-T-0722): the
+    /// work of one person in the team.
+    pub async fn standup_person(
+        &self,
+        team: &str,
+        user_id: &str,
+    ) -> Result<crate::types_work::MyWork, Error> {
+        self.get(&format!("/api/teams/{team}/standup/people/{user_id}"))
+            .await
+    }
+
+    /// `GET /api/teams/{id}/standup/unclaimed` (KAIROS-T-0722): the tasks of
+    /// the team that no one claims.
+    pub async fn standup_unclaimed(
+        &self,
+        team: &str,
+    ) -> Result<crate::types_work::UnclaimedWork, Error> {
+        self.get(&format!("/api/teams/{team}/standup/unclaimed"))
+            .await
+    }
+
     /// `POST /api/me/notifications/read` (KAIROS-T-0382): mark notifications
     /// of the caller read.
     pub async fn mark_notifications_read(

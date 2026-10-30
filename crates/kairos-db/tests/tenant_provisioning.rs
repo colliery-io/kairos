@@ -137,6 +137,8 @@ const EXPECTED_TABLES: [&str; 75] = [
     "task_cancellations",
     // KAIROS-T-0359: the claim of a task in Active.
     "task_claims",
+    // KAIROS-T-0718: the review state of a task (KAIROS-T-0726).
+    "task_review",
     // KAIROS-T-0506: the live state of a task.
     // KAIROS-T-0718: the review state of a task.
     "task_review",
@@ -150,6 +152,7 @@ const EXPECTED_TABLES: [&str; 75] = [
     "team_pages",
     "teams",
     "template_metadata",
+    "template_sections",
     "templates",
     // KAIROS-T-0694 (KAIROS-A-0068): the count of the MCP refusals.
     "tool_refusals",

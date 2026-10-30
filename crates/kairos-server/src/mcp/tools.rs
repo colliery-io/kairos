@@ -1535,6 +1535,20 @@ pub struct TemplateFieldParams {
     pub required: bool,
 }
 
+/// A typed section of a template (KAIROS-T-0729).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct TemplateSectionParams {
+    /// The text of the heading, with no `#`. It matches a heading of each
+    /// level in the content.
+    pub heading: String,
+    /// The type of the section: `free` (text that is not empty) or `plain`
+    /// (text that passes the plain-language check).
+    #[serde(rename = "type")]
+    pub section_type: String,
+}
+
 /// Parameters for `save_template` (KAIROS-T-0443).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -1551,6 +1565,9 @@ pub struct SaveTemplateParams {
     pub content: Option<String>,
     /// The metadata fields. It replaces the list.
     pub metadata: Option<Vec<TemplateFieldParams>>,
+    /// The typed sections: a heading and a type each (KAIROS-T-0729). It
+    /// replaces the list; `[]` removes each one.
+    pub sections: Option<Vec<TemplateSectionParams>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -3003,7 +3020,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the templates of the organization: slug, name, and the metadata that each template stamps on an item (the default value, and whether the field is required). With `slug`, show that one template with its full content."
+        description = "List the templates of the organization: slug, name, the metadata that each template stamps on an item (the default value, and whether the field is required), and the typed sections (a heading and a type: `free` or `plain`). With `slug`, show that one template with its full content."
     )]
     pub async fn list_templates(
         &self,
@@ -3048,6 +3065,15 @@ impl KairosMcp {
                             .map(|v| format!(" default: {v}"))
                             .unwrap_or_default(),
                         if field.required { " required" } else { "" }
+                    ));
+                }
+                if template.sections.is_empty() {
+                    out.push_str("- sections: none\n");
+                }
+                for section in &template.sections {
+                    out.push_str(&format!(
+                        "- section \"{}\": {}\n",
+                        section.heading, section.section_type
                     ));
                 }
                 if params.slug.is_some() {
@@ -5771,7 +5797,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content` and `metadata` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. Organization admins only."
+        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content`, `metadata` and `sections` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. `sections` is a list of typed sections: `heading` (the text, no `#`) and `type` (`free` or `plain`); an unknown type is refused. Organization admins only."
     )]
     pub async fn save_template(
         &self,
@@ -5795,6 +5821,15 @@ impl KairosMcp {
                     })
                     .collect::<Vec<_>>()
             });
+            let sections = params.sections.map(|sections| {
+                sections
+                    .into_iter()
+                    .map(|section| dto::TemplateSection {
+                        heading: section.heading,
+                        section_type: section.section_type,
+                    })
+                    .collect::<Vec<_>>()
+            });
             let saved = match params.template.as_deref() {
                 Some(reference) => {
                     let id = meta_id(conn, "templates", reference, "template")?;
@@ -5807,6 +5842,7 @@ impl KairosMcp {
                             slug: params.slug,
                             content: params.content,
                             metadata,
+                            sections,
                         },
                     )?
                 }
@@ -5827,6 +5863,7 @@ impl KairosMcp {
                             slug: required(params.slug, "slug")?,
                             content: params.content.unwrap_or_default(),
                             metadata: metadata.unwrap_or_default(),
+                            sections: sections.unwrap_or_default(),
                         },
                     )?
                 }
@@ -6634,8 +6671,11 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
         if let Some((state, name)) = facts.state(item.id) {
             out.push_str(&crate::task_state::state_line_of(&state, name, Utc::now()));
         }
-        // KAIROS-T-0718: the review state of the task.
-        out.push_str(&crate::task_review::review_line(conn, item.id)?);
+        // KAIROS-T-0718: the review state of the task, from the facts
+        // query (KAIROS-T-0726).
+        if let Some(review) = facts.review(item.id) {
+            out.push_str(&crate::task_review::review_line(&review, Utc::now()));
+        }
     }
     // KAIROS-T-0411: the owner of a strategy or an initiative, in
     // each column and in the archive.
@@ -6816,6 +6856,9 @@ const ITEM_FACTS_SQL: &str = "\
            st.next_step AS state_next_step, st.updated_at AS state_updated_at, \
            st.updated_by AS state_updated_by, \
            COALESCE(su.display_name, st.updated_by::text) AS state_updated_by_name, \
+           rv.review AS review_value, rv.updated_at AS review_updated_at, \
+           rv.updated_by AS review_updated_by, \
+           COALESCE(ru.display_name, rv.updated_by::text) AS review_updated_by_name, \
            COALESCE(ou.display_name, io.user_id::text) AS owner_name, \
            io.claimed_at AS owner_since, \
            COALESCE(cb.display_name, $6::text) AS creator_name, \
@@ -6877,6 +6920,8 @@ const ITEM_FACTS_SQL: &str = "\
       LEFT JOIN public.users ku ON ku.id = k.cancelled_by \
       LEFT JOIN task_state st ON st.task_id = $1 \
       LEFT JOIN public.users su ON su.id = st.updated_by \
+      LEFT JOIN task_review rv ON rv.task_id = $1 \
+      LEFT JOIN public.users ru ON ru.id = rv.updated_by \
       LEFT JOIN item_owners io ON io.item_id = $1 \
       LEFT JOIN public.users ou ON ou.id = io.user_id \
       LEFT JOIN public.users cb ON cb.id = $6";
@@ -6934,6 +6979,16 @@ struct ItemFacts {
     state_updated_by: Option<Uuid>,
     #[diesel(sql_type = SqlNullable<SqlText>)]
     state_updated_by_name: Option<String>,
+    /// The review state of a task (KAIROS-T-0718), in this one query so
+    /// that `get_item` keeps its statement count (KAIROS-T-0726).
+    #[diesel(sql_type = SqlNullable<SqlText>)]
+    review_value: Option<String>,
+    #[diesel(sql_type = SqlNullable<SqlTimestamptz>)]
+    review_updated_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = SqlNullable<SqlUuid>)]
+    review_updated_by: Option<Uuid>,
+    #[diesel(sql_type = SqlNullable<SqlText>)]
+    review_updated_by_name: Option<String>,
     #[diesel(sql_type = SqlNullable<SqlText>)]
     owner_name: Option<String>,
     #[diesel(sql_type = SqlNullable<SqlTimestamptz>)]
@@ -7054,6 +7109,21 @@ impl ItemFacts {
     /// The owner as (name, since).
     fn owner(&self) -> Option<(&str, DateTime<Utc>)> {
         Some((self.owner_name.as_deref()?, self.owner_since?))
+    }
+
+    /// The review state of the task, when somebody decided it.
+    fn review(&self, task_id: Uuid) -> Option<kairos_client::types::TaskReview> {
+        let row = kairos_db::models::TaskReview {
+            task_id,
+            review: self.review_value.clone()?,
+            updated_at: self.review_updated_at?,
+            updated_by: self.review_updated_by?,
+        };
+        let names = std::collections::HashMap::from([(
+            row.updated_by,
+            self.review_updated_by_name.clone()?,
+        )]);
+        Some(crate::task_review::review_dto(&row, &names))
     }
 
     /// The state of the task and the name of who wrote it.

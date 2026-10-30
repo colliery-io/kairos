@@ -187,7 +187,7 @@ fn WorkCard(item: WorkItem) -> impl IntoView {
 
 /// One lane: a heading and the three columns of [`COLUMNS`].
 #[component]
-fn WorkLane(
+pub(super) fn WorkLane(
     #[prop(into)] title: String,
     testid: &'static str,
     items: Vec<WorkItem>,
@@ -254,23 +254,23 @@ fn NoWork() -> impl IntoView {
 
 /// How long the page waits after an event before it reads again
 /// (KAIROS-T-0617): a burst of events is one read.
-const DEBOUNCE_MS: u64 = 250;
+pub(super) const DEBOUNCE_MS: u64 = 250;
 
 /// The debounce of the live refetch (KAIROS-T-0617): `arm` says whether to
 /// start the timer (false while one runs), `fire` ends it. Pure, host-tested.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Debounce {
+pub(super) struct Debounce {
     armed: bool,
 }
 
 impl Debounce {
     /// An event came. `true`: start the timer. `false`: one runs already.
-    fn arm(&mut self) -> bool {
+    pub(super) fn arm(&mut self) -> bool {
         !std::mem::replace(&mut self.armed, true)
     }
 
     /// The timer fired: the next event starts a new one.
-    fn fire(&mut self) {
+    pub(super) fn fire(&mut self) {
         self.armed = false;
     }
 }

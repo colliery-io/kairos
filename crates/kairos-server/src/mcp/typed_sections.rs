@@ -10,7 +10,9 @@
 
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
-use kairos_core::sections::{SectionFailure, SectionProblem, SectionType, check_sections};
+use kairos_core::sections::{
+    SectionFailure, SectionProblem, SectionType, changed_sections, check_sections,
+};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -36,15 +38,15 @@ pub(super) fn of_template(conn: &mut PgConnection, template_id: Uuid) -> Result<
     Ok(typed(rows))
 }
 
-/// The typed sections of the template of a document, and the owner board
-/// of the document. No sections when the document has no template, or its
-/// template has no typed section. One statement.
+/// The typed sections of the template of a document, the owner board of
+/// the document, and its content now. No sections when the document has no
+/// template, or its template has no typed section. One statement.
 pub(super) fn of_document(
     conn: &mut PgConnection,
     document_id: Uuid,
-) -> Result<(Typed, Option<Uuid>), ApiError> {
+) -> Result<(Typed, Option<Uuid>, String), ApiError> {
     use kairos_db::schema::{documents, template_sections};
-    let rows: Vec<(String, String, Uuid)> = template_sections::table
+    let rows: Vec<(String, String, Uuid, String)> = template_sections::table
         .inner_join(
             documents::table
                 .on(documents::template_id.eq(template_sections::template_id.nullable())),
@@ -55,12 +57,16 @@ pub(super) fn of_document(
             template_sections::heading,
             template_sections::section_type,
             documents::board_id,
+            documents::content,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
-    let board = rows.first().map(|(_, _, board)| *board);
-    let sections = typed(rows.into_iter().map(|(h, t, _)| (h, t)).collect());
-    Ok((sections, board))
+    let (board, content) = match rows.first() {
+        Some((_, _, board, content)) => (Some(*board), content.clone()),
+        None => (None, String::new()),
+    };
+    let sections = typed(rows.into_iter().map(|(h, t, _, _)| (h, t)).collect());
+    Ok((sections, board, content))
 }
 
 /// The stored rows as typed sections. A type that this server does not know
@@ -76,26 +82,57 @@ fn typed(rows: Vec<(String, String)>) -> Typed {
 }
 
 /// The terms of the dictionary for a document of the owner board `board`
-/// (COLLIERY-I-0664 decision 6). The seam for the dictionary of a team
-/// (KAIROS-T-0733): until that task gives the terms of a team, there are
-/// none, and the vocabulary is the vendored word list only.
-fn dictionary_terms(
-    _conn: &mut PgConnection,
-    _board: Option<Uuid>,
-) -> Result<Vec<String>, ApiError> {
-    Ok(Vec::new())
+/// (COLLIERY-I-0664 decision 6, KAIROS-T-0733): the dictionary of the team
+/// of the board, on the organization dictionary. A board with no team, or a
+/// team whose dictionary is not known (several delivery boards), gets the
+/// organization dictionary only.
+fn dictionary_terms(conn: &mut PgConnection, board: Option<Uuid>) -> Result<Vec<String>, ApiError> {
+    use kairos_db::dictionaries::{DictionaryError, organization_dictionary, team_dictionary};
+    use kairos_db::schema::boards;
+    let team: Option<Uuid> = match board {
+        Some(board) => boards::table
+            .filter(boards::id.eq(board))
+            .select(boards::team_id)
+            .first::<Option<Uuid>>(conn)
+            .optional()
+            .map_err(ApiError::internal)?
+            .flatten(),
+        None => None,
+    };
+    if let Some(team) = team {
+        match team_dictionary(conn, team) {
+            Ok(dictionary) => return Ok(dictionary.words().map(str::to_string).collect()),
+            Err(DictionaryError::Database(e)) => return Err(ApiError::internal(e)),
+            Err(_) => {}
+        }
+    }
+    let organization = organization_dictionary(conn).map_err(ApiError::internal)?;
+    Ok(organization
+        .map(|d| d.parsed.entries.into_iter().map(|e| e.word).collect())
+        .unwrap_or_default())
 }
 
 /// Refuse `content` when it does not pass `sections`: `SECTIONS_NOT_PASSED`,
 /// with each section and each violation named. `Ok` when there is no typed
-/// section, or the content passes.
+/// section, or the content passes. With `old` (an edit), only the sections
+/// that the write changes are checked (KAIROS-T-0730 n-4); a create sends
+/// `None` and each section is checked.
 pub(super) fn refuse_failing(
     conn: &mut PgConnection,
     short_code: Option<&str>,
     sections: &[(String, SectionType)],
     board: Option<Uuid>,
+    old: Option<&str>,
     content: &str,
 ) -> Result<(), ApiError> {
+    let changed;
+    let sections = match old {
+        Some(old) => {
+            changed = changed_sections(old, content, sections);
+            changed.as_slice()
+        }
+        None => sections,
+    };
     if sections.is_empty() {
         return Ok(());
     }

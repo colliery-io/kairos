@@ -5,7 +5,10 @@
 //! "Notes" (`free`). Over MCP, `create_item`, `update_item` and `edit_item`
 //! refuse a missing section, an empty section and a `plain` section that
 //! breaks a rule, with `SECTIONS_NOT_PASSED`, and save nothing. A passing
-//! write succeeds. Over REST, the same failing content is saved.
+//! write succeeds. Over REST, the same failing content is saved. An edit
+//! checks only the sections that it changes; a caller with no right to
+//! create gets FORBIDDEN first; the dictionary of the team feeds the
+//! vocabulary.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_typed_sections_t0730_test`.
@@ -416,12 +419,75 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         .expect("a REST update with failing content is saved");
     assert_eq!((updated.version, updated.content.as_str()), (4, FAILING));
 
-    // 10. An MCP write after the REST write: the content must pass again.
-    let (text, _) = mcp
+    // 10. Only the sections that an edit changes are checked (note n-4):
+    // the document fails "Goal" after the REST write, and an MCP edit of
+    // "Notes" passes.
+    mcp.call_ok(
+        "edit_item",
+        json!({"short_code": code, "search": "Any text.", "replace": "More text."}),
+    )
+    .await;
+    let read = admin.get_document(&code).await.expect("get document");
+    assert_eq!(read.version, 5);
+    // An update that leaves "Goal" as it was passes too.
+    let notes_only = FAILING.replace("Any text.", "Other text.");
+    mcp.call_ok(
+        "update_item",
+        json!({"short_code": code, "content": notes_only, "version": 5}),
+    )
+    .await;
+    // An edit of "Goal" that still fails is refused.
+    let (text, details) = mcp
         .call_refused(
             "edit_item",
-            json!({"short_code": code, "search": "Any text.", "replace": "More text."}),
+            json!({"short_code": code, "search": "by the server", "replace": "by the team"}),
         )
         .await;
-    assert!(text.contains("STE-V1: \"server\""), "{text}");
+    assert!(text.contains("Passive: is checked."), "{text}");
+    assert_eq!(details["sections"].as_array().unwrap().len(), 1);
+    assert_eq!(details["sections"][0]["heading"], "Goal");
+    let read = admin.get_document(&code).await.expect("get document");
+    assert_eq!(read.version, 6);
+
+    // 11. The right to create is checked before the typed sections: a
+    // member with no right on the board gets FORBIDDEN, not
+    // SECTIONS_NOT_PASSED.
+    let alice_token = user_token(&http, "alice").await;
+    let _ = server.client(&alice_token, "acme").whoami().await;
+    let alice: Uuid = users::table
+        .filter(users::email.eq("alice@kairos.test"))
+        .select(users::id)
+        .first(&mut conn)
+        .expect("alice user");
+    diesel::insert_into(organization_members::table)
+        .values(NewOrganizationMember {
+            organization_id: org_id,
+            user_id: alice,
+            role: OrgRole::Member,
+        })
+        .execute(&mut conn)
+        .expect("membership");
+    let mut alice_mcp = Mcp::connect(&server.base_url, &alice_token).await;
+    let (is_error, text) = alice_mcp.call("create_item", create(Some(FAILING))).await;
+    assert!(is_error && text.starts_with("FORBIDDEN"), "{text}");
+
+    // 12. The dictionary of the team of the owner board feeds the
+    // vocabulary (KAIROS-T-0733): "widget" fails, then passes when the
+    // dictionary of the team has it.
+    let widget = "## Goal\nWrite the widget.\n\n## Notes\nAny text.\n";
+    let (text, _) = mcp.call_refused("create_item", create(Some(widget))).await;
+    assert!(text.contains("STE-V1: \"widget\""), "{text}");
+    mcp.call_ok(
+        "create_item",
+        json!({
+            "item_type": "document",
+            "title": "Dictionary",
+            "board": board,
+            "template": "dictionary",
+            "content": "| Word | Part of speech | Meaning |\n|---|---|---|\n\
+                        | widget | n | A part of the screen. |\n",
+        }),
+    )
+    .await;
+    mcp.call_ok("create_item", create(Some(widget))).await;
 }

@@ -274,6 +274,30 @@ pub fn check_sections(
     failures
 }
 
+/// The typed sections that a write from `old` to `new` changes
+/// (KAIROS-T-0730 n-4): a section whose text (each occurrence, trimmed) is
+/// the same in the two is left out. A section that is missing in the two is
+/// not a change. An edit checks only these; a create checks each section.
+pub fn changed_sections(
+    old: &str,
+    new: &str,
+    sections: &[(String, SectionType)],
+) -> Vec<(String, SectionType)> {
+    let (old, new) = (parse_sections(old), parse_sections(new));
+    let bodies = |parsed: &[Section], heading: &str| -> Vec<String> {
+        parsed
+            .iter()
+            .filter(|s| s.heading == heading)
+            .map(|s| s.body.trim().to_string())
+            .collect()
+    };
+    sections
+        .iter()
+        .filter(|(heading, _)| bodies(&old, heading) != bodies(&new, heading))
+        .cloned()
+        .collect()
+}
+
 /// The violations of one `plain` text, in the order of the text.
 fn plain_violations(body: &str, vocabulary: &kairos_plain::Vocabulary) -> Vec<SectionViolation> {
     let mut found = kairos_plain::check_text(body);
@@ -318,6 +342,27 @@ mod tests {
 
     fn small_vocabulary() -> kairos_plain::Vocabulary {
         kairos_plain::Vocabulary::new(["the", "server", "checks", "text"], Vec::<&str>::new())
+    }
+
+    #[test]
+    fn only_the_sections_that_a_write_changes_are_checked() {
+        let old = "## Goal\nOld goal.\n\n## Notes\nA note.\n";
+        // Goal changed, Notes the same (white space only).
+        let new = "## Goal\nNew goal.\n\n## Notes\nA note.\n\n";
+        assert_eq!(
+            changed_sections(old, new, &typed()),
+            vec![("Goal".to_string(), SectionType::Plain)]
+        );
+        // Missing in the two: not a change. Added: a change.
+        let typed = vec![("Risks".to_string(), SectionType::Free)];
+        assert_eq!(changed_sections(old, new, &typed), vec![]);
+        let added = format!("{new}## Risks\nNone.\n");
+        assert_eq!(changed_sections(old, &added, &typed), typed);
+        // Removed: a change.
+        assert_eq!(
+            changed_sections(&added, new, &typed),
+            vec![("Risks".to_string(), SectionType::Free)]
+        );
     }
 
     #[test]

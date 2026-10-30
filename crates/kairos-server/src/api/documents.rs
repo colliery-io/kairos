@@ -339,8 +339,13 @@ pub(crate) const REST_WORDING: CreateWording = CreateWording {
     parent: "parent_short_code",
 };
 
+/// A check that [`create`] runs after its create gate and before the first
+/// write, with the id of the owner board (KAIROS-T-0730: the typed sections
+/// of an MCP create).
+pub(crate) type BeforeWrite<'a> = &'a dyn Fn(&mut PgConnection, Uuid) -> Result<(), ApiError>;
+
 /// The inputs of a document create, from each surface.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub(crate) struct NewDocument<'a> {
     pub title: &'a str,
     pub content: Option<&'a str>,
@@ -351,6 +356,8 @@ pub(crate) struct NewDocument<'a> {
     pub board: Option<&'a str>,
     /// The short code of the item that the document supports.
     pub parent: Option<&'a str>,
+    /// A check of the surface, after the gate. `None`: no check.
+    pub before_write: Option<BeforeWrite<'a>>,
 }
 
 /// What [`create`] made.
@@ -471,6 +478,9 @@ pub(crate) fn create(
         &board,
         "which the document names as its owner",
     )?;
+    if let Some(check) = input.before_write {
+        check(conn, board.id)?;
+    }
 
     let created = items::create_document(
         conn,
@@ -564,6 +574,7 @@ pub(crate) async fn create_document(
                             template_id,
                             board: Some(body.board.as_str()),
                             parent: body.parent_short_code.as_deref(),
+                            before_write: None,
                         },
                         REST_WORDING,
                     )

@@ -1310,7 +1310,19 @@ document against the typed sections of its template (KAIROS-T-0730):
   text, at each level.
 - Each typed section must have text.
 - The text of a `plain` section must pass the plain-language check and the
-  word list. The check of a `free` section stops at the two rules above.
+  vocabulary. The check of a `free` section stops at the two rules above.
+
+The vocabulary is the word list and the dictionary of the team of the owner
+board of the document. The dictionary of a team adds to the dictionary of
+the organization (KAIROS-T-0733). A board with no team uses the dictionary of
+the organization.
+
+`create_item` checks each typed section. It checks the right to create first:
+a caller with no right gets `FORBIDDEN`. `update_item` and `edit_item` check
+only the typed sections that the write changes. They do not check a section
+that has the same text before and after the write. They do not check a
+section that is missing before and after the write. Thus you can edit one
+section of an old document that does not pass a different section.
 
 When the content does not pass, the tool refuses the write with
 `SECTIONS_NOT_PASSED`, and it saves nothing. The refusal gives each section

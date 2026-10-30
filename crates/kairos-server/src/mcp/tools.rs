@@ -6404,7 +6404,8 @@ fn slug_from_title(title: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// KAIROS-T-0730: refuse new content of a document that does not pass the
-/// typed sections of its template. Only a document has a template; for the
+/// typed sections of its template. Only the sections that the write
+/// changes are checked (note n-4). Only a document has a template; for the
 /// other types this reads nothing.
 fn refuse_failing_sections(
     conn: &mut PgConnection,
@@ -6416,8 +6417,15 @@ fn refuse_failing_sections(
     if item_type != ItemType::Document {
         return Ok(());
     }
-    let (sections, board) = super::typed_sections::of_document(conn, id)?;
-    super::typed_sections::refuse_failing(conn, Some(short_code), &sections, board, content)
+    let (sections, board, old) = super::typed_sections::of_document(conn, id)?;
+    super::typed_sections::refuse_failing(
+        conn,
+        Some(short_code),
+        &sections,
+        board,
+        Some(&old),
+        content,
+    )
 }
 
 /// The answer text of `update_item`.
@@ -9438,33 +9446,38 @@ fn create_item_impl(
             .as_deref()
             .map(|t| resolve_template(conn, t))
             .transpose()?;
-        // KAIROS-T-0730: the content to write must pass the typed sections
-        // of the template, before the first write. With no `content`, the
-        // content is the content of the template.
-        if let Some(template_id) = template_id {
+        // KAIROS-T-0730: the content to write must pass each typed section
+        // of the template. `create` runs this after its create gate (a
+        // caller with no right gets FORBIDDEN first) and before the first
+        // write. With no `content`, the content is that of the template.
+        let check_sections = |conn: &mut PgConnection, board: Uuid| -> Result<(), ApiError> {
+            let Some(template_id) = template_id else {
+                return Ok(());
+            };
             let sections = super::typed_sections::of_template(conn, template_id)?;
-            if !sections.is_empty() {
-                let content = match params.content.clone() {
-                    Some(content) => content,
-                    None => {
-                        use kairos_db::schema::templates;
-                        templates::table
-                            .filter(templates::id.eq(template_id))
-                            .select(templates::content)
-                            .first::<String>(conn)
-                            .map_err(ApiError::internal)?
-                    }
-                };
-                // The board is for the dictionary only. A board that does
-                // not resolve gets its refusal from the create below.
-                let board = params
-                    .board
-                    .as_deref()
-                    .and_then(|reference| board_by_ref(conn, reference).ok())
-                    .map(|board| board.id);
-                super::typed_sections::refuse_failing(conn, None, &sections, board, &content)?;
+            if sections.is_empty() {
+                return Ok(());
             }
-        }
+            let content = match params.content.clone() {
+                Some(content) => content,
+                None => {
+                    use kairos_db::schema::templates;
+                    templates::table
+                        .filter(templates::id.eq(template_id))
+                        .select(templates::content)
+                        .first::<String>(conn)
+                        .map_err(ApiError::internal)?
+                }
+            };
+            super::typed_sections::refuse_failing(
+                conn,
+                None,
+                &sections,
+                Some(board),
+                None,
+                &content,
+            )
+        };
         let created = crate::api::documents::create(
             conn,
             slug,
@@ -9476,6 +9489,7 @@ fn create_item_impl(
                 template_id,
                 board: params.board.as_deref(),
                 parent: params.parent.as_deref(),
+                before_write: Some(&check_sections),
             },
             crate::api::documents::CreateWording {
                 request: "call",

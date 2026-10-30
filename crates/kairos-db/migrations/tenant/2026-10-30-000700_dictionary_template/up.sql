@@ -1,6 +1,9 @@
 -- KAIROS-T-0733 (COLLIERY-I-0664 decision 6): the system template
 -- "Dictionary". A dictionary is a document made with this template. Its
 -- entries are the rows of a table Word | Part of speech | Meaning.
+-- KAIROS-A-0079 (KAIROS-T-0738): the organization has one dictionary, on
+-- the board `strategy`. The text of the template says so; it changed in
+-- this file because no release has this migration.
 --
 -- A new tenant gets the template from public.system_templates at
 -- provisioning (kairos-db tenant.rs). That copy runs after this migration
@@ -19,7 +22,7 @@
 -- compares the two.
 INSERT INTO templates (name, slug, content, is_system_default)
 SELECT 'Dictionary', 'dictionary',
-       E'# Dictionary\n\nThe terms of this board. Write one row for each term. A term of a team replaces a term of the organization that has the same word.\n\n| Word | Part of speech | Meaning |\n|---|---|---|\n',
+       E'# Dictionary\n\nThe terms of the organization. Write one row for each term. The organization has one dictionary, on the board strategy.\n\n| Word | Part of speech | Meaning |\n|---|---|---|\n',
        true
  WHERE NOT EXISTS (
         SELECT 1 FROM templates

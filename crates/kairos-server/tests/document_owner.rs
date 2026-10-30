@@ -2551,7 +2551,8 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     );
 
     // ======================================================================
-    // J. Dictionaries (KAIROS-T-0733): a board owns one live dictionary.
+    // J. Dictionaries (KAIROS-T-0733, KAIROS-A-0079): one dictionary for the
+    // organization, on the board `strategy`; none on a team board.
     // ======================================================================
     let templates = bob
         .list_templates(Pagination::default())
@@ -2568,55 +2569,94 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         "no template with the slug dictionary",
     );
     if let Some(template) = dictionary_template {
-        let body = |title: &str| CreateDocumentRequest {
+        let body = |board: &str, title: &str| CreateDocumentRequest {
             title: title.into(),
-            board: PLATFORM.into(),
+            board: board.into(),
             content: None,
             template_id: Some(template.clone()),
             parent_short_code: None,
         };
+        if let Some((message, details)) = checks.refused_with(
+            "J2: a dictionary on a team board is refused",
+            422,
+            "DICTIONARY_NOT_ON_STRATEGY",
+            bob.create_document(&body(PLATFORM, "J2: team dictionary"))
+                .await,
+        ) {
+            checks.check(
+                "J2: the refusal names the board strategy and the board of the write",
+                message.contains("the board strategy")
+                    && details["dictionary_board"] == json!("strategy")
+                    && details["board"] == json!(PLATFORM),
+                format!("{message} {details}"),
+            );
+        }
+        let reply = bob_mcp
+            .call(
+                "create_item",
+                json!({"item_type": "document", "title": "J3: MCP team dictionary",
+                       "board": PLATFORM, "template": "dictionary"}),
+            )
+            .await;
+        checks.mcp_refused(
+            "J3: create_item refuses a dictionary on a team board",
+            "DICTIONARY_NOT_ON_STRATEGY",
+            &reply,
+        );
+        checks.check(
+            "J3: the MCP refusal names the board strategy",
+            reply.1.contains("the board strategy"),
+            &reply.1,
+        );
         let first = checks.allowed(
-            "J1: the first dictionary of a board is created",
-            bob.create_document(&body("J1: dictionary")).await,
+            "J4: the dictionary of the organization is created on the board strategy",
+            svc.create_document(&body(&strategy_board, "J4: dictionary"))
+                .await,
         );
         if let Some(first) = first {
             checks.check(
-                "J1: the dictionary has the table of the template",
+                "J4: the dictionary has the table of the template",
                 first
                     .content
                     .contains("| Word | Part of speech | Meaning |"),
                 &first.content,
             );
             if let Some((message, details)) = checks.refused_with(
-                "J2: a second dictionary on the board is refused",
+                "J5: a second dictionary on the board strategy is refused",
                 409,
                 "DICTIONARY_EXISTS",
-                bob.create_document(&body("J2: second dictionary")).await,
+                svc.create_document(&body(&strategy_board, "J5: second dictionary"))
+                    .await,
             ) {
                 checks.check(
-                    "J2: the refusal names the dictionary of the board",
+                    "J5: the refusal names the dictionary of the organization",
                     message.contains(&first.short_code)
                         && details["existing"] == json!(first.short_code)
-                        && details["board"] == json!(PLATFORM),
+                        && details["board"] == json!("strategy"),
                     format!("{message} {details}"),
                 );
             }
-            let reply = bob_mcp
+            checks.refused_with(
+                "J6 REST: a move of the dictionary to a team board is refused",
+                422,
+                "DICTIONARY_NOT_ON_STRATEGY",
+                svc.set_document_board(&first.short_code, PLATFORM).await,
+            );
+            let reply = svc_mcp
                 .call(
-                    "create_item",
-                    json!({"item_type": "document", "title": "J3: MCP dictionary",
-                           "board": PLATFORM, "template": "dictionary"}),
+                    "move_item",
+                    json!({"short_code": first.short_code, "to_board": PLATFORM}),
                 )
                 .await;
             checks.mcp_refused(
-                "J3: create_item refuses a second dictionary",
-                "DICTIONARY_EXISTS",
+                "J6 MCP: move_item of the dictionary to a team board is refused",
+                "DICTIONARY_NOT_ON_STRATEGY",
                 &reply,
             );
             checks.check(
-                "J3: the MCP refusal names the dictionary of the board",
-                reply.1.contains(&first.short_code),
-                &reply.1,
+                "J6: the refused moves wrote nothing",
+                stored_board(&mut conn, &first.short_code) == Some(strategy_board.clone()),
+                format!("{:?}", stored_board(&mut conn, &first.short_code)),
             );
         }
     }

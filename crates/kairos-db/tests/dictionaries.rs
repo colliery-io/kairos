@@ -1,16 +1,19 @@
-//! KAIROS-T-0733 — dictionaries: the system template `dictionary`, one live
-//! dictionary for each owner board, and the terms of a team on the
-//! organization dictionary.
+//! KAIROS-T-0733, KAIROS-A-0079 — the dictionary of the organization: the
+//! system template `dictionary`, one dictionary for the organization on the
+//! board `strategy`, and no team dictionaries.
 //!
 //! - a new tenant has the template, and the migration
 //!   `dictionary_template` gives it to a tenant that has none, one time,
 //!   with the text of the system default,
-//! - a second dictionary on a board is refused and the first is named: at
-//!   create, at a change of the owner board, and at a restore,
-//! - the team entry wins over the organization entry for the same word,
+//! - a dictionary on a team board is refused and the refusal names the
+//!   board `strategy`: at create, at a change of the owner board, and at a
+//!   restore,
+//! - a second dictionary on the board `strategy` is refused and the first
+//!   is named: at create and at a restore,
+//! - `organization_dictionary` gives the terms and the bad rows, and the
+//!   check of the typed sections takes its terms (`dictionary_terms`),
 //! - a defined term passes the vocabulary check, and a word that is in no
-//!   list fails it,
-//! - a bad row is given with its document and its line.
+//!   list fails it.
 //!
 //! Against real Postgres from the compose stack (A-0012 tier 2), in its own
 //! scratch database.
@@ -25,7 +28,7 @@ use diesel::sql_query;
 use uuid::Uuid;
 
 use kairos_core::short_code::ItemType;
-use kairos_db::dictionaries::{self, DictionaryError};
+use kairos_db::dictionaries;
 use kairos_db::items::{ItemError, restore_item, set_document_board};
 use kairos_db::models::enums::BoardLevel;
 use kairos_db::models::teams::NewTeam;
@@ -34,7 +37,6 @@ use kairos_db::{
     CreateDocument, create_board, create_document, provision_tenant, run_public_migrations,
     soft_delete_item,
 };
-use kairos_plain::Layer;
 
 static SCRATCH_DB: scratch::ScratchName = scratch::ScratchName::new("kairos_dictionaries_t0733");
 
@@ -52,9 +54,7 @@ struct Fixture {
     alice: Uuid,
     dictionary_template: Uuid,
     strategy: Uuid,
-    platform: Uuid,
     platform_board: Uuid,
-    data_board: Uuid,
 }
 
 fn fixture() -> (Fixture, scratch::ScratchGuard) {
@@ -104,7 +104,6 @@ fn fixture() -> (Fixture, scratch::ScratchGuard) {
             .expect("inserting team")
     };
     let platform = team("Platform", "platform");
-    let data = team("Data", "data");
     let mut board = |team: Uuid, slug: &str| -> Uuid {
         create_board(
             &mut conn,
@@ -119,7 +118,6 @@ fn fixture() -> (Fixture, scratch::ScratchGuard) {
         .id
     };
     let platform_board = board(platform, "platform");
-    let data_board = board(data, "data");
 
     let (dictionary_template, strategy) = {
         use kairos_db::schema::{boards, templates};
@@ -142,9 +140,7 @@ fn fixture() -> (Fixture, scratch::ScratchGuard) {
             alice,
             dictionary_template,
             strategy,
-            platform,
             platform_board,
-            data_board,
         },
         guard,
     )
@@ -167,7 +163,7 @@ fn dictionary(f: &mut Fixture, board: Uuid, rows: &str) -> Result<(Uuid, String)
 }
 
 #[test]
-fn dictionaries_of_a_team_and_of_the_organization() {
+fn one_dictionary_for_the_organization() {
     let (mut f, _guard) = fixture();
 
     // --- the template, and the migration for a tenant that has none -------
@@ -208,46 +204,52 @@ fn dictionaries_of_a_team_and_of_the_organization() {
             .expect("the template")
     };
 
-    // --- no dictionary: a team has no terms -------------------------------
-    let empty = dictionaries::team_dictionary(&mut f.conn, f.platform).expect("no dictionary");
-    assert!(empty.terms.is_empty() && empty.problems.is_empty());
-    assert_eq!((empty.organization, empty.team), (None, None));
+    // --- no dictionary: no terms -------------------------------------------
+    let empty = dictionaries::organization_dictionary(&mut f.conn).expect("no dictionary");
+    assert_eq!(empty, dictionaries::OrganizationDictionary::default());
 
-    // --- the organization and the team -------------------------------------
+    // --- a dictionary on a team board is refused, and names `strategy` ----
+    let platform_board = f.platform_board;
+    let err = dictionary(
+        &mut f,
+        platform_board,
+        "| lane | noun | The kind of work. |\n",
+    )
+    .expect_err("a dictionary on a team board");
+    match &err {
+        ItemError::DictionaryNotOnStrategy { board } => assert_eq!(board, "platform"),
+        other => panic!("expected DictionaryNotOnStrategy, got {other}"),
+    }
+    assert!(err.to_string().contains("the board strategy"), "{err}");
+
+    // --- the dictionary of the organization -------------------------------
     let strategy = f.strategy;
-    let (_, org_code) = dictionary(
+    let (org_dict, org_code) = dictionary(
         &mut f,
         strategy,
         "| production | noun | Code that runs for the users. |\n\
-         | board | noun | A set of columns. |\n",
-    )
-    .expect("the organization dictionary");
-    let platform_board = f.platform_board;
-    let (team_dict, team_code) = dictionary(
-        &mut f,
-        platform_board,
-        "| Production | noun | The work that the team gives to its users. |\n\
-         | production document | noun | A document that the team uses for its work. |\n\
+         | Board | noun | A set of columns. |\n\
+         | production document | noun | A document that a team uses for its work. |\n\
          | lane | noun |\n",
     )
-    .expect("the team dictionary");
+    .expect("the organization dictionary");
 
-    // --- a second dictionary on a board is refused and the first named ----
-    let err = dictionary(&mut f, platform_board, "| card | noun | A task. |\n")
-        .expect_err("a second dictionary on the board");
+    // A second dictionary on the board `strategy` is refused, and the
+    // first is named.
+    let err = dictionary(&mut f, strategy, "| card | noun | A task. |\n")
+        .expect_err("a second dictionary");
     match &err {
         ItemError::DictionaryExists { board, existing } => {
-            assert_eq!(board, "platform");
-            assert_eq!(existing, &team_code);
+            assert_eq!(board, "strategy");
+            assert_eq!(existing, &org_code);
         }
         other => panic!("expected DictionaryExists, got {other}"),
     }
-    assert!(err.to_string().contains(&team_code), "{err}");
     // A document with no template is not a dictionary: no refusal.
     create_document(
         &mut f.conn,
         CreateDocument {
-            board_id: f.platform_board,
+            board_id: f.strategy,
             title: "Notes",
             content: Some("free text"),
             template_id: None,
@@ -256,66 +258,96 @@ fn dictionaries_of_a_team_and_of_the_organization() {
     )
     .expect("a plain document on the same board");
 
-    // A change of the owner board to a board with a dictionary is refused.
-    let data_board = f.data_board;
-    let (data_dict, _) =
-        dictionary(&mut f, data_board, "| row | noun | A line. |\n").expect("data dictionary");
-    let err = set_document_board(&mut f.conn, data_dict, f.platform_board, f.alice)
-        .expect_err("the board has a dictionary");
+    // A change of the owner board of the dictionary to a team board is
+    // refused, and names `strategy`.
+    let err = set_document_board(&mut f.conn, org_dict, f.platform_board, f.alice)
+        .expect_err("a dictionary leaves the board strategy");
     assert!(
-        matches!(&err, ItemError::DictionaryExists { existing, .. } if *existing == team_code),
+        matches!(&err, ItemError::DictionaryNotOnStrategy { board } if board == "platform"),
         "{err}"
     );
 
+    // --- restore -------------------------------------------------------------
+    // A dictionary on a team board from before KAIROS-A-0079 (written here
+    // by SQL) does not come back.
+    let old_team_dict = create_document(
+        &mut f.conn,
+        CreateDocument {
+            board_id: f.platform_board,
+            title: "Old team dictionary",
+            content: Some("| Word | Part of speech | Meaning |\n|---|---|---|\n"),
+            template_id: None,
+        },
+        f.alice,
+    )
+    .expect("a document")
+    .id;
+    sql_query("UPDATE documents SET template_id = $1 WHERE id = $2")
+        .bind::<diesel::sql_types::Uuid, _>(f.dictionary_template)
+        .bind::<diesel::sql_types::Uuid, _>(old_team_dict)
+        .execute(&mut f.conn)
+        .expect("the old team dictionary");
+    soft_delete_item(&mut f.conn, ItemType::Document, old_team_dict, f.alice).expect("archive");
+    let blocked = restore_item(&mut f.conn, ItemType::Document, old_team_dict, f.alice)
+        .expect("restore")
+        .expect_err("a dictionary on a team board");
+    assert!(
+        blocked
+            .missing
+            .iter()
+            .any(|m| m.contains("the board strategy") && m.contains("platform")),
+        "{blocked:?}"
+    );
+
     // An archived dictionary does not come back next to a live one.
-    soft_delete_item(&mut f.conn, ItemType::Document, team_dict, f.alice).expect("archive");
-    set_document_board(&mut f.conn, data_dict, f.platform_board, f.alice)
-        .expect("the board has no live dictionary now");
-    let blocked = restore_item(&mut f.conn, ItemType::Document, team_dict, f.alice)
+    soft_delete_item(&mut f.conn, ItemType::Document, org_dict, f.alice).expect("archive");
+    let (second, _) = dictionary(&mut f, strategy, "| card | noun | A task. |\n")
+        .expect("no live dictionary on the board now");
+    let blocked = restore_item(&mut f.conn, ItemType::Document, org_dict, f.alice)
         .expect("restore")
         .expect_err("a live dictionary is on the board");
     assert!(
         blocked.missing.iter().any(|m| m.contains("dictionary")),
         "{blocked:?}"
     );
-    // Put the team dictionary back for the rest of the test.
-    set_document_board(&mut f.conn, data_dict, f.data_board, f.alice).expect("move back");
-    restore_item(&mut f.conn, ItemType::Document, team_dict, f.alice)
+    // Put the first dictionary back for the rest of the test.
+    soft_delete_item(&mut f.conn, ItemType::Document, second, f.alice).expect("archive");
+    restore_item(&mut f.conn, ItemType::Document, org_dict, f.alice)
         .expect("restore")
         .expect("no live dictionary on the board now");
 
-    // --- the team entry wins over the organization entry --------------------
-    let resolved = dictionaries::team_dictionary(&mut f.conn, f.platform).expect("terms");
-    assert_eq!(resolved.organization.as_deref(), Some(org_code.as_str()));
-    assert_eq!(resolved.team.as_deref(), Some(team_code.as_str()));
-    let terms: Vec<(&str, &str, Layer)> = resolved
+    // --- the terms and the bad rows of the organization dictionary --------
+    let read = dictionaries::organization_dictionary(&mut f.conn).expect("terms");
+    assert_eq!(read.short_code.as_deref(), Some(org_code.as_str()));
+    let terms: Vec<(&str, &str)> = read
         .terms
         .iter()
-        .map(|t| (t.entry.word.as_str(), t.entry.meaning.as_str(), t.layer))
+        .map(|t| (t.word.as_str(), t.meaning.as_str()))
         .collect();
     assert_eq!(
         terms,
         [
-            ("board", "A set of columns.", Layer::Organization),
-            (
-                "Production",
-                "The work that the team gives to its users.",
-                Layer::Team
-            ),
+            ("Board", "A set of columns."),
+            ("production", "Code that runs for the users."),
             (
                 "production document",
-                "A document that the team uses for its work.",
-                Layer::Team
+                "A document that a team uses for its work."
             ),
         ]
     );
-    // A bad row is given with its document and its line.
-    assert_eq!(resolved.problems.len(), 1, "{:?}", resolved.problems);
-    assert_eq!(resolved.problems[0].short_code, team_code);
-    assert_eq!(resolved.problems[0].problem.line, 7);
+    // A bad row is given with its line.
+    assert_eq!(read.problems.len(), 1, "{:?}", read.problems);
+    assert_eq!(read.problems[0].line, 8);
+
+    // The check of the typed sections takes the same terms, for a
+    // document on any board.
+    assert_eq!(
+        kairos_db::section_checks::dictionary_terms(&mut f.conn).expect("terms"),
+        ["Board", "production", "production document"]
+    );
 
     // --- the vocabulary hook: a defined term passes, an undefined word fails
-    let vocabulary = resolved.vocabulary(["the", "is", "a"]);
+    let vocabulary = read.vocabulary(["the", "is", "a"]);
     assert!(
         vocabulary
             .check_text("The production document is a board.")
@@ -326,30 +358,4 @@ fn dictionaries_of_a_team_and_of_the_organization() {
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].rule, "STE-V1");
     assert!(found[0].message.contains("widget"), "{}", found[0].message);
-
-    // Another team has the organization terms only.
-    let data_team: Uuid = {
-        use kairos_db::schema::teams;
-        teams::table
-            .filter(teams::slug.eq("data"))
-            .select(teams::id)
-            .first(&mut f.conn)
-            .expect("data")
-    };
-    let data = dictionaries::team_dictionary(&mut f.conn, data_team).expect("data terms");
-    let words: Vec<&str> = data.words().collect();
-    assert_eq!(words, ["board", "production", "row"]);
-    assert_eq!(
-        data.terms
-            .iter()
-            .find(|t| t.entry.word == "production")
-            .map(|t| t.layer),
-        Some(Layer::Organization)
-    );
-
-    // An unknown team is an error.
-    assert!(matches!(
-        dictionaries::team_dictionary(&mut f.conn, Uuid::new_v4()),
-        Err(DictionaryError::TeamNotFound(_))
-    ));
 }

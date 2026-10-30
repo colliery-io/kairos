@@ -4,10 +4,10 @@
 //! The fixture has a parent chain of two, a blocker, a cancelled blocker,
 //! a supporting document, metadata, a claim, a state, an external
 //! reference, a retired code, an archived task and an initiative with an
-//! owner. KAIROS-T-0735: an organization dictionary and a team dictionary,
-//! so that the count covers the block `## Terms used`, and the block of the
-//! task shows a term of two words and a team entry over an organization
-//! entry.
+//! owner. KAIROS-T-0735: the dictionary of the organization, so that the
+//! count covers the block `## Terms used`, and the block of the task shows
+//! a term of two words. KAIROS-A-0079: a task and an initiative of a team
+//! get the terms of the organization; there is no team dictionary.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_get_item_statements_t0626_test`.
@@ -199,8 +199,8 @@ async fn get_item_runs_few_statements_against_live_stack() {
         )
         .await,
     );
-    // KAIROS-T-0735: the dictionaries. The organization dictionary is on
-    // the board `strategy`, the team dictionary on the delivery board.
+    // KAIROS-T-0735: the dictionary of the organization, on the board
+    // `strategy` (KAIROS-A-0079: the only dictionary).
     #[derive(QueryableByName)]
     struct TemplateRow {
         #[diesel(sql_type = SqlUuid)]
@@ -230,20 +230,6 @@ async fn get_item_runs_few_statements_against_live_stack() {
         )
         .await,
     );
-    send(
-        Method::POST,
-        "/api/documents".into(),
-        Some(json!({
-            "title": "Words of Payments",
-            "board": "payments-delivery",
-            "template_id": dictionary_template,
-            "content": format!(
-                "{table}| Body | noun | The text of a task. |\n\
-                 | work | noun | The work of the payments team. |\n"
-            ),
-        })),
-    )
-    .await;
     link(strategy.clone(), initiative.clone(), "parent").await;
     link(initiative.clone(), t1.clone(), "parent").await;
     link(t2.clone(), t1.clone(), "blocks").await;
@@ -397,21 +383,22 @@ async fn get_item_runs_few_statements_against_live_stack() {
         "{retired_text}"
     );
     // KAIROS-T-0735: the terms of the task, at the end. "first note" (two
-    // words, in the note) comes before "note", which it hides; "body" is
-    // the entry of the team, not of the organization.
+    // words, in the note) comes before "note", which it hides.
+    // KAIROS-A-0079: the terms of the organization, with no team suffix.
     assert!(
         task_text.ends_with(
             "\n## Terms used\n\
              - first note (noun): The note that starts the record.\n\
-             - Body (noun): The text of a task.\n\n"
+             - body (noun): The organization meaning.\n\n"
         ),
         "{task_text}"
     );
+    assert!(!task_text.contains("(team "), "{task_text}");
     let initiative_text = dump.split("=== ").nth(6).expect("the initiative text");
-    // An initiative takes the dictionaries of its teams.
+    // An initiative of the team payments takes the organization terms.
     assert!(
         initiative_text
-            .contains("\n## Terms used\n- work (noun): The work of the payments team.\n"),
+            .contains("\n## Terms used\n- work (noun): The organization meaning of work.\n"),
         "{initiative_text}"
     );
     // A dictionary lists every term: it has no block of its own.

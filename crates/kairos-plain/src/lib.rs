@@ -14,9 +14,8 @@
 //!   ([`approved_words`], [`not_approved_words`], KAIROS-T-0728).
 //! - [`terms_used`]: which terms of a dictionary a text uses, longest
 //!   first (KAIROS-T-0735).
-//! - [`parse_dictionary`] and [`resolve`]: the entries of a dictionary
-//!   document, and the dictionary of a team on the organization dictionary
-//!   (KAIROS-T-0733).
+//! - [`parse_dictionary`]: the entries of a dictionary document
+//!   (KAIROS-T-0733; one dictionary for the organization, KAIROS-A-0079).
 //!
 //! Each [`Violation`] names its rule, the byte range of the input that it is
 //! about, and a message that names the fix.
@@ -31,9 +30,7 @@ mod vocabulary;
 use std::ops::Range;
 
 pub use code::check_code_text;
-pub use dictionary::{
-    DictionaryEntry, DictionaryProblem, Layer, ParsedDictionary, Term, parse_dictionary, resolve,
-};
+pub use dictionary::{DictionaryEntry, DictionaryProblem, ParsedDictionary, parse_dictionary};
 pub use prose::check_text;
 pub use standard::{ApprovedWord, NotApprovedWord, approved_words, not_approved_words};
 pub use vocabulary::{Vocabulary, terms_used};

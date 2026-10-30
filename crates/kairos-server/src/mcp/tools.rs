@@ -3,7 +3,7 @@
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
 //! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
 //! (COLLIERY-T-0220), and `add_repository` and `update_repository`
-//! (COLLIERY-T-0266); later tasks added more (82 in all, in the profiles
+//! (COLLIERY-T-0266); later tasks added more (85 in all, in the profiles
 //! of `profiles.rs`, KAIROS-T-0454) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
@@ -1033,6 +1033,34 @@ pub struct HandOffItemParams {
     pub to: String,
 }
 
+/// Parameters for `watch_item` (KAIROS-T-0736).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct WatchItemParams {
+    /// The short code of the item to watch.
+    pub short_code: String,
+    /// `true`: a change of a child of the item (its parent edges, one
+    /// level) tells you too. Default false. A second call changes it.
+    #[serde(default)]
+    pub with_children: Option<bool>,
+}
+
+/// Parameters for `unwatch_item` (KAIROS-T-0736).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct UnwatchItemParams {
+    /// The short code of the item that you watch.
+    pub short_code: String,
+}
+
+/// `list_watches` has no arguments (KAIROS-T-0736).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct ListWatchesParams {}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
@@ -1565,7 +1593,7 @@ pub struct SaveTemplateParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (82; the list of each profile is asserted in tests/mcp.rs)
+// The tools (85; the list of each profile is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -3492,7 +3520,7 @@ impl KairosMcp {
     // KAIROS-T-0382: the notifications of the person of the key. The read
     // state is of the caller (KAIROS-T-0550): the agent key, or the person.
     #[tool(
-        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board. Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `unread: true` gives only the unread ones, and names the newest unread id to send as `up_to` to `mark_events_read`. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
+        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board, a change of an item that you watch (`watch_item`). Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `unread: true` gives only the unread ones, and names the newest unread id to send as `up_to` to `mark_events_read`. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
     )]
     pub async fn get_events(
         &self,
@@ -3538,6 +3566,77 @@ impl KairosMcp {
                 "Marked {} notification(s) read. You have {unread} unread.",
                 changed.len()
             ))
+        })
+        .await
+    }
+
+    // KAIROS-T-0736: the watches of the person of the key.
+    #[tool(
+        description = "Watch an item. When the item moves, is edited, gets a note, or is done, you get a `watch` notification (`get_events`), except for a change that you made. `with_children: true`: a change of a child of the item (one level of parent edges) tells you too. A second call changes `with_children`. An agent key watches for its person: the watch is the person's. A service account cannot watch."
+    )]
+    pub async fn watch_item(
+        &self,
+        Parameters(params): Parameters<WatchItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        self.run_tool(&tenant, move |conn| {
+            let with_children = params.with_children.unwrap_or(false);
+            let watch =
+                crate::api::watches::watch_for(conn, user, &params.short_code, with_children)?;
+            Ok(if watch.with_children {
+                format!(
+                    "You watch {} and its children. A move, an edit, a note or a done of the \
+                     item or of a child gives you a notification.",
+                    watch.short_code
+                )
+            } else {
+                format!(
+                    "You watch {}. A move, an edit, a note or a done of the item gives you a \
+                     notification.",
+                    watch.short_code
+                )
+            })
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Stop your watch on an item. When you do not watch the item, nothing changes. `list_watches` gives your watches."
+    )]
+    pub async fn unwatch_item(
+        &self,
+        Parameters(params): Parameters<UnwatchItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        self.run_tool(&tenant, move |conn| {
+            let (watch, removed) =
+                crate::api::watches::unwatch_for(conn, user, &params.short_code)?;
+            Ok(if removed {
+                format!("You do not watch {} now.", watch.short_code)
+            } else {
+                format!("You did not watch {}. Nothing changed.", watch.short_code)
+            })
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Your watches: each item that you watch, by code, and whether the watch includes its children. An agent key gives the watches of its person."
+    )]
+    pub async fn list_watches(
+        &self,
+        Parameters(_params): Parameters<ListWatchesParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        self.run_tool(&tenant, move |conn| {
+            let items = crate::api::watches::list_for(conn, user)?;
+            Ok(watches_text(&items))
         })
         .await
     }
@@ -10230,6 +10329,27 @@ fn refusal_counts_text(
             c.person,
             c.agent_key,
             c.service_account
+        ));
+    }
+    out
+}
+
+/// The text of `list_watches` (KAIROS-T-0736): one line for each watch.
+fn watches_text(items: &[kairos_client::types_notifications::WatchedItem]) -> String {
+    if items.is_empty() {
+        return "You watch no item. watch_item starts a watch.".to_string();
+    }
+    let mut out = format!("# Your watches ({})\n\n", items.len());
+    for w in items {
+        let children = if w.with_children {
+            " · with children"
+        } else {
+            ""
+        };
+        let archived = if w.archived { " · archived" } else { "" };
+        out.push_str(&format!(
+            "- {} ({}){children}{archived} — {}\n",
+            w.short_code, w.entity_type, w.title
         ));
     }
     out

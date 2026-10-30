@@ -70,6 +70,7 @@ pub mod tenant;
 pub mod tls;
 // KAIROS-T-0694 (KAIROS-A-0068): the count of the MCP refusals.
 pub mod tool_refusals;
+pub mod watches;
 pub mod webhooks;
 pub mod writeback;
 

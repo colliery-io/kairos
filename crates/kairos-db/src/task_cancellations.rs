@@ -213,6 +213,14 @@ pub fn cancel_task(
         // KAIROS-T-0567: a cancelled blocker still blocks. Its dependants
         // are told; Kairos unblocks nothing.
         crate::notifications::on_blocker_cancelled(conn, task_id, reason, actor_id)?;
+        // KAIROS-T-0736: a cancelled task is done for its watchers.
+        crate::watches::on_watched(
+            conn,
+            task_id,
+            kairos_core::notifications::WatchEvent::Done,
+            Some(&to_column),
+            actor_id,
+        )?;
         // KAIROS-T-0385: the dispatch rules of the done column.
         crate::dispatch::on_item_entered_column(conn, task_id, to_column_id, actor_id)?;
         // KAIROS-T-0386: the GitHub write-back of its pull requests.
@@ -306,6 +314,14 @@ pub fn cancel_initiative(
         // KAIROS-A-0038: a cancelled blocker still blocks. Its dependants
         // are told; Kairos unblocks nothing.
         crate::notifications::on_blocker_cancelled(conn, initiative_id, reason, actor_id)?;
+        // KAIROS-T-0736: a cancelled initiative is done for its watchers.
+        crate::watches::on_watched(
+            conn,
+            initiative_id,
+            kairos_core::notifications::WatchEvent::Done,
+            Some(&to_column),
+            actor_id,
+        )?;
         // KAIROS-T-0719: the dispatch rules of the done column, as for a task.
         crate::dispatch::on_item_entered_column(conn, initiative_id, to_column_id, actor_id)?;
         events::emit_item_event_by_id(

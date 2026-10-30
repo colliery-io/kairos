@@ -1722,6 +1722,14 @@ fn write_content(
                 let names = kairos_core::notifications::new_mentions(&before, update.new_content);
                 crate::notifications::on_mentions(conn, item_id, &names, actor)?;
             }
+            // KAIROS-T-0736: the watchers of the item.
+            crate::watches::on_watched(
+                conn,
+                item_id,
+                kairos_core::notifications::WatchEvent::Edited,
+                None,
+                actor,
+            )?;
             // KAIROS-T-0022: thin event, delivered on commit.
             events::emit_item_event_by_id(
                 conn,

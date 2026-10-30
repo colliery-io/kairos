@@ -224,7 +224,12 @@ INSERT INTO public.system_templates (name, slug, content) VALUES
     -- 'Company Vision'. The tenant migration `document_board_and_impacts`
     -- has the same text, for the tenants that exist.
     ('Product Vision', 'product_vision',
-     E'# Product Vision\n\n## Purpose\n\n## Who It Is For\n\n## Current State\n\n## Future State\n\n## Principles\n\n## What It Is Not\n')
+     E'# Product Vision\n\n## Purpose\n\n## Who It Is For\n\n## Current State\n\n## Future State\n\n## Principles\n\n## What It Is Not\n'),
+    -- KAIROS-T-0733: the dictionary of a team (on its delivery board) or of
+    -- the organization (on the board `strategy`). The tenant migration
+    -- `dictionary_template` has the same text, for the tenants that exist.
+    ('Dictionary', 'dictionary',
+     E'# Dictionary\n\nThe terms of this board. Write one row for each term. A term of a team replaces a term of the organization that has the same word.\n\n| Word | Part of speech | Meaning |\n|---|---|---|\n')
 ON CONFLICT (slug) DO NOTHING;
 
 -- KAIROS-A-0003 template-to-metadata associations.

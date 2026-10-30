@@ -337,6 +337,26 @@ teams. Streams carry no boards and no work of their own.
 
 A slug that a caller sends must agree with the rule of a [slug](#slug).
 
+## dictionary
+
+A document that gives the meaning of the terms of a team or of the
+organization (KAIROS-T-0733). Make it from the template "Dictionary". Its
+entries are the rows of a table with the columns Word, Part of speech and
+Meaning. A term can have more than one word, for example "production
+document".
+
+The [owner board](#owner-board) says whose dictionary it is:
+
+- The delivery board of a team owns the dictionary of the team.
+- The board `strategy` owns the dictionary of the organization.
+
+A board has one live dictionary. The server refuses a second one with
+`DICTIONARY_EXISTS`.
+
+The terms of a team are the terms of the organization and the terms of the
+team. When the two dictionaries have the same word, the team term is used.
+The case of the letters is not important.
+
 ## document
 
 One of the five work-item types, letter `D`. Documents have no board
@@ -872,7 +892,8 @@ A reusable starting point for a document: content to stamp, plus a set of
 metadata definitions to collect.
 
 A new tenant has the templates "Product Vision" and "Company Vision". The two
-give the document type `vision`. See [vision](#vision).
+give the document type `vision`. See [vision](#vision). A new tenant also has
+the template "Dictionary". See [dictionary](#dictionary).
 
 ## tenant
 

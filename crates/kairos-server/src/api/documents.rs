@@ -531,7 +531,7 @@ pub(crate) fn create(
         (status = 201, description = "Created. With parent_short_code, the supports edge is written", body = dto::Document),
         (status = 403, description = "Missing manage_documents on the board that the document names", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = dto::ErrorEnvelope),
-        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request. DICTIONARY_EXISTS: the template is dictionary, and the board owns a live dictionary already (details.existing names it)", body = dto::ErrorEnvelope),
         (status = 422, description = "No board (details.field is board), unknown parent, non-workflow parent, or unknown template", body = dto::ErrorEnvelope),
     ),
 )]
@@ -780,6 +780,7 @@ pub(crate) fn board_to_set(board: Option<&str>) -> Option<&str> {
         (status = 200, description = "The document, with its owner board", body = dto::Document),
         (status = 403, description = "Missing manage_documents on the board that owns the document now, or on the new board", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code, or unknown board", body = dto::ErrorEnvelope),
+        (status = 409, description = "DICTIONARY_EXISTS: the document is a dictionary, and the new board owns a live dictionary already (details.existing names it)", body = dto::ErrorEnvelope),
         (status = 422, description = "VALIDATION: the body has no board, or a null or empty board (details.field is board). RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code", body = dto::ErrorEnvelope),
     ),
 )]

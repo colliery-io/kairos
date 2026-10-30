@@ -478,8 +478,8 @@ fn tenant_provisioning_lifecycle() {
     assert_eq!(report.boards_created, ["strategy", "initiatives", "adrs"]);
     // COLLIERY-T-0269 added the template "Product Vision".
     assert_eq!(
-        report.templates_copied, 7,
-        "A-0003 ships 6 system templates, and COLLIERY-T-0269 one"
+        report.templates_copied, 8,
+        "A-0003 ships 6 system templates, COLLIERY-T-0269 one and KAIROS-T-0733 one"
     );
     assert_eq!(
         report.metadata_definitions_copied, 6,
@@ -796,6 +796,7 @@ fn tenant_provisioning_lifecycle() {
         [
             "architecture_framing",
             "company_vision",
+            "dictionary",
             "prd",
             "product_vision",
             "social_contract",

@@ -45,6 +45,10 @@ pub enum NotificationKind {
     /// A person confirmed or rejected an edge proposal that you made
     /// (KAIROS-T-0558).
     ProposalDecided,
+    /// An item that you watch, or a child of an item that you watch with
+    /// its children, moved, was edited, got a note, or is done
+    /// (KAIROS-T-0736). See [`WatchEvent`].
+    Watch,
     /// A person, or an agent key of a person, sent you a notice: to you,
     /// or to a team of yours (KAIROS-T-0737).
     Notice,
@@ -56,7 +60,7 @@ pub const KEY_EXPIRING_DAYS: i64 = 7;
 
 impl NotificationKind {
     /// Each kind, in the order of the settings.
-    pub const ALL: [NotificationKind; 14] = [
+    pub const ALL: [NotificationKind; 15] = [
         NotificationKind::HandOff,
         NotificationKind::BlockerCleared,
         NotificationKind::BlockedAgain,
@@ -70,6 +74,7 @@ impl NotificationKind {
         NotificationKind::ClaimStale,
         NotificationKind::KeyExpiring,
         NotificationKind::ProposalDecided,
+        NotificationKind::Watch,
         NotificationKind::Notice,
     ];
 
@@ -89,6 +94,7 @@ impl NotificationKind {
             NotificationKind::ClaimStale => "claim_stale",
             NotificationKind::KeyExpiring => "key_expiring",
             NotificationKind::ProposalDecided => "proposal_decided",
+            NotificationKind::Watch => "watch",
             NotificationKind::Notice => "notice",
         }
     }
@@ -99,6 +105,48 @@ impl NotificationKind {
     }
 }
 
+/// The coarse change of a watched item that makes a `watch` notification
+/// (KAIROS-T-0736, decision 8 of COLLIERY-I-0664). Nothing finer: a change
+/// of metadata, a link or the live state tells no watcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchEvent {
+    /// The item went to a different column (not a done column), or to a
+    /// different board.
+    Moved,
+    /// The title or the content of the item changed.
+    Edited,
+    /// A note was added to the item.
+    NoteAdded,
+    /// The item went into a done column.
+    Done,
+}
+
+impl WatchEvent {
+    /// The wire name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WatchEvent::Moved => "moved",
+            WatchEvent::Edited => "edited",
+            WatchEvent::NoteAdded => "note_added",
+            WatchEvent::Done => "done",
+        }
+    }
+
+    /// The text of the notification: `actor` did the change to `code`
+    /// (`title`). `place` is the column or the board after a move.
+    pub fn text(self, actor: &str, code: &str, title: &str, place: Option<&str>) -> String {
+        match (self, place) {
+            (WatchEvent::Moved, Some(place)) => format!("{actor} moved {code} to {place}: {title}"),
+            (WatchEvent::Moved, None) => format!("{actor} moved {code}: {title}"),
+            (WatchEvent::Edited, _) => format!("{actor} edited {code}: {title}"),
+            (WatchEvent::NoteAdded, _) => format!("{actor} added a note to {code}: {title}"),
+            (WatchEvent::Done, Some(place)) => {
+                format!("{code} is done ({place}), by {actor}: {title}")
+            }
+            (WatchEvent::Done, None) => format!("{code} is done, by {actor}: {title}"),
+        }
+    }
+}
 /// The most characters in the text of a notice (KAIROS-T-0737).
 pub const NOTICE_TEXT_MAX: usize = 2000;
 
@@ -257,6 +305,30 @@ mod tests {
             assert_eq!(NotificationKind::parse(kind.as_str()), Some(kind));
         }
         assert_eq!(NotificationKind::parse("email"), None);
+    }
+
+    #[test]
+    fn a_watch_event_names_the_change() {
+        assert_eq!(
+            WatchEvent::Moved.text("Robin", "ACME-T-0001", "Fix", Some("Active")),
+            "Robin moved ACME-T-0001 to Active: Fix"
+        );
+        assert_eq!(
+            WatchEvent::Edited.text("Robin", "ACME-T-0001", "Fix", None),
+            "Robin edited ACME-T-0001: Fix"
+        );
+        assert_eq!(
+            WatchEvent::NoteAdded.text("Robin", "ACME-T-0001", "Fix", None),
+            "Robin added a note to ACME-T-0001: Fix"
+        );
+        assert_eq!(
+            WatchEvent::Done.text("Robin", "ACME-T-0001", "Fix", Some("Completed")),
+            "ACME-T-0001 is done (Completed), by Robin: Fix"
+        );
+        assert_eq!(
+            NotificationKind::parse("watch"),
+            Some(NotificationKind::Watch)
+        );
     }
 
     #[test]

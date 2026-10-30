@@ -343,6 +343,7 @@ fn settings_view(
         claim_stale: on(NotificationKind::ClaimStale),
         key_expiring: on(NotificationKind::KeyExpiring),
         proposal_decided: on(NotificationKind::ProposalDecided),
+        watch: on(NotificationKind::Watch),
         notice: on(NotificationKind::Notice),
         muted_keys: muted
             .into_iter()
@@ -456,6 +457,7 @@ pub(crate) async fn update_notification_settings(
         (NotificationKind::ClaimStale, body.claim_stale),
         (NotificationKind::KeyExpiring, body.key_expiring),
         (NotificationKind::ProposalDecided, body.proposal_decided),
+        (NotificationKind::Watch, body.watch),
         (NotificationKind::Notice, body.notice),
     ]
     .into_iter()
@@ -474,7 +476,7 @@ pub(crate) async fn update_notification_settings(
             "The body names no kind. Send one or more kinds, each with true or false. The \
              kinds: hand_off, blocker_cleared, blocked_again, cancelled, blocker_cancelled, \
              mention, p0_bug, delivery_failing, agent_key_revoked, claim_dropped, claim_stale, \
-             key_expiring, proposal_decided, notice. Or send mute_keys or unmute_keys.",
+             key_expiring, proposal_decided, watch, notice. Or send mute_keys or unmute_keys.",
         )
         .with_details(serde_json::json!({
             "field": "hand_off",
@@ -492,6 +494,7 @@ pub(crate) async fn update_notification_settings(
                 "claim_stale",
                 "key_expiring",
                 "proposal_decided",
+                "watch",
                 "notice",
                 "mute_keys",
                 "unmute_keys",

@@ -2688,6 +2688,7 @@ dependencies = [
  "diesel_migrations",
  "kairos-core",
  "kairos-markdown",
+ "kairos-plain",
  "rustls",
  "serde",
  "serde_json",

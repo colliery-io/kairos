@@ -340,6 +340,12 @@ impl Checks {
                 message,
                 details,
             }) => (404, code, message, details),
+            Err(Error::Conflict {
+                code,
+                message,
+                details,
+                ..
+            }) => (409, code, message, details),
             Err(Error::Forbidden {
                 code,
                 message,
@@ -2456,7 +2462,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     // KAIROS-T-0572 added set_parent. KAIROS-T-0558 added the 3 tools of
     // the webhook targets. set_complexity is one more. KAIROS-T-0718 added
     // set_review (KAIROS-T-0726). KAIROS-T-0737 added send_notice.
-    checks.same("H1: the number of tools", tools.len(), 82);
+    checks.same("H1: the number of tools", tools.len(), 85);
     let schema_of = |name: &str| -> Value {
         tools
             .iter()
@@ -2543,6 +2549,77 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         ),
         (Some(platform_board.clone()), 0),
     );
+
+    // ======================================================================
+    // J. Dictionaries (KAIROS-T-0733): a board owns one live dictionary.
+    // ======================================================================
+    let templates = bob
+        .list_templates(Pagination::default())
+        .await
+        .expect("listing templates");
+    let dictionary_template = templates
+        .items
+        .iter()
+        .find(|t| t.slug == "dictionary")
+        .map(|t| t.id.clone());
+    checks.check(
+        "J1: a tenant has the system template dictionary",
+        dictionary_template.is_some(),
+        "no template with the slug dictionary",
+    );
+    if let Some(template) = dictionary_template {
+        let body = |title: &str| CreateDocumentRequest {
+            title: title.into(),
+            board: PLATFORM.into(),
+            content: None,
+            template_id: Some(template.clone()),
+            parent_short_code: None,
+        };
+        let first = checks.allowed(
+            "J1: the first dictionary of a board is created",
+            bob.create_document(&body("J1: dictionary")).await,
+        );
+        if let Some(first) = first {
+            checks.check(
+                "J1: the dictionary has the table of the template",
+                first
+                    .content
+                    .contains("| Word | Part of speech | Meaning |"),
+                &first.content,
+            );
+            if let Some((message, details)) = checks.refused_with(
+                "J2: a second dictionary on the board is refused",
+                409,
+                "DICTIONARY_EXISTS",
+                bob.create_document(&body("J2: second dictionary")).await,
+            ) {
+                checks.check(
+                    "J2: the refusal names the dictionary of the board",
+                    message.contains(&first.short_code)
+                        && details["existing"] == json!(first.short_code)
+                        && details["board"] == json!(PLATFORM),
+                    format!("{message} {details}"),
+                );
+            }
+            let reply = bob_mcp
+                .call(
+                    "create_item",
+                    json!({"item_type": "document", "title": "J3: MCP dictionary",
+                           "board": PLATFORM, "template": "dictionary"}),
+                )
+                .await;
+            checks.mcp_refused(
+                "J3: create_item refuses a second dictionary",
+                "DICTIONARY_EXISTS",
+                &reply,
+            );
+            checks.check(
+                "J3: the MCP refusal names the dictionary of the board",
+                reply.1.contains(&first.short_code),
+                &reply.1,
+            );
+        }
+    }
 
     drop(conn);
     drop(pool);

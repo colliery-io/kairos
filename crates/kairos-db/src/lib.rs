@@ -18,6 +18,7 @@ pub mod code_index_builds;
 pub mod code_index_settings;
 pub mod code_indexes;
 pub mod code_rename;
+pub mod dictionaries;
 pub mod dispatch;
 pub mod embeddings;
 pub mod events;
@@ -69,6 +70,7 @@ pub mod tenant;
 pub mod tls;
 // KAIROS-T-0694 (KAIROS-A-0068): the count of the MCP refusals.
 pub mod tool_refusals;
+pub mod watches;
 pub mod webhooks;
 pub mod writeback;
 

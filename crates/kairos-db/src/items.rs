@@ -142,6 +142,14 @@ pub enum ItemError {
     /// No live repository with this id (KAIROS-T-0103).
     #[error("The repository {0} does not exist.")]
     RepositoryNotFound(Uuid),
+    /// The board owns a live dictionary already, and the write would give
+    /// it a second one (KAIROS-T-0733). `board` is the slug of the board,
+    /// `existing` the code of its dictionary.
+    #[error(
+        "The board {board} has the dictionary {existing} already. A board has one dictionary. \
+         Edit {existing}."
+    )]
+    DictionaryExists { board: String, existing: String },
     /// Any other database error.
     #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
@@ -1326,6 +1334,9 @@ pub fn set_document_board(
             });
         }
         require_live_board(conn, board_id)?;
+        if crate::dictionaries::is_dictionary_document(conn, document_id)? {
+            refuse_second_dictionary(conn, board_id)?;
+        }
         let updated: Document = diesel::update(dsl::documents.filter(dsl::id.eq(document_id)))
             .set((
                 dsl::board_id.eq(board_id),
@@ -1392,6 +1403,19 @@ fn board_slug(conn: &mut PgConnection, board_id: Uuid) -> Result<String, DieselE
     Ok(slug.unwrap_or_else(|| board_id.to_string()))
 }
 
+/// [`ItemError::DictionaryExists`] when `board_id` owns a live dictionary
+/// (KAIROS-T-0733). Locks the row of the board to the end of the
+/// transaction.
+fn refuse_second_dictionary(conn: &mut PgConnection, board_id: Uuid) -> Result<(), ItemError> {
+    match crate::dictionaries::live_dictionary_of_board(conn, board_id)? {
+        Some((_, existing)) => Err(ItemError::DictionaryExists {
+            board: board_slug(conn, board_id)?,
+            existing,
+        }),
+        None => Ok(()),
+    }
+}
+
 /// Input for [`create_document`].
 #[derive(Debug, Clone)]
 pub struct CreateDocument<'a> {
@@ -1439,6 +1463,12 @@ pub fn create_document(
             ),
             None => None,
         };
+        if template
+            .as_ref()
+            .is_some_and(|t| t.slug == crate::dictionaries::DICTIONARY_TEMPLATE_SLUG)
+        {
+            refuse_second_dictionary(conn, board_id)?;
+        }
         let content = input
             .content
             .unwrap_or_else(|| template.as_ref().map_or("", |t| t.content.as_str()));
@@ -1692,6 +1722,14 @@ fn write_content(
                 let names = kairos_core::notifications::new_mentions(&before, update.new_content);
                 crate::notifications::on_mentions(conn, item_id, &names, actor)?;
             }
+            // KAIROS-T-0736: the watchers of the item.
+            crate::watches::on_watched(
+                conn,
+                item_id,
+                kairos_core::notifications::WatchEvent::Edited,
+                None,
+                actor,
+            )?;
             // KAIROS-T-0022: thin event, delivered on commit.
             events::emit_item_event_by_id(
                 conn,
@@ -2427,6 +2465,26 @@ fn restore_blockers(
             if column_live.is_none() {
                 missing.push("its board column (removed)".to_string());
             }
+        }
+    }
+
+    // KAIROS-T-0733: a board has one live dictionary. An archived
+    // dictionary does not come back next to a live one.
+    if item_type == ItemType::Document
+        && crate::dictionaries::is_dictionary_document(conn, item_id)?
+    {
+        use crate::schema::documents;
+        let board_id: Uuid = documents::table
+            .filter(documents::id.eq(item_id))
+            .select(documents::board_id)
+            .first(conn)?;
+        if let Some((_, existing)) = crate::dictionaries::live_dictionary_of_board(conn, board_id)?
+        {
+            missing.push(format!(
+                "a board with no dictionary (the board {} has the dictionary {existing}, and \
+                 a board has one dictionary)",
+                board_slug(conn, board_id)?
+            ));
         }
     }
 

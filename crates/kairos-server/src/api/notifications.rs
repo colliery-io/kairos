@@ -16,8 +16,8 @@ use axum::extract::{Extension, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use kairos_client::types_notifications::{
-    MarkNotificationsReadRequest, MarkNotificationsReadResponse, Notification, NotificationList,
-    NotificationSettings, UpdateNotificationSettingsRequest,
+    MarkNotificationsReadRequest, MarkNotificationsReadResponse, MutedKey, Notification,
+    NotificationList, NotificationSettings, UpdateNotificationSettingsRequest,
 };
 use kairos_core::notifications::NotificationKind;
 use kairos_db::notifications::{Mark, Reader};
@@ -215,6 +215,8 @@ fn notification_view(n: kairos_db::notifications::Notification) -> Notification 
         read_at: n
             .read_at
             .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        agent_key_id: n.agent_key_id.map(|id| id.to_string()),
+        agent_key_name: n.agent_key_name,
     }
 }
 
@@ -322,7 +324,10 @@ pub(crate) fn require_person(
     ))
 }
 
-fn settings_view(settings: &BTreeMap<NotificationKind, bool>) -> NotificationSettings {
+fn settings_view(
+    settings: &BTreeMap<NotificationKind, bool>,
+    muted: Vec<kairos_db::notices::MutedKey>,
+) -> NotificationSettings {
     let on = |kind| settings.get(&kind).copied().unwrap_or(true);
     NotificationSettings {
         hand_off: on(NotificationKind::HandOff),
@@ -338,7 +343,56 @@ fn settings_view(settings: &BTreeMap<NotificationKind, bool>) -> NotificationSet
         claim_stale: on(NotificationKind::ClaimStale),
         key_expiring: on(NotificationKind::KeyExpiring),
         proposal_decided: on(NotificationKind::ProposalDecided),
+        notice: on(NotificationKind::Notice),
+        muted_keys: muted
+            .into_iter()
+            .map(|k| MutedKey {
+                id: k.id.to_string(),
+                name: k.name,
+                prefix: k.prefix,
+                owner_id: k.owner_id.to_string(),
+                owner_name: k.owner_name,
+            })
+            .collect(),
     }
+}
+
+/// The settings and the muted keys of `user`.
+fn settings_of(
+    conn: &mut diesel::pg::PgConnection,
+    user: Uuid,
+) -> Result<NotificationSettings, ApiError> {
+    let settings = kairos_db::notifications::settings(conn, user).map_err(ApiError::internal)?;
+    let muted = kairos_db::notices::muted_keys(conn, user).map_err(ApiError::internal)?;
+    Ok(settings_view(&settings, muted))
+}
+
+/// Parse the ids of agent keys of `field` (KAIROS-T-0737). An id that is
+/// not a UUID, or not an agent key of a person, is refused and named.
+fn agent_key_ids(
+    conn: &mut diesel::pg::PgConnection,
+    ids: &[String],
+    field: &str,
+) -> Result<Vec<Uuid>, ApiError> {
+    let mut parsed = Vec::with_capacity(ids.len());
+    let mut bad = Vec::new();
+    for id in ids {
+        match Uuid::parse_str(id.trim()) {
+            Ok(uuid) => parsed.push(uuid),
+            Err(_) => bad.push(id.clone()),
+        }
+    }
+    let unknown = kairos_db::notices::not_agent_keys(conn, &parsed).map_err(ApiError::internal)?;
+    bad.extend(unknown.iter().map(Uuid::to_string));
+    if !bad.is_empty() {
+        return Err(ApiError::not_found(format!(
+            "No agent key has the id {}. Kairos changed nothing. A notification of a notice \
+             from an agent key gives the id of the key (`agent_key_id`).",
+            bad.join(", ")
+        ))
+        .with_details(serde_json::json!({ "field": field })));
+    }
+    Ok(parsed)
 }
 
 /// The caller's notification settings: each kind, and whether it is on.
@@ -361,14 +415,15 @@ pub(crate) async fn get_notification_settings(
         .blocking
         .run(&tenant.slug, move |conn| {
             require_person(conn, user)?;
-            kairos_db::notifications::settings(conn, user).map_err(ApiError::internal)
+            settings_of(conn, user)
         })
         .await?;
-    Ok(Json(settings_view(&settings)))
+    Ok(Json(settings))
 }
 
-/// Turn kinds of notification on or off for the caller. A kind that is not
-/// in the body does not change. Kairos refuses a body with no kind.
+/// Turn kinds of notification on or off for the caller, and mute or unmute
+/// agent keys (KAIROS-T-0737). A kind that is not in the body does not
+/// change. Kairos refuses a body with no kind and no key.
 #[utoipa::path(
     put,
     path = "/api/me/notification-settings",
@@ -377,7 +432,8 @@ pub(crate) async fn get_notification_settings(
     responses(
         (status = 200, description = "The settings after the change", body = NotificationSettings),
         (status = 403, description = "The caller is a service account", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "The body names no kind", body = kairos_client::types::ErrorEnvelope),
+        (status = 404, description = "An id of `mute_keys` or `unmute_keys` is not an agent key", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "The body names no kind and no key, or a key is in `mute_keys` and `unmute_keys`", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn update_notification_settings(
@@ -400,16 +456,25 @@ pub(crate) async fn update_notification_settings(
         (NotificationKind::ClaimStale, body.claim_stale),
         (NotificationKind::KeyExpiring, body.key_expiring),
         (NotificationKind::ProposalDecided, body.proposal_decided),
+        (NotificationKind::Notice, body.notice),
     ]
     .into_iter()
     .filter_map(|(kind, value)| value.map(|v| (kind, v)))
     .collect();
-    if changes.is_empty() {
+    let mute = body.mute_keys.unwrap_or_default();
+    let unmute = body.unmute_keys.unwrap_or_default();
+    if let Some(both) = mute.iter().find(|id| unmute.contains(id)) {
+        return Err(ApiError::validation(format!(
+            "The key {both} is in `mute_keys` and in `unmute_keys`. Send it in one of them."
+        ))
+        .with_details(serde_json::json!({ "field": "mute_keys" })));
+    }
+    if changes.is_empty() && mute.is_empty() && unmute.is_empty() {
         return Err(ApiError::validation(
             "The body names no kind. Send one or more kinds, each with true or false. The \
              kinds: hand_off, blocker_cleared, blocked_again, cancelled, blocker_cancelled, \
              mention, p0_bug, delivery_failing, agent_key_revoked, claim_dropped, claim_stale, \
-             key_expiring, proposal_decided.",
+             key_expiring, proposal_decided, notice. Or send mute_keys or unmute_keys.",
         )
         .with_details(serde_json::json!({
             "field": "hand_off",
@@ -427,6 +492,9 @@ pub(crate) async fn update_notification_settings(
                 "claim_stale",
                 "key_expiring",
                 "proposal_decided",
+                "notice",
+                "mute_keys",
+                "unmute_keys",
             ],
         })));
     }
@@ -435,8 +503,16 @@ pub(crate) async fn update_notification_settings(
         .blocking
         .run(&tenant.slug, move |conn| {
             require_person(conn, user)?;
-            kairos_db::notifications::set_settings(conn, user, &changes).map_err(ApiError::internal)
+            crate::api::atomically(conn, |conn| {
+                let mute = agent_key_ids(conn, &mute, "mute_keys")?;
+                let unmute = agent_key_ids(conn, &unmute, "unmute_keys")?;
+                kairos_db::notifications::set_settings(conn, user, &changes)
+                    .map_err(ApiError::internal)?;
+                kairos_db::notices::set_mutes(conn, user, &mute, &unmute)
+                    .map_err(ApiError::internal)?;
+                settings_of(conn, user)
+            })
         })
         .await?;
-    Ok(Json(settings_view(&settings)))
+    Ok(Json(settings))
 }

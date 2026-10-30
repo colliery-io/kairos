@@ -24,6 +24,9 @@ You get a notification when one of these events occurs:
   time for each key.
 - A person confirms or rejects an edge proposal that you made. The text
   names the edge and the state.
+- A person, or an agent key of a person, sends you a notice: to you, or to
+  a team of yours. The text names the sender, and the key when an agent
+  sent it.
 
 You get no notification for a change that you made.
 
@@ -78,6 +81,30 @@ notifications older than `<id>`. `?read_before=<id>` gives the read
 notifications that you read before `<id>`, 100 at most.
 
 You can do the same with REST: `GET` and `PUT /api/me/notification-settings`.
+
+## Notices
+
+A notice is a short text from a person or from an agent key, with an
+optional item link. A notice from an agent key shows the label
+`Agent key <name>` in the list.
+
+To send a notice, use `POST /api/notices` with `to` (a person) or `team`
+(a team), `text`, and an optional `short_code`. An agent uses the MCP tool
+`send_notice`.
+
+To stop the notices of one agent key:
+
+1. In the list, find a notice from the key.
+2. Click **Mute this key**.
+
+A notice from a muted key makes no notification for you. The mute also
+applies to a key that replaces the muted key by a rotation. To unmute the key, open
+`/notifications`, find the key under **Muted agent keys**, and click
+**Unmute**. With REST, send `mute_keys` or `unmute_keys` (the ids of the
+keys) in `PUT /api/me/notification-settings`.
+
+Each agent key can send 20 notices in one hour. The operator can change the
+limit: see [Configuration](../../reference/configuration/#notices).
 
 ## How long a notification stays
 

@@ -288,6 +288,14 @@ The keys that exist keep their expiry: the setting applies to new keys. See
 A server with `KAIROS_ROLE=worker` does not run the pass. See
 [Teams and boards](../../explanation/teams-and-boards/#who-works-on-a-task-the-claim).
 
+### Notices
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `KAIROS_NOTICE_LIMIT_PER_HOUR` | integer | `20` | The notices that one agent key can send in one hour. A person with no key counts as one sender. A rotated key keeps the count of the keys that it replaced. A notice to a team counts as one. Kairos refuses the next notice with 429 `RATE_LIMITED`. `0` turns the limit off. The value applies to each tenant of the deployment. |
+
+See [Read your notifications](../../how-to/read-your-notifications/#notices).
+
 ### Security headers
 
 The server sends these headers on each response:

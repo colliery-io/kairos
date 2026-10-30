@@ -219,6 +219,8 @@ mod tests {
             actor_id: None,
             created_at: "2026-10-18T10:00:00Z".into(),
             read_at: read.then(|| "2026-10-18T11:00:00Z".to_string()),
+            agent_key_id: None,
+            agent_key_name: None,
         }
     }
 

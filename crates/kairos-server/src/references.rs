@@ -154,7 +154,7 @@ mod tests {
         ("user", &[], "person", &["me", "id", "email", "user name"]),
         (
             "to",
-            &["hand_off_item"],
+            &["hand_off_item", "send_notice"],
             "person",
             &["me", "id", "email", "user name"],
         ),

@@ -61,6 +61,7 @@ pub const TOOLS: &[(&str, ToolKind)] = &[
     // The writes of decision 7 of KAIROS-A-0065: they take a request_key.
     ("create_item", KEYED),
     ("append_note", KEYED),
+    ("send_notice", KEYED),
     ("link_items", KEYED),
     ("propose_edge", KEYED),
     ("promote_note", KEYED),

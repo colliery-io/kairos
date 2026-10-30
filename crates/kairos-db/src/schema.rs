@@ -503,6 +503,28 @@ diesel::table! {
 }
 
 diesel::table! {
+    notice_mutes (user_id, api_key_id) {
+        user_id -> Uuid,
+        api_key_id -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    notices (id) {
+        id -> Uuid,
+        sender_id -> Uuid,
+        agent_key_id -> Nullable<Uuid>,
+        to_user_id -> Nullable<Uuid>,
+        to_team_id -> Nullable<Uuid>,
+        item_id -> Nullable<Uuid>,
+        text -> Text,
+        told -> Int4,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     notification_settings (user_id, kind) {
         user_id -> Uuid,
         kind -> Text,
@@ -520,6 +542,7 @@ diesel::table! {
         actor_id -> Nullable<Uuid>,
         created_at -> Timestamptz,
         read_at -> Nullable<Timestamptz>,
+        agent_key_id -> Nullable<Uuid>,
     }
 }
 
@@ -829,6 +852,9 @@ diesel::joinable!(board_columns -> boards (board_id));
 diesel::joinable!(board_member_capabilities -> boards (board_id));
 diesel::joinable!(board_transitions -> boards (board_id));
 diesel::joinable!(boards -> teams (team_id));
+diesel::joinable!(notice_mutes -> api_keys (api_key_id));
+diesel::joinable!(notices -> api_keys (agent_key_id));
+diesel::joinable!(notices -> teams (to_team_id));
 diesel::joinable!(documents -> boards (board_id));
 diesel::joinable!(documents -> templates (template_id));
 diesel::joinable!(forge_connections -> repositories (repository_id));
@@ -899,6 +925,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     metadata_definition_scopes,
     metadata_definitions,
     metadata_enum_options,
+    notice_mutes,
+    notices,
     notification_settings,
     notifications,
     org_read_tokens,

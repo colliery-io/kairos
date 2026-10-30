@@ -104,6 +104,13 @@ pub struct Notification {
     pub created_at: DateTime<Utc>,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub read_at: Option<DateTime<Utc>>,
+    /// The agent key that made the notification (KAIROS-T-0737): a notice
+    /// from an agent. `None`: a person, or Kairos.
+    #[diesel(sql_type = Nullable<SqlUuid>)]
+    pub agent_key_id: Option<Uuid>,
+    /// The name of that agent key.
+    #[diesel(sql_type = Nullable<Text>)]
+    pub agent_key_name: Option<String>,
 }
 
 /// [`unread`]: the newest unread notifications, and whether there are more
@@ -133,21 +140,50 @@ pub fn notify(
     text: &str,
     actor: Uuid,
 ) -> Result<Vec<Uuid>, DieselError> {
+    notify_from(conn, recipients, kind, item, text, actor, None)
+}
+
+/// The agent key that makes a notification (KAIROS-T-0737).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FromKey {
+    /// The key of the request.
+    pub id: Uuid,
+    /// The key, and each key that it replaced by a rotation. A person who
+    /// muted one of them gets nothing.
+    pub chain: Vec<Uuid>,
+}
+
+/// [`notify`], made by the agent key `from` (KAIROS-T-0737). The row names
+/// the key. The person of the key (the actor) can get it: an agent can
+/// tell its own person. A person who muted the key, or a key that it
+/// replaced, gets nothing.
+pub(crate) fn notify_from(
+    conn: &mut PgConnection,
+    recipients: &[Uuid],
+    kind: NotificationKind,
+    item: Option<(Uuid, &str)>,
+    text: &str,
+    actor: Uuid,
+    from: Option<&FromKey>,
+) -> Result<Vec<Uuid>, DieselError> {
     if recipients.is_empty() || text.trim().is_empty() {
         return Ok(Vec::new());
     }
+    let chain: Vec<Uuid> = from.map(|k| k.chain.clone()).unwrap_or_default();
     let told: Vec<Recipient> = sql_query(
-        "INSERT INTO notifications (user_id, kind, item_id, text, actor_id) \
-         SELECT DISTINCT u.id, $2, $3, $4, NULLIF($5, '00000000-0000-0000-0000-000000000000'::uuid) \
+        "INSERT INTO notifications (user_id, kind, item_id, text, actor_id, agent_key_id) \
+         SELECT DISTINCT u.id, $2, $3, $4, NULLIF($5, '00000000-0000-0000-0000-000000000000'::uuid), $6 \
            FROM public.users u \
            JOIN public.organization_members m ON m.user_id = u.id \
            JOIN public.organizations o ON o.id = m.organization_id \
           WHERE u.id = ANY($1) \
             AND u.kind = 'human' \
-            AND u.id <> $5 \
+            AND ($6::uuid IS NOT NULL OR u.id <> $5) \
             AND 'org_' || o.slug = current_schema() \
             AND NOT EXISTS (SELECT 1 FROM notification_settings s \
                              WHERE s.user_id = u.id AND s.kind = $2 AND NOT s.enabled) \
+            AND NOT EXISTS (SELECT 1 FROM notice_mutes nm \
+                             WHERE nm.user_id = u.id AND nm.api_key_id = ANY($7)) \
          RETURNING user_id",
     )
     .bind::<Array<SqlUuid>, _>(recipients)
@@ -155,6 +191,8 @@ pub fn notify(
     .bind::<Nullable<SqlUuid>, _>(item.map(|(id, _)| id))
     .bind::<Text, _>(text.trim())
     .bind::<SqlUuid, _>(actor)
+    .bind::<Nullable<SqlUuid>, _>(from.map(|k| k.id))
+    .bind::<Array<SqlUuid>, _>(&chain)
     .load(conn)?;
     let short_code = item.map_or("", |(_, code)| code);
     let mut users: Vec<Uuid> = told.into_iter().map(|r| r.user_id).collect();
@@ -171,7 +209,7 @@ pub fn notify(
 }
 
 /// The display name of a user, or the id when the user has no name.
-fn name_of(conn: &mut PgConnection, user: Uuid) -> Result<String, DieselError> {
+pub(crate) fn name_of(conn: &mut PgConnection, user: Uuid) -> Result<String, DieselError> {
     use crate::schema::users;
     let name: Option<String> = users::table
         .filter(users::id.eq(user))
@@ -962,6 +1000,16 @@ impl Reader {
         self.key.is_some()
     }
 
+    /// The agent key of the reader as the maker of a notification
+    /// (KAIROS-T-0737): the key and the keys that it replaced. `None` for
+    /// the person.
+    pub fn from_key(&self) -> Option<FromKey> {
+        self.key.as_ref().map(|k| FromKey {
+            id: k.id,
+            chain: k.ids.clone(),
+        })
+    }
+
     fn key_ids(&self) -> Vec<Uuid> {
         self.key.as_ref().map(|k| k.ids.clone()).unwrap_or_default()
     }
@@ -976,7 +1024,7 @@ impl Reader {
 /// person, `$2` the ids of the key chain (empty for the person), `$3` the
 /// time of the first key of the chain (NULL for the person).
 const READER_VIEW: &str = "WITH v AS ( \
-     SELECT n.id, n.kind, n.item_id, n.text, n.actor_id, n.created_at, \
+     SELECT n.id, n.kind, n.item_id, n.text, n.actor_id, n.agent_key_id, n.created_at, \
             CASE WHEN $3::timestamptz IS NULL THEN n.read_at ELSE COALESCE( \
                 (SELECT min(r.read_at) FROM notification_reads r \
                   WHERE r.notification_id = n.id AND r.api_key_id = ANY($2)), \
@@ -985,8 +1033,10 @@ const READER_VIEW: &str = "WITH v AS ( \
 
 /// The columns of [`Notification`] from the view `v` of [`READER_VIEW`].
 const SELECT_VIEW: &str = "SELECT v.id, v.kind, v.item_id, d.short_code, d.entity_type, \
-     d.title, v.text, v.actor_id, v.created_at, v.read_at \
-     FROM v LEFT JOIN entity_directory d ON d.id = v.item_id";
+     d.title, v.text, v.actor_id, v.created_at, v.read_at, v.agent_key_id, \
+     k.name AS agent_key_name \
+     FROM v LEFT JOIN entity_directory d ON d.id = v.item_id \
+     LEFT JOIN api_keys k ON k.id = v.agent_key_id";
 
 /// The newest `limit` unread notifications of the reader, and whether there
 /// are more. One query.
@@ -1001,8 +1051,10 @@ pub fn unread(conn: &mut PgConnection, reader: &Reader, limit: i64) -> Result<Un
              SELECT * FROM v WHERE v.read_at IS NULL \
               ORDER BY v.created_at DESC, v.id DESC LIMIT $4) \
          SELECT u.id, u.kind, u.item_id, d.short_code, d.entity_type, d.title, \
-                u.text, u.actor_id, u.created_at, u.read_at \
+                u.text, u.actor_id, u.created_at, u.read_at, u.agent_key_id, \
+                k.name AS agent_key_name \
            FROM u LEFT JOIN entity_directory d ON d.id = u.item_id \
+           LEFT JOIN api_keys k ON k.id = u.agent_key_id \
           ORDER BY u.created_at DESC, u.id DESC"
     ))
     .bind::<SqlUuid, _>(reader.user)

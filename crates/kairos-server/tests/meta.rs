@@ -41,7 +41,7 @@ use kairos_client::types::{
 use kairos_client::types_meta::{
     ActivityQuery, CreateMetadataDefinitionRequest, CreateRelationshipRequest,
     CreateTemplateRequest, ItemMetadataResponse, MetadataValue, RelationshipGroup,
-    TemplateMetadataEntry, UpdateMetadataDefinitionRequest, UpdateMetadataRequest,
+    TemplateMetadataEntry, TemplateSection, UpdateMetadataDefinitionRequest, UpdateMetadataRequest,
     UpdateTemplateRequest,
 };
 use kairos_client::{EntityKind, Error};
@@ -1119,6 +1119,17 @@ async fn meta_endpoints_against_live_stack() {
             default_value: Some("high".into()),
             required: true,
         }],
+        // KAIROS-T-0729: typed sections, in the order sent.
+        sections: vec![
+            TemplateSection {
+                heading: "Steps".into(),
+                section_type: "plain".into(),
+            },
+            TemplateSection {
+                heading: " Rollback ".into(),
+                section_type: "free".into(),
+            },
+        ],
     };
     let err = rejection(alice.create_template(&runbook_request).await);
     assert!(matches!(err, Error::Forbidden { .. }), "{err}");
@@ -1130,6 +1141,64 @@ async fn meta_endpoints_against_live_stack() {
     assert_eq!(runbook.metadata[0].slug, "priority");
     assert_eq!(runbook.metadata[0].default_value.as_deref(), Some("high"));
     assert!(runbook.metadata[0].required);
+    let sections = |detail: &kairos_client::types_meta::TemplateDetail| {
+        detail
+            .sections
+            .iter()
+            .map(|s| (s.heading.clone(), s.section_type.clone()))
+            .collect::<Vec<_>>()
+    };
+    let expected = vec![
+        ("Steps".to_string(), "plain".to_string()),
+        ("Rollback".to_string(), "free".to_string()),
+    ];
+    assert_eq!(sections(&runbook), expected);
+    let read = bob
+        .get_template("runbook")
+        .await
+        .expect("reading runbook template");
+    assert_eq!(sections(&read), expected);
+
+    // KAIROS-T-0729: an unknown section type is refused and named.
+    let err = rejection(
+        svc.create_template(&CreateTemplateRequest {
+            name: "Bad".into(),
+            slug: "bad-section".into(),
+            content: String::new(),
+            metadata: Vec::new(),
+            sections: vec![TemplateSection {
+                heading: "Criteria".into(),
+                section_type: "ace".into(),
+            }],
+        })
+        .await,
+    );
+    assert!(
+        matches!(err, Error::Validation { status: 422, .. }),
+        "{err}"
+    );
+    assert!(err.to_string().contains("\"ace\""), "{err}");
+    assert!(
+        matches!(&err, Error::Validation { field: Some(f), .. } if f == "sections[0].type"),
+        "{err:?}"
+    );
+    let err = rejection(
+        svc.create_template(&CreateTemplateRequest {
+            name: "Bad".into(),
+            slug: "bad-heading".into(),
+            content: String::new(),
+            metadata: Vec::new(),
+            sections: vec![TemplateSection {
+                heading: "## Criteria".into(),
+                section_type: "free".into(),
+            }],
+        })
+        .await,
+    );
+    assert!(
+        matches!(err, Error::Validation { status: 422, .. }),
+        "{err}"
+    );
 
     // Invalid default value / unknown definition slug -> 422.
     let err = rejection(
@@ -1142,6 +1211,7 @@ async fn meta_endpoints_against_live_stack() {
                 default_value: Some("urgent".into()),
                 required: false,
             }],
+            sections: Vec::new(),
         })
         .await,
     );
@@ -1159,6 +1229,7 @@ async fn meta_endpoints_against_live_stack() {
                 default_value: None,
                 required: false,
             }],
+            sections: Vec::new(),
         })
         .await,
     );
@@ -1201,12 +1272,36 @@ async fn meta_endpoints_against_live_stack() {
                 slug: None,
                 content: Some("# Runbook v2\n".into()),
                 metadata: None,
+                sections: None,
             },
         )
         .await
         .expect("updating runbook template");
     assert_eq!(body.content, "# Runbook v2\n");
     assert_eq!(body.metadata[0].slug, "priority");
+    assert_eq!(sections(&body), expected, "sections: None keeps the list");
+
+    // KAIROS-T-0729: `sections` replaces the list.
+    let body = svc
+        .update_template(
+            "runbook",
+            &UpdateTemplateRequest {
+                name: None,
+                slug: None,
+                content: None,
+                metadata: None,
+                sections: Some(vec![TemplateSection {
+                    heading: "Checks".into(),
+                    section_type: "free".into(),
+                }]),
+            },
+        )
+        .await
+        .expect("replacing the runbook sections");
+    assert_eq!(
+        sections(&body),
+        vec![("Checks".to_string(), "free".to_string())]
+    );
 
     // DELETE is a hard delete; stamped documents keep their content and
     // metadata, template_id goes NULL (DDL SET NULL).

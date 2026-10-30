@@ -812,6 +812,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    template_sections (id) {
+        id -> Uuid,
+        template_id -> Uuid,
+        heading -> Text,
+        section_type -> Text,
+        position -> Int4,
+    }
+}
+
+diesel::table! {
     templates (id) {
         id -> Uuid,
         name -> Text,
@@ -864,6 +874,7 @@ diesel::joinable!(site_files -> site_publishes (publish_id));
 diesel::joinable!(team_pages -> teams (team_id));
 diesel::joinable!(template_metadata -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(template_metadata -> templates (template_id));
+diesel::joinable!(template_sections -> templates (template_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     activity_log,
@@ -924,6 +935,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     team_pages,
     teams,
     template_metadata,
+    template_sections,
     templates,
 );
 

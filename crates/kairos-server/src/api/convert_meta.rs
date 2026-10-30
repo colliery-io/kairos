@@ -126,6 +126,7 @@ pub fn definition_dto(
 pub fn template_detail_dto(
     template: Template,
     metadata: Vec<dto::TemplateMetadataField>,
+    sections: Vec<dto::TemplateSection>,
 ) -> dto::TemplateDetail {
     dto::TemplateDetail {
         id: template.id.to_string(),
@@ -134,6 +135,7 @@ pub fn template_detail_dto(
         content: template.content,
         is_system_default: template.is_system_default,
         metadata,
+        sections,
         created_at: timestamp(template.created_at),
         updated_at: timestamp(template.updated_at),
     }

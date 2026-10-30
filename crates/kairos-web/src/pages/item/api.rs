@@ -201,6 +201,42 @@ pub struct ItemDetail {
     /// (`None`): the page keeps the notes that it shows.
     #[serde(default)]
     pub notes: Option<Vec<Note>>,
+    /// The stored check of the typed sections of a document
+    /// (KAIROS-T-0731). `None` for a document with no typed section, for
+    /// the other families, and from an older server.
+    #[serde(default)]
+    pub section_check: Option<SectionCheck>,
+}
+
+/// mirror of: `kairos_client::types::SectionCheck` (partial: the page
+/// reads no version and no time).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SectionCheck {
+    pub passes: bool,
+    pub violations: i32,
+    #[serde(default)]
+    pub stale: bool,
+    #[serde(default)]
+    pub sections: Vec<SectionCheckFailure>,
+}
+
+/// mirror of: `kairos_client::types::SectionCheckFailure`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SectionCheckFailure {
+    pub heading: String,
+    #[serde(rename = "type")]
+    pub section_type: String,
+    pub problem: String,
+    #[serde(default)]
+    pub violations: Vec<SectionCheckViolation>,
+}
+
+/// mirror of: `kairos_client::types::SectionCheckViolation`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SectionCheckViolation {
+    pub rule: String,
+    pub text: String,
+    pub fix: String,
 }
 
 /// mirror of: `kairos_client::types::ItemNote` (KAIROS-T-0630).
@@ -1096,46 +1132,50 @@ pub async fn fetch_item_teams(
     crate::api::get_json(auth, &format!("/api/{}/{code}/teams", family.api_family())).await
 }
 
-/// mirror of: `kairos_client::types_team_pages::TeamDictionary` (partial,
-/// KAIROS-T-0734). The page links these terms in the content of an item.
+/// mirror of: `kairos_client::types_org::OrganizationDictionary` (partial,
+/// KAIROS-T-0734, KAIROS-A-0079). The page links these terms in the content
+/// and the notes of an item.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
-pub struct TeamDictionary {
+pub struct OrganizationDictionary {
+    /// The short code of the dictionary document; `None` with no dictionary.
+    #[serde(default)]
+    pub short_code: Option<String>,
     #[serde(default)]
     pub terms: Vec<DictionaryTerm>,
 }
 
-/// mirror of: `kairos_client::types_team_pages::DictionaryTerm` (partial).
+/// mirror of: `kairos_client::types_org::DictionaryTerm`.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct DictionaryTerm {
     pub word: String,
     #[serde(default)]
     pub part_of_speech: String,
     pub meaning: String,
-    /// The short code of the dictionary that gives the term.
-    #[serde(default)]
-    pub document: String,
 }
 
-impl TeamDictionary {
-    /// The terms for the markdown renderer: each links to the dictionary
-    /// that gives it.
+impl OrganizationDictionary {
+    /// The terms for the markdown renderer: each links to the dictionary.
     pub fn links(&self) -> Vec<kairos_markdown::TermLink> {
+        let href = self
+            .short_code
+            .as_ref()
+            .map(|code| format!("/items/{code}"));
         self.terms
             .iter()
             .map(|term| kairos_markdown::TermLink {
                 word: term.word.clone(),
                 part_of_speech: term.part_of_speech.clone(),
                 meaning: term.meaning.clone(),
-                href: (!term.document.is_empty()).then(|| format!("/items/{}", term.document)),
+                href: href.clone(),
             })
             .collect()
     }
 }
 
-/// `GET /api/teams/{id}/dictionary` — the terms of the team, over the
-/// terms of the organization (KAIROS-T-0734).
-pub async fn fetch_team_dictionary(auth: Auth, team: &str) -> Result<TeamDictionary, ApiError> {
-    crate::api::get_json(auth, &format!("/api/teams/{team}/dictionary")).await
+/// `GET /api/org/dictionary` — the dictionary of the organization
+/// (KAIROS-T-0734, KAIROS-A-0079).
+pub async fn fetch_organization_dictionary(auth: Auth) -> Result<OrganizationDictionary, ApiError> {
+    crate::api::get_json(auth, "/api/org/dictionary").await
 }
 
 /// Body of `POST /api/{family}/{short_code}/teams` (mirror of:
@@ -1623,28 +1663,36 @@ mod tests {
     /// control reads (KAIROS-T-0075) — flattened board fields, columns,
     /// transitions.
     /// KAIROS-T-0734: the dictionary mirror decodes the server shape, and
-    /// each term links to its dictionary.
+    /// each term links to the dictionary of the organization.
     #[test]
-    fn dictionary_mirror_decodes_and_links_each_term_to_its_dictionary() {
+    fn dictionary_mirror_decodes_and_links_each_term_to_the_dictionary() {
         let body = serde_json::json!({
-            "organization": "ACME-D-0001", "team": "ACME-D-0002",
+            "short_code": "ACME-D-0001",
             "terms": [
                 {"word": "board", "part_of_speech": "noun",
-                 "meaning": "A set of columns.", "layer": "organization",
-                 "document": "ACME-D-0001"},
+                 "meaning": "A set of columns."},
                 {"word": "lane", "part_of_speech": "noun",
-                 "meaning": "A kind of work.", "layer": "team",
-                 "document": "ACME-D-0002"}
+                 "meaning": "A kind of work."}
             ],
-            "problems": [{"document": "ACME-D-0002", "line": 7, "message": "x"}]
+            "problems": [{"line": 7, "message": "x"}]
         });
-        let dictionary: TeamDictionary = serde_json::from_value(body).expect("mirror decodes");
+        let dictionary: OrganizationDictionary =
+            serde_json::from_value(body).expect("mirror decodes");
         let links = dictionary.links();
         assert_eq!(links.len(), 2);
         assert_eq!(links[0].word, "board");
         assert_eq!(links[0].href.as_deref(), Some("/items/ACME-D-0001"));
-        assert_eq!(links[1].href.as_deref(), Some("/items/ACME-D-0002"));
+        assert_eq!(links[1].href.as_deref(), Some("/items/ACME-D-0001"));
         assert_eq!(links[1].meaning, "A kind of work.");
+    }
+
+    /// With no dictionary, the organization has no terms: no links.
+    #[test]
+    fn no_dictionary_gives_no_links() {
+        let body = serde_json::json!({"short_code": null, "terms": [], "problems": []});
+        let dictionary: OrganizationDictionary =
+            serde_json::from_value(body).expect("mirror decodes");
+        assert!(dictionary.links().is_empty());
     }
 
     #[test]

@@ -56,6 +56,8 @@ mod request_key;
 pub(crate) use request_key::reused as request_key_reused;
 mod service;
 mod tools;
+// KAIROS-T-0730: the check of the typed sections on an MCP write.
+mod typed_sections;
 
 use axum::extract::{Request, State};
 use axum::http::header::{HOST, WWW_AUTHENTICATE};

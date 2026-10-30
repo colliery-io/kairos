@@ -142,14 +142,22 @@ pub enum ItemError {
     /// No live repository with this id (KAIROS-T-0103).
     #[error("The repository {0} does not exist.")]
     RepositoryNotFound(Uuid),
-    /// The board owns a live dictionary already, and the write would give
-    /// it a second one (KAIROS-T-0733). `board` is the slug of the board,
-    /// `existing` the code of its dictionary.
+    /// The board `strategy` owns a live dictionary already, and the write
+    /// would give it a second one (KAIROS-T-0733, KAIROS-A-0079). `board`
+    /// is the slug of the board, `existing` the code of its dictionary.
     #[error(
-        "The board {board} has the dictionary {existing} already. A board has one dictionary. \
-         Edit {existing}."
+        "The board {board} has the dictionary {existing} already. An organization has one \
+         dictionary. Edit {existing}."
     )]
     DictionaryExists { board: String, existing: String },
+    /// A dictionary on a board that is not the board `strategy`
+    /// (KAIROS-A-0079): an organization has one dictionary, and the board
+    /// `strategy` owns it. `board` is the slug of the board of the write.
+    #[error(
+        "A dictionary can be only on the board strategy. The board {board} is not the board \
+         strategy. Put the dictionary on the board strategy."
+    )]
+    DictionaryNotOnStrategy { board: String },
     /// Any other database error.
     #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
@@ -1334,8 +1342,10 @@ pub fn set_document_board(
             });
         }
         require_live_board(conn, board_id)?;
+        // KAIROS-A-0079: a dictionary stays on the board `strategy`, so a
+        // move of a dictionary is refused (the board is not `strategy`).
         if crate::dictionaries::is_dictionary_document(conn, document_id)? {
-            refuse_second_dictionary(conn, board_id)?;
+            refuse_dictionary_board(conn, board_id)?;
         }
         let updated: Document = diesel::update(dsl::documents.filter(dsl::id.eq(document_id)))
             .set((
@@ -1345,6 +1355,13 @@ pub fn set_document_board(
             ))
             .returning(Document::as_returning())
             .get_result(conn)?;
+        // KAIROS-T-0731: the check of the document, as for each write.
+        crate::section_checks::on_document_write(
+            conn,
+            document_id,
+            updated.version,
+            &updated.content,
+        )?;
         let details = format!(
             "owner_board:{}->{}",
             board_slug(conn, from)?,
@@ -1403,15 +1420,18 @@ fn board_slug(conn: &mut PgConnection, board_id: Uuid) -> Result<String, DieselE
     Ok(slug.unwrap_or_else(|| board_id.to_string()))
 }
 
-/// [`ItemError::DictionaryExists`] when `board_id` owns a live dictionary
-/// (KAIROS-T-0733). Locks the row of the board to the end of the
-/// transaction.
-fn refuse_second_dictionary(conn: &mut PgConnection, board_id: Uuid) -> Result<(), ItemError> {
+/// The checks of a dictionary on `board_id`, a live board:
+/// [`ItemError::DictionaryNotOnStrategy`] when it is not the board
+/// `strategy` (KAIROS-A-0079), and [`ItemError::DictionaryExists`] when it
+/// owns a live dictionary already (KAIROS-T-0733). Locks the row of the
+/// board to the end of the transaction.
+fn refuse_dictionary_board(conn: &mut PgConnection, board_id: Uuid) -> Result<(), ItemError> {
+    let board = board_slug(conn, board_id)?;
+    if board != crate::dictionaries::ORGANIZATION_BOARD_SLUG {
+        return Err(ItemError::DictionaryNotOnStrategy { board });
+    }
     match crate::dictionaries::live_dictionary_of_board(conn, board_id)? {
-        Some((_, existing)) => Err(ItemError::DictionaryExists {
-            board: board_slug(conn, board_id)?,
-            existing,
-        }),
+        Some((_, existing)) => Err(ItemError::DictionaryExists { board, existing }),
         None => Ok(()),
     }
 }
@@ -1467,7 +1487,7 @@ pub fn create_document(
             .as_ref()
             .is_some_and(|t| t.slug == crate::dictionaries::DICTIONARY_TEMPLATE_SLUG)
         {
-            refuse_second_dictionary(conn, board_id)?;
+            refuse_dictionary_board(conn, board_id)?;
         }
         let content = input
             .content
@@ -1523,6 +1543,13 @@ pub fn create_document(
             created.id,
             Some(board_id),
             &created.title,
+            &created.content,
+        )?;
+        // KAIROS-T-0731: the check of the typed sections of the template.
+        crate::section_checks::on_document_write(
+            conn,
+            created.id,
+            created.version,
             &created.content,
         )?;
         Ok(created)
@@ -1722,6 +1749,25 @@ fn write_content(
                 let names = kairos_core::notifications::new_mentions(&before, update.new_content);
                 crate::notifications::on_mentions(conn, item_id, &names, actor)?;
             }
+            // KAIROS-T-0731: the check of the typed sections of a
+            // document, on each write (REST and MCP). A task or another
+            // type has no template: no statement.
+            if item_type == ItemType::Document {
+                crate::section_checks::on_document_write(
+                    conn,
+                    item_id,
+                    new_version,
+                    update.new_content,
+                )?;
+            }
+            // KAIROS-T-0736: the watchers of the item.
+            crate::watches::on_watched(
+                conn,
+                item_id,
+                kairos_core::notifications::WatchEvent::Edited,
+                None,
+                actor,
+            )?;
             // KAIROS-T-0022: thin event, delivered on commit.
             events::emit_item_event_by_id(
                 conn,
@@ -2227,6 +2273,9 @@ fn soft_delete_planned(
         }
         // KAIROS-T-0359: an archived task has no claim.
         crate::task_claims::drop_claims(conn, &ids, actor, "archive")?;
+        // KAIROS-T-0731: an archived dictionary changes the checks of the
+        // typed sections that it applied to.
+        crate::section_checks::mark_dictionaries_stale(conn, &ids)?;
         // KAIROS-T-0381: an archived item no longer blocks.
         crate::notifications::on_blockers_cleared(
             conn,
@@ -2460,8 +2509,9 @@ fn restore_blockers(
         }
     }
 
-    // KAIROS-T-0733: a board has one live dictionary. An archived
-    // dictionary does not come back next to a live one.
+    // KAIROS-A-0079: a dictionary comes back only on the board
+    // `strategy`. KAIROS-T-0733: that board has one live dictionary, so an
+    // archived dictionary does not come back next to a live one.
     if item_type == ItemType::Document
         && crate::dictionaries::is_dictionary_document(conn, item_id)?
     {
@@ -2470,12 +2520,18 @@ fn restore_blockers(
             .filter(documents::id.eq(item_id))
             .select(documents::board_id)
             .first(conn)?;
-        if let Some((_, existing)) = crate::dictionaries::live_dictionary_of_board(conn, board_id)?
+        let board = board_slug(conn, board_id)?;
+        if board != crate::dictionaries::ORGANIZATION_BOARD_SLUG {
+            missing.push(format!(
+                "the board strategy (a dictionary can be only on the board strategy, and its \
+                 board {board} is not the board strategy)"
+            ));
+        } else if let Some((_, existing)) =
+            crate::dictionaries::live_dictionary_of_board(conn, board_id)?
         {
             missing.push(format!(
-                "a board with no dictionary (the board {} has the dictionary {existing}, and \
-                 a board has one dictionary)",
-                board_slug(conn, board_id)?
+                "a board with no dictionary (the board {board} has the dictionary {existing}, \
+                 and an organization has one dictionary)"
             ));
         }
     }
@@ -2575,6 +2631,11 @@ pub fn restore_item(
         }
 
         restore_row(conn, item_type, item_id, actor)?;
+        // KAIROS-T-0731: a restored dictionary changes the checks of the
+        // typed sections that it applies to.
+        if item_type == ItemType::Document {
+            crate::section_checks::mark_dictionaries_stale(conn, &[item_id])?;
+        }
 
         // Name the descendants still away, so "I restored it and half of it
         // is missing" is answered before it is asked.

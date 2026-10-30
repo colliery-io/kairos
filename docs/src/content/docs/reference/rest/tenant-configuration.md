@@ -210,6 +210,15 @@ Request body (required): `application/json`, [`PutCodeIndexSettings`](../schemas
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | An unknown provider or field, a value that a provider needs and the body does not give, or a value that is not correct |
 | `501` | [`ErrorEnvelope`](../schemas/#errorenvelope) | A secret was sent, and this deployment has no KAIROS_SECRETS_KEY |
 
+### `GET /api/org/dictionary`
+
+The dictionary of the organization: its code, its terms and its bad
+rows. With no dictionary, the code is `null` and the lists are empty.
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`OrganizationDictionary`](../schemas/#organizationdictionary) | The dictionary of the organization, the terms sorted by the word |
+
 ### `GET /api/org/read-tokens`
 
 The read tokens of the organization: the host, who set the token and

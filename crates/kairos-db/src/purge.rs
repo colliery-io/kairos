@@ -129,6 +129,7 @@ pub fn purge_task(
         diesel::delete(item_metadata::table.filter(item_metadata::item_id.eq(task_id)))
             .execute(conn)?;
         crate::notifications::delete_for_item(conn, task_id)?;
+        crate::watches::delete_for_item(conn, task_id)?;
         diesel::delete(item_links::table.filter(item_links::item_id.eq(task_id))).execute(conn)?;
         diesel::delete(item_impacts::table.filter(item_impacts::item_id.eq(task_id)))
             .execute(conn)?;

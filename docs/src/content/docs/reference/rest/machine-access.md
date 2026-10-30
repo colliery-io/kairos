@@ -11,6 +11,55 @@ Agent keys of a person, service accounts and their API keys, and the SCIM tokens
 
 ## me
 
+### `GET /api/items/{short_code}/watch`
+
+The watch of the caller on the item.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | The item |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`WatchState`](../schemas/#watchstate) | Whether the caller watches the item, and with its children |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller is a service account |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No item has the short code |
+
+### `PUT /api/items/{short_code}/watch`
+
+Watch the item. A coarse change of the item makes a `watch`
+notification for the caller: moved, edited, note added, done. A change
+that the caller made makes none. With `with_children: true`, a change of
+a child of the item makes one too. A second `PUT` changes
+`with_children`.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | The item |
+
+Request body (required): `application/json`, [`WatchRequest`](../schemas/#watchrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`WatchState`](../schemas/#watchstate) | The watch after the change |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller is a service account |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No item has the short code, the code is retired, or the item is archived |
+
+### `DELETE /api/items/{short_code}/watch`
+
+Stop the watch of the caller on the item. No watch: nothing changes,
+and the answer is the same.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | The item |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`WatchState`](../schemas/#watchstate) | The caller does not watch the item now |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller is a service account |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No item has the short code |
+
 ### `GET /api/me/agent-keys`
 
 The caller's agent keys (metadata only, never a secret), newest first.
@@ -126,6 +175,16 @@ Request body (required): `application/json`, [`MarkNotificationsReadRequest`](..
 | `200` | [`MarkNotificationsReadResponse`](../schemas/#marknotificationsreadresponse) | The ids that changed, and the unread count after |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | An id is not a notification of the caller |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Neither ids nor all, or both, or all without up_to |
+
+### `GET /api/me/watches`
+
+Each watch of the caller, by code. An agent key gives the watches of
+its person.
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`WatchList`](../schemas/#watchlist) | Each watch of the caller, by code |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller is a service account |
 
 ### `GET /api/me/work`
 

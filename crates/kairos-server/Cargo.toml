@@ -84,7 +84,7 @@ tempfile = "3.14.0"
 # tokens for their colours (no Leptos without the `components` feature).
 maud = "0.27"
 kairos-markdown = { workspace = true }
-# The dictionary of a team (KAIROS-T-0734): the layer of a term.
+# KAIROS-T-0730: the vocabulary of the typed-section check on MCP writes.
 kairos-plain = { workspace = true }
 aurora-dark = { workspace = true }
 # The store of the uploaded repository sites, on disk or in S3

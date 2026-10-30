@@ -76,6 +76,7 @@ struct NotificationSettings {
     claim_stale: bool,
     key_expiring: bool,
     proposal_decided: bool,
+    watch: bool,
     notice: bool,
     #[serde(default)]
     muted_keys: Vec<MutedKey>,
@@ -258,6 +259,7 @@ fn kind_label(kind: &str) -> &'static str {
         "claim_stale" => "Claim stale",
         "key_expiring" => "Key expiring",
         "proposal_decided" => "Proposal decided",
+        "watch" => "Watch",
         "notice" => "Notice",
         _ => "Notification",
     }
@@ -566,6 +568,7 @@ pub fn NotificationsPage() -> impl IntoView {
     let claim_stale = RwSignal::new(true);
     let key_expiring = RwSignal::new(true);
     let proposal_decided = RwSignal::new(true);
+    let watch = RwSignal::new(true);
     let notice = RwSignal::new(true);
     let settings_reload = RwSignal::new(0u32);
     let settings = LocalResource::new(move || {
@@ -588,6 +591,7 @@ pub fn NotificationsPage() -> impl IntoView {
             claim_stale.set(s.claim_stale);
             key_expiring.set(s.key_expiring);
             proposal_decided.set(s.proposal_decided);
+            watch.set(s.watch);
             notice.set(s.notice);
         }
     });
@@ -606,6 +610,7 @@ pub fn NotificationsPage() -> impl IntoView {
             "claim_stale": claim_stale.get_untracked(),
             "key_expiring": key_expiring.get_untracked(),
             "proposal_decided": proposal_decided.get_untracked(),
+            "watch": watch.get_untracked(),
             "notice": notice.get_untracked(),
         });
         run_mutation(
@@ -722,6 +727,8 @@ pub fn NotificationsPage() -> impl IntoView {
                                     label="An agent key of yours, or a key of a service account, expires within 7 days"/>
                                 <Switch checked=proposal_decided
                                     label="A person confirms or rejects an edge proposal that you made"/>
+                                <Switch checked=watch
+                                    label="An item that you watch moves, is edited, gets a note, or is done"/>
                                 <Switch checked=notice
                                     label="A person or an agent key sends a notice to you or to your team"/>
                                 <MutedKeys keys=s.muted_keys busy outcome settings_reload/>
@@ -919,6 +926,7 @@ mod tests {
             "claim_stale",
             "key_expiring",
             "proposal_decided",
+            "watch",
             "notice",
         ] {
             assert_ne!(kind_label(kind), "Notification", "{kind}");

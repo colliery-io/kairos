@@ -51,8 +51,10 @@ mod notes;
 mod owner;
 mod picker;
 mod relations;
+mod sections;
 mod state;
 mod teams;
+mod watch;
 
 use aurora_dark::components::{
     Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
@@ -84,6 +86,7 @@ use owner::{ImpactsPanel, OwnerBoardPanel};
 use picker::{Picker, load_on_open, picker_state};
 use state::StatePanel;
 use teams::TeamsPanel;
+use watch::WatchPanel;
 // The dialog of a repository gives a document to a board with the rule of
 // the owner panel (COLLIERY-T-0269).
 pub(crate) use owner::owner_board_targets;
@@ -347,6 +350,8 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
     let owner = Memo::new(move |_| current.with(|item| item.owner.clone()));
     let impacts = Memo::new(move |_| current.with(|item| item.impacts.clone()));
     let lifecycle = Memo::new(move |_| current.with(|item| item.lifecycle.clone()));
+    // KAIROS-T-0731: the mark of the typed sections of a document.
+    let section_check = Memo::new(move |_| current.with(|item| item.section_check.clone()));
     let cancellation = Memo::new(move |_| current.with(|item| item.cancellation.clone()));
     let cancelled = Memo::new(move |_| cancellation.with(Option::is_some));
     // KAIROS-T-0164 / ADR-20: `archived_at` is the "put away" state — the
@@ -505,25 +510,17 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
             }
         }
     });
-    // KAIROS-T-0734: the dictionary of the team of the board. The content
-    // and the notes link its terms, with the meaning on hover. The team of
-    // an item is the team of its board (KAIROS-A-0023 decision 2; a
-    // strategy or initiative board has a team, KAIROS-A-0026). A board
-    // with no team, or a failed read, gives no links: the text stays text.
+    // KAIROS-T-0734: the dictionary of the organization (KAIROS-A-0079:
+    // one dictionary, no team dictionaries). The content and the notes of
+    // each item link its terms, with the meaning on hover. A failed read
+    // gives no links: the text stays text.
     let dictionary = LocalResource::new(move || {
         auth.track_session();
-        let team = match board.get() {
-            Some(Ok(Some(board))) => board.team_id,
-            _ => None,
-        };
         async move {
-            match team {
-                Some(team) => api::fetch_team_dictionary(auth, &team)
-                    .await
-                    .map(|dictionary| dictionary.links())
-                    .unwrap_or_default(),
-                None => Vec::new(),
-            }
+            api::fetch_organization_dictionary(auth)
+                .await
+                .map(|dictionary| dictionary.links())
+                .unwrap_or_default()
         }
     });
     let terms = Signal::derive(move || dictionary.get().unwrap_or_default());
@@ -552,6 +549,7 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
     view! {
         {move || view! { <PageHeader title=title.get() sub=family.label()/> }}
         {move || cancellation.get().map(|mark| view! { <CancelledBanner mark/> })}
+        {move || view! { <sections::SectionsPanel check=section_check.get()/> }}
         {move || {
             let item_id = item_id.clone();
             archived_at.get().map(|when| view! {
@@ -589,6 +587,7 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                         <Pill color=lifecycle_color(&state)>{format!("lifecycle: {state}")}</Pill>
                     </span>
                 })}
+                {move || view! { <sections::SectionsBadge check=section_check.get()/> }}
                 {move || view! { <TypeFacts item=current.get()/> }}
             </Group>
             <Group gap="sm">
@@ -713,6 +712,8 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                 {move || (family == Family::Task).then(|| view! {
                     <StatePanel state=state.get()/>
                 })}
+                // KAIROS-T-0736: the watch of the signed-in person.
+                <WatchPanel code=code.get_value() archived/>
                 {matches!(family, Family::Document | Family::Adr).then(|| view! {
                     <ImpactsPanel family code=code.get_value() impacts board
                         created_by=created_by.clone() archived on_moved/>

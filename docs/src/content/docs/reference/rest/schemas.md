@@ -1003,22 +1003,19 @@ A delivery stream (`/api/delivery-streams`).
 
 ## DictionaryProblem
 
-One bad row of a dictionary.
+One bad row of the dictionary.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `document` | `string` | yes | The short code of the dictionary. |
 | `line` | `integer` | yes | The 1-based line of the row in the document. |
 | `message` | `string` | yes |  |
 
 ## DictionaryTerm
 
-One term of [`TeamDictionary`].
+One term of [`OrganizationDictionary`].
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `document` | `string` | yes | The short code of the dictionary that gives the term. |
-| `layer` | `string` | yes | `organization|team`: the dictionary that gives the term. |
 | `meaning` | `string` | yes |  |
 | `part_of_speech` | `string` | yes |  |
 | `word` | `string` | yes | The term: one word or more, as the dictionary writes it. |
@@ -1058,6 +1055,7 @@ A supporting document, as returned by `/api/documents`. Documents do not live on
 | `impacts` | array of [`Impact`](#impact) | no | The repositories that the document impacts (COLLIERY-T-0269), by slug. An `impacts` link says what the document is about. It gives no right. |
 | `lifecycle` | `string` | yes | Editorial lifecycle: `draft|review|published|archived` (KAIROS-T-0078). A label with free transitions â never a board column, never metadata. |
 | `notes` | `array`, nullable | no | The notes of the item, in the order of their ids (KAIROS-T-0630). Present on the read of one item (`GET /api/{family}/{short_code}`), empty when the item has none. Absent from lists and from the answers of writes. A note is not part of `content`. |
+| `section_check` | [`SectionCheck`](#sectioncheck), nullable | no |  |
 | `short_code` | `string` | yes | Tenant-scoped short code (`{PREFIX}-D-{NNNN}`). |
 | `template_id` | `string`, nullable | no | Template the document was stamped from (UUID), if any. |
 | `title` | `string` | yes |  |
@@ -2016,7 +2014,7 @@ One notification of the caller (KAIROS-T-0382).
 | `created_at` | `string` | yes | When Kairos made the notification (RFC 3339). |
 | `entity_type` | `string`, nullable | no | `strategy|initiative|task|document|adr`; `null` when the item is gone. |
 | `id` | `string` | yes | The id (UUID). `POST /api/me/notifications/read` takes it. |
-| `kind` | `string` | yes | `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|notice`. |
+| `kind` | `string` | yes | `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch|notice`. |
 | `read_at` | `string`, nullable | no | When the person read it (RFC 3339); `null` while unread. |
 | `short_code` | `string`, nullable | no | The code of the item now; `null` when the item is gone. |
 | `text` | `string` | yes | What happened, in one sentence or two. |
@@ -2052,6 +2050,7 @@ One notification of the caller (KAIROS-T-0382).
 | `notice` | `boolean` | yes | A person, or an agent key of a person, sent you a notice: to you, or to a team of yours (KAIROS-T-0737). |
 | `p0_bug` | `boolean` | yes | A bug with the priority P0 (critical) is on the board of your team. |
 | `proposal_decided` | `boolean` | yes | A person confirmed or rejected an edge proposal that you made (KAIROS-T-0558). |
+| `watch` | `boolean` | yes | An item that you watch, or a child of an item that you watch with its children, moved, was edited, got a note, or is done (KAIROS-T-0736). |
 
 ## OrgAgentKey
 
@@ -2103,6 +2102,16 @@ The read token of the organization for one forge host (KAIROS-T-0431). A read sh
 | `set_at` | `string` | yes | RFC 3339. |
 | `set_by` | `string` | yes |  |
 | `set_by_name` | `string`, nullable | no | The display name of `set_by`, else the email. |
+
+## OrganizationDictionary
+
+`GET /api/org/dictionary` (KAIROS-T-0734, KAIROS-A-0079): the dictionary of the organization. An organization has one dictionary, on the board `strategy`; there are no team dictionaries.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `problems` | array of [`DictionaryProblem`](#dictionaryproblem) | yes | The bad rows of the dictionary. A bad row gives no term. |
+| `short_code` | `string`, nullable | no | The short code of the dictionary document; `null` when the organization has no dictionary. |
+| `terms` | array of [`DictionaryTerm`](#dictionaryterm) | yes | Each term, sorted by the word (case ignored). |
 
 ## PlaceTeamItemRequest
 
@@ -2603,6 +2612,40 @@ Whether a secret is set, and by whom. The secret itself never leaves the server.
 | `set_by` | `string`, nullable | no |  |
 | `set_by_name` | `string`, nullable | no | The display name of `set_by` (KAIROS-T-0415). |
 
+## SectionCheck
+
+The stored check of the typed sections of a document (KAIROS-T-0731, COLLIERY-I-0664 decision 3). Each content write of the document writes it, and a periodic pass checks the documents that no write checked. A document that does not pass gets this mark. The mark does not stop a write.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `checked_at` | `string` | yes | RFC 3339. |
+| `passes` | `boolean` | yes | `true` when the document passes each typed section. |
+| `sections` | array of [`SectionCheckFailure`](#sectioncheckfailure) | yes | Each section that does not pass, in the order of the template. |
+| `stale` | `boolean` | yes | The typed sections of the template or a dictionary changed after the check. The server checks the document again soon. |
+| `version` | `integer` | yes | The version of the document that the server checked. |
+| `violations` | `integer` | yes | The number of problems: 1 for each missing or empty section, and 1 for each violation of a `plain` section. |
+
+## SectionCheckFailure
+
+A typed section that a document does not pass (KAIROS-T-0731).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `heading` | `string` | yes | The heading of the section, with no `#`. |
+| `problem` | `string` | yes | `missing`, `empty` or `violations`. |
+| `type` | `string` | yes | The type of the section: `free` or `plain`. |
+| `violations` | array of [`SectionCheckViolation`](#sectioncheckviolation) | no | The violations of a `plain` section; empty for the other problems. |
+
+## SectionCheckViolation
+
+One rule that the text of a section breaks (KAIROS-T-0731).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `fix` | `string` | yes | What is wrong, then what to do. |
+| `rule` | `string` | yes | The rule id, as `STE-V1`. |
+| `text` | `string` | yes | The text that breaks the rule. |
+
 ## SendNoticeRequest
 
 `POST /api/notices` body (KAIROS-T-0737): a notice to a person (`to`) or to each member of a team (`team`). Send one of the two.
@@ -3088,17 +3131,6 @@ One team announcement (append-only; no edit anywhere).
 | `pinned` | `boolean` | yes | Pinned announcements sort first. |
 | `team_id` | `string` | yes | Owning team (UUID). |
 
-## TeamDictionary
-
-`GET /api/teams/{id}/dictionary` (KAIROS-T-0734): the dictionary of the team. The organization entries come first. A team entry wins for the same word (case ignored, KAIROS-T-0733).
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `organization` | `string`, nullable | no | The short code of the organization dictionary; `null` when there is none. |
-| `problems` | array of [`DictionaryProblem`](#dictionaryproblem) | yes | The bad rows of the two dictionaries, the organization first. A bad row gives no term. |
-| `team` | `string`, nullable | no | The short code of the dictionary of the team; `null` when there is none. |
-| `terms` | array of [`DictionaryTerm`](#dictionaryterm) | yes | Each term, sorted by the word (case ignored). |
-
 ## TeamLink
 
 One row of a team's in-flight rollup (KAIROS-T-0101): a link plus the work item it belongs to, so the panel can link both to the forge and back into Kairos.
@@ -3422,6 +3454,7 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 | `p0_bug` | `boolean`, nullable | no |  |
 | `proposal_decided` | `boolean`, nullable | no |  |
 | `unmute_keys` | `array`, nullable | no | Agent keys to unmute (ids). |
+| `watch` | `boolean`, nullable | no |  |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
@@ -3565,6 +3598,47 @@ Where the vectors of the code index summaries are made.
 | `model` | `string`, nullable | no |  |
 | `provider` | `string` | yes | `embedded` (the model in the server) or `remote` (an OpenAI-compatible embeddings endpoint). |
 | `secret` | [`SecretStatus`](#secretstatus) | yes | The API key of the endpoint. A local Ollama needs none. |
+
+## WatchList
+
+`GET /api/me/watches` response: each watch of the caller, by code.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `items` | array of [`WatchedItem`](#watcheditem) | yes |  |
+
+## WatchRequest
+
+`PUT /api/items/{short_code}/watch` body. A second `PUT` changes `with_children` of the watch.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `with_children` | `boolean`, nullable | no | `true`: a change of a child of the item tells you too. Default `false`. |
+
+The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
+
+## WatchState
+
+The watch of the caller on one item (KAIROS-T-0736): `GET`, `PUT` and `DELETE /api/items/{short_code}/watch`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | `string` | yes | The code of the item. |
+| `watching` | `boolean` | yes | `true` when the caller watches the item. |
+| `with_children` | `boolean` | yes | `true` when the watch includes the children of the item (its `parent` edges, one level). `false` when the caller does not watch. |
+
+## WatchedItem
+
+One watch of the caller, in `GET /api/me/watches`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `archived` | `boolean` | yes | `true` when the item is archived. |
+| `created_at` | `string` | yes | When the caller started the watch (RFC 3339). |
+| `entity_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
+| `short_code` | `string` | yes | The code of the item now. |
+| `title` | `string` | yes | The title of the item now. |
+| `with_children` | `boolean` | yes | `true` when the watch includes the children of the item. |
 
 ## WebhookDelivery
 

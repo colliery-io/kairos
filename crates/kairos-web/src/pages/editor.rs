@@ -302,7 +302,7 @@ pub fn MarkdownEditor(
     /// that mounts the editor again for each copy.
     #[prop(optional, into)]
     server: Option<Signal<ServerCopy>>,
-    /// The terms of the dictionary of the team (KAIROS-T-0734). The
+    /// The terms of the dictionary of the organization (KAIROS-T-0734). The
     /// rendered content links each term, with its meaning on hover. Empty:
     /// no links.
     #[prop(optional, into)]

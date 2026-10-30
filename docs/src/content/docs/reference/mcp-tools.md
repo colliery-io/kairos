@@ -3,8 +3,8 @@ title: "MCP tools"
 ---
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-eighty-two tools. A drift gate in the test suite
-asserts that `tools/list` returns these eighty-two and no others. The same
+eighty-five tools. A drift gate in the test suite
+asserts that `tools/list` returns these eighty-five and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -22,7 +22,7 @@ organization.
 
 | URL | Profile | Tools |
 |---|---|---|
-| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read: 50 tools. |
+| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, notices and watches, the scales and templates, board flow, dispatch rules and team pages to read: 53 tools. |
 | `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge, the count of the refusals: the other 32 tools. |
 | `/mcp?profile=all` | all | Each tool. |
 
@@ -46,6 +46,8 @@ The work tools:
 - repositories: `list_repositories`, `get_repository`, `add_repository`,
   `update_repository`;
 - claims and notifications: `claim_item`, `hand_off_item`, `release_item`,
+  `get_events`, `mark_events_read`, `watch_item`, `unwatch_item`,
+  `list_watches`;
   `get_events`, `mark_events_read`, `send_notice`;
 - people: `list_members`;
 - scales and templates: `list_metadata_definitions`, `list_templates`;
@@ -103,7 +105,9 @@ Codes an agent can receive, and what each means.
 | `SAME_BOARD` | A `move_item` whose target is the board the task is already on. A document is different: see [`move_item`](#move_item). |
 | `NOT_DELIVERY_BOARD` | A `move_item` whose target board is not a delivery board, or an `archive_completed` of a board that is not a delivery board. |
 | `NO_ENTRY_COLUMN` | The target delivery board has no entry column to land the task in. |
-| `RESTORE_BLOCKED` | The archived item's board, column, owning team or repository no longer exists. The refusal names what is missing. |
+| `RESTORE_BLOCKED` | The archived item's board, column, owning team or repository no longer exists. The refusal names what is missing. For a dictionary: its board is not the board `strategy`, or the board `strategy` has a live dictionary. |
+| `DICTIONARY_NOT_ON_STRATEGY` | A `create_item` of a document with the template `dictionary`, or a `move_item` of a dictionary, to a board that is not the board `strategy`. An organization has one dictionary, on the board `strategy` (KAIROS-A-0079). The refusal names the board `strategy`. |
+| `DICTIONARY_EXISTS` | A `create_item` of a second dictionary on the board `strategy`. The refusal names the dictionary that is there. Edit it, or archive it first. |
 | `RELATIONSHIP_RULE` | The relationship type is not allowed between those two item types. For `impacts`: the source is not a document and not an ADR. |
 | `CYCLE_DETECTED` | The edge would create a cycle. |
 | `ALREADY_LINKED` | That edge already exists. For `impacts`: the item impacts that repository already. |
@@ -905,6 +909,18 @@ The fix is in PR #12.
 Promoted to ACME-A-0029.
 ```
 
+The section `Terms used` is at the end (KAIROS-T-0735). It gives the meaning of
+each [dictionary](../glossary/#dictionary) term that the title, the content or
+the notes use. The longest term is first. A term in code is not used. Each
+item uses the dictionary of the organization, on the board `strategy`
+(KAIROS-A-0079). A dictionary does not have this section.
+
+```text
+## Terms used
+- production document (noun): The document that the team gives to its users.
+- board (noun): A set of columns for the work of a team.
+```
+
 Refuses: `NOT_FOUND` only when the short code names nothing at all.
 
 ### `get_history`
@@ -1240,6 +1256,11 @@ lacks `manage_<type>` on the resolved board. A task is different: a caller witho
 `manage_tasks` sends a request. That caller gets `FORBIDDEN` for a board that
 is not a delivery board, and for `work_class: planned`.
 
+A document with a template that has typed sections: the content must pass
+each typed section, else `SECTIONS_NOT_PASSED`. With no `content`, the tool
+checks the content of the template. See
+[Typed sections on an MCP write](#typed-sections-on-an-mcp-write).
+
 A create that fails writes nothing. The tool does each check before the first
 write. The tool writes the item and its edge in one transaction. No item,
 history, activity or event stays behind. The tool does not use the short code
@@ -1263,7 +1284,9 @@ organization admin.
 
 Refuses: `NOT_FOUND` for an unknown short code or an archived item;
 `FORBIDDEN` when the edit rule refuses the caller;
-`CONFLICT` for a stale `version`, carrying the current version and content.
+`CONFLICT` for a stale `version`, carrying the current version and content;
+`SECTIONS_NOT_PASSED` for content that does not pass the typed sections of the
+template of a document.
 
 ### `edit_item`
 
@@ -1290,6 +1313,69 @@ Kairos does not replace that text: send it as `search`.
 ```text
 VALIDATION: The text of search is not in ACME-T-0012 (version 3). A text that differs only in whitespace is in the content one time. Send this exact text as search: "Line one.\n  Line two.".
 ```
+
+### Typed sections on an MCP write
+
+A template can name typed sections: a heading and a type (KAIROS-T-0729).
+`create_item`, `update_item` and `edit_item` check the new content of a
+document against the typed sections of its template (KAIROS-T-0730):
+
+- Each typed section must be in the content, under a heading with the same
+  text, at each level.
+- Each typed section must have text.
+- The text of a `plain` section must pass the plain-language check and the
+  vocabulary. The check of a `free` section stops at the two rules above.
+
+The vocabulary is the word list and the terms of the dictionary of the
+organization (KAIROS-T-0733). The owner board of the document does not
+change the vocabulary: there are no team dictionaries (KAIROS-A-0079).
+
+`create_item` checks each typed section. It checks the right to create first:
+a caller with no right gets `FORBIDDEN`. `update_item` and `edit_item` check
+only the typed sections that the write changes. They do not check a section
+that has the same text before and after the write. They do not check a
+section that is missing before and after the write. Thus you can edit one
+section of an old document that does not pass a different section.
+
+When the content does not pass, the tool refuses the write with
+`SECTIONS_NOT_PASSED`, and it saves nothing. The refusal gives each section
+that does not pass. For a `plain` section, it gives each violation: the rule,
+the text and the fix. The message lists 40 violations at most. `details`
+gives each one.
+
+```text
+SECTIONS_NOT_PASSED: The content of ACME-D-0003 does not pass the typed sections of its template. The server saved nothing. Correct each section, and then send the write again.
+- Section "Summary" (free): the section has no text. Write text under the heading.
+- Section "Goal" (plain), STE-V1: "server". "server" is not in the vocabulary. Use a word of the word list or a term of the dictionary.
+details: {"field":"content","sections":[{"heading":"Summary","problem":"empty","type":"free","violations":[]},{"heading":"Goal","problem":"violations","type":"plain","violations":[{"fix":"\"server\" is not in the vocabulary. Use a word of the word list or a term of the dictionary.","rule":"STE-V1","text":"server"}]}]}
+```
+
+`problem` is `missing`, `empty` or `violations`. The REST routes and the web
+do not do this check: a person can write free text.
+
+### The mark of a document that does not pass
+
+The server keeps the result of the check of each document whose template
+has typed sections (KAIROS-T-0731). It checks the full content at each
+write of the content, from the web and from the MCP. A periodic pass
+(`section-checks`, each minute) checks the old documents. When the typed
+sections of a template change, the pass checks the documents of the template
+again. When the dictionary of the organization changes, the pass checks each
+document again. The mark does not stop a write.
+
+`get_item` shows the mark under the template line, with one line for each
+violation (40 at most):
+
+```text
+- template: Brief
+- sections: does not pass (2 violations)
+  - Section "Goal" (plain), STE-V1: "server". "server" is not in the vocabulary. Use a word of the word list or a term of the dictionary.
+  - Section "Goal" (plain), STE-G1: "is checked". Passive: is checked. Use the active voice, and name who does the action.
+```
+
+`GET /api/documents/{short_code}` gives the same check as `section_check`,
+and the item page of the web shows it. When a write makes the document
+pass, the mark goes.
 
 ### `append_note`
 
@@ -3051,6 +3137,70 @@ the id, and nothing changes. An id that is read already does not change.
 
 REST: `POST /api/me/notifications/read`.
 
+### `watch_item`
+
+Starts your watch on an item (KAIROS-T-0736). These changes of the item give
+you a notification of the kind `watch`:
+
+- moved: the item goes to a different column, or to a different board;
+- edited: the title or the content changes;
+- note added: a person or an agent adds a note;
+- done: the item goes into a done column. A cancel is done.
+
+A change that you make gives you no notification. Other changes (metadata,
+links, the live state) give no notification.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The code of the item. |
+| `with_children` | boolean | no | false | `true`: a change of a child of the item gives you a notification too. A child is an item that has the item as its parent. |
+
+A second call changes `with_children`. An agent key watches for its person:
+the watch is the person's. The REST routes show it.
+
+The result is one line: `You watch ACME-T-0001. A move, an edit, a note or a
+done of the item gives you a notification.`
+
+Refuses: `NOT_FOUND` for an unknown code, a retired code or an archived item.
+`FORBIDDEN` for a service account.
+
+REST: `PUT /api/items/{short_code}/watch`, with the body
+`{"with_children": true}`. `GET` on the same path gives your watch.
+
+### `unwatch_item`
+
+Stops your watch on an item.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The code of the item. |
+
+The result is `You do not watch ACME-T-0001 now.` When you do not watch the
+item, the result is `You did not watch ACME-T-0001. Nothing changed.`
+
+Refuses: `NOT_FOUND` when no item has the code. `FORBIDDEN` for a service
+account.
+
+REST: `DELETE /api/items/{short_code}/watch`.
+
+### `list_watches`
+
+Gives your watches, one line for each item. A line has the code, the type and
+the title of the item. It has `with children` when the watch includes the
+children. The tool has no arguments.
+
+```text
+# Your watches (2)
+
+- ACME-I-0003 (initiative) · with children — The new search
+- ACME-T-0012 (task) — Fix the login
+```
+
+With no watch, the result is `You watch no item. watch_item starts a watch.`
+
+Refuses: `FORBIDDEN` for a service account.
+
+REST: `GET /api/me/watches`.
 ### `send_notice`
 
 Sends a notice to a person or to each member of a team (KAIROS-T-0737). A

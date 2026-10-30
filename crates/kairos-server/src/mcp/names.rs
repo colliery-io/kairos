@@ -238,6 +238,10 @@ const NAMES: &[Name] = &[
     one("site_enabled", "the site of a team is on"),
     one("to_root", "move a page to the root"),
     one("unread", "only the unread notifications"),
+    one(
+        "with_children",
+        "the watch includes the children of the item",
+    ),
     // Paging, sort, ranges and search.
     one("limit", "the number of rows"),
     one("offset", "the number of rows to skip"),

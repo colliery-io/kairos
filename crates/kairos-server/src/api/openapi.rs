@@ -228,6 +228,7 @@ use crate::app::AppState;
         crate::api::org::code_index_settings::put_settings,
         // The retention settings and the last pass (KAIROS-T-0631).
         crate::api::org::retention::get_retention,
+        crate::api::org::dictionary::get_organization_dictionary,
         // The job queue (KAIROS-T-0576).
         crate::api::org::jobs::get_jobs,
         // The read tokens of the organization by host (KAIROS-T-0431).
@@ -248,7 +249,6 @@ use crate::app::AppState;
         crate::api::org::teams::get_team,
         crate::api::org::teams::get_team_by_slug,
         crate::api::org::teams::list_work_documents,
-        crate::api::org::teams::get_team_dictionary,
         crate::api::org::teams::list_team_links,
         crate::api::org::teams::list_team_unlinked_refs,
         crate::api::org::team_pages::list_pages,
@@ -315,6 +315,11 @@ use crate::app::AppState;
         crate::api::notifications::update_notification_settings,
         crate::api::notifications::list_notifications,
         crate::api::notifications::mark_notifications_read,
+        // The watches of a person (KAIROS-T-0736).
+        crate::api::watches::list_watches,
+        crate::api::watches::get_watch,
+        crate::api::watches::put_watch,
+        crate::api::watches::delete_watch,
         // A notice to a person or a team (KAIROS-T-0737).
         crate::api::notices::send_notice,
         // The work of a person (KAIROS-T-0489).

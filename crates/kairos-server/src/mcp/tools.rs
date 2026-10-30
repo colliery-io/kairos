@@ -3,7 +3,7 @@
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
 //! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
 //! (COLLIERY-T-0220), and `add_repository` and `update_repository`
-//! (COLLIERY-T-0266); later tasks added more (82 in all, in the profiles
+//! (COLLIERY-T-0266); later tasks added more (85 in all, in the profiles
 //! of `profiles.rs`, KAIROS-T-0454) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
@@ -1033,6 +1033,34 @@ pub struct HandOffItemParams {
     pub to: String,
 }
 
+/// Parameters for `watch_item` (KAIROS-T-0736).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct WatchItemParams {
+    /// The short code of the item to watch.
+    pub short_code: String,
+    /// `true`: a change of a child of the item (its parent edges, one
+    /// level) tells you too. Default false. A second call changes it.
+    #[serde(default)]
+    pub with_children: Option<bool>,
+}
+
+/// Parameters for `unwatch_item` (KAIROS-T-0736).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct UnwatchItemParams {
+    /// The short code of the item that you watch.
+    pub short_code: String,
+}
+
+/// `list_watches` has no arguments (KAIROS-T-0736).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct ListWatchesParams {}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
@@ -1565,7 +1593,7 @@ pub struct SaveTemplateParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (82; the list of each profile is asserted in tests/mcp.rs)
+// The tools (85; the list of each profile is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -3080,7 +3108,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "One item by short code: type, board and column, who created it and when, version, markdown content and then its notes (each one under `## Note n-3 (date, name)`), metadata, relationships (parent chain, children, blockers and blocked, supporting documents; a done end is marked [done], a cancelled one [cancelled]), and as it applies: the claim of a task in Active, the owner and teams of a strategy or initiative, the owner board and impacted repositories of a document or ADR, the cancel mark of a task, the external references (URIs with a label) of any item, and its edge proposals (each pending one and the 5 newest decided ones, with the state). A retired code finds the item and names the current code."
+        description = "One item by short code: type, board and column, who created it and when, version, markdown content and then its notes (each one under `## Note n-3 (date, name)`), metadata, relationships (parent chain, children, blockers and blocked, supporting documents; a done end is marked [done], a cancelled one [cancelled]), and as it applies: the claim of a task in Active, the owner and teams of a strategy or initiative, the owner board and impacted repositories of a document or ADR, the cancel mark of a task, the external references (URIs with a label) of any item, and its edge proposals (each pending one and the 5 newest decided ones, with the state). At the end, `## Terms used`: the meaning of each dictionary term that the title, the content or the notes use, the longest term first. A retired code finds the item and names the current code."
     )]
     pub async fn get_item(
         &self,
@@ -3492,7 +3520,7 @@ impl KairosMcp {
     // KAIROS-T-0382: the notifications of the person of the key. The read
     // state is of the caller (KAIROS-T-0550): the agent key, or the person.
     #[tool(
-        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board. Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `unread: true` gives only the unread ones, and names the newest unread id to send as `up_to` to `mark_events_read`. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
+        description = "Your notifications: a claim handed to you, a blocker of your claimed task closed, a task you created cancelled, a mention (`@name`), a P0 bug on your team's board, a change of an item that you watch (`watch_item`). Unread first (newest first, 100 at most), then the 20 newest read ones, each with its id. `unread: true` gives only the unread ones, and names the newest unread id to send as `up_to` to `mark_events_read`. `before` (an id) gives the next page of unread ones. An agent key keeps its own read state: a read by the key does not clear the person's bell. While some are unread, each other tool's answer ends with the 5 newest. Mark them read with `mark_events_read`."
     )]
     pub async fn get_events(
         &self,
@@ -3538,6 +3566,77 @@ impl KairosMcp {
                 "Marked {} notification(s) read. You have {unread} unread.",
                 changed.len()
             ))
+        })
+        .await
+    }
+
+    // KAIROS-T-0736: the watches of the person of the key.
+    #[tool(
+        description = "Watch an item. When the item moves, is edited, gets a note, or is done, you get a `watch` notification (`get_events`), except for a change that you made. `with_children: true`: a change of a child of the item (one level of parent edges) tells you too. A second call changes `with_children`. An agent key watches for its person: the watch is the person's. A service account cannot watch."
+    )]
+    pub async fn watch_item(
+        &self,
+        Parameters(params): Parameters<WatchItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        self.run_tool(&tenant, move |conn| {
+            let with_children = params.with_children.unwrap_or(false);
+            let watch =
+                crate::api::watches::watch_for(conn, user, &params.short_code, with_children)?;
+            Ok(if watch.with_children {
+                format!(
+                    "You watch {} and its children. A move, an edit, a note or a done of the \
+                     item or of a child gives you a notification.",
+                    watch.short_code
+                )
+            } else {
+                format!(
+                    "You watch {}. A move, an edit, a note or a done of the item gives you a \
+                     notification.",
+                    watch.short_code
+                )
+            })
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Stop your watch on an item. When you do not watch the item, nothing changes. `list_watches` gives your watches."
+    )]
+    pub async fn unwatch_item(
+        &self,
+        Parameters(params): Parameters<UnwatchItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        self.run_tool(&tenant, move |conn| {
+            let (watch, removed) =
+                crate::api::watches::unwatch_for(conn, user, &params.short_code)?;
+            Ok(if removed {
+                format!("You do not watch {} now.", watch.short_code)
+            } else {
+                format!("You did not watch {}. Nothing changed.", watch.short_code)
+            })
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Your watches: each item that you watch, by code, and whether the watch includes its children. An agent key gives the watches of its person."
+    )]
+    pub async fn list_watches(
+        &self,
+        Parameters(_params): Parameters<ListWatchesParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        self.run_tool(&tenant, move |conn| {
+            let items = crate::api::watches::list_for(conn, user)?;
+            Ok(watches_text(&items))
         })
         .await
     }
@@ -6304,6 +6403,24 @@ fn slug_from_title(title: &str) -> String {
 // can count their statements)
 // ---------------------------------------------------------------------------
 
+/// KAIROS-T-0730: refuse new content of a document that does not pass the
+/// typed sections of its template. Only the sections that the write
+/// changes are checked (note n-4). Only a document has a template; for the
+/// other types this reads nothing.
+fn refuse_failing_sections(
+    conn: &mut PgConnection,
+    short_code: &str,
+    id: Uuid,
+    item_type: ItemType,
+    content: &str,
+) -> Result<(), ApiError> {
+    if item_type != ItemType::Document {
+        return Ok(());
+    }
+    let (sections, old) = super::typed_sections::of_document(conn, id)?;
+    super::typed_sections::refuse_failing(conn, Some(short_code), &sections, Some(&old), content)
+}
+
 /// The answer text of `update_item`.
 pub fn update_item_text(
     conn: &mut PgConnection,
@@ -6314,6 +6431,13 @@ pub fn update_item_text(
     // KAIROS-T-0635: the rights need no content.
     let item = load_item_key(conn, &params.short_code)?;
     require_item_edit(conn, role, user, item.id, item.item_type)?;
+    refuse_failing_sections(
+        conn,
+        &item.short_code,
+        item.id,
+        item.item_type,
+        &params.content,
+    )?;
     let update = items::ContentUpdate {
         new_title: params.title.as_deref(),
         new_content: &params.content,
@@ -6370,6 +6494,13 @@ pub fn edit_item_text(
         } else {
             item.content.replacen(&params.search, &params.replace, 1)
         };
+        refuse_failing_sections(
+            conn,
+            &item.short_code,
+            item.id,
+            item.item_type,
+            &new_content,
+        )?;
         let update = items::ContentUpdate {
             new_title: None,
             new_content: &new_content,
@@ -6675,6 +6806,19 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
     if let Some(name) = &facts.template_name {
         out.push_str(&format!("- template: {name}\n"));
     }
+    // KAIROS-T-0731 (COLLIERY-I-0664 decision 3): the mark of a document
+    // that does not pass the typed sections of its template.
+    if let (Some(violations), Some(failures)) = (facts.section_violations, &facts.section_failures)
+    {
+        let failures =
+            kairos_db::section_checks::parse_failures(failures).map_err(ApiError::internal)?;
+        out.push_str(&sections_mark(
+            &item.short_code,
+            violations,
+            facts.section_stale.unwrap_or(false),
+            &failures,
+        ));
+    }
 
     // Metadata values, ordered by definition slug.
     if !facts.metadata_slugs.is_empty() {
@@ -6771,7 +6915,93 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
         &notes,
     ));
     out.push('\n');
+
+    // KAIROS-T-0735 (COLLIERY-I-0664 decision 7): the meaning of each
+    // dictionary term that the item uses, so that an agent reads the term
+    // as the organization means it. The dictionary of the organization is
+    // the only one (KAIROS-A-0079). A dictionary itself lists every term:
+    // no block.
+    if facts.template_slug.as_deref() != Some(kairos_db::dictionaries::DICTIONARY_TEMPLATE_SLUG) {
+        let terms = kairos_db::dictionaries::OrganizationDictionary::from_document(
+            None,
+            facts.dictionary_content.as_deref(),
+        )
+        .terms;
+        let texts = std::iter::once(item.title.as_str())
+            .chain(std::iter::once(item.content.as_str()))
+            .chain(notes.iter().map(|note| note.text.as_str()));
+        out.push_str(&terms_used_section(texts, &terms));
+    }
     Ok(out)
+}
+
+/// The lines of the mark of the typed sections in `get_item`
+/// (KAIROS-T-0731): `- sections: does not pass (2 violations)` and one
+/// line for each violation, at most [`super::typed_sections::MESSAGE_LINES`].
+/// Empty when the document passes. Pure.
+fn sections_mark(
+    short_code: &str,
+    violations: i32,
+    stale: bool,
+    failures: &[kairos_db::section_checks::StoredFailure],
+) -> String {
+    if violations <= 0 {
+        return String::new();
+    }
+    let noun = if violations == 1 {
+        "violation"
+    } else {
+        "violations"
+    };
+    let mut out = format!("- sections: does not pass ({violations} {noun})");
+    if stale {
+        out.push_str(" · the template or a dictionary changed; the server checks it again soon");
+    }
+    out.push('\n');
+    let lines: Vec<String> = failures
+        .iter()
+        .flat_map(kairos_db::section_checks::StoredFailure::lines)
+        .collect();
+    let limit = super::typed_sections::MESSAGE_LINES;
+    for line in lines.iter().take(limit) {
+        out.push_str(&format!("  - {line}\n"));
+    }
+    if lines.len() > limit {
+        out.push_str(&format!(
+            "  - The list stops here. GET /api/documents/{short_code} gives the {} other \
+             violations.\n",
+            lines.len() - limit
+        ));
+    }
+    out
+}
+
+/// The block `## Terms used` of `get_item` (KAIROS-T-0735): each term of
+/// `terms` that the prose of `texts` uses, as `- term (part of speech):
+/// meaning`, the longest term first. Empty when no term is used. Pure.
+fn terms_used_section<'a>(
+    texts: impl IntoIterator<Item = &'a str>,
+    terms: &[kairos_plain::DictionaryEntry],
+) -> String {
+    let mut used = kairos_db::dictionaries::terms_used_by(texts, terms);
+    if used.is_empty() {
+        return String::new();
+    }
+    let words_of = |t: &kairos_plain::DictionaryEntry| t.word.split_whitespace().count();
+    used.sort_by(|a, b| {
+        words_of(b)
+            .cmp(&words_of(a))
+            .then_with(|| b.word.len().cmp(&a.word.len()))
+            .then_with(|| a.word.to_lowercase().cmp(&b.word.to_lowercase()))
+    });
+    let mut out = String::from("\n## Terms used\n");
+    for term in used {
+        out.push_str(&format!(
+            "- {} ({}): {}\n",
+            term.word, term.part_of_speech, term.meaning
+        ));
+    }
+    out
 }
 
 /// What `get_item` shows besides the row of the item and its edges, in one
@@ -6781,7 +7011,10 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
 /// the retired codes (COLLIERY-T-3100), the metadata, the claim
 /// (KAIROS-T-0359), the cancel mark (KAIROS-T-0362), the state
 /// (KAIROS-T-0506), the owner (KAIROS-T-0411), the external references
-/// (KAIROS-T-0508) and the creator (KAIROS-T-0561). A name that `public.users` does not have is the id, as
+/// (KAIROS-T-0508), the creator (KAIROS-T-0561), the content of the
+/// dictionary of the organization (KAIROS-T-0735, KAIROS-A-0079) and the
+/// stored check of the typed sections of a document (KAIROS-T-0731). A name
+/// that `public.users` does not have is the id, as
 /// `task_claims::display_names` gives it.
 const ITEM_FACTS_SQL: &str = "\
     SELECT b.slug AS board_slug, \
@@ -6793,7 +7026,9 @@ const ITEM_FACTS_SQL: &str = "\
                   WHERE bt.from_column_id = $3 AND n.deleted_at IS NULL \
                   ORDER BY n.position) AS next_columns, \
            rp.slug AS repository_slug, rt.slug AS repository_team, \
-           tp.name AS template_name, \
+           tp.name AS template_name, tp.slug AS template_slug, \
+           sc.violations AS section_violations, sc.failures::text AS section_failures, \
+           sc.stale AS section_stale, \
            ARRAY(SELECT rc.code FROM retired_codes rc WHERE rc.item_id = $1 \
                   ORDER BY rc.retired_at, rc.code) AS retired_codes, \
            ARRAY(SELECT md.slug FROM item_metadata im \
@@ -6824,6 +7059,7 @@ const ITEM_FACTS_SQL: &str = "\
            ARRAY(SELECT x.label FROM item_external_refs x WHERE x.item_id = $1 \
                   ORDER BY x.created_at, x.uri, x.id) AS external_labels, \
            {notes} AS notes_json, \
+           {dictionary} AS dictionary_content, \
            (SELECT count(*) FROM edge_proposals ep WHERE ep.state = 'pending' \
                AND (ep.source_id = $1 OR ep.target_id = $1)) AS proposals_pending, \
            COALESCE((SELECT json_agg(json_build_object( \
@@ -6870,6 +7106,7 @@ const ITEM_FACTS_SQL: &str = "\
       LEFT JOIN repositories rp ON rp.id = $4 AND rp.deleted_at IS NULL \
       LEFT JOIN teams rt ON rt.id = rp.team_id \
       LEFT JOIN templates tp ON tp.id = $5 \
+      LEFT JOIN section_checks sc ON sc.document_id = $1 \
       LEFT JOIN task_claims cl ON cl.task_id = $1 \
       LEFT JOIN public.users cu ON cu.id = cl.user_id \
       LEFT JOIN task_cancellations k ON k.task_id = $1 \
@@ -6901,6 +7138,17 @@ struct ItemFacts {
     repository_team: Option<String>,
     #[diesel(sql_type = SqlNullable<SqlText>)]
     template_name: Option<String>,
+    #[diesel(sql_type = SqlNullable<SqlText>)]
+    template_slug: Option<String>,
+    /// The stored check of the typed sections of a document
+    /// (KAIROS-T-0731): the number of violations, the failing sections as
+    /// JSON, and whether a change made it stale. `None` with no check.
+    #[diesel(sql_type = SqlNullable<diesel::sql_types::Integer>)]
+    section_violations: Option<i32>,
+    #[diesel(sql_type = SqlNullable<SqlText>)]
+    section_failures: Option<String>,
+    #[diesel(sql_type = SqlNullable<diesel::sql_types::Bool>)]
+    section_stale: Option<bool>,
     #[diesel(sql_type = diesel::sql_types::Array<SqlText>)]
     retired_codes: Vec<String>,
     #[diesel(sql_type = diesel::sql_types::Array<SqlText>)]
@@ -6963,6 +7211,11 @@ struct ItemFacts {
     /// KAIROS-T-0630).
     #[diesel(sql_type = SqlText)]
     notes_json: String,
+    /// The content of the dictionary of the organization, or `None`
+    /// ([`kairos_db::dictionaries::organization_dictionary_sql`],
+    /// KAIROS-T-0735, KAIROS-A-0079).
+    #[diesel(sql_type = SqlNullable<SqlText>)]
+    dictionary_content: Option<String>,
     /// The count of the pending proposals of the item (KAIROS-T-0558).
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     proposals_pending: i64,
@@ -7102,7 +7355,13 @@ impl ItemFacts {
 
 /// [`ITEM_FACTS_SQL`] for `item`.
 fn item_facts(conn: &mut PgConnection, item: &ItemView) -> Result<ItemFacts, ApiError> {
-    sql_query(ITEM_FACTS_SQL.replace("{notes}", kairos_db::item_notes::NOTES_JSON_OF_ITEM))
+    let sql = ITEM_FACTS_SQL
+        .replace("{notes}", kairos_db::item_notes::NOTES_JSON_OF_ITEM)
+        .replace(
+            "{dictionary}",
+            &kairos_db::dictionaries::organization_dictionary_sql(),
+        );
+    sql_query(sql)
         .bind::<SqlUuid, _>(item.id)
         .bind::<SqlNullable<SqlUuid>, _>(item.board_id)
         .bind::<SqlNullable<SqlUuid>, _>(item.column_id)
@@ -9308,6 +9567,32 @@ fn create_item_impl(
             .as_deref()
             .map(|t| resolve_template(conn, t))
             .transpose()?;
+        // KAIROS-T-0730: the content to write must pass each typed section
+        // of the template. `create` runs this after its create gate (a
+        // caller with no right gets FORBIDDEN first) and before the first
+        // write. With no `content`, the content is that of the template.
+        // KAIROS-A-0079: the dictionary does not depend on the board.
+        let check_sections = |conn: &mut PgConnection, _board: Uuid| -> Result<(), ApiError> {
+            let Some(template_id) = template_id else {
+                return Ok(());
+            };
+            let sections = super::typed_sections::of_template(conn, template_id)?;
+            if sections.is_empty() {
+                return Ok(());
+            }
+            let content = match params.content.clone() {
+                Some(content) => content,
+                None => {
+                    use kairos_db::schema::templates;
+                    templates::table
+                        .filter(templates::id.eq(template_id))
+                        .select(templates::content)
+                        .first::<String>(conn)
+                        .map_err(ApiError::internal)?
+                }
+            };
+            super::typed_sections::refuse_failing(conn, None, &sections, None, &content)
+        };
         let created = crate::api::documents::create(
             conn,
             slug,
@@ -9319,6 +9604,7 @@ fn create_item_impl(
                 template_id,
                 board: params.board.as_deref(),
                 parent: params.parent.as_deref(),
+                before_write: Some(&check_sections),
             },
             crate::api::documents::CreateWording {
                 request: "call",
@@ -10235,6 +10521,27 @@ fn refusal_counts_text(
     out
 }
 
+/// The text of `list_watches` (KAIROS-T-0736): one line for each watch.
+fn watches_text(items: &[kairos_client::types_notifications::WatchedItem]) -> String {
+    if items.is_empty() {
+        return "You watch no item. watch_item starts a watch.".to_string();
+    }
+    let mut out = format!("# Your watches ({})\n\n", items.len());
+    for w in items {
+        let children = if w.with_children {
+            " · with children"
+        } else {
+            ""
+        };
+        let archived = if w.archived { " · archived" } else { "" };
+        out.push_str(&format!(
+            "- {} ({}){children}{archived} — {}\n",
+            w.short_code, w.entity_type, w.title
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod ride_along_tests {
     //! KAIROS-T-0612: the heading of the ride-along has no count past
@@ -10702,7 +11009,7 @@ mod related_work_render_tests {
 mod t0558_tests {
     //! KAIROS-T-0558: the preview of `delete_item` and the proposals of
     //! `get_item`.
-    use super::{ProposalRow, preview_text, proposals_section};
+    use super::{ProposalRow, preview_text, proposals_section, sections_mark};
     use crate::error::ApiError;
     use kairos_db::items::{CascadePreview, NotReached, NotReachedReason};
     use uuid::Uuid;
@@ -10755,6 +11062,52 @@ mod t0558_tests {
             decider: decider.map(str::to_string),
             decided_on: decider.map(|_| "2026-10-18".to_string()),
         }
+    }
+
+    #[test]
+    fn the_sections_mark_names_the_count_and_each_violation() {
+        use kairos_db::section_checks::{StoredFailure, StoredViolation};
+        assert_eq!(sections_mark("ACME-D-0001", 0, false, &[]), "");
+        let failures = vec![
+            StoredFailure {
+                heading: "Summary".into(),
+                section_type: "free".into(),
+                problem: "empty".into(),
+                violations: Vec::new(),
+            },
+            StoredFailure {
+                heading: "Goal".into(),
+                section_type: "plain".into(),
+                problem: "violations".into(),
+                violations: vec![StoredViolation {
+                    rule: "STE-V1".into(),
+                    text: "utilize".into(),
+                    fix: "Write \"use\".".into(),
+                }],
+            },
+        ];
+        assert_eq!(
+            sections_mark("ACME-D-0001", 2, false, &failures),
+            "- sections: does not pass (2 violations)\n\
+             \x20 - Section \"Summary\" (free): the section has no text. Write text under the \
+             heading.\n\
+             \x20 - Section \"Goal\" (plain), STE-V1: \"utilize\". Write \"use\".\n"
+        );
+        assert!(
+            sections_mark("ACME-D-0001", 1, true, &failures[..1])
+                .starts_with("- sections: does not pass (1 violation) · the template")
+        );
+        let many: Vec<StoredFailure> = (0..45)
+            .map(|i| StoredFailure {
+                heading: format!("S{i}"),
+                section_type: "free".into(),
+                problem: "missing".into(),
+                violations: Vec::new(),
+            })
+            .collect();
+        let text = sections_mark("ACME-D-0001", 45, false, &many);
+        assert_eq!(text.matches("\n  - Section").count(), 40);
+        assert!(text.contains("GET /api/documents/ACME-D-0001 gives the 5 other violations."));
     }
 
     #[test]
@@ -11435,4 +11788,51 @@ fn notice_text(sent: &crate::api::notices::NoticeSent) -> String {
         ));
     }
     out
+}
+
+#[cfg(test)]
+mod t0735_tests {
+    //! KAIROS-T-0735: the block `## Terms used` of `get_item`, with the terms
+    //! of the dictionary of the organization (KAIROS-A-0079).
+
+    use super::terms_used_section;
+    use kairos_db::dictionaries::OrganizationDictionary;
+
+    fn terms(rows: &[(&str, &str, &str)]) -> Vec<kairos_plain::DictionaryEntry> {
+        let mut content = String::from("| Word | Part of speech | Meaning |\n|---|---|---|\n");
+        for (word, part, meaning) in rows {
+            content.push_str(&format!("| {word} | {part} | {meaning} |\n"));
+        }
+        OrganizationDictionary::from_document(None, Some(&content)).terms
+    }
+
+    #[test]
+    fn the_block_lists_the_used_terms_longest_first() {
+        let terms = terms(&[
+            ("production", "noun", "Code that runs for users."),
+            ("board", "noun", "A set of columns."),
+            ("lane", "noun", "Not used."),
+            ("production document", "noun", "A document to ship."),
+        ]);
+        let block = terms_used_section(
+            [
+                "Write the production document",
+                "Put it on the board. Production starts later.",
+            ],
+            &terms,
+        );
+        assert_eq!(
+            block,
+            "\n## Terms used\n\
+             - production document (noun): A document to ship.\n\
+             - production (noun): Code that runs for users.\n\
+             - board (noun): A set of columns.\n"
+        );
+    }
+
+    #[test]
+    fn no_used_term_gives_no_block() {
+        let terms = terms(&[("lane", "noun", "A lane.")]);
+        assert_eq!(terms_used_section(["Nothing here."], &terms), "");
+    }
 }

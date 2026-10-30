@@ -306,12 +306,26 @@ pub(crate) async fn get_document(
         .blocking
         .run(&tenant.slug, move |conn| {
             let document = load(conn, &short_code, Liveness::IncludeArchived)?;
+            let id = document.id;
             let mut document = render(conn, document)?;
             document.notes = crate::api::item_notes(conn, &document.id)?;
+            // KAIROS-T-0731: the mark of the typed sections.
+            document.section_check = section_check(conn, id)?;
             Ok(document)
         })
         .await?;
     Ok(Json(document))
+}
+
+/// The stored check of the typed sections of a document, as its DTO
+/// (KAIROS-T-0731). `None` when the document has no check.
+fn section_check(
+    conn: &mut PgConnection,
+    document_id: Uuid,
+) -> Result<Option<kairos_client::types::SectionCheck>, ApiError> {
+    Ok(kairos_db::section_checks::of_document(conn, document_id)
+        .map_err(ApiError::internal)?
+        .map(super::convert::section_check_dto))
 }
 
 /// The names that a surface gives to the inputs of a document create, for
@@ -339,8 +353,13 @@ pub(crate) const REST_WORDING: CreateWording = CreateWording {
     parent: "parent_short_code",
 };
 
+/// A check that [`create`] runs after its create gate and before the first
+/// write, with the id of the owner board (KAIROS-T-0730: the typed sections
+/// of an MCP create).
+pub(crate) type BeforeWrite<'a> = &'a dyn Fn(&mut PgConnection, Uuid) -> Result<(), ApiError>;
+
 /// The inputs of a document create, from each surface.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub(crate) struct NewDocument<'a> {
     pub title: &'a str,
     pub content: Option<&'a str>,
@@ -351,6 +370,8 @@ pub(crate) struct NewDocument<'a> {
     pub board: Option<&'a str>,
     /// The short code of the item that the document supports.
     pub parent: Option<&'a str>,
+    /// A check of the surface, after the gate. `None`: no check.
+    pub before_write: Option<BeforeWrite<'a>>,
 }
 
 /// What [`create`] made.
@@ -471,6 +492,9 @@ pub(crate) fn create(
         &board,
         "which the document names as its owner",
     )?;
+    if let Some(check) = input.before_write {
+        check(conn, board.id)?;
+    }
 
     let created = items::create_document(
         conn,
@@ -531,8 +555,8 @@ pub(crate) fn create(
         (status = 201, description = "Created. With parent_short_code, the supports edge is written", body = dto::Document),
         (status = 403, description = "Missing manage_documents on the board that the document names", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = dto::ErrorEnvelope),
-        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request. DICTIONARY_EXISTS: the template is dictionary, and the board owns a live dictionary already (details.existing names it)", body = dto::ErrorEnvelope),
-        (status = 422, description = "No board (details.field is board), unknown parent, non-workflow parent, or unknown template", body = dto::ErrorEnvelope),
+        (status = 409, description = "REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request. DICTIONARY_EXISTS: the template is dictionary, and the board strategy owns a live dictionary already (details.existing names it)", body = dto::ErrorEnvelope),
+        (status = 422, description = "No board (details.field is board), unknown parent, non-workflow parent, or unknown template. DICTIONARY_NOT_ON_STRATEGY: the template is dictionary, and the board is not the board strategy (KAIROS-A-0079)", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_document(
@@ -564,6 +588,7 @@ pub(crate) async fn create_document(
                             template_id,
                             board: Some(body.board.as_str()),
                             parent: body.parent_short_code.as_deref(),
+                            before_write: None,
                         },
                         REST_WORDING,
                     )
@@ -780,8 +805,8 @@ pub(crate) fn board_to_set(board: Option<&str>) -> Option<&str> {
         (status = 200, description = "The document, with its owner board", body = dto::Document),
         (status = 403, description = "Missing manage_documents on the board that owns the document now, or on the new board", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code, or unknown board", body = dto::ErrorEnvelope),
-        (status = 409, description = "DICTIONARY_EXISTS: the document is a dictionary, and the new board owns a live dictionary already (details.existing names it)", body = dto::ErrorEnvelope),
-        (status = 422, description = "VALIDATION: the body has no board, or a null or empty board (details.field is board). RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code", body = dto::ErrorEnvelope),
+        (status = 409, description = "DICTIONARY_EXISTS: the document is a dictionary, and the board strategy owns a live dictionary already (details.existing names it)", body = dto::ErrorEnvelope),
+        (status = 422, description = "VALIDATION: the body has no board, or a null or empty board (details.field is board). RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code. DICTIONARY_NOT_ON_STRATEGY: the document is a dictionary, and the new board is not the board strategy (KAIROS-A-0079)", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn set_board(
@@ -855,7 +880,11 @@ pub(crate) async fn update_document(
             match items::update_item_content(conn, ItemType::Document, document_id, update, user) {
                 Ok(_) => {
                     let updated = load(conn, &short_code, Liveness::LiveOnly)?;
-                    render(conn, updated)
+                    let mut updated = render(conn, updated)?;
+                    // KAIROS-T-0731: the write wrote the check; the page
+                    // shows the new mark (or none) at once.
+                    updated.section_check = section_check(conn, document_id)?;
+                    Ok(updated)
                 }
                 Err(items::ItemError::VersionConflict {
                     expected_version,

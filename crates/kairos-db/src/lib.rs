@@ -57,6 +57,7 @@ pub mod retired_codes;
 pub mod schema;
 pub mod scim;
 pub mod search;
+pub mod section_checks;
 pub mod seed;
 pub mod service_accounts;
 pub mod site_content;
@@ -70,6 +71,7 @@ pub mod tenant;
 pub mod tls;
 // KAIROS-T-0694 (KAIROS-A-0068): the count of the MCP refusals.
 pub mod tool_refusals;
+pub mod watches;
 pub mod webhooks;
 pub mod writeback;
 

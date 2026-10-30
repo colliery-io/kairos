@@ -44,6 +44,8 @@ pub mod proposals;
 pub mod search;
 pub mod strategies;
 pub mod tasks;
+// KAIROS-T-0736: the watches of a person.
+pub mod watches;
 pub mod work;
 // KAIROS-T-0023: OpenAPI aggregation (/api/openapi.json) + dev Swagger UI.
 pub mod openapi;
@@ -82,6 +84,8 @@ pub fn router() -> Router<AppState> {
         .merge(cascade::router())
         // KAIROS-T-0381: the notification settings of a person.
         .merge(notifications::router())
+        // KAIROS-T-0736: the watches of a person.
+        .merge(watches::router())
         // KAIROS-T-0737: a notice to a person or a team.
         .merge(notices::router())
         // KAIROS-T-0489: the work of a person.
@@ -1328,11 +1332,27 @@ pub fn map_item_error(e: ItemError) -> ApiError {
             axum::http::StatusCode::CONFLICT,
             "DICTIONARY_EXISTS",
             format!(
-                "The board {board} has the dictionary {existing} already. A board has one \
-                 dictionary. Edit {existing}, or archive it first."
+                "The board {board} has the dictionary {existing} already. An organization has \
+                 one dictionary. Edit {existing}, or archive it first."
             ),
         )
         .with_details(json!({ "board": board, "existing": existing })),
+        // KAIROS-A-0079: one dictionary for the organization, on `strategy`.
+        ItemError::DictionaryNotOnStrategy { board } => ApiError::new(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "DICTIONARY_NOT_ON_STRATEGY",
+            format!(
+                "A dictionary can be only on the board {strategy}. The board {board} is not the \
+                 board {strategy}. Put the dictionary on the board {strategy}, or add the terms \
+                 to the dictionary of the board {strategy}.",
+                strategy = kairos_db::dictionaries::ORGANIZATION_BOARD_SLUG
+            ),
+        )
+        .with_details(json!({
+            "field": "board",
+            "board": board,
+            "dictionary_board": kairos_db::dictionaries::ORGANIZATION_BOARD_SLUG,
+        })),
         ItemError::Database(e) => ApiError::internal(e),
     }
 }

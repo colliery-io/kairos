@@ -1586,6 +1586,37 @@ mod tests {
 // Retention (KAIROS-T-0631)
 // ---------------------------------------------------------------------------
 
+/// `GET /api/org/dictionary` (KAIROS-T-0734, KAIROS-A-0079): the dictionary
+/// of the organization. An organization has one dictionary, on the board
+/// `strategy`; there are no team dictionaries.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct OrganizationDictionary {
+    /// The short code of the dictionary document; `null` when the
+    /// organization has no dictionary.
+    pub short_code: Option<String>,
+    /// Each term, sorted by the word (case ignored).
+    pub terms: Vec<DictionaryTerm>,
+    /// The bad rows of the dictionary. A bad row gives no term.
+    pub problems: Vec<DictionaryProblem>,
+}
+
+/// One term of [`OrganizationDictionary`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DictionaryTerm {
+    /// The term: one word or more, as the dictionary writes it.
+    pub word: String,
+    pub part_of_speech: String,
+    pub meaning: String,
+}
+
+/// One bad row of the dictionary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DictionaryProblem {
+    /// The 1-based line of the row in the document.
+    pub line: u32,
+    pub message: String,
+}
+
 /// `GET /api/org/retention`: the retention settings of the deployment and
 /// the last retention pass. Never the path of the archive target.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

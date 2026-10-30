@@ -36,7 +36,7 @@ pub fn ContentEditor(
     /// Fired after a successful save with the item that the PATCH
     /// returned: the page shows it and posts the notice. No read follows.
     on_saved: Callback<ItemDetail>,
-    /// The terms of the dictionary of the team of the board (KAIROS-T-0734).
+    /// The terms of the dictionary of the organization (KAIROS-T-0734).
     #[prop(into)]
     terms: Signal<Vec<kairos_markdown::TermLink>>,
 ) -> impl IntoView {

@@ -201,6 +201,7 @@ pub(crate) fn promote_note(
                     template_id: None,
                     board: Some(input.board),
                     parent: supports.then_some(source_code),
+                    before_write: None,
                 },
                 wording,
             )?;

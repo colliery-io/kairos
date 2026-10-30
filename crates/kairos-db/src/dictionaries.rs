@@ -1,88 +1,72 @@
-//! Dictionaries (KAIROS-T-0733, COLLIERY-I-0664 decisions 6 and 7).
+//! The dictionary of the organization (KAIROS-T-0733, COLLIERY-I-0664
+//! decision 7, KAIROS-A-0079).
 //!
 //! A dictionary is a document made with the system template `dictionary`.
-//! Its owner board says whose dictionary it is:
+//! An organization has one dictionary, and the board `strategy` owns it
+//! (KAIROS-A-0079). There are no team dictionaries:
+//! `items::create_document`, `items::set_document_board` and
+//! `items::restore_item` refuse a dictionary on any other board and name
+//! the board `strategy`. The board `strategy` owns at most one live
+//! dictionary: the same writes refuse a second one and name the first
+//! ([`live_dictionary_of_board`]).
 //!
-//! - the dictionary of a team is owned by the delivery board of the team,
-//! - the dictionary of the organization is owned by the board `strategy`.
-//!
-//! A board owns at most one live dictionary. `items::create_document`,
-//! `items::set_document_board` and `items::restore_item` refuse a second one
-//! and name the first ([`live_dictionary_of_board`]).
-//!
-//! [`team_dictionary`] gives the terms of a team: the organization entries,
-//! then the team entries, and the team entry wins for the same word (case
-//! ignored, `kairos_plain::resolve`). A bad row does not stop the read: it
-//! is in [`TeamDictionary::problems`] with its document and its line.
+//! [`organization_dictionary`] gives its terms and its bad rows. Each
+//! reader uses it and nothing else: the check of the typed sections on an
+//! MCP write and the stored mark (`crate::section_checks`), and the block
+//! "Terms used" of `get_item` (KAIROS-T-0735), which reads the content in
+//! the statement of the other facts of the item
+//! ([`organization_dictionary_sql`]) and builds the terms with
+//! [`OrganizationDictionary::from_document`].
 
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::result::Error as DieselError;
 use uuid::Uuid;
 
-use kairos_plain::{DictionaryProblem, ParsedDictionary, Term, Vocabulary, parse_dictionary};
-
-use crate::models::enums::BoardLevel;
+use kairos_plain::{DictionaryEntry, DictionaryProblem, Vocabulary, parse_dictionary};
 
 /// The slug of the system template of a dictionary.
 pub const DICTIONARY_TEMPLATE_SLUG: &str = "dictionary";
 
-/// The slug of the board that owns the dictionary of the organization.
+/// The slug of the board that owns the dictionary of the organization: the
+/// only board that can own a dictionary (KAIROS-A-0079).
 pub const ORGANIZATION_BOARD_SLUG: &str = "strategy";
 
-/// An error of [`team_dictionary`].
-#[derive(Debug, thiserror::Error)]
-pub enum DictionaryError {
-    /// No live team with this id.
-    #[error("The team {0} does not exist.")]
-    TeamNotFound(Uuid),
-    /// The team has more than one live delivery board, so its dictionary
-    /// is not known.
-    #[error(
-        "The team {team} has {count} delivery boards. A team has one delivery board, which \
-         owns the dictionary of the team."
-    )]
-    SeveralDeliveryBoards { team: Uuid, count: usize },
-    #[error("The database gave an error: {0}.")]
-    Database(#[from] DieselError),
+/// The dictionary of the organization, read. With no dictionary, it has no
+/// code, no term and no problem.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OrganizationDictionary {
+    /// The code of the dictionary document, when there is one.
+    pub short_code: Option<String>,
+    /// Each entry, sorted by the word (case ignored).
+    pub terms: Vec<DictionaryEntry>,
+    /// The bad rows of the document, each with its line.
+    pub problems: Vec<DictionaryProblem>,
 }
 
-/// The dictionary document of one board, read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BoardDictionary {
-    pub document_id: Uuid,
-    pub short_code: String,
-    pub parsed: ParsedDictionary,
-}
-
-/// A problem of a dictionary, with the code of its document.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DocumentProblem {
-    pub short_code: String,
-    pub problem: DictionaryProblem,
-}
-
-/// The resolved dictionary of a team.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TeamDictionary {
-    /// The code of the organization dictionary, when there is one.
-    pub organization: Option<String>,
-    /// The code of the dictionary of the team, when there is one.
-    pub team: Option<String>,
-    /// Each term, sorted by the word (case ignored). For a word that is in
-    /// both dictionaries, the entry of the team.
-    pub terms: Vec<Term>,
-    /// The bad rows of the two documents, the organization first.
-    pub problems: Vec<DocumentProblem>,
-}
-
-impl TeamDictionary {
-    /// The words of the terms, for `kairos_plain::Vocabulary::new`.
-    pub fn words(&self) -> impl Iterator<Item = &str> {
-        self.terms.iter().map(|t| t.entry.word.as_str())
+impl OrganizationDictionary {
+    /// The dictionary of the document `short_code` with the text `content`.
+    /// `None`: the organization has no dictionary.
+    pub fn from_document(short_code: Option<String>, content: Option<&str>) -> Self {
+        let Some(content) = content else {
+            return Self::default();
+        };
+        let parsed = parse_dictionary(content);
+        let mut terms = parsed.entries;
+        terms.sort_by_cached_key(|entry| entry.word.to_lowercase());
+        Self {
+            short_code,
+            terms,
+            problems: parsed.problems,
+        }
     }
 
-    /// The vocabulary of the `base` word list and the terms of the team.
+    /// The words of the terms, for `kairos_plain::Vocabulary::new`.
+    pub fn words(&self) -> impl Iterator<Item = &str> {
+        self.terms.iter().map(|t| t.word.as_str())
+    }
+
+    /// The vocabulary of the `base` word list and the terms.
     pub fn vocabulary<B>(&self, base: B) -> Vocabulary
     where
         B: IntoIterator,
@@ -150,108 +134,94 @@ pub fn live_dictionary_of_board(
         .optional()
 }
 
-/// The live dictionary of `board_id`, read. `None`: the board has none.
-pub fn board_dictionary(
+/// The dictionary of the organization: the live dictionary of the live
+/// board `strategy` (KAIROS-A-0079). One statement.
+pub fn organization_dictionary(
     conn: &mut PgConnection,
-    board_id: Uuid,
-) -> Result<Option<BoardDictionary>, DieselError> {
-    use crate::schema::{documents, templates};
-    let row: Option<(Uuid, String, String)> = documents::table
+) -> Result<OrganizationDictionary, DieselError> {
+    use crate::schema::{boards, documents, templates};
+    let row: Option<(String, String)> = documents::table
         .inner_join(templates::table)
-        .filter(documents::board_id.eq(board_id))
+        .inner_join(boards::table)
+        .filter(boards::slug.eq(ORGANIZATION_BOARD_SLUG))
+        .filter(boards::deleted_at.is_null())
         .filter(documents::deleted_at.is_null())
         .filter(templates::slug.eq(DICTIONARY_TEMPLATE_SLUG))
         .order(documents::short_code.asc())
-        .select((documents::id, documents::short_code, documents::content))
+        .select((documents::short_code, documents::content))
         .first(conn)
         .optional()?;
-    Ok(
-        row.map(|(document_id, short_code, content)| BoardDictionary {
-            document_id,
-            short_code,
-            parsed: parse_dictionary(&content),
-        }),
+    Ok(match row {
+        Some((short_code, content)) => {
+            OrganizationDictionary::from_document(Some(short_code), Some(&content))
+        }
+        None => OrganizationDictionary::default(),
+    })
+}
+
+/// An SQL expression (nullable `text`) of the content of the dictionary of
+/// the organization, as [`organization_dictionary`] reads it, for a
+/// statement that reads other facts too (`get_item`, KAIROS-T-0735).
+/// `NULL`: the organization has no dictionary.
+pub fn organization_dictionary_sql() -> String {
+    format!(
+        "(SELECT dd.content FROM documents dd \
+            JOIN templates dtp ON dtp.id = dd.template_id \
+                              AND dtp.slug = '{DICTIONARY_TEMPLATE_SLUG}' \
+            JOIN boards db ON db.id = dd.board_id AND db.deleted_at IS NULL \
+           WHERE db.slug = '{ORGANIZATION_BOARD_SLUG}' AND dd.deleted_at IS NULL \
+           ORDER BY dd.short_code LIMIT 1)"
     )
 }
 
-/// The dictionary of the organization: the live dictionary of the live
-/// board `strategy`.
-pub fn organization_dictionary(
-    conn: &mut PgConnection,
-) -> Result<Option<BoardDictionary>, DieselError> {
-    use crate::schema::boards::dsl;
-    let board: Option<Uuid> = dsl::boards
-        .filter(dsl::slug.eq(ORGANIZATION_BOARD_SLUG))
-        .filter(dsl::deleted_at.is_null())
-        .select(dsl::id)
-        .first(conn)
-        .optional()?;
-    match board {
-        Some(board) => board_dictionary(conn, board),
-        None => Ok(None),
-    }
+/// The terms of `terms` that the prose of `texts` uses
+/// (`kairos_plain::terms_used`: case ignored, the longest term first at
+/// each word, code is not prose), in the order of `terms`.
+pub fn terms_used_by<X>(texts: X, terms: &[DictionaryEntry]) -> Vec<&DictionaryEntry>
+where
+    X: IntoIterator,
+    X::Item: AsRef<str>,
+{
+    let words: Vec<&str> = terms.iter().map(|t| t.word.as_str()).collect();
+    kairos_plain::terms_used(texts, &words)
+        .into_iter()
+        .map(|index| &terms[index])
+        .collect()
 }
 
-/// The terms of the team `team_id`: the organization dictionary, then the
-/// dictionary of the delivery board of the team. The team entry wins for
-/// the same word. A team with no delivery board has the organization terms
-/// only.
-pub fn team_dictionary(
-    conn: &mut PgConnection,
-    team_id: Uuid,
-) -> Result<TeamDictionary, DictionaryError> {
-    use crate::schema::{boards, teams};
-    let team: Option<Uuid> = teams::table
-        .filter(teams::id.eq(team_id))
-        .filter(teams::deleted_at.is_null())
-        .select(teams::id)
-        .first(conn)
-        .optional()?;
-    if team.is_none() {
-        return Err(DictionaryError::TeamNotFound(team_id));
-    }
-    let delivery: Vec<Uuid> = boards::table
-        .filter(boards::team_id.eq(team_id))
-        .filter(boards::board_level.eq(BoardLevel::Delivery))
-        .filter(boards::deleted_at.is_null())
-        .select(boards::id)
-        .load(conn)?;
-    let team_board = match delivery.as_slice() {
-        [] => None,
-        [one] => Some(*one),
-        several => {
-            return Err(DictionaryError::SeveralDeliveryBoards {
-                team: team_id,
-                count: several.len(),
-            });
-        }
-    };
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let organization = organization_dictionary(conn)?;
-    let team = match team_board {
-        Some(board) => board_dictionary(conn, board)?,
-        None => None,
-    };
-    let entries = |d: &Option<BoardDictionary>| {
-        d.as_ref()
-            .map(|d| d.parsed.entries.clone())
-            .unwrap_or_default()
-    };
-    let terms = kairos_plain::resolve(&entries(&organization), &entries(&team));
-    let problems = [&organization, &team]
-        .into_iter()
-        .flatten()
-        .flat_map(|d| {
-            d.parsed.problems.iter().map(|problem| DocumentProblem {
-                short_code: d.short_code.clone(),
-                problem: problem.clone(),
-            })
-        })
-        .collect();
-    Ok(TeamDictionary {
-        organization: organization.map(|d| d.short_code),
-        team: team.map(|d| d.short_code),
-        terms,
-        problems,
-    })
+    #[test]
+    fn the_terms_are_sorted_and_a_bad_row_is_a_problem() {
+        let dictionary = OrganizationDictionary::from_document(
+            Some("X-D-0001".to_string()),
+            Some(
+                "| Word | Part of speech | Meaning |\n|---|---|---|\n\
+                 | production | noun | Code that runs for the users. |\n\
+                 | Board | noun | A set of columns. |\n\
+                 | lane | noun |\n",
+            ),
+        );
+        let words: Vec<&str> = dictionary.words().collect();
+        assert_eq!(words, ["Board", "production"]);
+        assert_eq!(dictionary.problems.len(), 1, "{:?}", dictionary.problems);
+        assert_eq!(dictionary.problems[0].line, 5);
+    }
+
+    #[test]
+    fn no_document_is_an_empty_dictionary() {
+        assert_eq!(
+            OrganizationDictionary::from_document(None, None),
+            OrganizationDictionary::default()
+        );
+    }
+
+    #[test]
+    fn the_sql_reads_the_board_strategy_and_the_template_dictionary() {
+        let sql = organization_dictionary_sql();
+        assert!(sql.contains("db.slug = 'strategy'"), "{sql}");
+        assert!(sql.contains("dtp.slug = 'dictionary'"), "{sql}");
+    }
 }

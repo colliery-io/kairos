@@ -152,7 +152,7 @@ pub(super) fn NotesPanel(
     #[prop(into)] read_only: Signal<bool>,
     #[prop(into)] read_only_reason: Signal<String>,
     on_changed: Callback<()>,
-    /// The terms of the dictionary of the team (KAIROS-T-0734): each note
+    /// The terms of the dictionary of the organization (KAIROS-T-0734): each note
     /// links them, with the meaning on hover.
     #[prop(into)]
     terms: Signal<Vec<markdown::TermLink>>,

@@ -1127,6 +1127,20 @@ async fn start_background(state: &AppState, retention: kairos_core::retention::R
     {
         tracing::error!(error = ?e, "key expiring: the first run of the pass was not added");
     }
+    // KAIROS-T-0731: the check of the typed sections of the documents that
+    // no write checked (the backfill), or whose check is stale.
+    if role.runs_pass(crate::periodic::SECTION_CHECKS)
+        && let Err(e) = state
+            .jobs
+            .add_periodic(
+                crate::periodic::SECTION_CHECKS,
+                crate::periodic::SECTION_CHECKS_INTERVAL,
+                crate::periodic::section_checks_pass(state.config.database_url.clone()),
+            )
+            .await
+    {
+        tracing::error!(error = ?e, "section checks: the first run of the pass was not added");
+    }
     // KAIROS-T-0670: the cadence of the issue import. One run at a time looks
     // at the repositories whose import is due and queues their jobs.
     if role.runs_pass(crate::periodic::ISSUE_SYNC)

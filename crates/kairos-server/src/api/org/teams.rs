@@ -48,7 +48,6 @@ pub fn router() -> Router<AppState> {
             get(list_team_unlinked_refs),
         )
         .route("/api/teams/{id}/work-documents", get(list_work_documents))
-        .route("/api/teams/{id}/dictionary", get(get_team_dictionary))
         .route(
             "/api/teams/{id}",
             get(get_team).patch(update_team).delete(delete_team),
@@ -415,79 +414,6 @@ pub(crate) async fn list_work_documents(
         })
         .await?;
     Ok(Json(rows))
-}
-
-/// The dictionary of the team (KAIROS-T-0734, KAIROS-T-0733). It gives the
-/// terms of the organization dictionary and of the dictionary of the team.
-/// A team entry wins for the same word. Each member of the organization can
-/// read it, as for the items. The web links these terms in the content of
-/// an item of the team, and shows the meaning on hover.
-#[utoipa::path(
-    get,
-    path = "/api/teams/{id}/dictionary",
-    tag = "teams",
-    params(("id" = String, Path, description = "The slug or the id (UUID) of the team")),
-    responses(
-        (status = 200, description = "The terms of the team, sorted by the word", body = kairos_client::types_team_pages::TeamDictionary),
-        (status = 404, description = "Unknown team", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "The team has more than one delivery board", body = kairos_client::types::ErrorEnvelope),
-    ),
-)]
-pub(crate) async fn get_team_dictionary(
-    State(state): State<AppState>,
-    Extension(tenant): Extension<TenantContext>,
-    Path(id): Path<String>,
-) -> Result<Json<kairos_client::types_team_pages::TeamDictionary>, ApiError> {
-    use kairos_client::types_team_pages as types;
-    use kairos_db::dictionaries::{DictionaryError, team_dictionary};
-    let dictionary = state
-        .blocking
-        .run(&tenant.slug, move |conn| {
-            let team_id = team_by_ref(conn, &id)?;
-            team_dictionary(conn, team_id).map_err(|e| match e {
-                DictionaryError::TeamNotFound(team) => {
-                    ApiError::not_found(format!("No live team has the id {team}."))
-                        .with_details(serde_json::json!({ "field": "team" }))
-                }
-                DictionaryError::SeveralDeliveryBoards { .. } => ApiError::conflict(e.to_string()),
-                DictionaryError::Database(e) => ApiError::internal(e),
-            })
-        })
-        .await?;
-    let document = |layer: kairos_plain::Layer| match layer {
-        kairos_plain::Layer::Organization => dictionary.organization.clone(),
-        kairos_plain::Layer::Team => dictionary.team.clone(),
-    };
-    let terms = dictionary
-        .terms
-        .iter()
-        .map(|term| types::DictionaryTerm {
-            word: term.entry.word.clone(),
-            part_of_speech: term.entry.part_of_speech.clone(),
-            meaning: term.entry.meaning.clone(),
-            layer: match term.layer {
-                kairos_plain::Layer::Organization => "organization",
-                kairos_plain::Layer::Team => "team",
-            }
-            .to_string(),
-            document: document(term.layer).unwrap_or_default(),
-        })
-        .collect();
-    let problems = dictionary
-        .problems
-        .iter()
-        .map(|p| types::DictionaryProblem {
-            document: p.short_code.clone(),
-            line: u32::try_from(p.problem.line).unwrap_or(u32::MAX),
-            message: p.problem.message.clone(),
-        })
-        .collect();
-    Ok(Json(types::TeamDictionary {
-        organization: dictionary.organization,
-        team: dictionary.team,
-        terms,
-        problems,
-    }))
 }
 
 /// Create a team AND its delivery board (seeded from the system delivery

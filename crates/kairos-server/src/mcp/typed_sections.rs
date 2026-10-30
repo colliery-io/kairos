@@ -10,17 +10,16 @@
 
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
-use kairos_core::sections::{
-    SectionFailure, SectionProblem, SectionType, changed_sections, check_sections,
-};
-use serde_json::{Value, json};
+use kairos_core::sections::{SectionFailure, SectionType, changed_sections, check_sections};
+use kairos_db::section_checks::StoredFailure;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::error::ApiError;
 
 /// The most violations that the message of a refusal lists. `details` has
 /// each one.
-const MESSAGE_LINES: usize = 40;
+pub(super) const MESSAGE_LINES: usize = 40;
 
 /// The typed sections of a template: each heading and its type, in the
 /// order of the template.
@@ -81,37 +80,6 @@ fn typed(rows: Vec<(String, String)>) -> Typed {
         .collect()
 }
 
-/// The terms of the dictionary for a document of the owner board `board`
-/// (COLLIERY-I-0664 decision 6, KAIROS-T-0733): the dictionary of the team
-/// of the board, on the organization dictionary. A board with no team, or a
-/// team whose dictionary is not known (several delivery boards), gets the
-/// organization dictionary only.
-fn dictionary_terms(conn: &mut PgConnection, board: Option<Uuid>) -> Result<Vec<String>, ApiError> {
-    use kairos_db::dictionaries::{DictionaryError, organization_dictionary, team_dictionary};
-    use kairos_db::schema::boards;
-    let team: Option<Uuid> = match board {
-        Some(board) => boards::table
-            .filter(boards::id.eq(board))
-            .select(boards::team_id)
-            .first::<Option<Uuid>>(conn)
-            .optional()
-            .map_err(ApiError::internal)?
-            .flatten(),
-        None => None,
-    };
-    if let Some(team) = team {
-        match team_dictionary(conn, team) {
-            Ok(dictionary) => return Ok(dictionary.words().map(str::to_string).collect()),
-            Err(DictionaryError::Database(e)) => return Err(ApiError::internal(e)),
-            Err(_) => {}
-        }
-    }
-    let organization = organization_dictionary(conn).map_err(ApiError::internal)?;
-    Ok(organization
-        .map(|d| d.parsed.entries.into_iter().map(|e| e.word).collect())
-        .unwrap_or_default())
-}
-
 /// Refuse `content` when it does not pass `sections`: `SECTIONS_NOT_PASSED`,
 /// with each section and each violation named. `Ok` when there is no typed
 /// section, or the content passes. With `old` (an edit), only the sections
@@ -137,7 +105,7 @@ pub(super) fn refuse_failing(
         return Ok(());
     }
     let terms = if sections.iter().any(|(_, t)| *t == SectionType::Plain) {
-        dictionary_terms(conn, board)?
+        kairos_db::section_checks::dictionary_terms(conn, board).map_err(ApiError::internal)?
     } else {
         Vec::new()
     };
@@ -159,32 +127,16 @@ pub(crate) fn refusal(short_code: Option<&str>, failures: &[SectionFailure]) -> 
         "{subject} does not pass the typed sections of its template. The server saved \
          nothing. Correct each section, and then send the write again."
     );
+    let stored: Vec<StoredFailure> = failures.iter().map(StoredFailure::from).collect();
     let mut lines = 0usize;
     let mut not_listed = 0usize;
-    for failure in failures {
-        let name = format!("Section {:?} ({})", failure.heading, failure.section_type);
-        let texts: Vec<String> = match &failure.problem {
-            SectionProblem::Missing => vec![format!(
-                "{name}: the content does not have this section. Add the heading \"## {}\" \
-                 and text under it.",
-                failure.heading
-            )],
-            SectionProblem::Empty => vec![format!(
-                "{name}: the section has no text. Write text under the heading."
-            )],
-            SectionProblem::Violations(violations) => violations
-                .iter()
-                .map(|v| format!("{name}, {}: {:?}. {}", v.rule, v.text, v.fix))
-                .collect(),
-        };
-        for text in texts {
-            if lines < MESSAGE_LINES {
-                message.push_str("\n- ");
-                message.push_str(&text);
-                lines += 1;
-            } else {
-                not_listed += 1;
-            }
+    for text in stored.iter().flat_map(StoredFailure::lines) {
+        if lines < MESSAGE_LINES {
+            message.push_str("\n- ");
+            message.push_str(&text);
+            lines += 1;
+        } else {
+            not_listed += 1;
         }
     }
     if not_listed > 0 {
@@ -194,34 +146,14 @@ pub(crate) fn refusal(short_code: Option<&str>, failures: &[SectionFailure]) -> 
     }
     ApiError::unprocessable("SECTIONS_NOT_PASSED", message).with_details(json!({
         "field": "content",
-        "sections": failures.iter().map(failure_json).collect::<Vec<Value>>(),
+        "sections": stored,
     }))
-}
-
-fn failure_json(failure: &SectionFailure) -> Value {
-    let (problem, violations) = match &failure.problem {
-        SectionProblem::Missing => ("missing", Vec::new()),
-        SectionProblem::Empty => ("empty", Vec::new()),
-        SectionProblem::Violations(violations) => (
-            "violations",
-            violations
-                .iter()
-                .map(|v| json!({ "rule": v.rule, "text": v.text, "fix": v.fix }))
-                .collect(),
-        ),
-    };
-    json!({
-        "heading": failure.heading,
-        "type": failure.section_type.as_str(),
-        "problem": problem,
-        "violations": violations,
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kairos_core::sections::SectionViolation;
+    use kairos_core::sections::{SectionProblem, SectionViolation};
 
     #[test]
     fn the_refusal_names_each_section_and_each_violation() {

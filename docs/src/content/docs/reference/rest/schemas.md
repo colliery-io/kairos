@@ -1036,6 +1036,7 @@ A supporting document, as returned by `/api/documents`. Documents do not live on
 | `impacts` | array of [`Impact`](#impact) | no | The repositories that the document impacts (COLLIERY-T-0269), by slug. An `impacts` link says what the document is about. It gives no right. |
 | `lifecycle` | `string` | yes | Editorial lifecycle: `draft|review|published|archived` (KAIROS-T-0078). A label with free transitions â never a board column, never metadata. |
 | `notes` | `array`, nullable | no | The notes of the item, in the order of their ids (KAIROS-T-0630). Present on the read of one item (`GET /api/{family}/{short_code}`), empty when the item has none. Absent from lists and from the answers of writes. A note is not part of `content`. |
+| `section_check` | [`SectionCheck`](#sectioncheck), nullable | no |  |
 | `short_code` | `string` | yes | Tenant-scoped short code (`{PREFIX}-D-{NNNN}`). |
 | `template_id` | `string`, nullable | no | Template the document was stamped from (UUID), if any. |
 | `title` | `string` | yes |  |
@@ -2581,6 +2582,40 @@ Whether a secret is set, and by whom. The secret itself never leaves the server.
 | `set_at` | `string`, nullable | no | RFC 3339. |
 | `set_by` | `string`, nullable | no |  |
 | `set_by_name` | `string`, nullable | no | The display name of `set_by` (KAIROS-T-0415). |
+
+## SectionCheck
+
+The stored check of the typed sections of a document (KAIROS-T-0731, COLLIERY-I-0664 decision 3). Each content write of the document writes it, and a periodic pass checks the documents that no write checked. A document that does not pass gets this mark. The mark does not stop a write.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `checked_at` | `string` | yes | RFC 3339. |
+| `passes` | `boolean` | yes | `true` when the document passes each typed section. |
+| `sections` | array of [`SectionCheckFailure`](#sectioncheckfailure) | yes | Each section that does not pass, in the order of the template. |
+| `stale` | `boolean` | yes | The typed sections of the template or a dictionary changed after the check. The server checks the document again soon. |
+| `version` | `integer` | yes | The version of the document that the server checked. |
+| `violations` | `integer` | yes | The number of problems: 1 for each missing or empty section, and 1 for each violation of a `plain` section. |
+
+## SectionCheckFailure
+
+A typed section that a document does not pass (KAIROS-T-0731).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `heading` | `string` | yes | The heading of the section, with no `#`. |
+| `problem` | `string` | yes | `missing`, `empty` or `violations`. |
+| `type` | `string` | yes | The type of the section: `free` or `plain`. |
+| `violations` | array of [`SectionCheckViolation`](#sectioncheckviolation) | no | The violations of a `plain` section; empty for the other problems. |
+
+## SectionCheckViolation
+
+One rule that the text of a section breaks (KAIROS-T-0731).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `fix` | `string` | yes | What is wrong, then what to do. |
+| `rule` | `string` | yes | The rule id, as `STE-V1`. |
+| `text` | `string` | yes | The text that breaks the rule. |
 
 ## SendNoticeRequest
 

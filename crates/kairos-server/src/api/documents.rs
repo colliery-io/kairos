@@ -306,12 +306,26 @@ pub(crate) async fn get_document(
         .blocking
         .run(&tenant.slug, move |conn| {
             let document = load(conn, &short_code, Liveness::IncludeArchived)?;
+            let id = document.id;
             let mut document = render(conn, document)?;
             document.notes = crate::api::item_notes(conn, &document.id)?;
+            // KAIROS-T-0731: the mark of the typed sections.
+            document.section_check = section_check(conn, id)?;
             Ok(document)
         })
         .await?;
     Ok(Json(document))
+}
+
+/// The stored check of the typed sections of a document, as its DTO
+/// (KAIROS-T-0731). `None` when the document has no check.
+fn section_check(
+    conn: &mut PgConnection,
+    document_id: Uuid,
+) -> Result<Option<kairos_client::types::SectionCheck>, ApiError> {
+    Ok(kairos_db::section_checks::of_document(conn, document_id)
+        .map_err(ApiError::internal)?
+        .map(super::convert::section_check_dto))
 }
 
 /// The names that a surface gives to the inputs of a document create, for
@@ -866,7 +880,11 @@ pub(crate) async fn update_document(
             match items::update_item_content(conn, ItemType::Document, document_id, update, user) {
                 Ok(_) => {
                     let updated = load(conn, &short_code, Liveness::LiveOnly)?;
-                    render(conn, updated)
+                    let mut updated = render(conn, updated)?;
+                    // KAIROS-T-0731: the write wrote the check; the page
+                    // shows the new mark (or none) at once.
+                    updated.section_check = section_check(conn, document_id)?;
+                    Ok(updated)
                 }
                 Err(items::ItemError::VersionConflict {
                     expected_version,

@@ -49,6 +49,10 @@ pub const KEY_EXPIRING: &str = "key-expiring";
 /// The look at the repositories whose issue import is due (KAIROS-T-0670).
 pub const ISSUE_SYNC: &str = "issue-sync";
 
+/// The check of the typed sections of the documents that no write checked,
+/// or whose check is stale (KAIROS-T-0731).
+pub const SECTION_CHECKS: &str = "section-checks";
+
 /// The dedupe key of the runs of the pass `pass`.
 pub fn key(pass: &str) -> String {
     format!("periodic:{pass}")
@@ -405,5 +409,57 @@ fn key_expiring_run(database_url: &str, handle: &JobHandle) -> Result<(), JobErr
             JobError::retry(format!("The key-expiring pass failed: {e}"))
         })?;
     tracing::info!(reported, "key expiring: pass done");
+    Ok(())
+}
+
+/// How often the pass `section-checks` runs (KAIROS-T-0731). A change of
+/// the typed sections of a template or of a dictionary shows on the marks
+/// within one interval.
+pub const SECTION_CHECKS_INTERVAL: Duration = Duration::from_secs(60);
+
+/// The pass of the typed sections (KAIROS-T-0731, COLLIERY-I-0664 decision
+/// 3): on a connection of its own, in each organization,
+/// [`kairos_db::section_checks::check_pending`] checks the documents whose
+/// template has typed sections and that have no check (the old documents)
+/// or a stale check, at most [`kairos_db::section_checks::PASS_LIMIT`] in
+/// each run. A failed pass is tried again.
+pub fn section_checks_pass(database_url: String) -> PassFn {
+    Arc::new(move |handle: JobHandle| {
+        let url = database_url.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || section_checks_run(&url, &handle))
+                .await
+                .map_err(|e| JobError::retry(format!("The section-checks pass stopped: {e}")))?
+        })
+    })
+}
+
+/// One run of the pass of the typed sections: connect, run the pass, log
+/// the result.
+fn section_checks_run(database_url: &str, handle: &JobHandle) -> Result<(), JobError> {
+    let mut conn = kairos_db::establish_migration_connection(database_url).map_err(|e| {
+        tracing::error!(error = %e, "section checks: the pass cannot connect to the database");
+        JobError::retry(format!(
+            "The section-checks pass cannot connect to the database: {e}"
+        ))
+    })?;
+    let outcome = kairos_db::section_checks::pass(
+        &mut conn,
+        kairos_db::section_checks::PASS_LIMIT,
+        &mut || {
+            handle.progress();
+        },
+    )
+    .map_err(|e| {
+        tracing::error!(error = %e, "section checks: the pass failed");
+        JobError::retry(format!("The section-checks pass failed: {e}"))
+    })?;
+    if outcome.checked > 0 || outcome.removed > 0 {
+        tracing::info!(
+            checked = outcome.checked,
+            removed = outcome.removed,
+            "section checks: pass done"
+        );
+    }
     Ok(())
 }

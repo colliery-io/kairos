@@ -1359,6 +1359,29 @@ details: {"field":"content","sections":[{"heading":"Summary","problem":"empty","
 `problem` is `missing`, `empty` or `violations`. The REST routes and the web
 do not do this check: a person can write free text.
 
+### The mark of a document that does not pass
+
+The server keeps the result of the check of each document whose template
+has typed sections (KAIROS-T-0731). It checks the full content at each
+write of the content, from the web and from the MCP. A periodic pass
+(`section-checks`, each minute) checks the old documents. When the typed
+sections of a template change, or a dictionary changes, the pass checks the
+documents again. The mark does not stop a write.
+
+`get_item` shows the mark under the template line, with one line for each
+violation (40 at most):
+
+```text
+- template: Brief
+- sections: does not pass (2 violations)
+  - Section "Goal" (plain), STE-V1: "server". "server" is not in the vocabulary. Use a word of the word list or a term of the dictionary.
+  - Section "Goal" (plain), STE-G1: "is checked". Passive: is checked. Use the active voice, and name who does the action.
+```
+
+`GET /api/documents/{short_code}` gives the same check as `section_check`,
+and the item page of the web shows it. When a write makes the document
+pass, the mark goes.
+
 ### `append_note`
 
 Appends a note to the item, in one call. Send no version and no anchor

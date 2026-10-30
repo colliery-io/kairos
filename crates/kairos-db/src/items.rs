@@ -1334,7 +1334,8 @@ pub fn set_document_board(
             });
         }
         require_live_board(conn, board_id)?;
-        if crate::dictionaries::is_dictionary_document(conn, document_id)? {
+        let dictionary = crate::dictionaries::is_dictionary_document(conn, document_id)?;
+        if dictionary {
             refuse_second_dictionary(conn, board_id)?;
         }
         let updated: Document = diesel::update(dsl::documents.filter(dsl::id.eq(document_id)))
@@ -1345,6 +1346,18 @@ pub fn set_document_board(
             ))
             .returning(Document::as_returning())
             .get_result(conn)?;
+        // KAIROS-T-0731: the new board can have another dictionary, so the
+        // check of the document changes. A dictionary that moves changes
+        // the checks of the old board too.
+        crate::section_checks::on_document_write(
+            conn,
+            document_id,
+            updated.version,
+            &updated.content,
+        )?;
+        if dictionary {
+            crate::section_checks::mark_dictionary_stale(conn, from)?;
+        }
         let details = format!(
             "owner_board:{}->{}",
             board_slug(conn, from)?,
@@ -1523,6 +1536,13 @@ pub fn create_document(
             created.id,
             Some(board_id),
             &created.title,
+            &created.content,
+        )?;
+        // KAIROS-T-0731: the check of the typed sections of the template.
+        crate::section_checks::on_document_write(
+            conn,
+            created.id,
+            created.version,
             &created.content,
         )?;
         Ok(created)
@@ -1721,6 +1741,17 @@ fn write_content(
             if let Some(before) = before {
                 let names = kairos_core::notifications::new_mentions(&before, update.new_content);
                 crate::notifications::on_mentions(conn, item_id, &names, actor)?;
+            }
+            // KAIROS-T-0731: the check of the typed sections of a
+            // document, on each write (REST and MCP). A task or another
+            // type has no template: no statement.
+            if item_type == ItemType::Document {
+                crate::section_checks::on_document_write(
+                    conn,
+                    item_id,
+                    new_version,
+                    update.new_content,
+                )?;
             }
             // KAIROS-T-0736: the watchers of the item.
             crate::watches::on_watched(
@@ -2235,6 +2266,9 @@ fn soft_delete_planned(
         }
         // KAIROS-T-0359: an archived task has no claim.
         crate::task_claims::drop_claims(conn, &ids, actor, "archive")?;
+        // KAIROS-T-0731: an archived dictionary changes the checks of the
+        // typed sections that it applied to.
+        crate::section_checks::mark_dictionaries_stale(conn, &ids)?;
         // KAIROS-T-0381: an archived item no longer blocks.
         crate::notifications::on_blockers_cleared(
             conn,
@@ -2583,6 +2617,11 @@ pub fn restore_item(
         }
 
         restore_row(conn, item_type, item_id, actor)?;
+        // KAIROS-T-0731: a restored dictionary changes the checks of the
+        // typed sections that it applies to.
+        if item_type == ItemType::Document {
+            crate::section_checks::mark_dictionaries_stale(conn, &[item_id])?;
+        }
 
         // Name the descendants still away, so "I restored it and half of it
         // is missing" is answered before it is asked.

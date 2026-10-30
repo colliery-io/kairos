@@ -446,6 +446,61 @@ pub struct Document {
     /// of writes. A note is not part of `content`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<Vec<ItemNote>>,
+    /// The stored check of the typed sections of the template
+    /// (KAIROS-T-0731). Present on the read of one document and on the
+    /// answer of `PATCH /api/documents/{short_code}`, when the template has
+    /// typed sections and the server checked the document. Absent from
+    /// lists and from the answers of the other writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section_check: Option<SectionCheck>,
+}
+
+/// The stored check of the typed sections of a document (KAIROS-T-0731,
+/// COLLIERY-I-0664 decision 3). Each content write of the document writes
+/// it, and a periodic pass checks the documents that no write checked. A
+/// document that does not pass gets this mark. The mark does not stop a write.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SectionCheck {
+    /// `true` when the document passes each typed section.
+    pub passes: bool,
+    /// The number of problems: 1 for each missing or empty section, and 1
+    /// for each violation of a `plain` section.
+    pub violations: i32,
+    /// The typed sections of the template or a dictionary changed after
+    /// the check. The server checks the document again soon.
+    pub stale: bool,
+    /// The version of the document that the server checked.
+    pub version: i32,
+    /// RFC 3339.
+    pub checked_at: String,
+    /// Each section that does not pass, in the order of the template.
+    pub sections: Vec<SectionCheckFailure>,
+}
+
+/// A typed section that a document does not pass (KAIROS-T-0731).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SectionCheckFailure {
+    /// The heading of the section, with no `#`.
+    pub heading: String,
+    /// The type of the section: `free` or `plain`.
+    #[serde(rename = "type")]
+    pub section_type: String,
+    /// `missing`, `empty` or `violations`.
+    pub problem: String,
+    /// The violations of a `plain` section; empty for the other problems.
+    #[serde(default)]
+    pub violations: Vec<SectionCheckViolation>,
+}
+
+/// One rule that the text of a section breaks (KAIROS-T-0731).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SectionCheckViolation {
+    /// The rule id, as `STE-V1`.
+    pub rule: String,
+    /// The text that breaks the rule.
+    pub text: String,
+    /// What is wrong, then what to do.
+    pub fix: String,
 }
 
 /// An Architecture Decision Record, as returned by `/api/adrs`. Board

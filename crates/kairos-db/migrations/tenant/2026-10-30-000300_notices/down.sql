@@ -1,0 +1,17 @@
+-- KAIROS-T-0737, down. The notices, the mutes, the notifications of the
+-- kind notice and the settings of that kind are lost.
+DELETE FROM notifications WHERE kind = 'notice';
+DELETE FROM notification_settings WHERE kind = 'notice';
+ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_kind_check;
+ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check CHECK (kind IN
+    ('hand_off', 'blocker_cleared', 'cancelled', 'mention', 'p0_bug', 'delivery_failing',
+     'agent_key_revoked', 'blocked_again', 'blocker_cancelled', 'claim_dropped',
+     'claim_stale', 'key_expiring', 'proposal_decided'));
+ALTER TABLE notification_settings DROP CONSTRAINT IF EXISTS notification_settings_kind_check;
+ALTER TABLE notification_settings ADD CONSTRAINT notification_settings_kind_check CHECK (kind IN
+    ('hand_off', 'blocker_cleared', 'cancelled', 'mention', 'p0_bug', 'delivery_failing',
+     'agent_key_revoked', 'blocked_again', 'blocker_cancelled', 'claim_dropped',
+     'claim_stale', 'key_expiring', 'proposal_decided'));
+ALTER TABLE notifications DROP COLUMN IF EXISTS agent_key_id;
+DROP TABLE IF EXISTS notice_mutes;
+DROP TABLE IF EXISTS notices;

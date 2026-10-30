@@ -1940,6 +1940,18 @@ Body of `POST /api/tasks/{short_code}/move` (KAIROS-I-0012): the delivery board 
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
+## MutedKey
+
+An agent key that the caller muted (KAIROS-T-0737).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | The id of the key (UUID). |
+| `name` | `string` | yes | The name of the key. |
+| `owner_id` | `string` | yes | The person of the key (UUID). |
+| `owner_name` | `string` | yes | The name of the person of the key. |
+| `prefix` | `string` | yes | The display prefix of the key. |
+
 ## MyWork
 
 `GET /api/me/work` response: the two lanes of the work of the caller.
@@ -1977,10 +1989,12 @@ One notification of the caller (KAIROS-T-0382).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `actor_id` | `string`, nullable | no | The person or the service account that made the change (UUID). |
+| `agent_key_id` | `string`, nullable | no | The agent key that made it (UUID): a notice from an agent (KAIROS-T-0737). `null`: a person, or Kairos. |
+| `agent_key_name` | `string`, nullable | no | The name of that agent key. |
 | `created_at` | `string` | yes | When Kairos made the notification (RFC 3339). |
 | `entity_type` | `string`, nullable | no | `strategy|initiative|task|document|adr`; `null` when the item is gone. |
 | `id` | `string` | yes | The id (UUID). `POST /api/me/notifications/read` takes it. |
-| `kind` | `string` | yes | `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch`. |
+| `kind` | `string` | yes | `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch|notice`. |
 | `read_at` | `string`, nullable | no | When the person read it (RFC 3339); `null` while unread. |
 | `short_code` | `string`, nullable | no | The code of the item now; `null` when the item is gone. |
 | `text` | `string` | yes | What happened, in one sentence or two. |
@@ -2012,6 +2026,8 @@ One notification of the caller (KAIROS-T-0382).
 | `hand_off` | `boolean` | yes | A person handed off the claim of a task to you. |
 | `key_expiring` | `boolean` | yes | An agent key of yours, or a key of a service account of your organization (you are an admin), expires within 7 days (KAIROS-T-0540). |
 | `mention` | `boolean` | yes | A person wrote `@your_user_name` in a note or in the content of an item. |
+| `muted_keys` | array of [`MutedKey`](#mutedkey) | yes | The agent keys that you muted: a notice from one of them, or from a key that replaced one of them, makes no notification for you (KAIROS-T-0737). |
+| `notice` | `boolean` | yes | A person, or an agent key of a person, sent you a notice: to you, or to a team of yours (KAIROS-T-0737). |
 | `p0_bug` | `boolean` | yes | A bug with the priority P0 (critical) is on the board of your team. |
 | `proposal_decided` | `boolean` | yes | A person confirmed or rejected an edge proposal that you made (KAIROS-T-0558). |
 | `watch` | `boolean` | yes | An item that you watch, or a child of an item that you watch with its children, moved, was edited, got a note, or is done (KAIROS-T-0736). |
@@ -2565,6 +2581,29 @@ Whether a secret is set, and by whom. The secret itself never leaves the server.
 | `set_at` | `string`, nullable | no | RFC 3339. |
 | `set_by` | `string`, nullable | no |  |
 | `set_by_name` | `string`, nullable | no | The display name of `set_by` (KAIROS-T-0415). |
+
+## SendNoticeRequest
+
+`POST /api/notices` body (KAIROS-T-0737): a notice to a person (`to`) or to each member of a team (`team`). Send one of the two.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | `string`, nullable | no | The short code of a live item to link. |
+| `team` | `string`, nullable | no | A live team: its slug or its UUID. Each member gets the notice. |
+| `text` | `string` | yes | The text: 1 to 2000 characters. |
+| `to` | `string`, nullable | no | A person of the organization: `me`, a UUID, an email or a user name. |
+
+The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
+
+## SendNoticeResponse
+
+`POST /api/notices` response (KAIROS-T-0737).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | The id of the notice (UUID). |
+| `remaining` | `integer`, nullable | no | The notices that the sender can still send in this hour; `null` when the deployment has no limit. |
+| `told` | array of `string` | yes | The persons who got a notification (UUIDs). A person who turned the kind `notice` off, or muted the key, is not in it. |
 
 ## ServiceAccountListResponse
 
@@ -3346,8 +3385,11 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 | `hand_off` | `boolean`, nullable | no |  |
 | `key_expiring` | `boolean`, nullable | no |  |
 | `mention` | `boolean`, nullable | no |  |
+| `mute_keys` | `array`, nullable | no | Agent keys to mute (ids). A notice from a muted key makes no notification for you (KAIROS-T-0737). |
+| `notice` | `boolean`, nullable | no |  |
 | `p0_bug` | `boolean`, nullable | no |  |
 | `proposal_decided` | `boolean`, nullable | no |  |
+| `unmute_keys` | `array`, nullable | no | Agent keys to unmute (ids). |
 | `watch` | `boolean`, nullable | no |  |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).

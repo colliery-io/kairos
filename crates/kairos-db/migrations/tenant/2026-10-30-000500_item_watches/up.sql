@@ -6,7 +6,8 @@
 --                  (its `parent` edges, one level) tell the person too.
 --
 -- A coarse change of a watched item (moved, edited, note added, done)
--- makes a notification of the new kind `watch`.
+-- makes a notification of the new kind `watch`. The CHECK keeps `notice`
+-- (KAIROS-T-0737, migration 2026-10-30-000300) that runs before.
 --
 -- No foreign key on user_id: users are in the public schema. No foreign
 -- key on item_id: an item is in one of 5 tables. A purge of an item
@@ -37,10 +38,10 @@ ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check CHECK (kind IN
     ('hand_off', 'blocker_cleared', 'cancelled', 'mention', 'p0_bug', 'delivery_failing',
      'agent_key_revoked', 'blocked_again', 'blocker_cancelled', 'claim_dropped',
      'claim_stale', 'key_expiring', 'proposal_decided',
-     'watch')) NOT VALID;
+     'notice', 'watch')) NOT VALID;
 ALTER TABLE notification_settings DROP CONSTRAINT IF EXISTS notification_settings_kind_check;
 ALTER TABLE notification_settings ADD CONSTRAINT notification_settings_kind_check CHECK (kind IN
     ('hand_off', 'blocker_cleared', 'cancelled', 'mention', 'p0_bug', 'delivery_failing',
      'agent_key_revoked', 'blocked_again', 'blocker_cancelled', 'claim_dropped',
      'claim_stale', 'key_expiring', 'proposal_decided',
-     'watch'));
+     'notice', 'watch'));

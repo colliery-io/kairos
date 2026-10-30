@@ -3,8 +3,8 @@ title: "MCP tools"
 ---
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-eighty-four tools. A drift gate in the test suite
-asserts that `tools/list` returns these eighty-four and no others. The same
+eighty-five tools. A drift gate in the test suite
+asserts that `tools/list` returns these eighty-five and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -22,7 +22,7 @@ organization.
 
 | URL | Profile | Tools |
 |---|---|---|
-| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read, and watches: 52 tools. |
+| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, notices and watches, the scales and templates, board flow, dispatch rules and team pages to read: 53 tools. |
 | `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge, the count of the refusals: the other 32 tools. |
 | `/mcp?profile=all` | all | Each tool. |
 
@@ -48,6 +48,7 @@ The work tools:
 - claims and notifications: `claim_item`, `hand_off_item`, `release_item`,
   `get_events`, `mark_events_read`, `watch_item`, `unwatch_item`,
   `list_watches`;
+  `get_events`, `mark_events_read`, `send_notice`;
 - people: `list_members`;
 - scales and templates: `list_metadata_definitions`, `list_templates`;
 - team pages, to read: `team_pages`;
@@ -2963,6 +2964,7 @@ A notification tells a person about an event of their work (KAIROS-T-0381):
 | `claim_stale` | A claim has no write and no state change for `KAIROS_STALE_CLAIM_DAYS` days (default 14). You get it for your claim, or for a claim on a task of an initiative that you own. The claim stays. Kairos sends it once for each quiet period. |
 | `key_expiring` | An agent key of yours expires in 7 days or less. An organization admin also gets it for a key of a service account. Kairos sends it one time for each key. The text names the key and the `kairos keys rotate` command. |
 | `proposal_decided` | A person confirms or rejects an [edge proposal](#propose_edge) that you made (KAIROS-T-0558). The text names the edge, the state and the decider. A proposal of your agent key is your proposal. |
+| `notice` | A person, or an agent key of a person, sends you a [notice](#send_notice): to you, or to a team of yours (KAIROS-T-0737). The text names the sender, and the key when an agent sent it. |
 
 You get no notification for a change that you made. You can turn a kind off
 with `PUT /api/me/notification-settings` or on the Notifications page of the
@@ -3115,6 +3117,54 @@ With no watch, the result is `You watch no item. watch_item starts a watch.`
 Refuses: `FORBIDDEN` for a service account.
 
 REST: `GET /api/me/watches`.
+### `send_notice`
+
+Sends a notice to a person or to each member of a team (KAIROS-T-0737). A
+notice is a short text with an optional item link. Each recipient gets a
+notification of the kind `notice` in the bell. The open pages of the
+recipient get the push.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `to` | string | `to` or `team` | — | A person of the organization: `me`, an id, an email or a user name. |
+| `team` | string | `to` or `team` | — | A team: its slug or its id. Each member gets the notice. |
+| `text` | string | yes | — | The text: 1 to 2000 characters. |
+| `short_code` | string | no | — | The short code of a live item to link. |
+| `request_key` | string | no | — | A key for a retry (KAIROS-A-0065). |
+
+A notice from an agent key names the key and its person. `to: me` sends the
+notice to your own person: an agent can tell its person that a task is done.
+A person with no key does not get their own notice.
+
+Each agent key can send 20 notices in one hour. The operator sets the limit
+with `KAIROS_NOTICE_LIMIT_PER_HOUR`. A person with no key counts as one
+sender. A rotated key keeps the count of the keys that it replaced. A notice
+to a team counts as one.
+
+A recipient who turned the kind `notice` off, or muted the key, gets nothing.
+
+The result names the notice and the target. It gives the count of the
+persons who got it. It also gives the notices that you can send in this
+hour:
+
+```text
+Sent the notice 6f1c2a8e-0000-4000-8000-000000000002 to the team platform, with the item ACME-T-0012.
+3 persons got a notification.
+You can send 19 more notice(s) in this hour.
+```
+
+Refuses:
+
+- `VALIDATION` when the call has neither `to` nor `team`, or has both.
+- `VALIDATION` when `to` is not a person of the organization.
+- `VALIDATION` when the text is empty or longer than 2000 characters.
+- `NOT_FOUND` when Kairos does not find the team or the item.
+- `FORBIDDEN` for a service account.
+- `KEY_SCOPE` when the scope of the agent key does not have `member`.
+- `NOTICE_RATE_LIMITED` when the key sent the limit in the last hour.
+  Kairos sends nothing. `details.retry_after_secs` gives the seconds to wait.
+
+REST: `POST /api/notices`.
 
 ## Agent dispatch
 

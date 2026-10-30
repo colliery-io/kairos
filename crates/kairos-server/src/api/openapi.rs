@@ -319,6 +319,8 @@ use crate::app::AppState;
         crate::api::watches::get_watch,
         crate::api::watches::put_watch,
         crate::api::watches::delete_watch,
+        // A notice to a person or a team (KAIROS-T-0737).
+        crate::api::notices::send_notice,
         // The work of a person (KAIROS-T-0489).
         crate::api::work::get_my_work,
         crate::api::work::get_standup,

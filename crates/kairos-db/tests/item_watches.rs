@@ -43,10 +43,10 @@ static SCRATCH_DB: scratch::ScratchName =
     scratch::ScratchName::new("kairos_db_item_watches_t0736_test");
 
 /// The migration under test, verbatim.
-const UP: &str = include_str!("../migrations/tenant/2026-10-30-000100_item_watches/up.sql");
-const DOWN: &str = include_str!("../migrations/tenant/2026-10-30-000100_item_watches/down.sql");
+const UP: &str = include_str!("../migrations/tenant/2026-10-30-000500_item_watches/up.sql");
+const DOWN: &str = include_str!("../migrations/tenant/2026-10-30-000500_item_watches/down.sql");
 const VALIDATE: &str =
-    include_str!("../migrations/tenant/2026-10-30-000200_item_watches_validate/up.sql");
+    include_str!("../migrations/tenant/2026-10-30-000600_item_watches_validate/up.sql");
 
 fn admin_database_url() -> String {
     std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string())

@@ -1496,6 +1496,15 @@ impl KairosClient {
         self.get("/api/me/notification-settings").await
     }
 
+    /// `POST /api/notices` (KAIROS-T-0737): send a notice to a person or
+    /// to each member of a team.
+    pub async fn send_notice(
+        &self,
+        request: &crate::types_notifications::SendNoticeRequest,
+    ) -> Result<crate::types_notifications::SendNoticeResponse, Error> {
+        self.post_created("/api/notices", request).await
+    }
+
     /// `PUT /api/me/notification-settings` (KAIROS-T-0381): turn kinds on
     /// or off for the caller.
     pub async fn update_notification_settings(

@@ -49,6 +49,9 @@ pub enum NotificationKind {
     /// its children, moved, was edited, got a note, or is done
     /// (KAIROS-T-0736). See [`WatchEvent`].
     Watch,
+    /// A person, or an agent key of a person, sent you a notice: to you,
+    /// or to a team of yours (KAIROS-T-0737).
+    Notice,
 }
 
 /// A key that expires within this many days gets one `key_expiring`
@@ -57,7 +60,7 @@ pub const KEY_EXPIRING_DAYS: i64 = 7;
 
 impl NotificationKind {
     /// Each kind, in the order of the settings.
-    pub const ALL: [NotificationKind; 14] = [
+    pub const ALL: [NotificationKind; 15] = [
         NotificationKind::HandOff,
         NotificationKind::BlockerCleared,
         NotificationKind::BlockedAgain,
@@ -72,6 +75,7 @@ impl NotificationKind {
         NotificationKind::KeyExpiring,
         NotificationKind::ProposalDecided,
         NotificationKind::Watch,
+        NotificationKind::Notice,
     ];
 
     /// The wire name (`kind` column and API field).
@@ -91,6 +95,7 @@ impl NotificationKind {
             NotificationKind::KeyExpiring => "key_expiring",
             NotificationKind::ProposalDecided => "proposal_decided",
             NotificationKind::Watch => "watch",
+            NotificationKind::Notice => "notice",
         }
     }
 
@@ -142,6 +147,13 @@ impl WatchEvent {
         }
     }
 }
+/// The most characters in the text of a notice (KAIROS-T-0737).
+pub const NOTICE_TEXT_MAX: usize = 2000;
+
+/// The notices that one agent key (or one person with no key) can send in
+/// one hour, when the operator sets no other limit (KAIROS-T-0737). A
+/// notice to a team counts as one.
+pub const NOTICES_PER_HOUR: u32 = 20;
 
 /// Whether a value of the metadata `priority` is P0: `critical` (the top of
 /// the default scale) or `p0`. Case is not significant.

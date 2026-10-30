@@ -52,6 +52,28 @@ pub struct NotificationSettings {
     /// its children, moved, was edited, got a note, or is done
     /// (KAIROS-T-0736).
     pub watch: bool,
+    /// A person, or an agent key of a person, sent you a notice: to you,
+    /// or to a team of yours (KAIROS-T-0737).
+    pub notice: bool,
+    /// The agent keys that you muted: a notice from one of them, or from a
+    /// key that replaced one of them, makes no notification for you
+    /// (KAIROS-T-0737).
+    pub muted_keys: Vec<MutedKey>,
+}
+
+/// An agent key that the caller muted (KAIROS-T-0737).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MutedKey {
+    /// The id of the key (UUID).
+    pub id: String,
+    /// The name of the key.
+    pub name: String,
+    /// The display prefix of the key.
+    pub prefix: String,
+    /// The person of the key (UUID).
+    pub owner_id: String,
+    /// The name of the person of the key.
+    pub owner_name: String,
 }
 
 /// `PUT /api/me/notification-settings` body: the kinds to turn on (`true`)
@@ -87,6 +109,14 @@ pub struct UpdateNotificationSettingsRequest {
     pub proposal_decided: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watch: Option<bool>,
+    pub notice: Option<bool>,
+    /// Agent keys to mute (ids). A notice from a muted key makes no
+    /// notification for you (KAIROS-T-0737).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mute_keys: Option<Vec<String>>,
+    /// Agent keys to unmute (ids).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unmute_keys: Option<Vec<String>>,
 }
 
 /// One notification of the caller (KAIROS-T-0382).
@@ -94,7 +124,7 @@ pub struct UpdateNotificationSettingsRequest {
 pub struct Notification {
     /// The id (UUID). `POST /api/me/notifications/read` takes it.
     pub id: String,
-    /// `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch`.
+    /// `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch|notice`.
     pub kind: String,
     /// The code of the item now; `null` when the item is gone.
     pub short_code: Option<String>,
@@ -111,6 +141,13 @@ pub struct Notification {
     pub created_at: String,
     /// When the person read it (RFC 3339); `null` while unread.
     pub read_at: Option<String>,
+    /// The agent key that made it (UUID): a notice from an agent
+    /// (KAIROS-T-0737). `null`: a person, or Kairos.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
+    /// The name of that agent key.
+    #[serde(default)]
+    pub agent_key_name: Option<String>,
 }
 
 /// `GET /api/me/notifications` response: each unread notification (newest
@@ -194,4 +231,36 @@ pub struct WatchedItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct WatchList {
     pub items: Vec<WatchedItem>,
+}
+
+/// `POST /api/notices` body (KAIROS-T-0737): a notice to a person (`to`) or
+/// to each member of a team (`team`). Send one of the two.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SendNoticeRequest {
+    /// A person of the organization: `me`, a UUID, an email or a user
+    /// name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    /// A live team: its slug or its UUID. Each member gets the notice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// The text: 1 to 2000 characters.
+    pub text: String,
+    /// The short code of a live item to link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_code: Option<String>,
+}
+
+/// `POST /api/notices` response (KAIROS-T-0737).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SendNoticeResponse {
+    /// The id of the notice (UUID).
+    pub id: String,
+    /// The persons who got a notification (UUIDs). A person who turned
+    /// the kind `notice` off, or muted the key, is not in it.
+    pub told: Vec<String>,
+    /// The notices that the sender can still send in this hour; `null`
+    /// when the deployment has no limit.
+    pub remaining: Option<i64>,
 }

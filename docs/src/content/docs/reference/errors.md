@@ -66,6 +66,12 @@ The throttle of failed logins answers 429 with a `Retry-After` header. See
 The text of each code is the same for each key and each account. Thus a 429
 does not tell which keys or accounts exist.
 
+### Notices
+
+| Code | Status | Meaning | `details` |
+|---|---|---|---|
+| `NOTICE_RATE_LIMITED` | 429 | The agent key (or the person with no key) sent the limit of notices in the last hour. Kairos sent nothing | `limit`, `window_secs`, `retry_after_secs` |
+
 ### An input that a route does not accept
 
 **The server refuses each input that a route does not know.** The server does

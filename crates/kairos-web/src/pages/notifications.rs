@@ -14,6 +14,11 @@
 //! A notification marked read here is read for the person only: each agent
 //! key of the person keeps its own read state.
 //!
+//! A notice from an agent key (KAIROS-T-0737) names the key on its row,
+//! with "Mute this key": after it, a notice from the key makes no
+//! notification for the person. The settings list the muted keys, each with
+//! "Unmute".
+//!
 //! The page `/notifications` has "Show older" (KAIROS-T-0584). The first
 //! read gives up to 100 unread notifications and the 20 newest read ones.
 //! "Show older" adds the next page: the older unread ones (`before`), and
@@ -42,6 +47,10 @@ pub struct Notification {
     pub text: String,
     pub created_at: String,
     pub read_at: Option<String>,
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
+    #[serde(default)]
+    pub agent_key_name: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_notifications::NotificationList`.
@@ -68,6 +77,34 @@ struct NotificationSettings {
     key_expiring: bool,
     proposal_decided: bool,
     watch: bool,
+    notice: bool,
+    #[serde(default)]
+    muted_keys: Vec<MutedKey>,
+}
+
+/// mirror of: `kairos_client::types_notifications::MutedKey` (partial).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct MutedKey {
+    id: String,
+    name: String,
+    prefix: String,
+    owner_name: String,
+}
+
+/// The body of a mute or an unmute of one agent key (KAIROS-T-0737).
+/// Pure, host-tested.
+fn mute_body(key_id: &str, mute: bool) -> serde_json::Value {
+    if mute {
+        json!({ "mute_keys": [key_id] })
+    } else {
+        json!({ "unmute_keys": [key_id] })
+    }
+}
+
+async fn set_mute(auth: Auth, key_id: String, mute: bool) -> Result<(), ApiError> {
+    crate::api::put_json::<_, NotificationSettings>(auth, SETTINGS, &mute_body(&key_id, mute))
+        .await
+        .map(|_| ())
 }
 
 /// mirror of: `kairos_client::types_notifications::MarkNotificationsReadResponse`
@@ -223,6 +260,7 @@ fn kind_label(kind: &str) -> &'static str {
         "key_expiring" => "Key expiring",
         "proposal_decided" => "Proposal decided",
         "watch" => "Watch",
+        "notice" => "Notice",
         _ => "Notification",
     }
 }
@@ -278,6 +316,21 @@ fn NotificationRows(
         .map(|n| {
             let id = StoredValue::new(n.id.clone());
             let unread = n.read_at.is_none();
+            let key = n.agent_key_id.clone().map(|key_id| {
+                let name = n.agent_key_name.clone().unwrap_or_else(|| key_id.clone());
+                (key_id, name)
+            });
+            let on_mute = move |key_id: String| {
+                if busy.get_untracked() {
+                    return;
+                }
+                busy.set(true);
+                leptos::task::spawn_local(async move {
+                    let result = set_mute(auth, key_id, true).await;
+                    busy.set(false);
+                    on_marked.run(result);
+                });
+            };
             let on_mark = move |_| {
                 if busy.get_untracked() {
                     return;
@@ -290,25 +343,50 @@ fn NotificationRows(
                     on_marked.run(result);
                 });
             };
+            let kind = n.kind.clone();
+            let label = kind_label(&n.kind);
+            let key_pill = key.clone().map(|(_, name)| {
+                view! {
+                    <span data-testid="notice-agent-key">
+                        <Pill color=token::MUTED>{format!("Agent key {name}")}</Pill>
+                    </span>
+                }
+            });
+            let mute_button = key.filter(|_| n.kind == "notice").map(|(key_id, _)| {
+                let key_id = StoredValue::new(key_id);
+                view! {
+                    <Button variant="subtle" size="xs"
+                        title="A notice from this agent key makes no notification for you"
+                        attr:data-testid="notice-mute"
+                        on_click=Callback::new(move |_| on_mute(key_id.get_value()))>
+                        "Mute this key"
+                    </Button>
+                }
+            });
             view! {
-                <div data-testid="notification" data-unread=unread.to_string()>
+                <div data-testid="notification" data-unread=unread.to_string()
+                    data-kind=kind>
                     <Stack gap="xs">
                         <Group justify="between" wrap=true>
                             <Group gap="sm" wrap=true>
                                 <Pill color=if unread { token::GOLD } else { token::MUTED }>
-                                    {kind_label(&n.kind)}
+                                    {label}
                                 </Pill>
                                 {n.short_code.clone().map(|code| view! {
                                     <Anchor href=format!("/items/{code}")>{code.clone()}</Anchor>
                                 })}
                                 <Text dimmed=true size="sm">{when(&n.created_at)}</Text>
+                                {key_pill}
                             </Group>
-                            {unread.then(|| view! {
-                                <Button variant="default" size="xs"
-                                    on_click=Callback::new(on_mark)>
-                                    "Mark read"
-                                </Button>
-                            })}
+                            <Group gap="xs">
+                                {mute_button}
+                                {unread.then(|| view! {
+                                    <Button variant="default" size="xs"
+                                        on_click=Callback::new(on_mark)>
+                                        "Mark read"
+                                    </Button>
+                                })}
+                            </Group>
                         </Group>
                         <Text size="sm" bright=unread>{n.text.clone()}</Text>
                         <Divider/>
@@ -491,6 +569,7 @@ pub fn NotificationsPage() -> impl IntoView {
     let key_expiring = RwSignal::new(true);
     let proposal_decided = RwSignal::new(true);
     let watch = RwSignal::new(true);
+    let notice = RwSignal::new(true);
     let settings_reload = RwSignal::new(0u32);
     let settings = LocalResource::new(move || {
         auth.track_session();
@@ -513,6 +592,7 @@ pub fn NotificationsPage() -> impl IntoView {
             key_expiring.set(s.key_expiring);
             proposal_decided.set(s.proposal_decided);
             watch.set(s.watch);
+            notice.set(s.notice);
         }
     });
     let on_save = move |_| {
@@ -531,6 +611,7 @@ pub fn NotificationsPage() -> impl IntoView {
             "key_expiring": key_expiring.get_untracked(),
             "proposal_decided": proposal_decided.get_untracked(),
             "watch": watch.get_untracked(),
+            "notice": notice.get_untracked(),
         });
         run_mutation(
             busy,
@@ -571,8 +652,9 @@ pub fn NotificationsPage() -> impl IntoView {
                                                to you, when a blocker of your task clears, when \
                                                a person cancels a task that you created, when a \
                                                person writes your user name, when a P0 bug \
-                                               lands on the board of your team, and when Kairos \
-                                               turns off a webhook target that you own."/>
+                                               lands on the board of your team, when Kairos \
+                                               turns off a webhook target that you own, and \
+                                               when a person or an agent sends you a notice."/>
         <Stack gap="md">
             <MutationNotice outcome/>
             <Panel title="Your notifications"
@@ -619,7 +701,7 @@ pub fn NotificationsPage() -> impl IntoView {
                 {move || match settings.get() {
                     None => view! { <Loading/> }.into_any(),
                     Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
-                    Some(Ok(_)) => view! {
+                    Some(Ok(s)) => view! {
                         <div data-testid="notification-settings">
                             <Stack gap="sm">
                                 <Switch checked=hand_off label="A person hands off a task to you"/>
@@ -647,6 +729,9 @@ pub fn NotificationsPage() -> impl IntoView {
                                     label="A person confirms or rejects an edge proposal that you made"/>
                                 <Switch checked=watch
                                     label="An item that you watch moves, is edited, gets a note, or is done"/>
+                                <Switch checked=notice
+                                    label="A person or an agent key sends a notice to you or to your team"/>
+                                <MutedKeys keys=s.muted_keys busy outcome settings_reload/>
                                 <Group justify="end">
                                     <Button on_click=Callback::new(on_save)>"Save"</Button>
                                 </Group>
@@ -659,11 +744,68 @@ pub fn NotificationsPage() -> impl IntoView {
     }
 }
 
+/// The agent keys that the person muted (KAIROS-T-0737), each with
+/// "Unmute".
+#[component]
+fn MutedKeys(
+    keys: Vec<MutedKey>,
+    busy: RwSignal<bool>,
+    outcome: RwSignal<MutationOutcome>,
+    settings_reload: RwSignal<u32>,
+) -> impl IntoView {
+    let auth = use_auth();
+    if keys.is_empty() {
+        return view! {
+            <Text size="sm" dimmed=true>"You muted no agent key."</Text>
+        }
+        .into_any();
+    }
+    let rows = keys
+        .into_iter()
+        .map(|key| {
+            let id = StoredValue::new(key.id.clone());
+            let on_unmute = move |_| {
+                let id = id.get_value();
+                run_mutation(
+                    busy,
+                    outcome,
+                    settings_reload,
+                    "Kairos unmuted the agent key.".to_string(),
+                    async move { set_mute(auth, id, false).await },
+                );
+            };
+            view! {
+                <div data-testid="muted-key">
+                    <Group justify="between" wrap=true>
+                        <Text size="sm">
+                            {format!("{} ({}) of {}", key.name, key.prefix, key.owner_name)}
+                        </Text>
+                        <Button variant="default" size="xs"
+                            attr:data-testid="unmute-key"
+                            on_click=Callback::new(on_unmute)>
+                            "Unmute"
+                        </Button>
+                    </Group>
+                </div>
+            }
+        })
+        .collect_view();
+    view! {
+        <Stack gap="xs">
+            <Text size="sm" dimmed=true>
+                "Muted agent keys: a notice from one of these keys makes no notification for you."
+            </Text>
+            {rows}
+        </Stack>
+    }
+    .into_any()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         Cursor, MarkWhat, Notification, NotificationList, Pages, READ_FIRST, READ_PAGE,
-        UNREAD_PAGE, count_text, kind_label, mark_body, newest_unread, when,
+        UNREAD_PAGE, count_text, kind_label, mark_body, mute_body, newest_unread, when,
     };
 
     fn note(id: String, read: bool) -> Notification {
@@ -674,6 +816,8 @@ mod tests {
             text: "t".into(),
             created_at: "2026-10-17T09:00:00Z".into(),
             read_at: read.then(|| "2026-10-17T10:00:00Z".into()),
+            agent_key_id: None,
+            agent_key_name: None,
         }
     }
 
@@ -739,6 +883,8 @@ mod tests {
             text: "t".into(),
             created_at: "2026-10-17T09:00:00Z".into(),
             read_at: read.then(|| "2026-10-17T10:00:00Z".into()),
+            agent_key_id: None,
+            agent_key_name: None,
         };
         let list = NotificationList {
             unread: 2,
@@ -750,6 +896,18 @@ mod tests {
             items: vec![row("c", true)],
         };
         assert_eq!(newest_unread(&read), None);
+    }
+
+    #[test]
+    fn a_mute_and_an_unmute_name_one_key() {
+        assert_eq!(
+            mute_body("k1", true),
+            serde_json::json!({ "mute_keys": ["k1"] })
+        );
+        assert_eq!(
+            mute_body("k1", false),
+            serde_json::json!({ "unmute_keys": ["k1"] })
+        );
     }
 
     #[test]
@@ -769,6 +927,7 @@ mod tests {
             "key_expiring",
             "proposal_decided",
             "watch",
+            "notice",
         ] {
             assert_ne!(kind_label(kind), "Notification", "{kind}");
         }

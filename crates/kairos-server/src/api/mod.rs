@@ -37,6 +37,7 @@ pub mod idempotency;
 pub mod initiatives;
 pub mod local_accounts;
 pub mod meta;
+pub mod notices;
 pub mod notifications;
 pub mod org;
 pub mod proposals;
@@ -85,6 +86,8 @@ pub fn router() -> Router<AppState> {
         .merge(notifications::router())
         // KAIROS-T-0736: the watches of a person.
         .merge(watches::router())
+        // KAIROS-T-0737: a notice to a person or a team.
+        .merge(notices::router())
         // KAIROS-T-0489: the work of a person.
         .merge(work::router())
 }

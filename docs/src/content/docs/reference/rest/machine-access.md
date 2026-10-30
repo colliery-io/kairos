@@ -128,8 +128,9 @@ The caller's notification settings: each kind, and whether it is on.
 
 ### `PUT /api/me/notification-settings`
 
-Turn kinds of notification on or off for the caller. A kind that is not
-in the body does not change. Kairos refuses a body with no kind.
+Turn kinds of notification on or off for the caller, and mute or unmute
+agent keys (KAIROS-T-0737). A kind that is not in the body does not
+change. Kairos refuses a body with no kind and no key.
 
 Request body (required): `application/json`, [`UpdateNotificationSettingsRequest`](../schemas/#updatenotificationsettingsrequest)
 
@@ -137,7 +138,8 @@ Request body (required): `application/json`, [`UpdateNotificationSettingsRequest
 |---|---|---|
 | `200` | [`NotificationSettings`](../schemas/#notificationsettings) | The settings after the change |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller is a service account |
-| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The body names no kind |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | An id of `mute_keys` or `unmute_keys` is not an agent key |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The body names no kind and no key, or a key is in `mute_keys` and `unmute_keys` |
 
 ### `GET /api/me/notifications`
 
@@ -201,6 +203,26 @@ blockers. The answer has no item in a done column.
 | `200` | [`MyWork`](../schemas/#mywork) | The two lanes of the work of the caller |
 | `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Not a member of the organization |
+
+### `POST /api/notices`
+
+Send a notice to a person (`to`) or to each member of a team (`team`).
+A notice is a text with an optional item link (KAIROS-T-0737). A notice from
+an agent key names the key and its person. Each key can send
+`KAIROS_NOTICE_LIMIT_PER_HOUR` notices in one hour (default 20); a
+notice to a team counts as one. A recipient who turned the kind
+`notice` off, or muted the key, gets nothing. A service account cannot
+send a notice.
+
+Request body (required): `application/json`, [`SendNoticeRequest`](../schemas/#sendnoticerequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `201` | [`SendNoticeResponse`](../schemas/#sendnoticeresponse) | The notice, and the persons who got it |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller is a service account, or the agent key has no `member` in its scope |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The team or the item is not found |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | `to` and `team` both or neither, an unknown person, or an empty or long text |
+| `429` | [`ErrorEnvelope`](../schemas/#errorenvelope) | NOTICE_RATE_LIMITED: the sender is at the limit of one hour |
 
 ## service-accounts
 

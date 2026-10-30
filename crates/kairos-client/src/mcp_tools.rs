@@ -62,6 +62,7 @@ pub const TOOLS: &[(&str, ToolKind)] = &[
     // The writes of decision 7 of KAIROS-A-0065: they take a request_key.
     ("create_item", KEYED),
     ("append_note", KEYED),
+    ("send_notice", KEYED),
     ("link_items", KEYED),
     ("propose_edge", KEYED),
     ("promote_note", KEYED),
@@ -191,10 +192,10 @@ mod tests {
     }
 
     #[test]
-    fn the_table_has_20_reads_and_14_keyed_writes() {
+    fn the_table_has_20_reads_and_15_keyed_writes() {
         let reads = TOOLS.iter().filter(|(_, k)| *k == ToolKind::Read).count();
         let keyed = TOOLS.iter().filter(|(_, k)| *k == KEYED).count();
-        assert_eq!((reads, keyed), (20, 14));
+        assert_eq!((reads, keyed), (20, 15));
         assert!(is_read("get_item") && !is_read("create_item") && !is_read("no_such_tool"));
         assert!(takes_request_key("create_item") && !takes_request_key("set_state"));
         let idempotent = TOOLS

@@ -135,7 +135,7 @@ const EXPECTED_TABLES: [&str; 74] = [
     "task_cancellations",
     // KAIROS-T-0359: the claim of a task in Active.
     "task_claims",
-    // KAIROS-T-0718: the review state of a task.
+    // KAIROS-T-0718: the review state of a task (KAIROS-T-0726).
     "task_review",
     // KAIROS-T-0506: the live state of a task.
     "task_state",

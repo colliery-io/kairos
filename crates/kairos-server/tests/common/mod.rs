@@ -318,6 +318,7 @@ pub fn base_config(scratch_url: &str) -> AppConfig {
         session_ttl_secs: 14 * 24 * 60 * 60,
         api_key_ttl_days: 90,
         stale_claim_days: 14,
+        notice_limit_per_hour: 20,
         api_key_rotation_grace_secs: 24 * 60 * 60,
         jobs: Default::default(),
         webhooks: Default::default(),

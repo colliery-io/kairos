@@ -279,6 +279,12 @@ const NAMES: &[Name] = &[
         &["hand_off_item"],
         "KAIROS-T-0673 kept `to` on hand_off_item. It is not an alias there.",
     ),
+    on(
+        "to",
+        "the person who gets a notice",
+        &["send_notice"],
+        "KAIROS-T-0737: a notice goes `to` a person, as a hand-off does.",
+    ),
 ];
 
 /// Names that have the same meaning, and why both stay.

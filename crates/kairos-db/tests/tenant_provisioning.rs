@@ -45,7 +45,7 @@ static SCRATCH_DB: scratch::ScratchName =
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 75] = [
+const EXPECTED_TABLES: [&str; 77] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -104,6 +104,9 @@ const EXPECTED_TABLES: [&str; 75] = [
     "metadata_definition_scopes",
     "metadata_definitions",
     "metadata_enum_options",
+    // KAIROS-T-0737: the agent keys that a person muted, and the notices.
+    "notice_mutes",
+    "notices",
     // KAIROS-T-0550: the read state of each agent key.
     "notification_reads",
     // KAIROS-T-0381: the notifications of a person, and their settings.

@@ -7,8 +7,9 @@
 //! breaks a rule, with `SECTIONS_NOT_PASSED`, and save nothing. A passing
 //! write succeeds. Over REST, the same failing content is saved. An edit
 //! checks only the sections that it changes; a caller with no right to
-//! create gets FORBIDDEN first; the dictionary of the team feeds the
-//! vocabulary.
+//! create gets FORBIDDEN first; the dictionary of the organization feeds
+//! the vocabulary of a document on a team board, and a dictionary on the
+//! team board is refused (KAIROS-A-0079).
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_typed_sections_t0730_test`.
@@ -471,14 +472,14 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
     let (is_error, text) = alice_mcp.call("create_item", create(Some(FAILING))).await;
     assert!(is_error && text.starts_with("FORBIDDEN"), "{text}");
 
-    // 12. The dictionary of the team of the owner board feeds the
-    // vocabulary (KAIROS-T-0733): "widget" fails, then passes when the
-    // dictionary of the team has it.
+    // 12. KAIROS-A-0079: the dictionary of the organization (on the board
+    // `strategy`) feeds the vocabulary of a document on a team board:
+    // "widget" fails, then passes when that dictionary has it. A
+    // dictionary on the team board is refused and names `strategy`.
     let widget = "## Goal\nWrite the widget.\n\n## Notes\nAny text.\n";
     let (text, _) = mcp.call_refused("create_item", create(Some(widget))).await;
     assert!(text.contains("STE-V1: \"widget\""), "{text}");
-    mcp.call_ok(
-        "create_item",
+    let dictionary = |board: &str| {
         json!({
             "item_type": "document",
             "title": "Dictionary",
@@ -486,9 +487,17 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
             "template": "dictionary",
             "content": "| Word | Part of speech | Meaning |\n|---|---|---|\n\
                         | widget | n | A part of the screen. |\n",
-        }),
-    )
-    .await;
+        })
+    };
+    let (is_error, text) = mcp.call("create_item", dictionary(&board)).await;
+    assert!(
+        is_error && text.starts_with("DICTIONARY_NOT_ON_STRATEGY"),
+        "{text}"
+    );
+    assert!(text.contains("the board strategy"), "{text}");
+    let (text, _) = mcp.call_refused("create_item", create(Some(widget))).await;
+    assert!(text.contains("STE-V1: \"widget\""), "{text}");
+    mcp.call_ok("create_item", dictionary("strategy")).await;
     mcp.call_ok("create_item", create(Some(widget))).await;
 
     // 13. An `ears` section (KAIROS-T-0732): the template takes the type, a

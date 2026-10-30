@@ -155,17 +155,6 @@ fn teams_sql(subjects: &str) -> String {
     )
 }
 
-/// A query of one column `team_id`: the teams of the items of `subjects`
-/// (a query of one column `id`), as [`teams_of_items`] gives them. For a
-/// query that reads the teams of an item in its own statement
-/// ([`crate::dictionaries::DICTIONARIES_JSON_OF_ITEM`], KAIROS-T-0735).
-pub fn team_ids_sql(subjects: &str) -> String {
-    format!(
-        "SELECT team_id FROM ({}) AS item_teams",
-        teams_sql(subjects)
-    )
-}
-
 /// The teams of one item, by slug. An item that is not an initiative or a
 /// strategy has no team.
 pub fn teams_of(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ItemTeam>, DieselError> {

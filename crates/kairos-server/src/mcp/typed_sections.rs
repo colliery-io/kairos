@@ -7,6 +7,9 @@
 //! write is refused with `SECTIONS_NOT_PASSED` and nothing is saved. The
 //! REST routes do not call this: a person in the web may write free text
 //! (decision 1). The pure check is `kairos_core::sections::check_sections`.
+//! The vocabulary of a `plain` section is the word list and the terms of
+//! the dictionary of the organization, for a document on any board
+//! (KAIROS-A-0079).
 
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
@@ -37,15 +40,15 @@ pub(super) fn of_template(conn: &mut PgConnection, template_id: Uuid) -> Result<
     Ok(typed(rows))
 }
 
-/// The typed sections of the template of a document, the owner board of
-/// the document, and its content now. No sections when the document has no
-/// template, or its template has no typed section. One statement.
+/// The typed sections of the template of a document, and its content now.
+/// No sections when the document has no template, or its template has no
+/// typed section. One statement.
 pub(super) fn of_document(
     conn: &mut PgConnection,
     document_id: Uuid,
-) -> Result<(Typed, Option<Uuid>, String), ApiError> {
+) -> Result<(Typed, String), ApiError> {
     use kairos_db::schema::{documents, template_sections};
-    let rows: Vec<(String, String, Uuid, String)> = template_sections::table
+    let rows: Vec<(String, String, String)> = template_sections::table
         .inner_join(
             documents::table
                 .on(documents::template_id.eq(template_sections::template_id.nullable())),
@@ -55,17 +58,16 @@ pub(super) fn of_document(
         .select((
             template_sections::heading,
             template_sections::section_type,
-            documents::board_id,
             documents::content,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
-    let (board, content) = match rows.first() {
-        Some((_, _, board, content)) => (Some(*board), content.clone()),
-        None => (None, String::new()),
+    let content = match rows.first() {
+        Some((_, _, content)) => content.clone(),
+        None => String::new(),
     };
-    let sections = typed(rows.into_iter().map(|(h, t, _, _)| (h, t)).collect());
-    Ok((sections, board, content))
+    let sections = typed(rows.into_iter().map(|(h, t, _)| (h, t)).collect());
+    Ok((sections, content))
 }
 
 /// The stored rows as typed sections. A type that this server does not know
@@ -89,7 +91,6 @@ pub(super) fn refuse_failing(
     conn: &mut PgConnection,
     short_code: Option<&str>,
     sections: &[(String, SectionType)],
-    board: Option<Uuid>,
     old: Option<&str>,
     content: &str,
 ) -> Result<(), ApiError> {
@@ -105,7 +106,9 @@ pub(super) fn refuse_failing(
         return Ok(());
     }
     let terms = if sections.iter().any(|(_, t)| *t == SectionType::Plain) {
-        kairos_db::section_checks::dictionary_terms(conn, board).map_err(ApiError::internal)?
+        // KAIROS-A-0079: the terms of the organization dictionary, for a
+        // document on any board.
+        kairos_db::section_checks::dictionary_terms(conn).map_err(ApiError::internal)?
     } else {
         Vec::new()
     };

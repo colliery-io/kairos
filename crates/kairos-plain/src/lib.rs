@@ -16,9 +16,8 @@
 //!   first (KAIROS-T-0735).
 //! - [`check_ears`]: the text of an `ears` section. EARS-1 to EARS-6:
 //!   each requirement fits one frame of EARS (KAIROS-T-0732).
-//! - [`parse_dictionary`] and [`resolve`]: the entries of a dictionary
-//!   document, and the dictionary of a team on the organization dictionary
-//!   (KAIROS-T-0733).
+//! - [`parse_dictionary`]: the entries of a dictionary document
+//!   (KAIROS-T-0733; one dictionary for the organization, KAIROS-A-0079).
 //!
 //! Each [`Violation`] names its rule, the byte range of the input that it is
 //! about, and a message that names the fix.
@@ -34,9 +33,7 @@ mod vocabulary;
 use std::ops::Range;
 
 pub use code::check_code_text;
-pub use dictionary::{
-    DictionaryEntry, DictionaryProblem, Layer, ParsedDictionary, Term, parse_dictionary, resolve,
-};
+pub use dictionary::{DictionaryEntry, DictionaryProblem, ParsedDictionary, parse_dictionary};
 pub use ears::{Frame, check_ears};
 pub use prose::check_text;
 pub use standard::{ApprovedWord, NotApprovedWord, approved_words, not_approved_words};

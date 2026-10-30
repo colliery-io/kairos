@@ -6418,15 +6418,8 @@ fn refuse_failing_sections(
     if item_type != ItemType::Document {
         return Ok(());
     }
-    let (sections, board, old) = super::typed_sections::of_document(conn, id)?;
-    super::typed_sections::refuse_failing(
-        conn,
-        Some(short_code),
-        &sections,
-        board,
-        Some(&old),
-        content,
-    )
+    let (sections, old) = super::typed_sections::of_document(conn, id)?;
+    super::typed_sections::refuse_failing(conn, Some(short_code), &sections, Some(&old), content)
 }
 
 /// The answer text of `update_item`.
@@ -6926,11 +6919,15 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
 
     // KAIROS-T-0735 (COLLIERY-I-0664 decision 7): the meaning of each
     // dictionary term that the item uses, so that an agent reads the term
-    // as the team means it. A dictionary itself lists every term: no block.
+    // as the organization means it. The dictionary of the organization is
+    // the only one (KAIROS-A-0079). A dictionary itself lists every term:
+    // no block.
     if facts.template_slug.as_deref() != Some(kairos_db::dictionaries::DICTIONARY_TEMPLATE_SLUG) {
-        let documents = kairos_db::dictionaries::parse_dictionaries_json(&facts.dictionaries_json)
-            .map_err(ApiError::internal)?;
-        let terms = kairos_db::dictionaries::merge_layers(&documents);
+        let terms = kairos_db::dictionaries::OrganizationDictionary::from_document(
+            None,
+            facts.dictionary_content.as_deref(),
+        )
+        .terms;
         let texts = std::iter::once(item.title.as_str())
             .chain(std::iter::once(item.content.as_str()))
             .chain(notes.iter().map(|note| note.text.as_str()));
@@ -6985,34 +6982,25 @@ fn sections_mark(
 /// meaning`, the longest term first. Empty when no term is used. Pure.
 fn terms_used_section<'a>(
     texts: impl IntoIterator<Item = &'a str>,
-    terms: &[kairos_db::dictionaries::ItemTerm],
+    terms: &[kairos_plain::DictionaryEntry],
 ) -> String {
     let mut used = kairos_db::dictionaries::terms_used_by(texts, terms);
     if used.is_empty() {
         return String::new();
     }
-    let words_of = |t: &kairos_db::dictionaries::ItemTerm| t.entry.word.split_whitespace().count();
+    let words_of = |t: &kairos_plain::DictionaryEntry| t.word.split_whitespace().count();
     used.sort_by(|a, b| {
         words_of(b)
             .cmp(&words_of(a))
-            .then_with(|| b.entry.word.len().cmp(&a.entry.word.len()))
-            .then_with(|| {
-                a.entry
-                    .word
-                    .to_lowercase()
-                    .cmp(&b.entry.word.to_lowercase())
-            })
+            .then_with(|| b.word.len().cmp(&a.word.len()))
+            .then_with(|| a.word.to_lowercase().cmp(&b.word.to_lowercase()))
     });
     let mut out = String::from("\n## Terms used\n");
     for term in used {
         out.push_str(&format!(
-            "- {} ({}): {}",
-            term.entry.word, term.entry.part_of_speech, term.entry.meaning
+            "- {} ({}): {}\n",
+            term.word, term.part_of_speech, term.meaning
         ));
-        if let Some(team) = &term.team {
-            out.push_str(&format!(" (team {team})"));
-        }
-        out.push('\n');
     }
     out
 }
@@ -7024,9 +7012,10 @@ fn terms_used_section<'a>(
 /// the retired codes (COLLIERY-T-3100), the metadata, the claim
 /// (KAIROS-T-0359), the cancel mark (KAIROS-T-0362), the state
 /// (KAIROS-T-0506), the owner (KAIROS-T-0411), the external references
-/// (KAIROS-T-0508), the creator (KAIROS-T-0561), the dictionaries
-/// that apply to the item (KAIROS-T-0735) and the stored check of the
-/// typed sections of a document (KAIROS-T-0731). A name that `public.users` does not have is the id, as
+/// (KAIROS-T-0508), the creator (KAIROS-T-0561), the content of the
+/// dictionary of the organization (KAIROS-T-0735, KAIROS-A-0079) and the
+/// stored check of the typed sections of a document (KAIROS-T-0731). A name
+/// that `public.users` does not have is the id, as
 /// `task_claims::display_names` gives it.
 const ITEM_FACTS_SQL: &str = "\
     SELECT b.slug AS board_slug, \
@@ -7071,7 +7060,7 @@ const ITEM_FACTS_SQL: &str = "\
            ARRAY(SELECT x.label FROM item_external_refs x WHERE x.item_id = $1 \
                   ORDER BY x.created_at, x.uri, x.id) AS external_labels, \
            {notes} AS notes_json, \
-           {dictionaries} AS dictionaries_json, \
+           {dictionary} AS dictionary_content, \
            (SELECT count(*) FROM edge_proposals ep WHERE ep.state = 'pending' \
                AND (ep.source_id = $1 OR ep.target_id = $1)) AS proposals_pending, \
            COALESCE((SELECT json_agg(json_build_object( \
@@ -7223,11 +7212,11 @@ struct ItemFacts {
     /// KAIROS-T-0630).
     #[diesel(sql_type = SqlText)]
     notes_json: String,
-    /// The dictionary documents that apply to the item
-    /// ([`kairos_db::dictionaries::dictionaries_json_of_item`],
-    /// KAIROS-T-0735).
-    #[diesel(sql_type = SqlText)]
-    dictionaries_json: String,
+    /// The content of the dictionary of the organization, or `None`
+    /// ([`kairos_db::dictionaries::organization_dictionary_sql`],
+    /// KAIROS-T-0735, KAIROS-A-0079).
+    #[diesel(sql_type = SqlNullable<SqlText>)]
+    dictionary_content: Option<String>,
     /// The count of the pending proposals of the item (KAIROS-T-0558).
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     proposals_pending: i64,
@@ -7370,8 +7359,8 @@ fn item_facts(conn: &mut PgConnection, item: &ItemView) -> Result<ItemFacts, Api
     let sql = ITEM_FACTS_SQL
         .replace("{notes}", kairos_db::item_notes::NOTES_JSON_OF_ITEM)
         .replace(
-            "{dictionaries}",
-            &kairos_db::dictionaries::dictionaries_json_of_item("$1", "$2"),
+            "{dictionary}",
+            &kairos_db::dictionaries::organization_dictionary_sql(),
         );
     sql_query(sql)
         .bind::<SqlUuid, _>(item.id)
@@ -9583,7 +9572,8 @@ fn create_item_impl(
         // of the template. `create` runs this after its create gate (a
         // caller with no right gets FORBIDDEN first) and before the first
         // write. With no `content`, the content is that of the template.
-        let check_sections = |conn: &mut PgConnection, board: Uuid| -> Result<(), ApiError> {
+        // KAIROS-A-0079: the dictionary does not depend on the board.
+        let check_sections = |conn: &mut PgConnection, _board: Uuid| -> Result<(), ApiError> {
             let Some(template_id) = template_id else {
                 return Ok(());
             };
@@ -9602,14 +9592,7 @@ fn create_item_impl(
                         .map_err(ApiError::internal)?
                 }
             };
-            super::typed_sections::refuse_failing(
-                conn,
-                None,
-                &sections,
-                Some(board),
-                None,
-                &content,
-            )
+            super::typed_sections::refuse_failing(conn, None, &sections, None, &content)
         };
         let created = crate::api::documents::create(
             conn,
@@ -11810,38 +11793,27 @@ fn notice_text(sent: &crate::api::notices::NoticeSent) -> String {
 
 #[cfg(test)]
 mod t0735_tests {
-    //! KAIROS-T-0735: the block `## Terms used` of `get_item`.
+    //! KAIROS-T-0735: the block `## Terms used` of `get_item`, with the terms
+    //! of the dictionary of the organization (KAIROS-A-0079).
 
     use super::terms_used_section;
-    use kairos_db::dictionaries::{DictionaryDocument, merge_layers};
+    use kairos_db::dictionaries::OrganizationDictionary;
 
-    fn document(team: Option<&str>, rows: &[(&str, &str, &str)]) -> DictionaryDocument {
+    fn terms(rows: &[(&str, &str, &str)]) -> Vec<kairos_plain::DictionaryEntry> {
         let mut content = String::from("| Word | Part of speech | Meaning |\n|---|---|---|\n");
         for (word, part, meaning) in rows {
             content.push_str(&format!("| {word} | {part} | {meaning} |\n"));
         }
-        DictionaryDocument {
-            team: team.map(str::to_string),
-            code: "X-D-0001".to_string(),
-            content,
-        }
+        OrganizationDictionary::from_document(None, Some(&content)).terms
     }
 
     #[test]
     fn the_block_lists_the_used_terms_longest_first() {
-        let terms = merge_layers(&[
-            document(
-                None,
-                &[
-                    ("production", "noun", "Code that runs for users."),
-                    ("board", "noun", "A set of columns."),
-                    ("lane", "noun", "Not used."),
-                ],
-            ),
-            document(
-                Some("payments"),
-                &[("production document", "noun", "A document to ship.")],
-            ),
+        let terms = terms(&[
+            ("production", "noun", "Code that runs for users."),
+            ("board", "noun", "A set of columns."),
+            ("lane", "noun", "Not used."),
+            ("production document", "noun", "A document to ship."),
         ]);
         let block = terms_used_section(
             [
@@ -11861,7 +11833,7 @@ mod t0735_tests {
 
     #[test]
     fn no_used_term_gives_no_block() {
-        let terms = merge_layers(&[document(None, &[("lane", "noun", "A lane.")])]);
+        let terms = terms(&[("lane", "noun", "A lane.")]);
         assert_eq!(terms_used_section(["Nothing here."], &terms), "");
     }
 }

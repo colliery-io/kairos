@@ -12,8 +12,10 @@
 //! 3. A fix clears the mark: a REST write with passing content.
 //! 4. An MCP edit of the "Notes" section of a failing document is saved
 //!    (only the changed sections are refused), and the mark stays.
-//! 5. A dictionary of the team makes the checks of its documents stale,
-//!    and the pass checks them again: "widget" passes.
+//! 5. A dictionary on the team board is refused (KAIROS-A-0079). The
+//!    dictionary of the organization (on `strategy`) makes each check
+//!    stale, also of a document on a team board, and the pass checks them
+//!    again: "widget" passes.
 //! 6. A change of the typed sections of the template makes the checks
 //!    stale; the pass checks again, and the mark goes.
 //!
@@ -53,7 +55,8 @@ const PASSING: &str = "## Goal\nWrite the item.\n\n## Notes\nAny text, utilize i
 /// The "Goal" section breaks STE-V1 ("server") and the passive rule.
 const FAILING: &str = "## Goal\nThe text is checked by the server.\n\n## Notes\nAny text.\n";
 
-/// "widget" is not in the vocabulary until the team dictionary has it.
+/// "widget" is not in the vocabulary until the organization dictionary has
+/// it.
 const WIDGET: &str = "## Goal\nWrite the widget.\n\n## Notes\nAny text.\n";
 
 /// One JSON-RPC message of an MCP response: plain JSON or SSE `data:`.
@@ -126,6 +129,13 @@ impl Mcp {
     }
 
     async fn call_ok(&mut self, tool: &str, arguments: Value) -> String {
+        let (is_error, text) = self.call(tool, arguments).await;
+        assert!(!is_error, "{tool}: {text}");
+        text
+    }
+
+    /// Whether the result is an error, and its text.
+    async fn call(&mut self, tool: &str, arguments: Value) -> (bool, String) {
         self.next_id += 1;
         let (status, body) = self
             .post(json!({
@@ -139,11 +149,7 @@ impl Mcp {
             .as_str()
             .unwrap_or_else(|| panic!("{tool} gave no text: {result}"))
             .to_string();
-        assert!(
-            !result["isError"].as_bool().unwrap_or(false),
-            "{tool}: {text}"
-        );
-        text
+        (result["isError"].as_bool().unwrap_or(false), text)
     }
 }
 
@@ -384,8 +390,9 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
     assert!(!check.passes);
     assert_eq!(check.version, 2);
 
-    // 5. A dictionary of the team: the checks of its documents are stale,
-    // and the pass checks them again.
+    // 5. KAIROS-A-0079: a dictionary on the team board is refused. The
+    // dictionary of the organization makes each check stale, also of a
+    // document on the team board, and the pass checks them again.
     let widget = admin
         .create_document(&create("Widget", WIDGET))
         .await
@@ -399,8 +406,7 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
             .any(|v| v.text == "widget"),
         "{check:?}"
     );
-    mcp.call_ok(
-        "create_item",
+    let dictionary = |board: &str| {
         json!({
             "item_type": "document",
             "title": "Dictionary",
@@ -408,10 +414,21 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
             "template": "dictionary",
             "content": "| Word | Part of speech | Meaning |\n|---|---|---|\n\
                         | widget | n | A part of the screen. |\n",
-        }),
-    )
-    .await;
+        })
+    };
+    let (is_error, text) = mcp.call("create_item", dictionary(&board)).await;
+    assert!(
+        is_error && text.starts_with("DICTIONARY_NOT_ON_STRATEGY"),
+        "{text}"
+    );
+    assert_eq!(stale(&mut conn, &widget.short_code), Some(false));
+    mcp.call_ok("create_item", dictionary("strategy")).await;
     assert_eq!(stale(&mut conn, &widget.short_code), Some(true));
+    assert_eq!(
+        stale(&mut conn, &old.short_code),
+        Some(true),
+        "each check is stale"
+    );
     let read = admin.get_document(&widget.short_code).await.expect("get");
     assert!(read.section_check.expect("check").stale);
     let outcome = run_pass(&mut conn);

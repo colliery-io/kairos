@@ -339,23 +339,20 @@ A slug that a caller sends must agree with the rule of a [slug](#slug).
 
 ## dictionary
 
-A document that gives the meaning of the terms of a team or of the
-organization (KAIROS-T-0733). Make it from the template "Dictionary". Its
-entries are the rows of a table with the columns Word, Part of speech and
-Meaning. A term can have more than one word, for example "production
-document".
+A document that gives the meaning of the terms of the organization
+(KAIROS-T-0733). Make it from the template "Dictionary". Its entries are the
+rows of a table with the columns Word, Part of speech and Meaning. A term can
+have more than one word, for example "production document". The case of the
+letters is not important.
 
-The [owner board](#owner-board) says whose dictionary it is:
+An organization has one dictionary, and the board `strategy` is its
+[owner board](#owner-board) (KAIROS-A-0079). A team has no dictionary of its
+own. To add a term for a team, add it to the dictionary of the organization.
 
-- The delivery board of a team owns the dictionary of the team.
-- The board `strategy` owns the dictionary of the organization.
-
-A board has one live dictionary. The server refuses a second one with
-`DICTIONARY_EXISTS`.
-
-The terms of a team are the terms of the organization and the terms of the
-team. When the two dictionaries have the same word, the team term is used.
-The case of the letters is not important.
+The server refuses a dictionary on a different board with
+`DICTIONARY_NOT_ON_STRATEGY`. It does this at a create and at a change of
+the owner board. It refuses a second live dictionary on the board `strategy`
+with `DICTIONARY_EXISTS`.
 
 ## document
 

@@ -1,11 +1,10 @@
-//! Dictionaries (KAIROS-T-0733, COLLIERY-I-0664 decision 6).
+//! Dictionaries (KAIROS-T-0733, COLLIERY-I-0664 decision 6, KAIROS-A-0079).
 //!
 //! A dictionary is a document. Its entries are the rows of a markdown table
 //! with the columns `Word | Part of speech | Meaning`: the shape of the
 //! vendored word list. [`parse_dictionary`] reads the table, and gives each
-//! bad row as a [`DictionaryProblem`] with its line. [`resolve`] puts the
-//! organization dictionary and the dictionary of a team together: the entry
-//! of the team wins for the same word, case ignored.
+//! bad row as a [`DictionaryProblem`] with its line. An organization has one
+//! dictionary (KAIROS-A-0079): there is no team layer to put on top of it.
 //!
 //! The terms go to [`crate::Vocabulary::new`] as its `terms`. A term of more
 //! than one word is matched longest first there.
@@ -39,20 +38,6 @@ pub struct DictionaryProblem {
 pub struct ParsedDictionary {
     pub entries: Vec<DictionaryEntry>,
     pub problems: Vec<DictionaryProblem>,
-}
-
-/// The dictionary that an entry comes from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Layer {
-    Organization,
-    Team,
-}
-
-/// An entry of the resolved dictionary of a team.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Term {
-    pub entry: DictionaryEntry,
-    pub layer: Layer,
 }
 
 /// Read the entries of a dictionary document.
@@ -146,25 +131,6 @@ pub fn parse_dictionary(markdown: &str) -> ParsedDictionary {
         });
     }
     parsed
-}
-
-/// The dictionary of a team on the organization dictionary: each entry of
-/// the two, and for a word that is in both (case ignored), the entry of the
-/// team. Sorted by the word, case ignored.
-pub fn resolve(organization: &[DictionaryEntry], team: &[DictionaryEntry]) -> Vec<Term> {
-    let mut terms: BTreeMap<String, Term> = BTreeMap::new();
-    for (entries, layer) in [(organization, Layer::Organization), (team, Layer::Team)] {
-        for entry in entries {
-            terms.insert(
-                key(&entry.word),
-                Term {
-                    entry: entry.clone(),
-                    layer,
-                },
-            );
-        }
-    }
-    terms.into_values().collect()
 }
 
 /// The key of a word: lower case, with one space between its words.
@@ -288,39 +254,5 @@ mod tests {
         let parsed = parse_dictionary("| Word | Part of speech | Meaning |\n| a | b | c |\n");
         assert!(parsed.entries.is_empty());
         assert_eq!(parsed.problems[0].line, 2);
-    }
-
-    fn entry(word: &str, meaning: &str) -> DictionaryEntry {
-        DictionaryEntry {
-            word: word.into(),
-            part_of_speech: "noun".into(),
-            meaning: meaning.into(),
-            line: 1,
-        }
-    }
-
-    #[test]
-    fn the_team_entry_wins_over_the_organization_entry() {
-        let organization = [
-            entry("Production", "Code that runs for the users."),
-            entry("board", "A set of columns."),
-        ];
-        let team = [
-            entry("production", "The work of the team."),
-            entry("lane", "The kind of work."),
-        ];
-        let terms = resolve(&organization, &team);
-        let got: Vec<(&str, &str, Layer)> = terms
-            .iter()
-            .map(|t| (t.entry.word.as_str(), t.entry.meaning.as_str(), t.layer))
-            .collect();
-        assert_eq!(
-            got,
-            [
-                ("board", "A set of columns.", Layer::Organization),
-                ("lane", "The kind of work.", Layer::Team),
-                ("production", "The work of the team.", Layer::Team),
-            ]
-        );
     }
 }

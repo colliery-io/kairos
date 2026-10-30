@@ -105,7 +105,9 @@ Codes an agent can receive, and what each means.
 | `SAME_BOARD` | A `move_item` whose target is the board the task is already on. A document is different: see [`move_item`](#move_item). |
 | `NOT_DELIVERY_BOARD` | A `move_item` whose target board is not a delivery board, or an `archive_completed` of a board that is not a delivery board. |
 | `NO_ENTRY_COLUMN` | The target delivery board has no entry column to land the task in. |
-| `RESTORE_BLOCKED` | The archived item's board, column, owning team or repository no longer exists. The refusal names what is missing. |
+| `RESTORE_BLOCKED` | The archived item's board, column, owning team or repository no longer exists. The refusal names what is missing. For a dictionary: its board is not the board `strategy`, or the board `strategy` has a live dictionary. |
+| `DICTIONARY_NOT_ON_STRATEGY` | A `create_item` of a document with the template `dictionary`, or a `move_item` of a dictionary, to a board that is not the board `strategy`. An organization has one dictionary, on the board `strategy` (KAIROS-A-0079). The refusal names the board `strategy`. |
+| `DICTIONARY_EXISTS` | A `create_item` of a second dictionary on the board `strategy`. The refusal names the dictionary that is there. Edit it, or archive it first. |
 | `RELATIONSHIP_RULE` | The relationship type is not allowed between those two item types. For `impacts`: the source is not a document and not an ADR. |
 | `CYCLE_DETECTED` | The edge would create a cycle. |
 | `ALREADY_LINKED` | That edge already exists. For `impacts`: the item impacts that repository already. |
@@ -909,16 +911,9 @@ Promoted to ACME-A-0029.
 
 The section `Terms used` is at the end (KAIROS-T-0735). It gives the meaning of
 each [dictionary](../glossary/#dictionary) term that the title, the content or
-the notes use. The longest term is first. A term in code is not used. These
-dictionaries apply:
-
-- An item on a delivery board: the dictionary of the team of the board.
-- An initiative or a strategy: the dictionary of each of its teams.
-- Each item: the dictionary of the organization. A team term wins over an
-  organization term with the same word.
-
-When two teams give a word two meanings, each line names its team. A
-dictionary does not have this section.
+the notes use. The longest term is first. A term in code is not used. Each
+item uses the dictionary of the organization, on the board `strategy`
+(KAIROS-A-0079). A dictionary does not have this section.
 
 ```text
 ## Terms used
@@ -1334,10 +1329,9 @@ document against the typed sections of its template (KAIROS-T-0730):
   [The EARS check](#the-ears-check).
 - The check of a `free` section stops at the first two rules.
 
-The vocabulary is the word list and the dictionary of the team of the owner
-board of the document. The dictionary of a team adds to the dictionary of
-the organization (KAIROS-T-0733). A board with no team uses the dictionary of
-the organization.
+The vocabulary is the word list and the terms of the dictionary of the
+organization (KAIROS-T-0733). The owner board of the document does not
+change the vocabulary: there are no team dictionaries (KAIROS-A-0079).
 
 `create_item` checks each typed section. It checks the right to create first:
 a caller with no right gets `FORBIDDEN`. `update_item` and `edit_item` check
@@ -1407,8 +1401,9 @@ The server keeps the result of the check of each document whose template
 has typed sections (KAIROS-T-0731). It checks the full content at each
 write of the content, from the web and from the MCP. A periodic pass
 (`section-checks`, each minute) checks the old documents. When the typed
-sections of a template change, or a dictionary changes, the pass checks the
-documents again. The mark does not stop a write.
+sections of a template change, the pass checks the documents of the template
+again. When the dictionary of the organization changes, the pass checks each
+document again. The mark does not stop a write.
 
 `get_item` shows the mark under the template line, with one line for each
 violation (40 at most):

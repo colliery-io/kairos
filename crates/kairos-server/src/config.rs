@@ -394,6 +394,12 @@ pub struct AppConfig {
     /// claim stays. `0` turns the pass off. The value applies to each
     /// tenant of the deployment.
     pub stale_claim_days: u32,
+    /// `KAIROS_NOTICE_LIMIT_PER_HOUR` (KAIROS-T-0737): the notices that one
+    /// agent key (or one person with no key) can send in one hour, default
+    /// **20** ([`kairos_core::notifications::NOTICES_PER_HOUR`]). A notice
+    /// to a team counts as one. `0` turns the limit off. The value applies
+    /// to each tenant of the deployment.
+    pub notice_limit_per_hour: u32,
     /// `KAIROS_API_KEY_ROTATION_GRACE_SECS` (KAIROS-T-0370): after a
     /// rotation, the old secret of a key stays valid for this time, default
     /// **86400** (1 day), so that the agents can change to the new secret.
@@ -815,6 +821,11 @@ impl AppConfig {
             session_ttl_secs,
             api_key_ttl_days: parse_num(&get, "KAIROS_API_KEY_TTL_DAYS", 90)?,
             stale_claim_days: parse_num(&get, "KAIROS_STALE_CLAIM_DAYS", 14)?,
+            notice_limit_per_hour: parse_num(
+                &get,
+                "KAIROS_NOTICE_LIMIT_PER_HOUR",
+                kairos_core::notifications::NOTICES_PER_HOUR,
+            )?,
             api_key_rotation_grace_secs: parse_num(
                 &get,
                 "KAIROS_API_KEY_ROTATION_GRACE_SECS",
@@ -1042,6 +1053,25 @@ mod tests {
         assert_eq!(config.api_key_rotation_grace_secs, 24 * 60 * 60);
         // KAIROS-T-0531: a claim is stale after 14 days with no write.
         assert_eq!(config.stale_claim_days, 14);
+        // KAIROS-T-0737: 20 notices in one hour for each key.
+        assert_eq!(config.notice_limit_per_hour, 20);
+    }
+
+    #[test]
+    fn the_notice_limit_parses_and_0_turns_it_off() {
+        for (value, limit) in [("0", 0), ("5", 5)] {
+            let mut vars = MINIMAL.to_vec();
+            vars.push(("KAIROS_NOTICE_LIMIT_PER_HOUR", value));
+            let config = AppConfig::from_lookup(lookup(&vars)).expect("valid config");
+            assert_eq!(config.notice_limit_per_hour, limit, "{value}");
+        }
+        let mut vars = MINIMAL.to_vec();
+        vars.push(("KAIROS_NOTICE_LIMIT_PER_HOUR", "many"));
+        let err = AppConfig::from_lookup(lookup(&vars)).unwrap_err();
+        assert!(
+            err.to_string().contains("KAIROS_NOTICE_LIMIT_PER_HOUR"),
+            "{err}"
+        );
     }
 
     #[test]

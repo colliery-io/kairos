@@ -7,8 +7,16 @@
 //! than one word; at each word the longest term that matches wins, so
 //! "production document" is read before "production".
 //!
-//! A match is exact and ignores case: this hook does not know inflections or
-//! the possessive. A word list that wants "files" to pass lists "files".
+//! A match ignores case. The regular plural (`s`, `es`, `ies`) and the
+//! possessive (`'s`, and `s'` for a plural) of a listed noun also pass:
+//! "files", "boxes", "entries", "team's", "teams'" (Dylan, 2026-10-30). No
+//! other form is made: a verb form or an irregular plural passes only when the
+//! list has it. [`Vocabulary::new`] does not know the part of speech, so each
+//! of its entries counts as a noun; [`Vocabulary::standard`] takes the nouns
+//! of the vendored list (KAIROS-T-0728) and each dictionary term.
+//!
+//! A word that is not approved and that the vendored list gives a replacement
+//! for gets a message that names it: write "keep", not "maintain".
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -20,6 +28,7 @@ use crate::Violation;
 use crate::code::code_prose;
 use crate::mapped::Mapped;
 use crate::prose::prose_blocks;
+use crate::standard::{approved_words, not_approved_words};
 
 static TOKEN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[\p{L}\p{N}'’/._-]+").expect("valid regex"));
@@ -32,8 +41,12 @@ const EDGE: &[char] = &['\'', '’', '.', '_', '-', '/'];
 pub struct Vocabulary {
     /// Each one-word entry, in lower case.
     words: HashSet<String>,
+    /// The one-word entries whose regular plural and possessive also pass.
+    nouns: HashSet<String>,
     /// The terms of more than one word, by their first word, longest first.
     phrases: HashMap<String, Vec<Vec<String>>>,
+    /// The words to write instead of a word that is not approved.
+    instead: HashMap<String, Vec<String>>,
 }
 
 /// One word of a text, with its input span.
@@ -53,6 +66,9 @@ fn normalize(word: &str) -> String {
 impl Vocabulary {
     /// A vocabulary of the `base` words and the dictionary `terms`. An entry
     /// with whitespace in it is a term of more than one word, in either list.
+    ///
+    /// Each one-word entry counts as a noun: its regular plural and its
+    /// possessive pass too.
     pub fn new<B, T>(base: B, terms: T) -> Self
     where
         B: IntoIterator,
@@ -61,29 +77,91 @@ impl Vocabulary {
         T::Item: AsRef<str>,
     {
         let mut vocabulary = Self::default();
-        for entry in base
-            .into_iter()
-            .map(|b| b.as_ref().to_owned())
-            .chain(terms.into_iter().map(|t| t.as_ref().to_owned()))
-        {
-            let words: Vec<String> = entry.split_whitespace().map(normalize).collect();
-            match words.len() {
-                0 => {}
-                1 => {
-                    vocabulary.words.extend(words);
+        for entry in base {
+            vocabulary.add(entry.as_ref(), true);
+        }
+        for term in terms {
+            vocabulary.add(term.as_ref(), true);
+        }
+        vocabulary.sort_phrases();
+        vocabulary
+    }
+
+    /// A vocabulary of the vendored word list ([`crate::approved_words`])
+    /// and the dictionary `terms`. Only the nouns of the list, and each
+    /// term, take a plural or a possessive. A word of
+    /// [`crate::not_approved_words`] that is in no list gets the words to
+    /// write instead in its message.
+    pub fn standard<T>(terms: T) -> Self
+    where
+        T: IntoIterator,
+        T::Item: AsRef<str>,
+    {
+        let mut vocabulary = Self::default();
+        for approved in approved_words() {
+            vocabulary.add(approved.word, approved.part_of_speech == "n");
+        }
+        for term in terms {
+            vocabulary.add(term.as_ref(), true);
+        }
+        vocabulary.sort_phrases();
+        for row in not_approved_words() {
+            let word = normalize(row.word);
+            if word.contains(char::is_whitespace) || vocabulary.words.contains(&word) {
+                continue;
+            }
+            let instead = vocabulary.instead.entry(word).or_default();
+            for replacement in row.replacements() {
+                if !instead.iter().any(|known| known == replacement) {
+                    instead.push(replacement.to_owned());
                 }
-                _ => vocabulary
-                    .phrases
-                    .entry(words[0].clone())
-                    .or_default()
-                    .push(words),
             }
         }
-        for phrases in vocabulary.phrases.values_mut() {
+        vocabulary.instead.retain(|_, instead| !instead.is_empty());
+        vocabulary
+    }
+
+    fn add(&mut self, entry: &str, noun: bool) {
+        let words: Vec<String> = entry.split_whitespace().map(normalize).collect();
+        match words.len() {
+            0 => {}
+            1 => {
+                if noun {
+                    self.nouns.insert(words[0].clone());
+                }
+                self.words.extend(words);
+            }
+            _ => self
+                .phrases
+                .entry(words[0].clone())
+                .or_default()
+                .push(words),
+        }
+    }
+
+    fn sort_phrases(&mut self) {
+        for phrases in self.phrases.values_mut() {
             phrases.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
             phrases.dedup();
         }
-        vocabulary
+    }
+
+    /// True when `word` (in lower case) is listed, or is the regular plural
+    /// or the possessive of a listed noun.
+    fn knows(&self, word: &str) -> bool {
+        self.words.contains(word)
+            || noun_bases(word)
+                .iter()
+                .any(|base| self.nouns.contains(base))
+    }
+
+    /// The words to write instead of `word`, or of the word that it is the
+    /// plural or the possessive of.
+    fn instead_of(&self, word: &str) -> Option<&[String]> {
+        std::iter::once(word.to_owned())
+            .chain(noun_bases(word))
+            .find_map(|base| self.instead.get(&base))
+            .map(Vec::as_slice)
     }
 
     /// STE-V1 for markdown prose: each word that is in no list. The text is
@@ -114,14 +192,16 @@ impl Vocabulary {
                 i += n;
                 continue;
             }
-            if !self.words.contains(word) {
+            if !self.knows(word) {
+                let written = &block.text[tokens[i].at.clone()];
+                let fix = match self.instead_of(word) {
+                    Some(instead) => format!("Write {}, not \"{written}\".", quoted_list(instead)),
+                    None => "Use a word of the word list or a term of the dictionary.".to_owned(),
+                };
                 found.push(Violation::new(
                     "STE-V1",
                     tokens[i].span.clone(),
-                    format!(
-                        "\"{}\" is not in the vocabulary. Use a word of the word list or a term of the dictionary.",
-                        &block.text[tokens[i].at.clone()]
-                    ),
+                    format!("\"{written}\" is not in the vocabulary. {fix}"),
                 ));
             }
             i += 1;
@@ -147,6 +227,55 @@ impl Vocabulary {
             });
             (words_match && adjacent).then_some(phrase.len())
         })
+    }
+}
+
+/// The nouns that `word` can be the regular plural or the possessive of:
+/// "boxes" gives "box" and "boxe", "entries" gives "entry" and "entrie",
+/// "team's" gives "team". The caller checks which one is a noun. A plural
+/// possessive ("teams'") is a plural here: the tokens lose a closing `'`.
+fn noun_bases(word: &str) -> Vec<String> {
+    if let Some(base) = word.strip_suffix("'s") {
+        return vec![base.to_owned()];
+    }
+    let mut bases = Vec::new();
+    if let Some(stem) = word.strip_suffix("ies") {
+        bases.push(format!("{stem}y"));
+    }
+    if let Some(stem) = word.strip_suffix("es")
+        && takes_es(stem)
+    {
+        bases.push(stem.to_owned());
+    }
+    if let Some(stem) = word.strip_suffix('s')
+        && !stem.is_empty()
+        && !takes_es(stem)
+        && !takes_ies(stem)
+    {
+        bases.push(stem.to_owned());
+    }
+    bases
+}
+
+/// A noun that ends in `s`, `x`, `z`, `ch` or `sh` makes its plural with `es`.
+fn takes_es(stem: &str) -> bool {
+    ["s", "x", "z", "ch", "sh"]
+        .iter()
+        .any(|end| stem.ends_with(end))
+}
+
+/// A noun that ends in a consonant and `y` makes its plural with `ies`.
+fn takes_ies(stem: &str) -> bool {
+    let mut end = stem.chars().rev();
+    end.next() == Some('y') && end.next().is_some_and(|c| !"aeiou".contains(c))
+}
+
+/// `"a"`, `"a" or "b"`, `"a", "b" or "c"`.
+fn quoted_list(words: &[String]) -> String {
+    let quoted: Vec<String> = words.iter().map(|w| format!("\"{w}\"")).collect();
+    match quoted.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
+        _ => quoted.concat(),
     }
 }
 

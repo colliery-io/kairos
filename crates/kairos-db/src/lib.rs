@@ -43,6 +43,7 @@ pub mod local_auth;
 pub mod migrations;
 pub mod models;
 pub mod my_work;
+pub mod notices;
 pub mod notifications;
 pub mod org_read_tokens;
 pub mod pool;

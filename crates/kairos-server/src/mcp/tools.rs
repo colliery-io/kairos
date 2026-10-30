@@ -3,7 +3,7 @@
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
 //! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
 //! (COLLIERY-T-0220), and `add_repository` and `update_repository`
-//! (COLLIERY-T-0266); later tasks added more (81 in all, in the profiles
+//! (COLLIERY-T-0266); later tasks added more (82 in all, in the profiles
 //! of `profiles.rs`, KAIROS-T-0454) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
@@ -646,6 +646,28 @@ pub struct MarkEventsReadParams {
     /// you read (`get_events` gives it first). Kairos marks it and each
     /// older unread one, and no newer one.
     pub up_to: Option<String>,
+}
+
+/// Parameters for `send_notice` (KAIROS-T-0737): `to` or `team`, the text,
+/// and an optional item.
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct SendNoticeParams {
+    /// A person of the organization: `me` (your own person), an id, an
+    /// email or a user name. Send `to` or `team`, not both.
+    pub to: Option<String>,
+    /// A team: its slug or its UUID. Each member gets the notice.
+    pub team: Option<String>,
+    /// The text of the notice: 1 to 2000 characters.
+    pub text: String,
+    /// The short code of a live item to link (e.g. "ACME-T-0012").
+    pub short_code: Option<String>,
+    /// A key that you choose for this call: 8 to 128 characters of letters,
+    /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
+    /// retry this call: a second call with the same key in 24 hours writes
+    /// nothing and gives the first answer again (KAIROS-A-0065).
+    pub request_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -1543,7 +1565,7 @@ pub struct SaveTemplateParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (81; the list of each profile is asserted in tests/mcp.rs)
+// The tools (82; the list of each profile is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -3412,6 +3434,39 @@ impl KairosMcp {
         let keyed = super::request_key::keyed_call(&auth, "append_note", &params);
         self.run_keyed_tool(&tenant, keyed, move |conn| {
             append_note_text(conn, role, user, &params)
+        })
+        .await
+    }
+
+    // KAIROS-T-0737: a notice to a person or a team.
+    #[tool(
+        description = "Send a notice: a short text, and an optional item link (`short_code`), to a person (`to`: me, a UUID, an email or a user name) or to each member of a team (`team`: slug or UUID). The notice goes to the bell of each recipient and to their open pages. A notice from an agent key names the key and its person; `to: me` tells your own person. Each agent key can send 20 notices in one hour (the operator can change the limit); a notice to a team counts as one. Over the limit, the call is refused with NOTICE_RATE_LIMITED and the seconds to wait. A recipient who turned notices off, or muted your key, gets nothing. Send a `request_key` when you may retry this call."
+    )]
+    pub async fn send_notice(
+        &self,
+        Parameters(params): Parameters<SendNoticeParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let (user, key) = (auth.user_id, auth.agent_key);
+        let slug = tenant.slug.clone();
+        let limit = self.state.config.notice_limit_per_hour;
+        let keyed = super::request_key::keyed_call(&auth, "send_notice", &params);
+        self.run_keyed_tool(&tenant, keyed, move |conn| {
+            let sent = crate::api::notices::send_for(
+                conn,
+                &slug,
+                user,
+                key,
+                limit,
+                crate::api::notices::NoticeInput {
+                    to: params.to,
+                    team: params.team,
+                    text: params.text,
+                    item: params.short_code,
+                },
+            )?;
+            Ok(notice_text(&sent))
         })
         .await
     }
@@ -10200,6 +10255,8 @@ mod ride_along_tests {
             actor_id: None,
             created_at: chrono::Utc::now(),
             read_at: None,
+            agent_key_id: None,
+            agent_key_name: None,
         }
     }
 
@@ -10800,6 +10857,8 @@ mod t0683_tests {
             actor_id: None,
             created_at: chrono::Utc::now(),
             read_at: read.then(chrono::Utc::now),
+            agent_key_id: None,
+            agent_key_name: None,
         }
     }
 
@@ -10836,6 +10895,12 @@ mod t0683_tests {
 }
 
 impl super::request_key::Keyed for CreateItemParams {
+    fn request_key(&self) -> Option<&str> {
+        self.request_key.as_deref()
+    }
+}
+
+impl super::request_key::Keyed for SendNoticeParams {
     fn request_key(&self) -> Option<&str> {
         self.request_key.as_deref()
     }
@@ -11346,4 +11411,28 @@ mod t0691_tests {
             "{table}"
         );
     }
+}
+
+/// The answer of `send_notice` (KAIROS-T-0737).
+fn notice_text(sent: &crate::api::notices::NoticeSent) -> String {
+    let mut out = format!("Sent the notice {} to {}", sent.id, sent.target);
+    if let Some(code) = &sent.item {
+        out.push_str(&format!(", with the item {code}"));
+    }
+    out.push_str(".\n");
+    match sent.told.len() {
+        0 => out.push_str(
+            "Nobody got a notification: each recipient turned notices off or muted your key, \
+             or the team has no members.\n",
+        ),
+        1 => out.push_str("1 person got a notification.\n"),
+        n => out.push_str(&format!("{n} persons got a notification.\n")),
+    }
+    if let Some(remaining) = sent.remaining {
+        out.push_str(&format!(
+            "You can send {} more notice(s) in this hour.\n",
+            remaining.max(0)
+        ));
+    }
+    out
 }

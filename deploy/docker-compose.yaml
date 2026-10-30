@@ -103,6 +103,8 @@ services:
       KAIROS_API_KEY_TTL_DAYS: ${KAIROS_API_KEY_TTL_DAYS:-}
       # KAIROS-T-0531: a claim with no write for this many days is reported.
       KAIROS_STALE_CLAIM_DAYS: ${KAIROS_STALE_CLAIM_DAYS:-}
+      # KAIROS-T-0737: the notices of one key in one hour.
+      KAIROS_NOTICE_LIMIT_PER_HOUR: ${KAIROS_NOTICE_LIMIT_PER_HOUR:-}
       # KAIROS-T-0608, KAIROS-T-0614: the database pools of the server.
       KAIROS_POOL_SIZE: ${KAIROS_POOL_SIZE:-}
       KAIROS_POOL_MIN_IDLE: ${KAIROS_POOL_MIN_IDLE:-}

@@ -2,7 +2,7 @@
 //! makes a retried MCP write safe.
 //!
 //! Proves:
-//! 1. The 14 tools of decision 7 list `request_key` and say when to send
+//! 1. The 15 tools of decision 7 (and KAIROS-T-0737) list `request_key` and say when to send
 //!    it; the patches (`set_state`) and `update_item` do not.
 //! 2. A second `create_item` with the same key and arguments writes
 //!    nothing and gives the first answer, with a `Replayed:` line.
@@ -50,7 +50,7 @@ use kairos_server::middleware::auth::Authenticator;
 const SCRATCH_DB: &str = "kairos_request_keys_t0681_test";
 
 /// The tools of decision 7 of KAIROS-A-0065.
-const KEYED_TOOLS: [&str; 14] = [
+const KEYED_TOOLS: [&str; 15] = [
     "create_item",
     "append_note",
     "link_items",
@@ -65,6 +65,8 @@ const KEYED_TOOLS: [&str; 14] = [
     "add_column",
     "create_team_page",
     "create_dispatch_rule",
+    // KAIROS-T-0737.
+    "send_notice",
 ];
 
 const SENTENCE: &str = "Send a `request_key` when you may retry this call.";
@@ -301,7 +303,7 @@ async fn a_request_key_makes_a_retried_write_safe() {
             .iter()
             .filter(|t| KEYED_TOOLS.contains(&t["name"].as_str().unwrap()))
             .count(),
-        14
+        15
     );
 
     // KAIROS-T-0693: the table of kairos_client::mcp_tools has the same

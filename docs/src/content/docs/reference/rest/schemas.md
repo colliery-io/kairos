@@ -1001,6 +1001,28 @@ A delivery stream (`/api/delivery-streams`).
 | `slug` | `string` | yes |  |
 | `updated_at` | `string` | yes | RFC 3339. |
 
+## DictionaryProblem
+
+One bad row of a dictionary.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `document` | `string` | yes | The short code of the dictionary. |
+| `line` | `integer` | yes | The 1-based line of the row in the document. |
+| `message` | `string` | yes |  |
+
+## DictionaryTerm
+
+One term of [`TeamDictionary`].
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `document` | `string` | yes | The short code of the dictionary that gives the term. |
+| `layer` | `string` | yes | `organization|team`: the dictionary that gives the term. |
+| `meaning` | `string` | yes |  |
+| `part_of_speech` | `string` | yes |  |
+| `word` | `string` | yes | The term: one word or more, as the dictionary writes it. |
+
 ## DispatchRule
 
 A dispatch rule of a board. With the trigger `entered_column`, the rule fires when a task that matches the filter enters `column`. On an initiative or a strategy board the item is an initiative or a strategy (KAIROS-T-0719: the event `initiative.entered_column`). With `unblocked` (KAIROS-T-0427), it fires when the last open blocker of a task that matches closes. Then the task must be in `column`, if the rule names one. Kairos sends one signed delivery to the target.
@@ -3065,6 +3087,17 @@ One team announcement (append-only; no edit anywhere).
 | `id` | `string` | yes | Announcement id (UUID). |
 | `pinned` | `boolean` | yes | Pinned announcements sort first. |
 | `team_id` | `string` | yes | Owning team (UUID). |
+
+## TeamDictionary
+
+`GET /api/teams/{id}/dictionary` (KAIROS-T-0734): the dictionary of the team. The organization entries come first. A team entry wins for the same word (case ignored, KAIROS-T-0733).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `organization` | `string`, nullable | no | The short code of the organization dictionary; `null` when there is none. |
+| `problems` | array of [`DictionaryProblem`](#dictionaryproblem) | yes | The bad rows of the two dictionaries, the organization first. A bad row gives no term. |
+| `team` | `string`, nullable | no | The short code of the dictionary of the team; `null` when there is none. |
+| `terms` | array of [`DictionaryTerm`](#dictionaryterm) | yes | Each term, sorted by the word (case ignored). |
 
 ## TeamLink
 

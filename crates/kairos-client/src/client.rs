@@ -2698,6 +2698,15 @@ impl KairosClient {
             .await
     }
 
+    /// `GET /api/teams/{id}/dictionary` — the dictionary of the team,
+    /// resolved over the organization dictionary (KAIROS-T-0734).
+    pub async fn get_team_dictionary(
+        &self,
+        team: &str,
+    ) -> Result<crate::types_team_pages::TeamDictionary, Error> {
+        self.get(&format!("/api/teams/{team}/dictionary")).await
+    }
+
     /// `GET /api/teams/{id}/announcements` — one page, pinned first,
     /// newest first.
     pub async fn list_team_announcements(

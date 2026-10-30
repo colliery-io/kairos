@@ -175,6 +175,47 @@ pub struct TeamWorkDocument {
     pub parent_type: Option<String>,
 }
 
+/// `GET /api/teams/{id}/dictionary` (KAIROS-T-0734): the dictionary of the
+/// team. The organization entries come first. A team entry wins for the
+/// same word (case ignored, KAIROS-T-0733).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TeamDictionary {
+    /// The short code of the organization dictionary; `null` when there
+    /// is none.
+    pub organization: Option<String>,
+    /// The short code of the dictionary of the team; `null` when there is
+    /// none.
+    pub team: Option<String>,
+    /// Each term, sorted by the word (case ignored).
+    pub terms: Vec<DictionaryTerm>,
+    /// The bad rows of the two dictionaries, the organization first. A bad
+    /// row gives no term.
+    pub problems: Vec<DictionaryProblem>,
+}
+
+/// One term of [`TeamDictionary`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DictionaryTerm {
+    /// The term: one word or more, as the dictionary writes it.
+    pub word: String,
+    pub part_of_speech: String,
+    pub meaning: String,
+    /// `organization|team`: the dictionary that gives the term.
+    pub layer: String,
+    /// The short code of the dictionary that gives the term.
+    pub document: String,
+}
+
+/// One bad row of a dictionary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct DictionaryProblem {
+    /// The short code of the dictionary.
+    pub document: String,
+    /// The 1-based line of the row in the document.
+    pub line: u32,
+    pub message: String,
+}
+
 /// Body of `POST /api/teams/{id}/announcements`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]

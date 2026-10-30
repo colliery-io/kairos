@@ -505,6 +505,28 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
             }
         }
     });
+    // KAIROS-T-0734: the dictionary of the team of the board. The content
+    // and the notes link its terms, with the meaning on hover. The team of
+    // an item is the team of its board (KAIROS-A-0023 decision 2; a
+    // strategy or initiative board has a team, KAIROS-A-0026). A board
+    // with no team, or a failed read, gives no links: the text stays text.
+    let dictionary = LocalResource::new(move || {
+        auth.track_session();
+        let team = match board.get() {
+            Some(Ok(Some(board))) => board.team_id,
+            _ => None,
+        };
+        async move {
+            match team {
+                Some(team) => api::fetch_team_dictionary(auth, &team)
+                    .await
+                    .map(|dictionary| dictionary.links())
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            }
+        }
+    });
+    let terms = Signal::derive(move || dictionary.get().unwrap_or_default());
     let can_restore = restore_power(family, board, created_by.clone());
     // KAIROS-T-0581, KAIROS-A-0032: the archive takes the rule of the
     // restore (no claim); Archive shows only to a person who passes it,
@@ -653,6 +675,7 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                     read_only_reason=edit_reason
                     server
                     on_saved
+                    terms
                 />
                 // KAIROS-T-0630: the notes are not part of the content.
                 // KAIROS-T-0579: add a note, its anchor, promote it.
@@ -663,6 +686,7 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                     read_only=edit_read_only
                     read_only_reason=edit_reason
                     on_changed=refresh
+                    terms
                 />
             </Stack>
             <Stack gap="sm">

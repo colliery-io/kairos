@@ -1013,6 +1013,24 @@ Request body (required): `application/json`, [`UpdateTeamRequest`](../schemas/#u
 | `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Slug already in use |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Bad team_type, empty body, or the new slug does not have the form of a slug |
 
+### `GET /api/teams/{id}/dictionary`
+
+The dictionary of the team (KAIROS-T-0734, KAIROS-T-0733). It gives the
+terms of the organization dictionary and of the dictionary of the team.
+A team entry wins for the same word. Each member of the organization can
+read it, as for the items. The web links these terms in the content of
+an item of the team, and shows the meaning on hover.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The slug or the id (UUID) of the team |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`TeamDictionary`](../schemas/#teamdictionary) | The terms of the team, sorted by the word |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown team |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The team has more than one delivery board |
+
 ### `GET /api/teams/{id}/links`
 
 The team's in-flight forge links (KAIROS-T-0101): links whose item is

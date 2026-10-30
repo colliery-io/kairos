@@ -248,6 +248,7 @@ use crate::app::AppState;
         crate::api::org::teams::get_team,
         crate::api::org::teams::get_team_by_slug,
         crate::api::org::teams::list_work_documents,
+        crate::api::org::teams::get_team_dictionary,
         crate::api::org::teams::list_team_links,
         crate::api::org::teams::list_team_unlinked_refs,
         crate::api::org::team_pages::list_pages,

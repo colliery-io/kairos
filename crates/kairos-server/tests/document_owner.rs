@@ -2618,6 +2618,74 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
                 reply.1.contains(&first.short_code),
                 &reply.1,
             );
+
+            // J4 (KAIROS-T-0734): GET /api/teams/{id}/dictionary gives the
+            // terms of the team to each member of the organization.
+            let entries = "| Word | Part of speech | Meaning |\n\
+                           |---|---|---|\n\
+                           | production document | noun | A document that the team gives out. |\n\
+                           | board | noun | A set of columns. |\n\
+                           | lane |\n";
+            checks.allowed(
+                "J4: the dictionary gets its entries",
+                edit(&bob, &first.short_code, entries).await,
+            );
+            if let Some(read) = checks.allowed(
+                "J4: a person who is not in the team reads the dictionary of the team",
+                alice.get_team_dictionary(&teams[0].id).await,
+            ) {
+                checks.same(
+                    "J4: the terms, sorted by the word, with their dictionary",
+                    read.terms
+                        .iter()
+                        .map(|t| {
+                            (
+                                t.word.as_str(),
+                                t.part_of_speech.as_str(),
+                                t.layer.as_str(),
+                                t.document.as_str(),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                    vec![
+                        ("board", "noun", "team", first.short_code.as_str()),
+                        (
+                            "production document",
+                            "noun",
+                            "team",
+                            first.short_code.as_str(),
+                        ),
+                    ],
+                );
+                checks.same(
+                    "J4: the codes of the two dictionaries",
+                    (read.organization.clone(), read.team.clone()),
+                    (None, Some(first.short_code.clone())),
+                );
+                checks.same(
+                    "J4: the bad row is a problem with its line",
+                    read.problems
+                        .iter()
+                        .map(|p| (p.document.as_str(), p.line))
+                        .collect::<Vec<_>>(),
+                    vec![(first.short_code.as_str(), 5)],
+                );
+            }
+            checks.same(
+                "J4: the slug of the team gives the same dictionary",
+                alice
+                    .get_team_dictionary("platform")
+                    .await
+                    .map(|d| d.terms.len())
+                    .ok(),
+                Some(2),
+            );
+            checks.refused_with(
+                "J4: an unknown team is a 404",
+                404,
+                "NOT_FOUND",
+                alice.get_team_dictionary("no-such-team").await,
+            );
         }
     }
 

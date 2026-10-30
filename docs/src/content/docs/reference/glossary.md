@@ -357,6 +357,12 @@ The terms of a team are the terms of the organization and the terms of the
 team. When the two dictionaries have the same word, the team term is used.
 The case of the letters is not important.
 
+`GET /api/teams/{id}/dictionary` gives the terms of a team (KAIROS-T-0734).
+The web app uses the dictionary of the team of the board of an item. In
+the content and the notes of the item, each term is a link to its
+dictionary. Put the pointer on the term to see its meaning. The longest
+term is used first. Code, links and headings do not get links.
+
 ## document
 
 One of the five work-item types, letter `D`. Documents have no board

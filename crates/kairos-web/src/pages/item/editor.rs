@@ -36,6 +36,9 @@ pub fn ContentEditor(
     /// Fired after a successful save with the item that the PATCH
     /// returned: the page shows it and posts the notice. No read follows.
     on_saved: Callback<ItemDetail>,
+    /// The terms of the dictionary of the team of the board (KAIROS-T-0734).
+    #[prop(into)]
+    terms: Signal<Vec<kairos_markdown::TermLink>>,
 ) -> impl IntoView {
     let auth = use_auth();
     // KAIROS-T-0581: the draft is kept outside this subtree, so a reload
@@ -70,6 +73,7 @@ pub fn ContentEditor(
             read_only_reason
             draft_key=key
             server
+            terms
             on_saved=on_version
             saver
             // KAIROS-T-0323: a ticket is read more than it is changed.

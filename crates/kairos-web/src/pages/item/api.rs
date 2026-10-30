@@ -1096,6 +1096,48 @@ pub async fn fetch_item_teams(
     crate::api::get_json(auth, &format!("/api/{}/{code}/teams", family.api_family())).await
 }
 
+/// mirror of: `kairos_client::types_team_pages::TeamDictionary` (partial,
+/// KAIROS-T-0734). The page links these terms in the content of an item.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct TeamDictionary {
+    #[serde(default)]
+    pub terms: Vec<DictionaryTerm>,
+}
+
+/// mirror of: `kairos_client::types_team_pages::DictionaryTerm` (partial).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct DictionaryTerm {
+    pub word: String,
+    #[serde(default)]
+    pub part_of_speech: String,
+    pub meaning: String,
+    /// The short code of the dictionary that gives the term.
+    #[serde(default)]
+    pub document: String,
+}
+
+impl TeamDictionary {
+    /// The terms for the markdown renderer: each links to the dictionary
+    /// that gives it.
+    pub fn links(&self) -> Vec<kairos_markdown::TermLink> {
+        self.terms
+            .iter()
+            .map(|term| kairos_markdown::TermLink {
+                word: term.word.clone(),
+                part_of_speech: term.part_of_speech.clone(),
+                meaning: term.meaning.clone(),
+                href: (!term.document.is_empty()).then(|| format!("/items/{}", term.document)),
+            })
+            .collect()
+    }
+}
+
+/// `GET /api/teams/{id}/dictionary` — the terms of the team, over the
+/// terms of the organization (KAIROS-T-0734).
+pub async fn fetch_team_dictionary(auth: Auth, team: &str) -> Result<TeamDictionary, ApiError> {
+    crate::api::get_json(auth, &format!("/api/teams/{team}/dictionary")).await
+}
+
 /// Body of `POST /api/{family}/{short_code}/teams` (mirror of:
 /// `kairos_client::types_org::SetItemTeamRequest`).
 #[derive(Debug, Serialize)]
@@ -1580,6 +1622,31 @@ mod tests {
     /// The board mirror decodes the `GET /api/boards/{id}` shape the move
     /// control reads (KAIROS-T-0075) — flattened board fields, columns,
     /// transitions.
+    /// KAIROS-T-0734: the dictionary mirror decodes the server shape, and
+    /// each term links to its dictionary.
+    #[test]
+    fn dictionary_mirror_decodes_and_links_each_term_to_its_dictionary() {
+        let body = serde_json::json!({
+            "organization": "ACME-D-0001", "team": "ACME-D-0002",
+            "terms": [
+                {"word": "board", "part_of_speech": "noun",
+                 "meaning": "A set of columns.", "layer": "organization",
+                 "document": "ACME-D-0001"},
+                {"word": "lane", "part_of_speech": "noun",
+                 "meaning": "A kind of work.", "layer": "team",
+                 "document": "ACME-D-0002"}
+            ],
+            "problems": [{"document": "ACME-D-0002", "line": 7, "message": "x"}]
+        });
+        let dictionary: TeamDictionary = serde_json::from_value(body).expect("mirror decodes");
+        let links = dictionary.links();
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].word, "board");
+        assert_eq!(links[0].href.as_deref(), Some("/items/ACME-D-0001"));
+        assert_eq!(links[1].href.as_deref(), Some("/items/ACME-D-0002"));
+        assert_eq!(links[1].meaning, "A kind of work.");
+    }
+
     #[test]
     fn board_mirror_decodes_transitions_and_team() {
         let body = serde_json::json!({

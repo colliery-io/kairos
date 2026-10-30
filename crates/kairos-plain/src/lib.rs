@@ -10,7 +10,8 @@
 //! - [`check_code_text`]: the text of an error. STE-S2/S3, STE-G1, STE-G4,
 //!   STE-V3 and STE-C1 to STE-C7.
 //! - [`Vocabulary`]: STE-V1, a word that is in no list. The caller gives the
-//!   lists; this crate holds none.
+//!   lists, or takes the vendored word list with [`Vocabulary::standard`]
+//!   ([`approved_words`], [`not_approved_words`], KAIROS-T-0728).
 //!
 //! Each [`Violation`] names its rule, the byte range of the input that it is
 //! about, and a message that names the fix.
@@ -18,12 +19,14 @@
 mod code;
 mod mapped;
 mod prose;
+mod standard;
 mod vocabulary;
 
 use std::ops::Range;
 
 pub use code::check_code_text;
 pub use prose::check_text;
+pub use standard::{ApprovedWord, NotApprovedWord, approved_words, not_approved_words};
 pub use vocabulary::Vocabulary;
 
 /// One place where a text breaks a rule.

@@ -34,7 +34,8 @@
 //! [`unclaimed_work`] gives the last stop of the round: the tasks on the
 //! boards of the team that no one claims, in the state Todo or Blocked. A
 //! task in Backlog is not in it. [`team_people`] gives the people of the
-//! round.
+//! round: the members of the team, and each person who is not a member but
+//! claims a task of the team or owns an initiative of the team.
 //!
 //! # The state of an item
 //!
@@ -430,8 +431,8 @@ fn team_boards(conn: &mut PgConnection, team: Uuid) -> Result<HashSet<Uuid>, Die
         .collect())
 }
 
-/// The work of `user` in `team`, for the stand-up (module docs). A fixed
-/// number of queries, whatever the size of the work.
+/// The work of `user` in `team`, for the stand-up (module docs). Twelve
+/// queries, whatever the size of the work.
 pub fn team_work(conn: &mut PgConnection, team: Uuid, user: Uuid) -> Result<MyWork, DieselError> {
     use crate::schema::{item_owners as owners, task_claims as claims};
 
@@ -492,7 +493,7 @@ struct IdRow {
 }
 
 /// The tasks of `team` that no one claims, in the state Todo or Blocked
-/// (module docs), by short code. A fixed number of queries.
+/// (module docs), by short code. Five queries.
 pub fn unclaimed_work(conn: &mut PgConnection, team: Uuid) -> Result<Vec<WorkItem>, DieselError> {
     let ids: Vec<Uuid> = sql_query(
         "SELECT t.id FROM tasks t \
@@ -517,7 +518,7 @@ pub fn unclaimed_work(conn: &mut PgConnection, team: Uuid) -> Result<Vec<WorkIte
         .collect())
 }
 
-/// A person of a team, for the round of the stand-up.
+/// A person of the round of the stand-up of a team.
 #[derive(Debug, Clone, PartialEq, Eq, QueryableByName)]
 pub struct TeamPerson {
     #[diesel(sql_type = SqlUuid)]
@@ -526,18 +527,63 @@ pub struct TeamPerson {
     pub user_name: String,
     #[diesel(sql_type = Text)]
     pub display_name: String,
+    /// A member of the team. `false`: a person who is not a member, and who
+    /// claims a task of the team or owns an initiative of the team.
+    #[diesel(sql_type = Bool)]
+    pub member: bool,
 }
 
-/// The people of `team`, by display name. Service accounts are not
-/// people. One query.
+#[derive(QueryableByName)]
+struct OwnerRow {
+    #[diesel(sql_type = SqlUuid)]
+    item_id: Uuid,
+    #[diesel(sql_type = SqlUuid)]
+    user_id: Uuid,
+}
+
+/// The people of the round of `team`, by display name (module docs): the
+/// members of the team, and each person who is not a member and claims a
+/// live task of the team or owns a live initiative of the team (Dylan,
+/// 2026-10-29: a person who left the team still gets a turn). Not done
+/// items only. Service accounts are not people. Three queries.
 pub fn team_people(conn: &mut PgConnection, team: Uuid) -> Result<Vec<TeamPerson>, DieselError> {
+    // The owners of live initiatives that are not done, then the ones of
+    // the team.
+    let owners: Vec<OwnerRow> = sql_query(
+        "SELECT o.item_id, o.user_id FROM item_owners o \
+           JOIN initiatives i ON i.id = o.item_id AND i.deleted_at IS NULL \
+           JOIN board_columns c ON c.id = i.column_id AND NOT c.is_done",
+    )
+    .load(conn)?;
+    let ids: Vec<Uuid> = owners.iter().map(|o| o.item_id).collect();
+    let teams = item_teams::teams_of_items(conn, &ids)?;
+    let team_owners: Vec<Uuid> = owners
+        .iter()
+        .filter(|o| {
+            teams
+                .get(&o.item_id)
+                .is_some_and(|ts| ts.iter().any(|t| t.team_id == team))
+        })
+        .map(|o| o.user_id)
+        .collect();
     sql_query(
-        "SELECT u.id AS user_id, u.user_name, u.display_name \
-           FROM team_members m JOIN users u ON u.id = m.user_id \
-          WHERE m.team_id = $1 AND u.kind = $2 \
+        "SELECT u.id AS user_id, u.user_name, u.display_name, bool_or(s.member) AS member \
+           FROM (SELECT user_id, true AS member FROM team_members WHERE team_id = $1 \
+                 UNION ALL \
+                 SELECT k.user_id, false FROM task_claims k \
+                   JOIN tasks t ON t.id = k.task_id AND t.deleted_at IS NULL \
+                   JOIN boards b ON b.id = t.board_id AND b.deleted_at IS NULL \
+                   JOIN board_columns c ON c.id = t.column_id AND NOT c.is_done \
+                  WHERE b.team_id = $1 \
+                 UNION ALL \
+                 SELECT unnest($3::uuid[]), false) s \
+           JOIN users u ON u.id = s.user_id \
+          WHERE u.kind = $2 \
+          GROUP BY u.id, u.user_name, u.display_name \
           ORDER BY u.display_name, u.id",
     )
     .bind::<SqlUuid, _>(team)
     .bind::<Text, _>(USER_KIND_HUMAN)
+    .bind::<Array<SqlUuid>, _>(&team_owners)
     .load(conn)
 }

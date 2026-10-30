@@ -13,7 +13,9 @@
 //!   one claims. Not a claimed task, not a task in Backlog, not a done task,
 //!   not a task of a different team.
 //! - `team_people` gives the people of the team, and not a service
-//!   account.
+//!   account. A person who is not a member and claims a task of the team,
+//!   or owns an initiative of the team, gets a turn, marked; a claim on a
+//!   done task gives no turn.
 //!
 //! Against real Postgres from the compose stack (A-0012 tier 2). Each test
 //! owns a scratch database.
@@ -339,12 +341,44 @@ fn the_stand_up_shows_the_work_of_a_person_in_one_team() {
     assert!(unclaimed.iter().all(|t| t.claim.is_none()));
 
     // The people of web: Robin and Sam, not the service account.
-    let people: Vec<String> = my_work::team_people(conn, web)
-        .expect("the people")
-        .into_iter()
-        .map(|p| p.display_name)
-        .collect();
-    assert_eq!(people, vec!["Robin", "Sam"]);
+    let people = |conn: &mut PgConnection| -> Vec<(String, bool)> {
+        my_work::team_people(conn, web)
+            .expect("the people")
+            .into_iter()
+            .map(|p| (p.display_name, p.member))
+            .collect()
+    };
+    assert_eq!(
+        people(conn),
+        vec![("Robin".to_string(), true), ("Sam".to_string(), true)]
+    );
+
+    // Jamie is not a member of web, and claims a web task: Jamie gets a
+    // turn, marked as not a member (Dylan, 2026-10-29). Casey owns an
+    // initiative of web by hand and is not a member: a turn too.
+    let jamie = person(conn, "Jamie");
+    let theirs = task(conn, jamie, web_board, "jamie claim");
+    walk(conn, web_board, theirs, &["Todo", "Active"], jamie);
+    let casey = person(conn, "Casey");
+    let caseys = initiative(conn, casey, "casey initiative");
+    item_teams::link(conn, caseys, web, casey).expect("setting the team");
+    item_owners::claim(conn, caseys, casey).expect("owning the initiative");
+    // Dana claims a done web task only: no turn.
+    let dana = person(conn, "Dana");
+    let finished = task(conn, dana, web_board, "dana done");
+    walk(conn, web_board, finished, &["Todo", "Active"], dana);
+    walk(conn, web_board, finished, &["Completed"], dana);
+    assert_eq!(
+        people(conn),
+        vec![
+            ("Casey".to_string(), false),
+            ("Jamie".to_string(), false),
+            ("Robin".to_string(), true),
+            ("Sam".to_string(), true),
+        ]
+    );
+    let jamie_work = my_work::team_work(conn, web, jamie).expect("the work of Jamie");
+    assert_eq!(titles(&jamie_work.tasks), vec!["jamie claim"]);
 
     scratch.drop_database();
 }

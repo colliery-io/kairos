@@ -1,7 +1,9 @@
 //! KAIROS-T-0722 (COLLIERY-I-0663): the stand-up routes.
 //!
 //! - `GET /api/teams/{id}/standup` gives the team and its people (the db
-//!   test `team_work` shows that a service account is not in it).
+//!   test `team_work` shows that a service account is not in it). A person
+//!   who is not a member and claims a task of the team has a turn, with
+//!   `member: false`.
 //! - `GET /api/teams/{id}/standup/people/{user_id}` gives the work of a
 //!   person in the team: bob reads the work of alice. A claim on the board
 //!   of a different team is left out; the claim of the agent key of alice
@@ -233,9 +235,10 @@ async fn the_stand_up_routes_give_the_round_the_lanes_and_the_unclaimed_stop() {
     walk(&bob, &web_columns, &todo, &["Todo"]).await;
     let _backlog = task(&bob, &web_board, "web backlog").await;
 
-    // --- the round: by slug, alice and bob, and not the service account.
+    // --- the round: by slug, alice and bob.
     let standup = bob.standup("web").await.expect("the stand-up");
     assert_eq!(standup.team.slug, "web");
+    assert!(standup.people.iter().all(|p| p.member));
     let mut people: Vec<String> = standup.people.iter().map(|p| p.user_id.clone()).collect();
     people.sort();
     let mut expected = vec![alice_id.to_string(), bob_id.to_string()];
@@ -273,8 +276,35 @@ async fn the_stand_up_routes_give_the_round_the_lanes_and_the_unclaimed_stop() {
     assert_eq!(unclaimed.tasks[0].state, "todo");
     assert_eq!(unclaimed.tasks[0].reasons, vec!["unclaimed"]);
 
-    // --- refusals.
     let status = |e: kairos_client::Error| e.status();
+    // --- svc is not a member of web, and claims a web task: svc gets a
+    // turn, marked (Dylan, 2026-10-29).
+    let svc_claim = task(&svc, &web_board, "svc claim").await;
+    walk(&svc, &web_columns, &svc_claim, &["Todo", "Active"]).await;
+    let standup = bob.standup("web").await.expect("the stand-up");
+    let outsider = standup
+        .people
+        .iter()
+        .find(|p| p.user_id == ids[0].to_string())
+        .expect("svc has a turn");
+    assert!(!outsider.member);
+    assert_eq!(standup.people.len(), 3);
+    let svc_work = bob
+        .standup_person("web", &ids[0].to_string())
+        .await
+        .expect("the work of svc");
+    assert_eq!(titles(&svc_work.tasks), vec!["svc claim"]);
+    // A padded id is refused, as each unknown input.
+    let padded = format!(" {}", ids[0]);
+    assert_eq!(
+        bob.standup_person("web", &padded)
+            .await
+            .map_err(status)
+            .err(),
+        Some(Some(404))
+    );
+
+    // --- refusals.
     assert_eq!(
         bob.standup("nope").await.map_err(status).err(),
         Some(Some(404))

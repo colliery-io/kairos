@@ -240,12 +240,6 @@ fn team_implies_on_team_board(required: &str) -> bool {
         )
 }
 
-/// The stand-up page of a team (KAIROS-T-0724). The page and the API take
-/// the slug or the id of the team. Pure, host-tested.
-fn standup_href(team: &str) -> String {
-    format!("/teams/{team}/standup")
-}
-
 /// The link from a board to its members panel (KAIROS-T-0412): the admin
 /// page of the board, at the anchor of the panel
 /// ([`crate::pages::admin::MEMBERS_ANCHOR`]). Pure, host-tested.
@@ -2120,7 +2114,7 @@ fn BoardBody(
                     // board, for each reader.
                     {is_delivery.then(|| team_id.get_value()).flatten().map(|team| view! {
                         <Button variant="default" size="xs"
-                            href=standup_href(&team)>
+                            href=super::standup::standup_href(&team)>
                             "Stand-up"
                         </Button>
                     })}
@@ -4198,11 +4192,6 @@ fn CreateDocumentModal(
 mod tests {
     use super::*;
     use crate::pages::teams::api::Team;
-
-    #[test]
-    fn a_delivery_board_links_to_the_stand_up_of_its_team() {
-        assert_eq!(standup_href("web"), "/teams/web/standup");
-    }
 
     /// KAIROS-T-0363: the question of "Archive completed" gives the
     /// count.

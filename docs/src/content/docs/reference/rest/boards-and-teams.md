@@ -1082,8 +1082,10 @@ Remove a member from a team. An organization admin, or
 
 The team of a stand-up and its people.
 
-The people are the members of the team, by display name. A service
-account is not in the list. The page shuffles the list.
+The people are the members of the team, by display name. Some people
+are not members but claim a task of the team or own an initiative of
+the team. They get a turn too, with `member: false`. A service account
+is not in the list. The page shuffles the list.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -1120,8 +1122,9 @@ person does not have to be a member of the team.
 
 ### `GET /api/teams/{id}/standup/unclaimed`
 
-The last stop of a stand-up: the tasks on the boards of the team that no
-one claims, in the state Todo or Blocked. A task in Backlog is not in it.
+The last stop of a stand-up. It gives the tasks on the boards of the
+team that no one claims, in the state Todo or Blocked. A task in Backlog
+is not in it.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|

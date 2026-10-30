@@ -56,21 +56,28 @@ pub(crate) fn work_for(
 
 /// The two lanes as the wire type, with the names of the people. One query.
 fn to_wire(conn: &mut diesel::pg::PgConnection, work: my_work::MyWork) -> Result<MyWork, ApiError> {
-    let mut lanes = items_to_wire(conn, vec![work.initiatives, work.tasks])?;
-    let tasks = lanes.pop().unwrap_or_default();
-    let initiatives = lanes.pop().unwrap_or_default();
-    Ok(MyWork { initiatives, tasks })
+    let names = names_of(conn, work.initiatives.iter().chain(work.tasks.iter()))?;
+    Ok(MyWork {
+        initiatives: work
+            .initiatives
+            .into_iter()
+            .map(|item| item_to_wire(item, &names))
+            .collect(),
+        tasks: work
+            .tasks
+            .into_iter()
+            .map(|item| item_to_wire(item, &names))
+            .collect(),
+    })
 }
 
-/// Lists of items of the work as the wire type, with the names of the
-/// people of their claims and owners. One query.
-fn items_to_wire(
+/// The display names of the people of the claims and the owners of
+/// `items`. One query.
+fn names_of<'a>(
     conn: &mut diesel::pg::PgConnection,
-    lists: Vec<Vec<my_work::WorkItem>>,
-) -> Result<Vec<Vec<WorkItem>>, ApiError> {
-    let people: Vec<Uuid> = lists
-        .iter()
-        .flatten()
+    items: impl Iterator<Item = &'a my_work::WorkItem>,
+) -> Result<std::collections::HashMap<Uuid, String>, ApiError> {
+    let people: Vec<Uuid> = items
         .flat_map(|item| {
             item.claim
                 .iter()
@@ -78,8 +85,15 @@ fn items_to_wire(
                 .chain(item.owner.iter().map(|o| o.user_id))
         })
         .collect();
-    let names = kairos_db::task_claims::display_names(conn, &people).map_err(ApiError::internal)?;
-    let view = |item: my_work::WorkItem| WorkItem {
+    kairos_db::task_claims::display_names(conn, &people).map_err(ApiError::internal)
+}
+
+/// One item of the work as the wire type, with the names of [`names_of`].
+fn item_to_wire(
+    item: my_work::WorkItem,
+    names: &std::collections::HashMap<Uuid, String>,
+) -> WorkItem {
+    WorkItem {
         id: item.id.to_string(),
         short_code: item.short_code,
         title: item.title,
@@ -100,11 +114,11 @@ fn items_to_wire(
         claim: item
             .claim
             .as_ref()
-            .map(|c| crate::claims::claim_dto(c, &names)),
+            .map(|c| crate::claims::claim_dto(c, names)),
         owner: item
             .owner
             .as_ref()
-            .map(|o| crate::owners::owner_dto(o, &names)),
+            .map(|o| crate::owners::owner_dto(o, names)),
         blockers: item
             .blockers
             .into_iter()
@@ -113,18 +127,15 @@ fn items_to_wire(
                 title: b.title,
             })
             .collect(),
-    };
-    Ok(lists
-        .into_iter()
-        .map(|list| list.into_iter().map(view).collect())
-        .collect())
+    }
 }
 
-/// The live team that `reference` names (a slug or an id), or 404.
+/// The live team that `reference` names (a slug or an id), with its id, or
+/// 404. Two queries.
 fn standup_team(
     conn: &mut diesel::pg::PgConnection,
     reference: &str,
-) -> Result<StandupTeam, ApiError> {
+) -> Result<(Uuid, StandupTeam), ApiError> {
     use diesel::prelude::*;
     use kairos_db::schema::teams;
     let id = crate::api::org::teams::team_by_ref(conn, reference)?;
@@ -133,11 +144,14 @@ fn standup_team(
         .select((teams::slug, teams::name))
         .first(conn)
         .map_err(ApiError::internal)?;
-    Ok(StandupTeam {
-        id: id.to_string(),
-        slug,
-        name,
-    })
+    Ok((
+        id,
+        StandupTeam {
+            id: id.to_string(),
+            slug,
+            name,
+        },
+    ))
 }
 
 /// The person of the id `reference`: a person of the organization `slug`,
@@ -154,7 +168,7 @@ fn standup_person(
         ))
         .with_details(serde_json::json!({ "field": "user_id" }))
     };
-    let user = Uuid::parse_str(reference.trim()).map_err(|_| not_found())?;
+    let user = Uuid::parse_str(reference).map_err(|_| not_found())?;
     let member = kairos_db::abac::is_org_member(conn, slug, user).map_err(ApiError::internal)?;
     let person = kairos_db::task_claims::is_person(conn, user).map_err(ApiError::internal)?;
     if member && person {
@@ -166,8 +180,10 @@ fn standup_person(
 
 /// The team of a stand-up and its people.
 ///
-/// The people are the members of the team, by display name. A service
-/// account is not in the list. The page shuffles the list.
+/// The people are the members of the team, by display name. Some people
+/// are not members but claim a task of the team or own an initiative of
+/// the team. They get a turn too, with `member: false`. A service account
+/// is not in the list. The page shuffles the list.
 #[utoipa::path(
     get,
     path = "/api/teams/{id}/standup",
@@ -187,8 +203,7 @@ pub(crate) async fn get_standup(
     let standup = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let team = standup_team(conn, &id)?;
-            let team_id = Uuid::parse_str(&team.id).map_err(ApiError::internal)?;
+            let (team_id, team) = standup_team(conn, &id)?;
             let people = my_work::team_people(conn, team_id)
                 .map_err(ApiError::internal)?
                 .into_iter()
@@ -196,6 +211,7 @@ pub(crate) async fn get_standup(
                     user_id: p.user_id.to_string(),
                     user_name: p.user_name,
                     display_name: p.display_name,
+                    member: p.member,
                 })
                 .collect();
             Ok(Standup { team, people })
@@ -236,8 +252,7 @@ pub(crate) async fn get_standup_person(
     let work = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let team = standup_team(conn, &id)?;
-            let team_id = Uuid::parse_str(&team.id).map_err(ApiError::internal)?;
+            let (team_id, _) = standup_team(conn, &id)?;
             let user = standup_person(conn, &slug, &user_id)?;
             let work = my_work::team_work(conn, team_id, user).map_err(ApiError::internal)?;
             to_wire(conn, work)
@@ -246,8 +261,9 @@ pub(crate) async fn get_standup_person(
     Ok(Json(work))
 }
 
-/// The last stop of a stand-up: the tasks on the boards of the team that no
-/// one claims, in the state Todo or Blocked. A task in Backlog is not in it.
+/// The last stop of a stand-up. It gives the tasks on the boards of the
+/// team that no one claims, in the state Todo or Blocked. A task in Backlog
+/// is not in it.
 #[utoipa::path(
     get,
     path = "/api/teams/{id}/standup/unclaimed",
@@ -267,10 +283,13 @@ pub(crate) async fn get_standup_unclaimed(
     let work = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let team = standup_team(conn, &id)?;
-            let team_id = Uuid::parse_str(&team.id).map_err(ApiError::internal)?;
+            let (team_id, _) = standup_team(conn, &id)?;
             let items = my_work::unclaimed_work(conn, team_id).map_err(ApiError::internal)?;
-            let tasks = items_to_wire(conn, vec![items])?.pop().unwrap_or_default();
+            let names = names_of(conn, items.iter())?;
+            let tasks = items
+                .into_iter()
+                .map(|item| item_to_wire(item, &names))
+                .collect();
             Ok(UnclaimedWork { tasks })
         })
         .await?;

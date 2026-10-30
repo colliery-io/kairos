@@ -328,7 +328,7 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
     let sub = format!("team · {}", team.slug);
     let type_pill = team.team_type.clone();
     // KAIROS-T-0724: the stand-up of the team, for each reader.
-    let standup_href = format!("/teams/{}/standup", team.slug);
+    let standup_href = super::standup::standup_href(&team.slug);
     let header_right: Children = Box::new(move || {
         view! {
             <Group gap="xs">

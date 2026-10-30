@@ -78,7 +78,9 @@ pub struct WorkBlocker {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Standup {
     pub team: StandupTeam,
-    /// The people of the team, by display name. No service accounts.
+    /// The people of the round, by display name: the members of the team,
+    /// and each person who holds work of the team and is not a member. No
+    /// service accounts.
     pub people: Vec<StandupPerson>,
 }
 
@@ -98,6 +100,9 @@ pub struct StandupPerson {
     pub user_id: String,
     pub user_name: String,
     pub display_name: String,
+    /// A member of the team. `false`: a person who is not a member, and who
+    /// claims a task of the team or owns an initiative of the team.
+    pub member: bool,
 }
 
 /// `GET /api/teams/{id}/standup/unclaimed` response: the last stop of a

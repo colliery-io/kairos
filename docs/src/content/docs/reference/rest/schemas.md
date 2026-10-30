@@ -2781,7 +2781,7 @@ One publish of a site.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `people` | array of [`StandupPerson`](#standupperson) | yes | The people of the team, by display name. No service accounts. |
+| `people` | array of [`StandupPerson`](#standupperson) | yes | The people of the round, by display name: the members of the team, and each person who holds work of the team and is not a member. No service accounts. |
 | `team` | [`StandupTeam`](#standupteam) | yes |  |
 
 ## StandupPerson
@@ -2791,6 +2791,7 @@ A person of the round of a stand-up.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `display_name` | `string` | yes |  |
+| `member` | `boolean` | yes | A member of the team. `false`: a person who is not a member, and who claims a task of the team or owns an initiative of the team. |
 | `user_id` | `string` | yes | User id (UUID). |
 | `user_name` | `string` | yes |  |
 

@@ -8,7 +8,9 @@
 //      and Next is off at the last stop;
 //   3. Previous goes back to a person; Reshuffle goes to the first person;
 //   4. KAIROS-T-0724: the team page and the delivery board have a
-//      "Stand-up" button that opens the stand-up of the team.
+//      "Stand-up" button that opens the stand-up of the team;
+//   5. KAIROS-T-0725: a link with the team id goes to the slug and keeps
+//      the stop; a link to a person with no turn shows a notice.
 //
 // The tasks are new for each run (timestamped titles), so a retry starts
 // clean.
@@ -110,8 +112,26 @@ test('the stand-up goes around the team and ends with the unclaimed tasks', asyn
     await expect(page.locator('[data-testid="standup"]')).toBeVisible({ timeout: 30_000 });
     await page.goto(`/boards/${board.slug ?? 'platform-delivery'}`);
     await page.getByRole('link', { name: 'Stand-up' }).click();
-    await expect(page).toHaveURL(/\/standup/);
+    // KAIROS-T-0725: the board has only the team id; the page goes to the slug.
+    await expect(page).toHaveURL(new RegExp(`/teams/${team.slug}/standup$`), { timeout: 30_000 });
     await expect(page.locator('[data-testid="standup-current"]')).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('h1, [class*="page-header"]').first()).toContainText(team.name);
+  });
+
+  await test.step('a link to a person with no turn shows a notice', async () => {
+    await page.goto(`/teams/${team.slug}/standup?person=nobody-${run}`);
+    await expect(page.locator('[data-testid="standup-unknown-person"]')).toContainText(
+      `nobody-${run}`,
+      { timeout: 30_000 },
+    );
+    await expect(page.locator('[data-testid="standup-person"]')).toBeVisible();
+  });
+
+  await test.step('a link with the team id keeps the stop and goes to the slug', async () => {
+    await page.goto(`/teams/${team.id}/standup?stop=unclaimed`);
+    await expect(page).toHaveURL(new RegExp(`/teams/${team.slug}/standup\\?stop=unclaimed$`), {
+      timeout: 30_000,
+    });
+    await expect(page.locator('[data-testid="standup-unclaimed"]')).toBeVisible();
   });
 });

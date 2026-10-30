@@ -13,9 +13,11 @@
 //!   content writes of `items` (REST and MCP update and edit, rollback) and
 //!   `items::set_document_board`. So a fix clears the mark at once.
 //! - A write of the typed sections of a template ([`mark_template_stale`])
-//!   and a change of a dictionary ([`mark_dictionary_stale`],
-//!   [`mark_dictionaries_stale`]) set `stale` on the checks that they
-//!   change. They check nothing: the number of documents can be large.
+//!   sets `stale` on the checks of its documents. A change of the
+//!   dictionary of the organization ([`mark_dictionary_stale`],
+//!   [`mark_dictionaries_stale`]) sets `stale` on each check: each document
+//!   uses that dictionary (KAIROS-A-0079). They check nothing: the number of
+//!   documents can be large.
 //! - The periodic pass `section-checks` ([`pass`]) checks, a page at a
 //!   time, each document with typed sections that has no check (the old
 //!   documents: the backfill) or a stale check. It removes the stale check
@@ -23,8 +25,6 @@
 //!
 //! The check of a newer version wins: a write of an older version
 //! changes no row ([`store`]).
-
-use std::collections::HashMap;
 
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
@@ -186,44 +186,16 @@ pub fn parse_failures(json: &str) -> Result<Vec<StoredFailure>, DieselError> {
     serde_json::from_str(json).map_err(|e| DieselError::DeserializationError(Box::new(e)))
 }
 
-/// The terms of the dictionary for a document of the owner board `board`
-/// (COLLIERY-I-0664 decision 6, KAIROS-T-0733): the dictionary of the team
-/// of the board, on the organization dictionary. A board with no team, or a
-/// team whose dictionary is not known (several delivery boards), gets the
-/// organization dictionary only.
-pub fn dictionary_terms(
-    conn: &mut PgConnection,
-    board: Option<Uuid>,
-) -> Result<Vec<String>, DieselError> {
-    use crate::dictionaries::{DictionaryError, organization_dictionary, team_dictionary};
-    use crate::schema::boards;
-    let team: Option<Uuid> = match board {
-        Some(board) => boards::table
-            .filter(boards::id.eq(board))
-            .select(boards::team_id)
-            .first::<Option<Uuid>>(conn)
-            .optional()?
-            .flatten(),
-        None => None,
-    };
-    if let Some(team) = team {
-        match team_dictionary(conn, team) {
-            Ok(dictionary) => return Ok(dictionary.words().map(str::to_string).collect()),
-            Err(DictionaryError::Database(e)) => return Err(e),
-            Err(_) => {}
-        }
-    }
-    let organization = organization_dictionary(conn)?;
-    Ok(organization
-        .map(|d| d.parsed.entries.into_iter().map(|e| e.word).collect())
-        .unwrap_or_default())
+/// The terms of the dictionary of the organization, for a document on any
+/// board (KAIROS-A-0079). With no dictionary, none.
+pub fn dictionary_terms(conn: &mut PgConnection) -> Result<Vec<String>, DieselError> {
+    let dictionary = crate::dictionaries::organization_dictionary(conn)?;
+    Ok(dictionary.terms.into_iter().map(|e| e.word).collect())
 }
 
 /// What the check of one document reads: one statement.
 #[derive(QueryableByName)]
 struct Inputs {
-    #[diesel(sql_type = SqlUuid)]
-    board_id: Uuid,
     #[diesel(sql_type = Integer)]
     version: i32,
     #[diesel(sql_type = Nullable<Text>)]
@@ -255,7 +227,7 @@ fn read_inputs(
     with_content: bool,
 ) -> Result<Option<Inputs>, DieselError> {
     sql_query(
-        "SELECT d.board_id, d.version, t.slug AS template_slug, \
+        "SELECT d.version, t.slug AS template_slug, \
                 CASE WHEN $2 THEN d.content ELSE '' END AS content, \
                 ARRAY(SELECT ts.heading FROM template_sections ts \
                        WHERE ts.template_id = d.template_id \
@@ -300,23 +272,20 @@ fn store(
 }
 
 /// The failures of `content` against `sections`, with the dictionary of
-/// `board`. `vocabularies` keeps the vocabulary of each board for a pass.
+/// the organization. `vocabulary` keeps the vocabulary for a pass: one
+/// read of the dictionary.
 fn check(
     conn: &mut PgConnection,
-    board: Uuid,
     sections: &[(String, SectionType)],
     content: &str,
-    vocabularies: &mut HashMap<Uuid, kairos_plain::Vocabulary>,
+    vocabulary: &mut Option<kairos_plain::Vocabulary>,
 ) -> Result<Vec<StoredFailure>, DieselError> {
     // A `free` section reads no vocabulary: no read of the dictionary.
     let free_only;
     let vocabulary = if sections.iter().any(|(_, t)| *t == SectionType::Plain) {
-        match vocabularies.entry(board) {
-            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                let terms = dictionary_terms(conn, Some(board))?;
-                entry.insert(kairos_plain::Vocabulary::standard(terms))
-            }
+        match vocabulary {
+            Some(vocabulary) => vocabulary,
+            None => vocabulary.insert(kairos_plain::Vocabulary::standard(dictionary_terms(conn)?)),
         }
     } else {
         free_only = kairos_plain::Vocabulary::default();
@@ -331,7 +300,7 @@ fn check(
 /// The check of a content write of a document, in the transaction of the
 /// write: `content` is the new content, at `version`. A document whose
 /// template has typed sections gets its check written. A document of the
-/// template `dictionary` sets `stale` on the checks that its terms change
+/// template `dictionary` sets `stale` on each check
 /// ([`mark_dictionary_stale`]). Other documents: one read, no write.
 pub fn on_document_write(
     conn: &mut PgConnection,
@@ -343,19 +312,13 @@ pub fn on_document_write(
         return Ok(());
     };
     if inputs.template_slug.as_deref() == Some(crate::dictionaries::DICTIONARY_TEMPLATE_SLUG) {
-        mark_dictionary_stale(conn, inputs.board_id)?;
+        mark_dictionary_stale(conn)?;
     }
     let sections = inputs.sections();
     if sections.is_empty() {
         return Ok(());
     }
-    let failures = check(
-        conn,
-        inputs.board_id,
-        &sections,
-        content,
-        &mut HashMap::new(),
-    )?;
+    let failures = check(conn, &sections, content, &mut None)?;
     store(conn, document_id, version, &failures)
 }
 
@@ -364,7 +327,7 @@ pub fn on_document_write(
 pub fn check_document(
     conn: &mut PgConnection,
     document_id: Uuid,
-    vocabularies: &mut HashMap<Uuid, kairos_plain::Vocabulary>,
+    vocabulary: &mut Option<kairos_plain::Vocabulary>,
 ) -> Result<bool, DieselError> {
     let Some(inputs) = read_inputs(conn, document_id, true)? else {
         return Ok(false);
@@ -373,13 +336,7 @@ pub fn check_document(
     if sections.is_empty() {
         return Ok(false);
     }
-    let failures = check(
-        conn,
-        inputs.board_id,
-        &sections,
-        &inputs.content,
-        vocabularies,
-    )?;
+    let failures = check(conn, &sections, &inputs.content, vocabulary)?;
     store(conn, document_id, inputs.version, &failures)?;
     Ok(true)
 }
@@ -399,44 +356,30 @@ pub fn mark_template_stale(
     .execute(conn)
 }
 
-/// The SQL of the boards whose documents a dictionary on the board `$1`
-/// changes: each board when `$1` is the board of the organization
-/// dictionary, else the boards of the team of `$1`.
-const DICTIONARY_REACH: &str = "\
-    UPDATE section_checks c SET stale = true \
-      FROM documents d JOIN boards b ON b.id = d.board_id \
-     WHERE c.document_id = d.id AND NOT c.stale \
-       AND EXISTS (SELECT 1 FROM boards x WHERE x.id = ANY($1) \
-                     AND (x.slug = $2 OR x.team_id = b.team_id))";
-
-/// A dictionary of the board `board` changed (written, moved, archived or
-/// restored): each check of a document that the dictionary applies to is
-/// stale. One statement.
-pub fn mark_dictionary_stale(conn: &mut PgConnection, board: Uuid) -> Result<usize, DieselError> {
-    sql_query(DICTIONARY_REACH)
-        .bind::<Array<SqlUuid>, _>(vec![board])
-        .bind::<Text, _>(crate::dictionaries::ORGANIZATION_BOARD_SLUG)
-        .execute(conn)
+/// The dictionary of the organization changed (written, archived or
+/// restored): each check is stale, because each document uses that
+/// dictionary (KAIROS-A-0079). One statement.
+pub fn mark_dictionary_stale(conn: &mut PgConnection) -> Result<usize, DieselError> {
+    sql_query("UPDATE section_checks SET stale = true WHERE NOT stale").execute(conn)
 }
 
-/// [`mark_dictionary_stale`] for each dictionary among the documents
-/// `ids` (an archive or a restore of items). One statement; nothing when
-/// no id is a dictionary.
+/// [`mark_dictionary_stale`] when one of the documents `ids` is a
+/// dictionary (an archive or a restore of items). One statement; nothing
+/// when no id is a dictionary.
 pub fn mark_dictionaries_stale(
     conn: &mut PgConnection,
     ids: &[Uuid],
 ) -> Result<usize, DieselError> {
-    let sql = DICTIONARY_REACH.replace(
-        "x.id = ANY($1)",
-        "x.id IN (SELECT dd.board_id FROM documents dd JOIN templates dt \
-                    ON dt.id = dd.template_id \
-                   WHERE dd.id = ANY($1) AND dt.slug = $3)",
-    );
-    sql_query(sql)
-        .bind::<Array<SqlUuid>, _>(ids)
-        .bind::<Text, _>(crate::dictionaries::ORGANIZATION_BOARD_SLUG)
-        .bind::<Text, _>(crate::dictionaries::DICTIONARY_TEMPLATE_SLUG)
-        .execute(conn)
+    sql_query(
+        "UPDATE section_checks SET stale = true \
+          WHERE NOT stale \
+            AND EXISTS (SELECT 1 FROM documents dd \
+                          JOIN templates dt ON dt.id = dd.template_id \
+                         WHERE dd.id = ANY($1) AND dt.slug = $2)",
+    )
+    .bind::<Array<SqlUuid>, _>(ids)
+    .bind::<Text, _>(crate::dictionaries::DICTIONARY_TEMPLATE_SLUG)
+    .execute(conn)
 }
 
 #[derive(QueryableByName)]
@@ -476,7 +419,7 @@ pub fn check_pending(
         checked: 0,
         removed,
     };
-    let mut vocabularies = HashMap::new();
+    let mut vocabulary = None;
     let mut after = Uuid::nil();
     while (outcome.checked as i64) < limit {
         let page = PAGE.min(limit - outcome.checked as i64);
@@ -499,7 +442,7 @@ pub fn check_pending(
         let full = ids.len() as i64 == page;
         conn.transaction::<_, DieselError, _>(|conn| {
             for row in &ids {
-                if check_document(conn, row.id, &mut vocabularies)? {
+                if check_document(conn, row.id, &mut vocabulary)? {
                     outcome.checked += 1;
                 }
             }

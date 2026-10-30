@@ -768,8 +768,8 @@ Request body (required): `application/json`, [`CreateDocumentRequest`](../schema
 | `201` | [`Document`](../schemas/#document) | Created. With parent_short_code, the supports edge is written |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing manage_documents on the board that the document names |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board |
-| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request. DICTIONARY_EXISTS: the template is dictionary, and the board owns a live dictionary already (details.existing names it) |
-| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No board (details.field is board), unknown parent, non-workflow parent, or unknown template |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request. DICTIONARY_EXISTS: the template is dictionary, and the board strategy owns a live dictionary already (details.existing names it) |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No board (details.field is board), unknown parent, non-workflow parent, or unknown template. DICTIONARY_NOT_ON_STRATEGY: the template is dictionary, and the board is not the board strategy (KAIROS-A-0079) |
 
 ### `GET /api/documents/{short_code}`
 
@@ -859,8 +859,8 @@ Request body (required): `application/json`, [`SetDocumentBoardRequest`](../sche
 | `200` | [`Document`](../schemas/#document) | The document, with its owner board |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing manage_documents on the board that owns the document now, or on the new board |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code, or unknown board |
-| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | DICTIONARY_EXISTS: the document is a dictionary, and the new board owns a live dictionary already (details.existing names it) |
-| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | VALIDATION: the body has no board, or a null or empty board (details.field is board). RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | DICTIONARY_EXISTS: the document is a dictionary, and the board strategy owns a live dictionary already (details.existing names it) |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | VALIDATION: the body has no board, or a null or empty board (details.field is board). RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code. DICTIONARY_NOT_ON_STRATEGY: the document is a dictionary, and the new board is not the board strategy (KAIROS-A-0079) |
 
 ### `PATCH /api/documents/{short_code}/lifecycle`
 

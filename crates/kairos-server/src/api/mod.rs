@@ -1332,11 +1332,27 @@ pub fn map_item_error(e: ItemError) -> ApiError {
             axum::http::StatusCode::CONFLICT,
             "DICTIONARY_EXISTS",
             format!(
-                "The board {board} has the dictionary {existing} already. A board has one \
-                 dictionary. Edit {existing}, or archive it first."
+                "The board {board} has the dictionary {existing} already. An organization has \
+                 one dictionary. Edit {existing}, or archive it first."
             ),
         )
         .with_details(json!({ "board": board, "existing": existing })),
+        // KAIROS-A-0079: one dictionary for the organization, on `strategy`.
+        ItemError::DictionaryNotOnStrategy { board } => ApiError::new(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "DICTIONARY_NOT_ON_STRATEGY",
+            format!(
+                "A dictionary can be only on the board {strategy}. The board {board} is not the \
+                 board {strategy}. Put the dictionary on the board {strategy}, or add the terms \
+                 to the dictionary of the board {strategy}.",
+                strategy = kairos_db::dictionaries::ORGANIZATION_BOARD_SLUG
+            ),
+        )
+        .with_details(json!({
+            "field": "board",
+            "board": board,
+            "dictionary_board": kairos_db::dictionaries::ORGANIZATION_BOARD_SLUG,
+        })),
         ItemError::Database(e) => ApiError::internal(e),
     }
 }

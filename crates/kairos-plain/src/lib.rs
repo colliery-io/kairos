@@ -12,6 +12,8 @@
 //! - [`Vocabulary`]: STE-V1, a word that is in no list. The caller gives the
 //!   lists, or takes the vendored word list with [`Vocabulary::standard`]
 //!   ([`approved_words`], [`not_approved_words`], KAIROS-T-0728).
+//! - [`terms_used`]: which terms of a dictionary a text uses, longest
+//!   first (KAIROS-T-0735).
 //! - [`parse_dictionary`] and [`resolve`]: the entries of a dictionary
 //!   document, and the dictionary of a team on the organization dictionary
 //!   (KAIROS-T-0733).
@@ -34,7 +36,7 @@ pub use dictionary::{
 };
 pub use prose::check_text;
 pub use standard::{ApprovedWord, NotApprovedWord, approved_words, not_approved_words};
-pub use vocabulary::Vocabulary;
+pub use vocabulary::{Vocabulary, terms_used};
 
 /// One place where a text breaks a rule.
 #[derive(Clone, Debug, PartialEq, Eq)]

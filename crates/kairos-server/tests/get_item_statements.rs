@@ -4,7 +4,10 @@
 //! The fixture has a parent chain of two, a blocker, a cancelled blocker,
 //! a supporting document, metadata, a claim, a state, an external
 //! reference, a retired code, an archived task and an initiative with an
-//! owner.
+//! owner. KAIROS-T-0735: an organization dictionary and a team dictionary,
+//! so that the count covers the block `## Terms used`, and the block of the
+//! task shows a term of two words and a team entry over an organization
+//! entry.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_get_item_statements_t0626_test`.
@@ -196,6 +199,51 @@ async fn get_item_runs_few_statements_against_live_stack() {
         )
         .await,
     );
+    // KAIROS-T-0735: the dictionaries. The organization dictionary is on
+    // the board `strategy`, the team dictionary on the delivery board.
+    #[derive(QueryableByName)]
+    struct TemplateRow {
+        #[diesel(sql_type = SqlUuid)]
+        id: Uuid,
+    }
+    let dictionary_template =
+        sql_query("SELECT id FROM org_acme.templates WHERE slug = 'dictionary'")
+            .get_result::<TemplateRow>(&mut conn)
+            .expect("the dictionary template")
+            .id;
+    let table = "| Word | Part of speech | Meaning |\n|---|---|---|\n";
+    let organization_dictionary = code(
+        &send(
+            Method::POST,
+            "/api/documents".into(),
+            Some(json!({
+                "title": "Words of Acme",
+                "board": "strategy",
+                "template_id": dictionary_template,
+                "content": format!(
+                    "{table}| body | noun | The organization meaning. |\n\
+                     | first note | noun | The note that starts the record. |\n\
+                     | note | noun | A text on an item. |\n\
+                     | work | noun | The organization meaning of work. |\n"
+                ),
+            })),
+        )
+        .await,
+    );
+    send(
+        Method::POST,
+        "/api/documents".into(),
+        Some(json!({
+            "title": "Words of Payments",
+            "board": "payments-delivery",
+            "template_id": dictionary_template,
+            "content": format!(
+                "{table}| Body | noun | The text of a task. |\n\
+                 | work | noun | The work of the payments team. |\n"
+            ),
+        })),
+    )
+    .await;
     link(strategy.clone(), initiative.clone(), "parent").await;
     link(initiative.clone(), t1.clone(), "parent").await;
     link(t2.clone(), t1.clone(), "blocks").await;
@@ -291,6 +339,7 @@ async fn get_item_runs_few_statements_against_live_stack() {
         ("initiative", initiative.clone(), MAX_OTHER),
         ("strategy", strategy.clone(), MAX_OTHER),
         ("document", document.clone(), MAX_OTHER),
+        ("dictionary", organization_dictionary.clone(), MAX_OTHER),
     ];
     let mut report = String::new();
     let mut dump = String::new();
@@ -347,7 +396,30 @@ async fn get_item_runs_few_statements_against_live_stack() {
         )),
         "{retired_text}"
     );
+    // KAIROS-T-0735: the terms of the task, at the end. "first note" (two
+    // words, in the note) comes before "note", which it hides; "body" is
+    // the entry of the team, not of the organization.
+    assert!(
+        task_text.ends_with(
+            "\n## Terms used\n\
+             - first note (noun): The note that starts the record.\n\
+             - Body (noun): The text of a task.\n\n"
+        ),
+        "{task_text}"
+    );
     let initiative_text = dump.split("=== ").nth(6).expect("the initiative text");
+    // An initiative takes the dictionaries of its teams.
+    assert!(
+        initiative_text
+            .contains("\n## Terms used\n- work (noun): The work of the payments team.\n"),
+        "{initiative_text}"
+    );
+    // A dictionary lists every term: it has no block of its own.
+    let dictionary_text = dump.split("=== ").nth(9).expect("the dictionary text");
+    assert!(
+        !dictionary_text.contains("## Terms used"),
+        "{dictionary_text}"
+    );
     for line in ["- owner: svc since ", "- teams: payments", "- children: "] {
         assert!(
             initiative_text.contains(line),

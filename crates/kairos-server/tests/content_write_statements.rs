@@ -227,7 +227,7 @@ async fn content_writes_move_the_content_once_against_live_stack() {
             Box::new(|c| update_item_text(c, OrgRole::Admin, svc, &update(body("One."), 1))),
             "Updated PAYMENTS-T-0001 to version 2.",
             Budget {
-                statements: 8,
+                statements: 9, // KAIROS-T-0736: +1, the watcher lookup.
                 sent: 2,
                 read: 1,
             },
@@ -239,7 +239,7 @@ async fn content_writes_move_the_content_once_against_live_stack() {
             }),
             "Edited PAYMENTS-T-0001 to version 3 (1 replacement).",
             Budget {
-                statements: 8,
+                statements: 9, // KAIROS-T-0736: +1, the watcher lookup.
                 sent: 2,
                 read: 2,
             },
@@ -251,7 +251,7 @@ async fn content_writes_move_the_content_once_against_live_stack() {
             }),
             "Updated PAYMENTS-T-0001 to version 4.",
             Budget {
-                statements: 10,
+                statements: 11, // KAIROS-T-0736: +1, the watcher lookup.
                 sent: 2,
                 read: 2,
             },
@@ -261,7 +261,7 @@ async fn content_writes_move_the_content_once_against_live_stack() {
             Box::new(|c| edit_item_text(c, OrgRole::Admin, svc, &edit("Two,", "Two, @sam,"))),
             "Edited PAYMENTS-T-0001 to version 5 (1 replacement).",
             Budget {
-                statements: 9,
+                statements: 10, // KAIROS-T-0736: +1, the watcher lookup.
                 sent: 2,
                 read: 2,
             },
@@ -292,7 +292,7 @@ async fn content_writes_move_the_content_once_against_live_stack() {
             }),
             "Appended note n-1 to PAYMENTS-T-0001. The content stays at version 5.",
             Budget {
-                statements: 10,
+                statements: 11, // KAIROS-T-0736: +1, the watcher lookup.
                 sent: 0,
                 read: 0,
             },

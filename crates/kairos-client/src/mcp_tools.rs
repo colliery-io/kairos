@@ -51,6 +51,7 @@ pub const TOOLS: &[(&str, ToolKind)] = &[
     ("get_repository", ToolKind::Read),
     ("list_members", ToolKind::Read),
     ("get_events", ToolKind::Read),
+    ("list_watches", ToolKind::Read),
     ("list_metadata_definitions", ToolKind::Read),
     ("list_templates", ToolKind::Read),
     ("team_pages", ToolKind::Read),
@@ -79,6 +80,8 @@ pub const TOOLS: &[(&str, ToolKind)] = &[
     ("set_board_policy", ToolKind::Idempotent),
     ("set_org_read_token", ToolKind::Idempotent),
     ("mark_events_read", ToolKind::Idempotent),
+    ("watch_item", ToolKind::Idempotent),
+    ("unwatch_item", ToolKind::Idempotent),
     ("set_repository", ToolKind::Idempotent),
     ("set_parent", ToolKind::Idempotent),
     ("set_work_class", ToolKind::Idempotent),
@@ -189,17 +192,17 @@ mod tests {
     }
 
     #[test]
-    fn the_table_has_19_reads_and_15_keyed_writes() {
+    fn the_table_has_20_reads_and_15_keyed_writes() {
         let reads = TOOLS.iter().filter(|(_, k)| *k == ToolKind::Read).count();
         let keyed = TOOLS.iter().filter(|(_, k)| *k == KEYED).count();
-        assert_eq!((reads, keyed), (19, 15));
+        assert_eq!((reads, keyed), (20, 15));
         assert!(is_read("get_item") && !is_read("create_item") && !is_read("no_such_tool"));
         assert!(takes_request_key("create_item") && !takes_request_key("set_state"));
         let idempotent = TOOLS
             .iter()
             .filter(|(_, k)| *k == ToolKind::Idempotent)
             .count();
-        assert_eq!(idempotent, 22);
+        assert_eq!(idempotent, 24);
         assert!(is_idempotent("set_state") && is_idempotent("set_metadata"));
         assert!(!is_idempotent("get_item") && !is_idempotent("create_item"));
         assert!(!is_idempotent("claim_item") && !is_idempotent("no_such_tool"));

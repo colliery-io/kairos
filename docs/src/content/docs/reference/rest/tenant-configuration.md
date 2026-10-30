@@ -120,7 +120,7 @@ Request body (required): `application/json`, [`CreateTemplateRequest`](../schema
 |---|---|---|
 | `201` | [`TemplateDetail`](../schemas/#templatedetail) | Created |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Caller is not an org admin |
-| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown definition slug, invalid default, or duplicate slug |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown definition slug, invalid default, duplicate slug, or an unknown section type or bad heading |
 
 ### `GET /api/templates/{id}`
 
@@ -173,7 +173,7 @@ Request body (required): `application/json`, [`UpdateTemplateRequest`](../schema
 | `200` | [`TemplateDetail`](../schemas/#templatedetail) | Updated |
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Caller is not an org admin |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown slug or id |
-| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No field to change, unknown definition slug, invalid default, or duplicate slug |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No field to change, unknown definition slug, invalid default, duplicate slug, or an unknown section type or bad heading |
 
 ## organization
 

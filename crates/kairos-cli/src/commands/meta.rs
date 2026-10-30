@@ -306,6 +306,7 @@ impl TemplatesCommand {
                         slug,
                         content,
                         metadata: fields(&raw)?,
+                        sections: Vec::new(),
                     })
                     .await?;
                 if common.json {
@@ -342,6 +343,7 @@ impl TemplatesCommand {
                             slug,
                             content,
                             metadata,
+                            sections: None,
                         },
                     )
                     .await?;

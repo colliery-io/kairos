@@ -327,8 +327,16 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
     };
     let sub = format!("team · {}", team.slug);
     let type_pill = team.team_type.clone();
+    // KAIROS-T-0724: the stand-up of the team, for each reader.
+    let standup_href = super::standup::standup_href(&team.slug);
     let header_right: Children = Box::new(move || {
-        view! { <Pill color=team_type_color(&type_pill)>{type_pill.clone()}</Pill> }.into_any()
+        view! {
+            <Group gap="xs">
+                <Button variant="default" size="xs" href=standup_href.clone()>"Stand-up"</Button>
+                <Pill color=team_type_color(&type_pill)>{type_pill.clone()}</Pill>
+            </Group>
+        }
+        .into_any()
     });
     let charter = pages.iter().find(|p| p.is_charter()).cloned();
     let team_id = team.id.clone();

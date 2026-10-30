@@ -45,7 +45,7 @@ static SCRATCH_DB: scratch::ScratchName =
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 73] = [
+const EXPECTED_TABLES: [&str; 74] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -135,6 +135,8 @@ const EXPECTED_TABLES: [&str; 73] = [
     "task_cancellations",
     // KAIROS-T-0359: the claim of a task in Active.
     "task_claims",
+    // KAIROS-T-0718: the review state of a task.
+    "task_review",
     // KAIROS-T-0506: the live state of a task.
     "task_state",
     "tasks",
@@ -470,8 +472,8 @@ fn tenant_provisioning_lifecycle() {
     assert_eq!(report.boards_created, ["strategy", "initiatives", "adrs"]);
     // COLLIERY-T-0269 added the template "Product Vision".
     assert_eq!(
-        report.templates_copied, 7,
-        "A-0003 ships 6 system templates, and COLLIERY-T-0269 one"
+        report.templates_copied, 8,
+        "A-0003 ships 6 system templates, COLLIERY-T-0269 one and KAIROS-T-0733 one"
     );
     assert_eq!(
         report.metadata_definitions_copied, 6,
@@ -788,6 +790,7 @@ fn tenant_provisioning_lifecycle() {
         [
             "architecture_framing",
             "company_vision",
+            "dictionary",
             "prd",
             "product_vision",
             "social_contract",

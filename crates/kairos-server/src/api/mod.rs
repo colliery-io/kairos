@@ -1321,6 +1321,15 @@ pub fn map_item_error(e: ItemError) -> ApiError {
             ApiError::validation(format!("The repository {id} does not exist."))
                 .with_details(json!({ "field": "repository" }))
         }
+        ItemError::DictionaryExists { board, existing } => ApiError::new(
+            axum::http::StatusCode::CONFLICT,
+            "DICTIONARY_EXISTS",
+            format!(
+                "The board {board} has the dictionary {existing} already. A board has one \
+                 dictionary. Edit {existing}, or archive it first."
+            ),
+        )
+        .with_details(json!({ "board": board, "existing": existing })),
         ItemError::Database(e) => ApiError::internal(e),
     }
 }

@@ -38,7 +38,7 @@ use kairos_plain::Layer;
 
 static SCRATCH_DB: scratch::ScratchName = scratch::ScratchName::new("kairos_dictionaries_t0733");
 
-const UP: &str = include_str!("../migrations/tenant/2026-10-30-000100_dictionary_template/up.sql");
+const UP: &str = include_str!("../migrations/tenant/2026-10-30-000700_dictionary_template/up.sql");
 
 fn with_database(url: &str, db_name: &str) -> String {
     let (base, _) = url

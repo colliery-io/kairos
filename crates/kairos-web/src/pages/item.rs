@@ -53,6 +53,7 @@ mod picker;
 mod relations;
 mod state;
 mod teams;
+mod watch;
 
 use aurora_dark::components::{
     Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
@@ -84,6 +85,7 @@ use owner::{ImpactsPanel, OwnerBoardPanel};
 use picker::{Picker, load_on_open, picker_state};
 use state::StatePanel;
 use teams::TeamsPanel;
+use watch::WatchPanel;
 // The dialog of a repository gives a document to a board with the rule of
 // the owner panel (COLLIERY-T-0269).
 pub(crate) use owner::owner_board_targets;
@@ -689,6 +691,8 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                 {move || (family == Family::Task).then(|| view! {
                     <StatePanel state=state.get()/>
                 })}
+                // KAIROS-T-0736: the watch of the signed-in person.
+                <WatchPanel code=code.get_value() archived/>
                 {matches!(family, Family::Document | Family::Adr).then(|| view! {
                     <ImpactsPanel family code=code.get_value() impacts board
                         created_by=created_by.clone() archived on_moved/>

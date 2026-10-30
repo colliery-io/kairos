@@ -254,6 +254,14 @@ pub fn append_note(
             .into_keys()
             .collect();
         crate::notifications::on_mentions(conn, item_id, &names, actor)?;
+        // KAIROS-T-0736: the watchers of the item.
+        crate::watches::on_watched(
+            conn,
+            item_id,
+            kairos_core::notifications::WatchEvent::NoteAdded,
+            None,
+            actor,
+        )?;
         let note_id = note.note_id();
         events::emit_item_event_by_id(
             conn,

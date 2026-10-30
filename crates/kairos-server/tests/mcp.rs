@@ -87,8 +87,8 @@ const TENANT: &str = "acme";
 
 /// How many tools `tools/list` returns, and the word the reference pages
 /// use for that number (COLLIERY-T-0220, COLLIERY-T-0266).
-const TOOL_COUNT: usize = 81;
-const TOOL_COUNT_WORD: &str = "eighty-one";
+const TOOL_COUNT: usize = 84;
+const TOOL_COUNT_WORD: &str = "eighty-four";
 
 /// Every request carries a real `Host` header and the tenant resolves from
 /// its subdomain against the configured base domain — the S-0006 REQ-1.2
@@ -698,6 +698,10 @@ async fn mcp_endpoint_against_live_stack() {
         // KAIROS-T-0382: the notifications of the person of the key.
         "get_events",
         "mark_events_read",
+        // KAIROS-T-0736: the watches of the person of the key.
+        "watch_item",
+        "unwatch_item",
+        "list_watches",
         // KAIROS-T-0489: the work of the person of the key.
         "my_work",
         // KAIROS-T-0385: the agent dispatch rules of a board.
@@ -818,6 +822,9 @@ async fn mcp_endpoint_against_live_stack() {
             "list_members",
             "get_events",
             "mark_events_read",
+            "watch_item",
+            "unwatch_item",
+            "list_watches",
             "list_metadata_definitions",
             "list_templates",
             "archive_completed",
@@ -928,6 +935,7 @@ async fn mcp_endpoint_against_live_stack() {
             "forty-five",
             "forty-six",
             "forty-nine",
+            "eighty-one",
             "sixty-one",
             "sixty-two",
             "sixty-three",

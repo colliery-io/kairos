@@ -1534,6 +1534,40 @@ impl KairosClient {
             .await
     }
 
+    /// `GET /api/me/watches` (KAIROS-T-0736): each watch of the caller.
+    pub async fn watches(&self) -> Result<crate::types_notifications::WatchList, Error> {
+        self.get("/api/me/watches").await
+    }
+
+    /// `GET /api/items/{short_code}/watch` (KAIROS-T-0736): the watch of
+    /// the caller on the item.
+    pub async fn watch_state(
+        &self,
+        short_code: &str,
+    ) -> Result<crate::types_notifications::WatchState, Error> {
+        self.get(&format!("/api/items/{short_code}/watch")).await
+    }
+
+    /// `PUT /api/items/{short_code}/watch` (KAIROS-T-0736): watch the item,
+    /// with or without its children.
+    pub async fn watch_item(
+        &self,
+        short_code: &str,
+        request: &crate::types_notifications::WatchRequest,
+    ) -> Result<crate::types_notifications::WatchState, Error> {
+        self.put_ok(&format!("/api/items/{short_code}/watch"), request)
+            .await
+    }
+
+    /// `DELETE /api/items/{short_code}/watch` (KAIROS-T-0736): stop the
+    /// watch of the caller on the item.
+    pub async fn unwatch_item(
+        &self,
+        short_code: &str,
+    ) -> Result<crate::types_notifications::WatchState, Error> {
+        self.delete(&format!("/api/items/{short_code}/watch")).await
+    }
+
     /// `GET /api/me/work` (KAIROS-T-0489): the work of the caller, in two
     /// lanes (initiatives and tasks).
     pub async fn my_work(&self) -> Result<crate::types_work::MyWork, Error> {

@@ -48,6 +48,10 @@ pub struct NotificationSettings {
     /// A person confirmed or rejected an edge proposal that you made
     /// (KAIROS-T-0558).
     pub proposal_decided: bool,
+    /// An item that you watch, or a child of an item that you watch with
+    /// its children, moved, was edited, got a note, or is done
+    /// (KAIROS-T-0736).
+    pub watch: bool,
 }
 
 /// `PUT /api/me/notification-settings` body: the kinds to turn on (`true`)
@@ -81,6 +85,8 @@ pub struct UpdateNotificationSettingsRequest {
     pub key_expiring: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proposal_decided: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watch: Option<bool>,
 }
 
 /// One notification of the caller (KAIROS-T-0382).
@@ -88,7 +94,7 @@ pub struct UpdateNotificationSettingsRequest {
 pub struct Notification {
     /// The id (UUID). `POST /api/me/notifications/read` takes it.
     pub id: String,
-    /// `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided`.
+    /// `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch`.
     pub kind: String,
     /// The code of the item now; `null` when the item is gone.
     pub short_code: Option<String>,
@@ -141,4 +147,51 @@ pub struct MarkNotificationsReadResponse {
     pub marked: Vec<String>,
     /// The count of the unread notifications after the change.
     pub unread: i64,
+}
+
+/// The watch of the caller on one item (KAIROS-T-0736): `GET`, `PUT` and
+/// `DELETE /api/items/{short_code}/watch`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct WatchState {
+    /// The code of the item.
+    pub short_code: String,
+    /// `true` when the caller watches the item.
+    pub watching: bool,
+    /// `true` when the watch includes the children of the item (its
+    /// `parent` edges, one level). `false` when the caller does not watch.
+    pub with_children: bool,
+}
+
+/// `PUT /api/items/{short_code}/watch` body. A second `PUT` changes
+/// `with_children` of the watch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WatchRequest {
+    /// `true`: a change of a child of the item tells you too. Default
+    /// `false`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with_children: Option<bool>,
+}
+
+/// One watch of the caller, in `GET /api/me/watches`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct WatchedItem {
+    /// The code of the item now.
+    pub short_code: String,
+    /// `strategy|initiative|task|document|adr`.
+    pub entity_type: String,
+    /// The title of the item now.
+    pub title: String,
+    /// `true` when the item is archived.
+    pub archived: bool,
+    /// `true` when the watch includes the children of the item.
+    pub with_children: bool,
+    /// When the caller started the watch (RFC 3339).
+    pub created_at: String,
+}
+
+/// `GET /api/me/watches` response: each watch of the caller, by code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct WatchList {
+    pub items: Vec<WatchedItem>,
 }

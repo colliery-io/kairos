@@ -314,6 +314,11 @@ use crate::app::AppState;
         crate::api::notifications::update_notification_settings,
         crate::api::notifications::list_notifications,
         crate::api::notifications::mark_notifications_read,
+        // The watches of a person (KAIROS-T-0736).
+        crate::api::watches::list_watches,
+        crate::api::watches::get_watch,
+        crate::api::watches::put_watch,
+        crate::api::watches::delete_watch,
         // The work of a person (KAIROS-T-0489).
         crate::api::work::get_my_work,
         // Local password login (KAIROS-T-0203). Documented unconditionally even

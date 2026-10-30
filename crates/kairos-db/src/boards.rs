@@ -1248,6 +1248,13 @@ fn after_column_move(
     } else if was_done && !is_done {
         crate::notifications::on_blocker_reopened(conn, item_id, actor_id)?;
     }
+    // KAIROS-T-0736: the watchers of the item.
+    let event = if is_done {
+        kairos_core::notifications::WatchEvent::Done
+    } else {
+        kairos_core::notifications::WatchEvent::Moved
+    };
+    crate::watches::on_watched(conn, item_id, event, Some(to_name), actor_id)?;
     // KAIROS-T-0359: a task in a claims column has a claim.
     if entity_type == "task" {
         crate::task_claims::after_column_change(
@@ -1657,6 +1664,14 @@ pub fn move_task_with(
         )?;
         // KAIROS-T-0381: a P0 bug that lands on the board of a team.
         crate::notifications::on_p0_bug(conn, task_id, actor_id)?;
+        // KAIROS-T-0736: the watchers of the task.
+        crate::watches::on_watched(
+            conn,
+            task_id,
+            kairos_core::notifications::WatchEvent::Moved,
+            Some(&format!("the board {}", target.name)),
+            actor_id,
+        )?;
         Ok(TaskMove {
             from_board_id,
             board_id: to_board_id,
@@ -1738,9 +1753,8 @@ pub fn transition_adr(
         )?;
         // KAIROS-T-0381: an ADR that goes into a done column no longer
         // blocks.
-        if !crate::notifications::column_is_done(conn, from_column_id)?
-            && crate::notifications::column_is_done(conn, to_column_id)?
-        {
+        let is_done = crate::notifications::column_is_done(conn, to_column_id)?;
+        if !crate::notifications::column_is_done(conn, from_column_id)? && is_done {
             crate::notifications::on_blockers_cleared(
                 conn,
                 &[item_id],
@@ -1748,6 +1762,13 @@ pub fn transition_adr(
                 actor_id,
             )?;
         }
+        // KAIROS-T-0736: the watchers of the ADR.
+        let event = if is_done {
+            kairos_core::notifications::WatchEvent::Done
+        } else {
+            kairos_core::notifications::WatchEvent::Moved
+        };
+        crate::watches::on_watched(conn, item_id, event, Some(&to_name), actor_id)?;
         // KAIROS-T-0386: the GitHub write-back of its pull requests.
         crate::writeback::on_item_changed(conn, item_id)?;
         // KAIROS-T-0022: thin event (new column), delivered on commit.

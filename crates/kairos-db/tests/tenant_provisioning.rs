@@ -45,7 +45,7 @@ static SCRATCH_DB: scratch::ScratchName =
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 73] = [
+const EXPECTED_TABLES: [&str; 75] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -100,6 +100,8 @@ const EXPECTED_TABLES: [&str; 73] = [
     "item_relationships",
     // KAIROS-T-0624: the stored tsvector of each item.
     "item_search",
+    // KAIROS-T-0736: the watches of an item.
+    "item_watches",
     // KAIROS-T-0201: sessions minted by a password login (KAIROS-I-0018).
     "metadata_definition_scopes",
     "metadata_definitions",
@@ -136,6 +138,8 @@ const EXPECTED_TABLES: [&str; 73] = [
     // KAIROS-T-0359: the claim of a task in Active.
     "task_claims",
     // KAIROS-T-0506: the live state of a task.
+    // KAIROS-T-0718: the review state of a task.
+    "task_review",
     "task_state",
     "tasks",
     "team_announcements",

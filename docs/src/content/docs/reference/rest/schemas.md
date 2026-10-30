@@ -1979,7 +1979,7 @@ One notification of the caller (KAIROS-T-0382).
 | `created_at` | `string` | yes | When Kairos made the notification (RFC 3339). |
 | `entity_type` | `string`, nullable | no | `strategy|initiative|task|document|adr`; `null` when the item is gone. |
 | `id` | `string` | yes | The id (UUID). `POST /api/me/notifications/read` takes it. |
-| `kind` | `string` | yes | `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided`. |
+| `kind` | `string` | yes | `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch`. |
 | `read_at` | `string`, nullable | no | When the person read it (RFC 3339); `null` while unread. |
 | `short_code` | `string`, nullable | no | The code of the item now; `null` when the item is gone. |
 | `text` | `string` | yes | What happened, in one sentence or two. |
@@ -2013,6 +2013,7 @@ One notification of the caller (KAIROS-T-0382).
 | `mention` | `boolean` | yes | A person wrote `@your_user_name` in a note or in the content of an item. |
 | `p0_bug` | `boolean` | yes | A bug with the priority P0 (critical) is on the board of your team. |
 | `proposal_decided` | `boolean` | yes | A person confirmed or rejected an edge proposal that you made (KAIROS-T-0558). |
+| `watch` | `boolean` | yes | An item that you watch, or a child of an item that you watch with its children, moved, was edited, got a note, or is done (KAIROS-T-0736). |
 
 ## OrgAgentKey
 
@@ -3296,6 +3297,7 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 | `mention` | `boolean`, nullable | no |  |
 | `p0_bug` | `boolean`, nullable | no |  |
 | `proposal_decided` | `boolean`, nullable | no |  |
+| `watch` | `boolean`, nullable | no |  |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
@@ -3438,6 +3440,47 @@ Where the vectors of the code index summaries are made.
 | `model` | `string`, nullable | no |  |
 | `provider` | `string` | yes | `embedded` (the model in the server) or `remote` (an OpenAI-compatible embeddings endpoint). |
 | `secret` | [`SecretStatus`](#secretstatus) | yes | The API key of the endpoint. A local Ollama needs none. |
+
+## WatchList
+
+`GET /api/me/watches` response: each watch of the caller, by code.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `items` | array of [`WatchedItem`](#watcheditem) | yes |  |
+
+## WatchRequest
+
+`PUT /api/items/{short_code}/watch` body. A second `PUT` changes `with_children` of the watch.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `with_children` | `boolean`, nullable | no | `true`: a change of a child of the item tells you too. Default `false`. |
+
+The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
+
+## WatchState
+
+The watch of the caller on one item (KAIROS-T-0736): `GET`, `PUT` and `DELETE /api/items/{short_code}/watch`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | `string` | yes | The code of the item. |
+| `watching` | `boolean` | yes | `true` when the caller watches the item. |
+| `with_children` | `boolean` | yes | `true` when the watch includes the children of the item (its `parent` edges, one level). `false` when the caller does not watch. |
+
+## WatchedItem
+
+One watch of the caller, in `GET /api/me/watches`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `archived` | `boolean` | yes | `true` when the item is archived. |
+| `created_at` | `string` | yes | When the caller started the watch (RFC 3339). |
+| `entity_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
+| `short_code` | `string` | yes | The code of the item now. |
+| `title` | `string` | yes | The title of the item now. |
+| `with_children` | `boolean` | yes | `true` when the watch includes the children of the item. |
 
 ## WebhookDelivery
 

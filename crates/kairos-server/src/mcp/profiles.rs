@@ -14,7 +14,7 @@ use rmcp::model::Tool;
 
 /// The tools of the daily work: the default profile. Picked from the calls
 /// of the agents (2026-10-14): these make nearly all of them.
-pub(super) const WORK: [&str; 49] = [
+pub(super) const WORK: [&str; 52] = [
     "whoami",
     "my_boards",
     // KAIROS-T-0489: the work of the person, in two lanes.
@@ -70,6 +70,10 @@ pub(super) const WORK: [&str; 49] = [
     "list_members",
     "get_events",
     "mark_events_read",
+    // KAIROS-T-0736: the watches of the person of the key.
+    "watch_item",
+    "unwatch_item",
+    "list_watches",
     "list_metadata_definitions",
     "list_templates",
     "archive_completed",

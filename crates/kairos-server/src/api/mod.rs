@@ -43,6 +43,8 @@ pub mod proposals;
 pub mod search;
 pub mod strategies;
 pub mod tasks;
+// KAIROS-T-0736: the watches of a person.
+pub mod watches;
 pub mod work;
 // KAIROS-T-0023: OpenAPI aggregation (/api/openapi.json) + dev Swagger UI.
 pub mod openapi;
@@ -81,6 +83,8 @@ pub fn router() -> Router<AppState> {
         .merge(cascade::router())
         // KAIROS-T-0381: the notification settings of a person.
         .merge(notifications::router())
+        // KAIROS-T-0736: the watches of a person.
+        .merge(watches::router())
         // KAIROS-T-0489: the work of a person.
         .merge(work::router())
 }

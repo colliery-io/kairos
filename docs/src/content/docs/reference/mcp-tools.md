@@ -3,8 +3,8 @@ title: "MCP tools"
 ---
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-eighty-one tools. A drift gate in the test suite
-asserts that `tools/list` returns these eighty-one and no others. The same
+eighty-four tools. A drift gate in the test suite
+asserts that `tools/list` returns these eighty-four and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -22,7 +22,7 @@ organization.
 
 | URL | Profile | Tools |
 |---|---|---|
-| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read: 49 tools. |
+| `/mcp` or `/mcp?profile=work` | work (the default) | The work on items, the repository directory and code index builds, the members, claims, notifications, the scales and templates, board flow, dispatch rules and team pages to read, and watches: 52 tools. |
 | `/mcp?profile=admin` | admin | Teams, boards, columns and transitions, grants, metadata definitions and templates, the writes of dispatch rules and webhook targets, agent triage, the writes of team pages, org read tokens, the delete of repositories, purge, the count of the refusals: the other 32 tools. |
 | `/mcp?profile=all` | all | Each tool. |
 
@@ -46,7 +46,8 @@ The work tools:
 - repositories: `list_repositories`, `get_repository`, `add_repository`,
   `update_repository`;
 - claims and notifications: `claim_item`, `hand_off_item`, `release_item`,
-  `get_events`, `mark_events_read`;
+  `get_events`, `mark_events_read`, `watch_item`, `unwatch_item`,
+  `list_watches`;
 - people: `list_members`;
 - scales and templates: `list_metadata_definitions`, `list_templates`;
 - team pages, to read: `team_pages`;
@@ -3049,6 +3050,71 @@ both. `VALIDATION` when `all` has no `up_to`, or `up_to` comes with `ids`.
 the id, and nothing changes. An id that is read already does not change.
 
 REST: `POST /api/me/notifications/read`.
+
+### `watch_item`
+
+Starts your watch on an item (KAIROS-T-0736). These changes of the item give
+you a notification of the kind `watch`:
+
+- moved: the item goes to a different column, or to a different board;
+- edited: the title or the content changes;
+- note added: a person or an agent adds a note;
+- done: the item goes into a done column. A cancel is done.
+
+A change that you make gives you no notification. Other changes (metadata,
+links, the live state) give no notification.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The code of the item. |
+| `with_children` | boolean | no | false | `true`: a change of a child of the item gives you a notification too. A child is an item that has the item as its parent. |
+
+A second call changes `with_children`. An agent key watches for its person:
+the watch is the person's. The REST routes show it.
+
+The result is one line: `You watch ACME-T-0001. A move, an edit, a note or a
+done of the item gives you a notification.`
+
+Refuses: `NOT_FOUND` for an unknown code, a retired code or an archived item.
+`FORBIDDEN` for a service account.
+
+REST: `PUT /api/items/{short_code}/watch`, with the body
+`{"with_children": true}`. `GET` on the same path gives your watch.
+
+### `unwatch_item`
+
+Stops your watch on an item.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The code of the item. |
+
+The result is `You do not watch ACME-T-0001 now.` When you do not watch the
+item, the result is `You did not watch ACME-T-0001. Nothing changed.`
+
+Refuses: `NOT_FOUND` when no item has the code. `FORBIDDEN` for a service
+account.
+
+REST: `DELETE /api/items/{short_code}/watch`.
+
+### `list_watches`
+
+Gives your watches, one line for each item. A line has the code, the type and
+the title of the item. It has `with children` when the watch includes the
+children. The tool has no arguments.
+
+```text
+# Your watches (2)
+
+- ACME-I-0003 (initiative) · with children — The new search
+- ACME-T-0012 (task) — Fix the login
+```
+
+With no watch, the result is `You watch no item. watch_item starts a watch.`
+
+Refuses: `FORBIDDEN` for a service account.
+
+REST: `GET /api/me/watches`.
 
 ## Agent dispatch
 

@@ -338,6 +338,7 @@ fn settings_view(settings: &BTreeMap<NotificationKind, bool>) -> NotificationSet
         claim_stale: on(NotificationKind::ClaimStale),
         key_expiring: on(NotificationKind::KeyExpiring),
         proposal_decided: on(NotificationKind::ProposalDecided),
+        watch: on(NotificationKind::Watch),
     }
 }
 
@@ -400,6 +401,7 @@ pub(crate) async fn update_notification_settings(
         (NotificationKind::ClaimStale, body.claim_stale),
         (NotificationKind::KeyExpiring, body.key_expiring),
         (NotificationKind::ProposalDecided, body.proposal_decided),
+        (NotificationKind::Watch, body.watch),
     ]
     .into_iter()
     .filter_map(|(kind, value)| value.map(|v| (kind, v)))
@@ -409,7 +411,7 @@ pub(crate) async fn update_notification_settings(
             "The body names no kind. Send one or more kinds, each with true or false. The \
              kinds: hand_off, blocker_cleared, blocked_again, cancelled, blocker_cancelled, \
              mention, p0_bug, delivery_failing, agent_key_revoked, claim_dropped, claim_stale, \
-             key_expiring, proposal_decided.",
+             key_expiring, proposal_decided, watch.",
         )
         .with_details(serde_json::json!({
             "field": "hand_off",
@@ -427,6 +429,7 @@ pub(crate) async fn update_notification_settings(
                 "claim_stale",
                 "key_expiring",
                 "proposal_decided",
+                "watch",
             ],
         })));
     }

@@ -22,5 +22,6 @@ pub mod repositories;
 pub mod retention;
 pub mod retrieval;
 pub mod search;
+pub mod sections;
 pub mod short_code;
 pub mod slug;

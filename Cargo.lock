@@ -2666,6 +2666,7 @@ version = "0.18.1"
 dependencies = [
  "chrono",
  "kairos-markdown",
+ "kairos-plain",
  "regex",
  "serde",
  "serde_json",
@@ -2798,6 +2799,7 @@ dependencies = [
  "kairos-embed",
  "kairos-index",
  "kairos-markdown",
+ "kairos-plain",
  "maud",
  "md-5 0.10.6",
  "mime_guess",

@@ -1240,6 +1240,11 @@ lacks `manage_<type>` on the resolved board. A task is different: a caller witho
 `manage_tasks` sends a request. That caller gets `FORBIDDEN` for a board that
 is not a delivery board, and for `work_class: planned`.
 
+A document with a template that has typed sections: the content must pass
+each typed section, else `SECTIONS_NOT_PASSED`. With no `content`, the tool
+checks the content of the template. See
+[Typed sections on an MCP write](#typed-sections-on-an-mcp-write).
+
 A create that fails writes nothing. The tool does each check before the first
 write. The tool writes the item and its edge in one transaction. No item,
 history, activity or event stays behind. The tool does not use the short code
@@ -1263,7 +1268,9 @@ organization admin.
 
 Refuses: `NOT_FOUND` for an unknown short code or an archived item;
 `FORBIDDEN` when the edit rule refuses the caller;
-`CONFLICT` for a stale `version`, carrying the current version and content.
+`CONFLICT` for a stale `version`, carrying the current version and content;
+`SECTIONS_NOT_PASSED` for content that does not pass the typed sections of the
+template of a document.
 
 ### `edit_item`
 
@@ -1290,6 +1297,34 @@ Kairos does not replace that text: send it as `search`.
 ```text
 VALIDATION: The text of search is not in ACME-T-0012 (version 3). A text that differs only in whitespace is in the content one time. Send this exact text as search: "Line one.\n  Line two.".
 ```
+
+### Typed sections on an MCP write
+
+A template can name typed sections: a heading and a type (KAIROS-T-0729).
+`create_item`, `update_item` and `edit_item` check the new content of a
+document against the typed sections of its template (KAIROS-T-0730):
+
+- Each typed section must be in the content, under a heading with the same
+  text, at each level.
+- Each typed section must have text.
+- The text of a `plain` section must pass the plain-language check and the
+  word list. The check of a `free` section stops at the two rules above.
+
+When the content does not pass, the tool refuses the write with
+`SECTIONS_NOT_PASSED`, and it saves nothing. The refusal gives each section
+that does not pass. For a `plain` section, it gives each violation: the rule,
+the text and the fix. The message lists 40 violations at most. `details`
+gives each one.
+
+```text
+SECTIONS_NOT_PASSED: The content of ACME-D-0003 does not pass the typed sections of its template. The server saved nothing. Correct each section, and then send the write again.
+- Section "Summary" (free): the section has no text. Write text under the heading.
+- Section "Goal" (plain), STE-V1: "server". "server" is not in the vocabulary. Use a word of the word list or a term of the dictionary.
+details: {"field":"content","sections":[{"heading":"Summary","problem":"empty","type":"free","violations":[]},{"heading":"Goal","problem":"violations","type":"plain","violations":[{"fix":"\"server\" is not in the vocabulary. Use a word of the word list or a term of the dictionary.","rule":"STE-V1","text":"server"}]}]}
+```
+
+`problem` is `missing`, `empty` or `violations`. The REST routes and the web
+do not do this check: a person can write free text.
 
 ### `append_note`
 

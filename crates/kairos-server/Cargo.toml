@@ -84,6 +84,8 @@ tempfile = "3.14.0"
 # tokens for their colours (no Leptos without the `components` feature).
 maud = "0.27"
 kairos-markdown = { workspace = true }
+# KAIROS-T-0730: the vocabulary of the typed-section check on MCP writes.
+kairos-plain = { workspace = true }
 aurora-dark = { workspace = true }
 # The store of the uploaded repository sites, on disk or in S3
 # (KAIROS-T-0405). Apache-2.0; its reqwest is the 0.12 that the server has.

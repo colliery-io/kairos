@@ -2824,6 +2824,36 @@ One publish of a site.
 | `state` | `string` | yes | `live`, `replaced` or `unpublished`. |
 | `unpacked_size` | `integer` | yes | Bytes of the files. |
 
+## Standup
+
+`GET /api/teams/{id}/standup` response: the team and its people, for the round of a stand-up.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `people` | array of [`StandupPerson`](#standupperson) | yes | The people of the round, by display name: the members of the team, and each person who holds work of the team and is not a member. No service accounts. |
+| `team` | [`StandupTeam`](#standupteam) | yes |  |
+
+## StandupPerson
+
+A person of the round of a stand-up.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `display_name` | `string` | yes |  |
+| `member` | `boolean` | yes | A member of the team. `false`: a person who is not a member, and who claims a task of the team or owns an initiative of the team. |
+| `user_id` | `string` | yes | User id (UUID). |
+| `user_name` | `string` | yes |  |
+
+## StandupTeam
+
+The team of a stand-up.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | Team id (UUID). |
+| `name` | `string` | yes |  |
+| `slug` | `string` | yes |  |
+
 ## Strategy
 
 A strategy (Flight Level 3), as returned by `/api/strategies`.
@@ -3251,6 +3281,14 @@ Body of `POST /api/{family}/{short_code}/transition`.
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
+## UnclaimedWork
+
+`GET /api/teams/{id}/standup/unclaimed` response: the last stop of a stand-up.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tasks` | array of [`WorkItem`](#workitem) | yes | The tasks on the boards of the team that no one claims, in the state `todo` or `blocked`, by short code. |
+
 ## UpdateBoardRequest
 
 Body of `PATCH /api/boards/{id}` (board settings).
@@ -3565,7 +3603,7 @@ One item of the work. No item is in a done column.
 | `entity_type` | `string` | yes | `strategy`, `initiative` or `task`. |
 | `id` | `string` | yes | Entity id (UUID). |
 | `owner` | [`ItemOwner`](#itemowner), nullable | no |  |
-| `reasons` | array of `string` | yes | Why the item is in the work: `owned`, `claimed`, `under_my_initiative`, `blocked_by_my_work`. |
+| `reasons` | array of `string` | yes | Why the item is in the work: `owned`, `claimed`, `under_my_initiative`, `blocked_by_my_work`, and `unclaimed` (the last stop of a stand-up). |
 | `short_code` | `string` | yes |  |
 | `state` | `string` | yes | `todo`, `active` or `blocked`. Blocked: the item has an open blocker, or it is in a column named Blocked. |
 | `title` | `string` | yes |  |

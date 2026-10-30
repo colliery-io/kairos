@@ -6590,8 +6590,11 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
         if let Some((state, name)) = facts.state(item.id) {
             out.push_str(&crate::task_state::state_line_of(&state, name, Utc::now()));
         }
-        // KAIROS-T-0718: the review state of the task.
-        out.push_str(&crate::task_review::review_line(conn, item.id)?);
+        // KAIROS-T-0718: the review state of the task, from the facts
+        // query (KAIROS-T-0726).
+        if let Some(review) = facts.review(item.id) {
+            out.push_str(&crate::task_review::review_line(&review, Utc::now()));
+        }
     }
     // KAIROS-T-0411: the owner of a strategy or an initiative, in
     // each column and in the archive.
@@ -6772,6 +6775,9 @@ const ITEM_FACTS_SQL: &str = "\
            st.next_step AS state_next_step, st.updated_at AS state_updated_at, \
            st.updated_by AS state_updated_by, \
            COALESCE(su.display_name, st.updated_by::text) AS state_updated_by_name, \
+           rv.review AS review_value, rv.updated_at AS review_updated_at, \
+           rv.updated_by AS review_updated_by, \
+           COALESCE(ru.display_name, rv.updated_by::text) AS review_updated_by_name, \
            COALESCE(ou.display_name, io.user_id::text) AS owner_name, \
            io.claimed_at AS owner_since, \
            COALESCE(cb.display_name, $6::text) AS creator_name, \
@@ -6833,6 +6839,8 @@ const ITEM_FACTS_SQL: &str = "\
       LEFT JOIN public.users ku ON ku.id = k.cancelled_by \
       LEFT JOIN task_state st ON st.task_id = $1 \
       LEFT JOIN public.users su ON su.id = st.updated_by \
+      LEFT JOIN task_review rv ON rv.task_id = $1 \
+      LEFT JOIN public.users ru ON ru.id = rv.updated_by \
       LEFT JOIN item_owners io ON io.item_id = $1 \
       LEFT JOIN public.users ou ON ou.id = io.user_id \
       LEFT JOIN public.users cb ON cb.id = $6";
@@ -6890,6 +6898,16 @@ struct ItemFacts {
     state_updated_by: Option<Uuid>,
     #[diesel(sql_type = SqlNullable<SqlText>)]
     state_updated_by_name: Option<String>,
+    /// The review state of a task (KAIROS-T-0718), in this one query so
+    /// that `get_item` keeps its statement count (KAIROS-T-0726).
+    #[diesel(sql_type = SqlNullable<SqlText>)]
+    review_value: Option<String>,
+    #[diesel(sql_type = SqlNullable<SqlTimestamptz>)]
+    review_updated_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = SqlNullable<SqlUuid>)]
+    review_updated_by: Option<Uuid>,
+    #[diesel(sql_type = SqlNullable<SqlText>)]
+    review_updated_by_name: Option<String>,
     #[diesel(sql_type = SqlNullable<SqlText>)]
     owner_name: Option<String>,
     #[diesel(sql_type = SqlNullable<SqlTimestamptz>)]
@@ -7010,6 +7028,21 @@ impl ItemFacts {
     /// The owner as (name, since).
     fn owner(&self) -> Option<(&str, DateTime<Utc>)> {
         Some((self.owner_name.as_deref()?, self.owner_since?))
+    }
+
+    /// The review state of the task, when somebody decided it.
+    fn review(&self, task_id: Uuid) -> Option<kairos_client::types::TaskReview> {
+        let row = kairos_db::models::TaskReview {
+            task_id,
+            review: self.review_value.clone()?,
+            updated_at: self.review_updated_at?,
+            updated_by: self.review_updated_by?,
+        };
+        let names = std::collections::HashMap::from([(
+            row.updated_by,
+            self.review_updated_by_name.clone()?,
+        )]);
+        Some(crate::task_review::review_dto(&row, &names))
     }
 
     /// The state of the task and the name of who wrote it.

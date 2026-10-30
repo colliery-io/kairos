@@ -1078,6 +1078,64 @@ Remove a member from a team. An organization admin, or
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Not an org admin, and no manage_structure on the organization |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown team or not a member |
 
+### `GET /api/teams/{id}/standup`
+
+The team of a stand-up and its people.
+
+The people are the members of the team, by display name. Some people
+are not members but claim a task of the team or own an initiative of
+the team. They get a turn too, with `member: false`. A service account
+is not in the list. The page shuffles the list.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The slug or the id (UUID) of the team |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`Standup`](../schemas/#standup) | The team and its people |
+| `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown team |
+
+### `GET /api/teams/{id}/standup/people/{user_id}`
+
+The work of one person in a team, in two lanes.
+
+- Initiatives: the initiatives that the person owns and that have the
+  team (from their tasks, or set by hand).
+- Tasks: the tasks on the boards of the team that the person, or an
+  agent key of the person, claims.
+
+Any member of the organization can read the work of any person. The
+person does not have to be a member of the team.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The slug or the id (UUID) of the team |
+| `user_id` | path | yes | `string` | The id (UUID) of the person |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`MyWork`](../schemas/#mywork) | The two lanes of the work of the person in the team |
+| `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown team or person |
+
+### `GET /api/teams/{id}/standup/unclaimed`
+
+The last stop of a stand-up. It gives the tasks on the boards of the
+team that no one claims, in the state Todo or Blocked. A task in Backlog
+is not in it.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The slug or the id (UUID) of the team |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`UnclaimedWork`](../schemas/#unclaimedwork) | The unclaimed tasks of the team |
+| `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown team |
+
 ### `GET /api/teams/{id}/unlinked-refs`
 
 The in-flight branches and pull requests with no linked item, in the

@@ -318,6 +318,9 @@ use crate::app::AppState;
         crate::api::notices::send_notice,
         // The work of a person (KAIROS-T-0489).
         crate::api::work::get_my_work,
+        crate::api::work::get_standup,
+        crate::api::work::get_standup_person,
+        crate::api::work::get_standup_unclaimed,
         // Local password login (KAIROS-T-0203). Documented unconditionally even
         // though the routes are mounted only when KAIROS_LOCAL_AUTH is on: the spec
         // is the API contract, and an operator reading it needs to know the

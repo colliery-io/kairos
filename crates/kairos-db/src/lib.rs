@@ -57,6 +57,7 @@ pub mod retired_codes;
 pub mod schema;
 pub mod scim;
 pub mod search;
+pub mod section_checks;
 pub mod seed;
 pub mod service_accounts;
 pub mod site_content;

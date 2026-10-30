@@ -51,6 +51,7 @@ mod notes;
 mod owner;
 mod picker;
 mod relations;
+mod sections;
 mod state;
 mod teams;
 mod watch;
@@ -349,6 +350,8 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
     let owner = Memo::new(move |_| current.with(|item| item.owner.clone()));
     let impacts = Memo::new(move |_| current.with(|item| item.impacts.clone()));
     let lifecycle = Memo::new(move |_| current.with(|item| item.lifecycle.clone()));
+    // KAIROS-T-0731: the mark of the typed sections of a document.
+    let section_check = Memo::new(move |_| current.with(|item| item.section_check.clone()));
     let cancellation = Memo::new(move |_| current.with(|item| item.cancellation.clone()));
     let cancelled = Memo::new(move |_| cancellation.with(Option::is_some));
     // KAIROS-T-0164 / ADR-20: `archived_at` is the "put away" state — the
@@ -532,6 +535,7 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
     view! {
         {move || view! { <PageHeader title=title.get() sub=family.label()/> }}
         {move || cancellation.get().map(|mark| view! { <CancelledBanner mark/> })}
+        {move || view! { <sections::SectionsPanel check=section_check.get()/> }}
         {move || {
             let item_id = item_id.clone();
             archived_at.get().map(|when| view! {
@@ -569,6 +573,7 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                         <Pill color=lifecycle_color(&state)>{format!("lifecycle: {state}")}</Pill>
                     </span>
                 })}
+                {move || view! { <sections::SectionsBadge check=section_check.get()/> }}
                 {move || view! { <TypeFacts item=current.get()/> }}
             </Group>
             <Group gap="sm">

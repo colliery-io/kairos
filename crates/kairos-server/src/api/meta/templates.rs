@@ -211,6 +211,9 @@ fn replace_sections(
             .values(&rows)
             .execute(conn)?;
     }
+    // KAIROS-T-0731: the stored checks of the documents of the template are
+    // stale. The periodic pass `section-checks` checks them again.
+    kairos_db::section_checks::mark_template_stale(conn, template_id)?;
     Ok(())
 }
 

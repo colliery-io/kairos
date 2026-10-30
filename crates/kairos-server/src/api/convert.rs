@@ -133,7 +133,41 @@ impl IntoDto<dto::Document> for Document {
             updated_at: timestamp(self.updated_at),
             archived_at: self.deleted_at.map(timestamp),
             notes: None,
+            section_check: None,
         }
+    }
+}
+
+/// The stored check of the typed sections of a document as its DTO
+/// (KAIROS-T-0731).
+pub(crate) fn section_check_dto(
+    check: kairos_db::section_checks::StoredCheck,
+) -> kairos_client::types::SectionCheck {
+    use kairos_client::types::{SectionCheck, SectionCheckFailure, SectionCheckViolation};
+    SectionCheck {
+        passes: check.passes(),
+        violations: check.violations,
+        stale: check.stale,
+        version: check.version,
+        checked_at: timestamp(check.checked_at),
+        sections: check
+            .failures
+            .into_iter()
+            .map(|f| SectionCheckFailure {
+                heading: f.heading,
+                section_type: f.section_type,
+                problem: f.problem,
+                violations: f
+                    .violations
+                    .into_iter()
+                    .map(|v| SectionCheckViolation {
+                        rule: v.rule,
+                        text: v.text,
+                        fix: v.fix,
+                    })
+                    .collect(),
+            })
+            .collect(),
     }
 }
 

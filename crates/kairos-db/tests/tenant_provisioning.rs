@@ -45,7 +45,7 @@ static SCRATCH_DB: scratch::ScratchName =
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 78] = [
+const EXPECTED_TABLES: [&str; 79] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -128,6 +128,8 @@ const EXPECTED_TABLES: [&str; 78] = [
     // COLLIERY-T-3100: the retired short codes.
     "retired_codes",
     "scim_tokens",
+    // KAIROS-T-0731: the stored check of the typed sections of a document.
+    "section_checks",
     // COLLIERY-T-3099: the sequence of each (prefix, type).
     "short_code_sequences",
     // KAIROS-T-0406: the published sites of the repositories.

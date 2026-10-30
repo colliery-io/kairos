@@ -6813,6 +6813,19 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
     if let Some(name) = &facts.template_name {
         out.push_str(&format!("- template: {name}\n"));
     }
+    // KAIROS-T-0731 (COLLIERY-I-0664 decision 3): the mark of a document
+    // that does not pass the typed sections of its template.
+    if let (Some(violations), Some(failures)) = (facts.section_violations, &facts.section_failures)
+    {
+        let failures =
+            kairos_db::section_checks::parse_failures(failures).map_err(ApiError::internal)?;
+        out.push_str(&sections_mark(
+            &item.short_code,
+            violations,
+            facts.section_stale.unwrap_or(false),
+            &failures,
+        ));
+    }
 
     // Metadata values, ordered by definition slug.
     if !facts.metadata_slugs.is_empty() {
@@ -6925,6 +6938,47 @@ pub fn get_item_text(conn: &mut PgConnection, short_code: &str) -> Result<String
     Ok(out)
 }
 
+/// The lines of the mark of the typed sections in `get_item`
+/// (KAIROS-T-0731): `- sections: does not pass (2 violations)` and one
+/// line for each violation, at most [`super::typed_sections::MESSAGE_LINES`].
+/// Empty when the document passes. Pure.
+fn sections_mark(
+    short_code: &str,
+    violations: i32,
+    stale: bool,
+    failures: &[kairos_db::section_checks::StoredFailure],
+) -> String {
+    if violations <= 0 {
+        return String::new();
+    }
+    let noun = if violations == 1 {
+        "violation"
+    } else {
+        "violations"
+    };
+    let mut out = format!("- sections: does not pass ({violations} {noun})");
+    if stale {
+        out.push_str(" · the template or a dictionary changed; the server checks it again soon");
+    }
+    out.push('\n');
+    let lines: Vec<String> = failures
+        .iter()
+        .flat_map(kairos_db::section_checks::StoredFailure::lines)
+        .collect();
+    let limit = super::typed_sections::MESSAGE_LINES;
+    for line in lines.iter().take(limit) {
+        out.push_str(&format!("  - {line}\n"));
+    }
+    if lines.len() > limit {
+        out.push_str(&format!(
+            "  - The list stops here. GET /api/documents/{short_code} gives the {} other \
+             violations.\n",
+            lines.len() - limit
+        ));
+    }
+    out
+}
+
 /// The block `## Terms used` of `get_item` (KAIROS-T-0735): each term of
 /// `terms` that the prose of `texts` uses, as `- term (part of speech):
 /// meaning`, the longest term first. Empty when no term is used. Pure.
@@ -6969,8 +7023,9 @@ fn terms_used_section<'a>(
 /// the retired codes (COLLIERY-T-3100), the metadata, the claim
 /// (KAIROS-T-0359), the cancel mark (KAIROS-T-0362), the state
 /// (KAIROS-T-0506), the owner (KAIROS-T-0411), the external references
-/// (KAIROS-T-0508), the creator (KAIROS-T-0561) and the dictionaries
-/// that apply to the item (KAIROS-T-0735). A name that `public.users` does not have is the id, as
+/// (KAIROS-T-0508), the creator (KAIROS-T-0561), the dictionaries
+/// that apply to the item (KAIROS-T-0735) and the stored check of the
+/// typed sections of a document (KAIROS-T-0731). A name that `public.users` does not have is the id, as
 /// `task_claims::display_names` gives it.
 const ITEM_FACTS_SQL: &str = "\
     SELECT b.slug AS board_slug, \
@@ -6983,6 +7038,8 @@ const ITEM_FACTS_SQL: &str = "\
                   ORDER BY n.position) AS next_columns, \
            rp.slug AS repository_slug, rt.slug AS repository_team, \
            tp.name AS template_name, tp.slug AS template_slug, \
+           sc.violations AS section_violations, sc.failures::text AS section_failures, \
+           sc.stale AS section_stale, \
            ARRAY(SELECT rc.code FROM retired_codes rc WHERE rc.item_id = $1 \
                   ORDER BY rc.retired_at, rc.code) AS retired_codes, \
            ARRAY(SELECT md.slug FROM item_metadata im \
@@ -7060,6 +7117,7 @@ const ITEM_FACTS_SQL: &str = "\
       LEFT JOIN repositories rp ON rp.id = $4 AND rp.deleted_at IS NULL \
       LEFT JOIN teams rt ON rt.id = rp.team_id \
       LEFT JOIN templates tp ON tp.id = $5 \
+      LEFT JOIN section_checks sc ON sc.document_id = $1 \
       LEFT JOIN task_claims cl ON cl.task_id = $1 \
       LEFT JOIN public.users cu ON cu.id = cl.user_id \
       LEFT JOIN task_cancellations k ON k.task_id = $1 \
@@ -7093,6 +7151,15 @@ struct ItemFacts {
     template_name: Option<String>,
     #[diesel(sql_type = SqlNullable<SqlText>)]
     template_slug: Option<String>,
+    /// The stored check of the typed sections of a document
+    /// (KAIROS-T-0731): the number of violations, the failing sections as
+    /// JSON, and whether a change made it stale. `None` with no check.
+    #[diesel(sql_type = SqlNullable<diesel::sql_types::Integer>)]
+    section_violations: Option<i32>,
+    #[diesel(sql_type = SqlNullable<SqlText>)]
+    section_failures: Option<String>,
+    #[diesel(sql_type = SqlNullable<diesel::sql_types::Bool>)]
+    section_stale: Option<bool>,
     #[diesel(sql_type = diesel::sql_types::Array<SqlText>)]
     retired_codes: Vec<String>,
     #[diesel(sql_type = diesel::sql_types::Array<SqlText>)]
@@ -10959,7 +11026,7 @@ mod related_work_render_tests {
 mod t0558_tests {
     //! KAIROS-T-0558: the preview of `delete_item` and the proposals of
     //! `get_item`.
-    use super::{ProposalRow, preview_text, proposals_section};
+    use super::{ProposalRow, preview_text, proposals_section, sections_mark};
     use crate::error::ApiError;
     use kairos_db::items::{CascadePreview, NotReached, NotReachedReason};
     use uuid::Uuid;
@@ -11012,6 +11079,52 @@ mod t0558_tests {
             decider: decider.map(str::to_string),
             decided_on: decider.map(|_| "2026-10-18".to_string()),
         }
+    }
+
+    #[test]
+    fn the_sections_mark_names_the_count_and_each_violation() {
+        use kairos_db::section_checks::{StoredFailure, StoredViolation};
+        assert_eq!(sections_mark("ACME-D-0001", 0, false, &[]), "");
+        let failures = vec![
+            StoredFailure {
+                heading: "Summary".into(),
+                section_type: "free".into(),
+                problem: "empty".into(),
+                violations: Vec::new(),
+            },
+            StoredFailure {
+                heading: "Goal".into(),
+                section_type: "plain".into(),
+                problem: "violations".into(),
+                violations: vec![StoredViolation {
+                    rule: "STE-V1".into(),
+                    text: "utilize".into(),
+                    fix: "Write \"use\".".into(),
+                }],
+            },
+        ];
+        assert_eq!(
+            sections_mark("ACME-D-0001", 2, false, &failures),
+            "- sections: does not pass (2 violations)\n\
+             \x20 - Section \"Summary\" (free): the section has no text. Write text under the \
+             heading.\n\
+             \x20 - Section \"Goal\" (plain), STE-V1: \"utilize\". Write \"use\".\n"
+        );
+        assert!(
+            sections_mark("ACME-D-0001", 1, true, &failures[..1])
+                .starts_with("- sections: does not pass (1 violation) · the template")
+        );
+        let many: Vec<StoredFailure> = (0..45)
+            .map(|i| StoredFailure {
+                heading: format!("S{i}"),
+                section_type: "free".into(),
+                problem: "missing".into(),
+                violations: Vec::new(),
+            })
+            .collect();
+        let text = sections_mark("ACME-D-0001", 45, false, &many);
+        assert_eq!(text.matches("\n  - Section").count(), 40);
+        assert!(text.contains("GET /api/documents/ACME-D-0001 gives the 5 other violations."));
     }
 
     #[test]

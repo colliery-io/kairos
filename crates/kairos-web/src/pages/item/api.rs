@@ -201,6 +201,42 @@ pub struct ItemDetail {
     /// (`None`): the page keeps the notes that it shows.
     #[serde(default)]
     pub notes: Option<Vec<Note>>,
+    /// The stored check of the typed sections of a document
+    /// (KAIROS-T-0731). `None` for a document with no typed section, for
+    /// the other families, and from an older server.
+    #[serde(default)]
+    pub section_check: Option<SectionCheck>,
+}
+
+/// mirror of: `kairos_client::types::SectionCheck` (partial: the page
+/// reads no version and no time).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SectionCheck {
+    pub passes: bool,
+    pub violations: i32,
+    #[serde(default)]
+    pub stale: bool,
+    #[serde(default)]
+    pub sections: Vec<SectionCheckFailure>,
+}
+
+/// mirror of: `kairos_client::types::SectionCheckFailure`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SectionCheckFailure {
+    pub heading: String,
+    #[serde(rename = "type")]
+    pub section_type: String,
+    pub problem: String,
+    #[serde(default)]
+    pub violations: Vec<SectionCheckViolation>,
+}
+
+/// mirror of: `kairos_client::types::SectionCheckViolation`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct SectionCheckViolation {
+    pub rule: String,
+    pub text: String,
+    pub fix: String,
 }
 
 /// mirror of: `kairos_client::types::ItemNote` (KAIROS-T-0630).

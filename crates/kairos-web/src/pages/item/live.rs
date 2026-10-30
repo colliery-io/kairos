@@ -154,6 +154,10 @@ pub(super) fn changed_parts(shown: &ItemDetail, read: &ItemDetail) -> Vec<&'stat
     note(read.impacts != shown.impacts, "the impacts");
     note(read.lifecycle != shown.lifecycle, "the lifecycle");
     note(read.archived_at != shown.archived_at, "the archive state");
+    note(
+        read.section_check != shown.section_check,
+        "the section check",
+    );
     // KAIROS-T-0630: a note is not part of the content.
     note(read.notes != shown.notes, "the notes");
     parts

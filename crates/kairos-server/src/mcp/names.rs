@@ -187,6 +187,10 @@ const NAMES: &[Name] = &[
     one("default_value", "the default value of a template field"),
     one("required", "a template field must have a value"),
     one("enum_options", "the values of an enum definition"),
+    // The typed sections of a template (KAIROS-T-0729).
+    one("sections", "the typed sections of a template"),
+    one("heading", "the text of the heading of a typed section"),
+    one("type", "the type of a typed section: free or plain"),
     one("default_branch", "the default branch"),
     one(
         "default_branch_source",

@@ -3,7 +3,7 @@
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
 //! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
 //! (COLLIERY-T-0220), and `add_repository` and `update_repository`
-//! (COLLIERY-T-0266); later tasks added more (81 in all, in the profiles
+//! (COLLIERY-T-0266); later tasks added more (82 in all, in the profiles
 //! of `profiles.rs`, KAIROS-T-0454) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
@@ -1529,6 +1529,20 @@ pub struct TemplateFieldParams {
     pub required: bool,
 }
 
+/// A typed section of a template (KAIROS-T-0729).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct TemplateSectionParams {
+    /// The text of the heading, with no `#`. It matches a heading of each
+    /// level in the content.
+    pub heading: String,
+    /// The type of the section: `free` (text that is not empty) or `plain`
+    /// (text that passes the plain-language check).
+    #[serde(rename = "type")]
+    pub section_type: String,
+}
+
 /// Parameters for `save_template` (KAIROS-T-0443).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -1545,10 +1559,13 @@ pub struct SaveTemplateParams {
     pub content: Option<String>,
     /// The metadata fields. It replaces the list.
     pub metadata: Option<Vec<TemplateFieldParams>>,
+    /// The typed sections: a heading and a type each (KAIROS-T-0729). It
+    /// replaces the list; `[]` removes each one.
+    pub sections: Option<Vec<TemplateSectionParams>>,
 }
 
 // ---------------------------------------------------------------------------
-// The tools (81; the list of each profile is asserted in tests/mcp.rs)
+// The tools (82; the list of each profile is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -2997,7 +3014,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the templates of the organization: slug, name, and the metadata that each template stamps on an item (the default value, and whether the field is required). With `slug`, show that one template with its full content."
+        description = "List the templates of the organization: slug, name, the metadata that each template stamps on an item (the default value, and whether the field is required), and the typed sections (a heading and a type: `free` or `plain`). With `slug`, show that one template with its full content."
     )]
     pub async fn list_templates(
         &self,
@@ -3042,6 +3059,15 @@ impl KairosMcp {
                             .map(|v| format!(" default: {v}"))
                             .unwrap_or_default(),
                         if field.required { " required" } else { "" }
+                    ));
+                }
+                if template.sections.is_empty() {
+                    out.push_str("- sections: none\n");
+                }
+                for section in &template.sections {
+                    out.push_str(&format!(
+                        "- section \"{}\": {}\n",
+                        section.heading, section.section_type
                     ));
                 }
                 if params.slug.is_some() {
@@ -5727,7 +5753,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content` and `metadata` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. Organization admins only."
+        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content`, `metadata` and `sections` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. `sections` is a list of typed sections: `heading` (the text, no `#`) and `type` (`free` or `plain`); an unknown type is refused. Organization admins only."
     )]
     pub async fn save_template(
         &self,
@@ -5751,6 +5777,15 @@ impl KairosMcp {
                     })
                     .collect::<Vec<_>>()
             });
+            let sections = params.sections.map(|sections| {
+                sections
+                    .into_iter()
+                    .map(|section| dto::TemplateSection {
+                        heading: section.heading,
+                        section_type: section.section_type,
+                    })
+                    .collect::<Vec<_>>()
+            });
             let saved = match params.template.as_deref() {
                 Some(reference) => {
                     let id = meta_id(conn, "templates", reference, "template")?;
@@ -5763,6 +5798,7 @@ impl KairosMcp {
                             slug: params.slug,
                             content: params.content,
                             metadata,
+                            sections,
                         },
                     )?
                 }
@@ -5783,6 +5819,7 @@ impl KairosMcp {
                             slug: required(params.slug, "slug")?,
                             content: params.content.unwrap_or_default(),
                             metadata: metadata.unwrap_or_default(),
+                            sections: sections.unwrap_or_default(),
                         },
                     )?
                 }

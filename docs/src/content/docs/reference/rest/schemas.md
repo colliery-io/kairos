@@ -874,6 +874,7 @@ Body of `POST /api/templates` (org admin).
 | `content` | `string` | no | Starter markdown content; defaults to empty. |
 | `metadata` | array of [`TemplateMetadataEntry`](#templatemetadataentry) | no | Metadata fields the template carries. |
 | `name` | `string` | yes |  |
+| `sections` | array of [`TemplateSection`](#templatesection) | no | The typed sections of the template (KAIROS-T-0729). Default: none. Not sent when empty, so that a server from before the field takes the body. |
 | `slug` | `string` | yes |  |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
@@ -3198,6 +3199,7 @@ Response of `GET /api/templates/{id}`: the template plus its associated metadata
 | `is_system_default` | `boolean` | yes |  |
 | `metadata` | array of [`TemplateMetadataField`](#templatemetadatafield) | yes | The metadata fields this template carries, ordered by slug. |
 | `name` | `string` | yes |  |
+| `sections` | array of [`TemplateSection`](#templatesection) | no | The typed sections of the template, in the order that the admin sent (KAIROS-T-0729). |
 | `slug` | `string` | yes |  |
 | `updated_at` | `string` | yes | RFC 3339. |
 
@@ -3226,6 +3228,17 @@ One metadata field a template carries (`template_metadata` hydrated with its def
 | `name` | `string` | yes | The definition's display name. |
 | `required` | `boolean` | yes |  |
 | `slug` | `string` | yes | The definition's slug. |
+
+## TemplateSection
+
+A typed section of a template (KAIROS-T-0729). It has the text of a heading in the content, and the type of check on the text under it.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `heading` | `string` | yes | The text of the heading, with no `#`. It matches a heading of each level. One line, not empty, one time in each template. |
+| `type` | `string` | yes | `free` (text that is not empty) or `plain` (text that passes the plain-language check). The server refuses each other value. |
+
+The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
 ## TenantCreatedResponse
 
@@ -3459,6 +3472,7 @@ Body of `PATCH /api/templates/{id}` (org admin). Omitted fields are unchanged; `
 | `content` | `string`, nullable | no |  |
 | `metadata` | `array`, nullable | no | Replacement metadata association list. |
 | `name` | `string`, nullable | no |  |
+| `sections` | `array`, nullable | no | Replacement list of the typed sections (KAIROS-T-0729); `[]` removes each one. Not sent when `None`. |
 | `slug` | `string`, nullable | no |  |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).

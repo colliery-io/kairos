@@ -430,6 +430,64 @@ async fn team_and_board_administration_over_mcp() {
             json!({"template": "spike", "metadata": []}),
         )
         .await;
+    // KAIROS-T-0729: typed sections round-trip through save_template and
+    // list_templates. The order stays; the heading is trimmed.
+    admin_mcp
+        .ok(
+            "save_template",
+            json!({"template": "spike",
+                   "sections": [{"heading": " Question ", "type": "plain"},
+                                {"heading": "Answer", "type": "free"}]}),
+        )
+        .await;
+    let text = admin_mcp
+        .ok("list_templates", json!({"slug": "spike"}))
+        .await;
+    let question = text.find("- section \"Question\": plain").expect(&text);
+    let answer = text.find("- section \"Answer\": free").expect(&text);
+    assert!(question < answer, "{text}");
+    // An unknown type is refused and named; nothing is saved.
+    let text = admin_mcp
+        .refused(
+            "save_template",
+            json!({"template": "spike",
+                   "sections": [{"heading": "Criteria", "type": "ace"}]}),
+            "sections[0].type",
+        )
+        .await;
+    assert!(text.contains("\"ace\""), "{text}");
+    admin_mcp
+        .refused(
+            "save_template",
+            json!({"template": "spike",
+                   "sections": [{"heading": "A", "type": "free"},
+                                {"heading": "A", "type": "plain"}]}),
+            "sections[1].heading",
+        )
+        .await;
+    admin_mcp
+        .refused(
+            "save_template",
+            json!({"template": "spike",
+                   "sections": [{"heading": "A", "kind": "free"}]}),
+            "kind",
+        )
+        .await;
+    let text = admin_mcp
+        .ok("list_templates", json!({"slug": "spike"}))
+        .await;
+    assert!(text.contains("- section \"Question\": plain"), "{text}");
+    assert!(!text.contains("Criteria"), "{text}");
+    admin_mcp
+        .ok(
+            "save_template",
+            json!({"template": "spike", "sections": []}),
+        )
+        .await;
+    let text = admin_mcp
+        .ok("list_templates", json!({"slug": "spike"}))
+        .await;
+    assert!(text.contains("- sections: none"), "{text}");
     alice_mcp
         .refused(
             "delete_template",

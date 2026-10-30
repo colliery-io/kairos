@@ -2766,6 +2766,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kairos-plain"
+version = "0.18.1"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "kairos-server"
 version = "0.18.1"
 dependencies = [

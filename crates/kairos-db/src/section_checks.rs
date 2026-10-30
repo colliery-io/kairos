@@ -55,7 +55,7 @@ pub struct StoredViolation {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredFailure {
     pub heading: String,
-    /// `free` or `plain`.
+    /// `free`, `plain` or `ears`.
     #[serde(rename = "type")]
     pub section_type: String,
     /// `missing`, `empty` or `violations`.

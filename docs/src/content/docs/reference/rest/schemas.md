@@ -2594,7 +2594,7 @@ The stored check of the typed sections of a document (KAIROS-T-0731, COLLIERY-I-
 | `sections` | array of [`SectionCheckFailure`](#sectioncheckfailure) | yes | Each section that does not pass, in the order of the template. |
 | `stale` | `boolean` | yes | The typed sections of the template or a dictionary changed after the check. The server checks the document again soon. |
 | `version` | `integer` | yes | The version of the document that the server checked. |
-| `violations` | `integer` | yes | The number of problems: 1 for each missing or empty section, and 1 for each violation of a `plain` section. |
+| `violations` | `integer` | yes | The number of problems: 1 for each missing or empty section, and 1 for each violation of a `plain` or an `ears` section. |
 
 ## SectionCheckFailure
 
@@ -2604,8 +2604,8 @@ A typed section that a document does not pass (KAIROS-T-0731).
 |---|---|---|---|
 | `heading` | `string` | yes | The heading of the section, with no `#`. |
 | `problem` | `string` | yes | `missing`, `empty` or `violations`. |
-| `type` | `string` | yes | The type of the section: `free` or `plain`. |
-| `violations` | array of [`SectionCheckViolation`](#sectioncheckviolation) | no | The violations of a `plain` section; empty for the other problems. |
+| `type` | `string` | yes | The type of the section: `free`, `plain` or `ears`. |
+| `violations` | array of [`SectionCheckViolation`](#sectioncheckviolation) | no | The violations of a `plain` or an `ears` section; empty for the other problems. |
 
 ## SectionCheckViolation
 
@@ -2614,7 +2614,7 @@ One rule that the text of a section breaks (KAIROS-T-0731).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `fix` | `string` | yes | What is wrong, then what to do. |
-| `rule` | `string` | yes | The rule id, as `STE-V1`. |
+| `rule` | `string` | yes | The rule id, as `STE-V1` or `EARS-1`. |
 | `text` | `string` | yes | The text that breaks the rule. |
 
 ## SendNoticeRequest
@@ -3272,7 +3272,7 @@ A typed section of a template (KAIROS-T-0729). It has the text of a heading in t
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `heading` | `string` | yes | The text of the heading, with no `#`. It matches a heading of each level. One line, not empty, one time in each template. |
-| `type` | `string` | yes | `free` (text that is not empty) or `plain` (text that passes the plain-language check). The server refuses each other value. |
+| `type` | `string` | yes | `free` (text that is not empty), `plain` (text that passes the plain-language check) or `ears` (each requirement fits one frame of EARS). The server refuses each other value. |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 

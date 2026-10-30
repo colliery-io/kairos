@@ -490,4 +490,63 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
     )
     .await;
     mcp.call_ok("create_item", create(Some(widget))).await;
+
+    // 13. An `ears` section (KAIROS-T-0732): the template takes the type, a
+    // requirement that fits no frame is refused with its rule and the
+    // closest frame, and nothing is saved. Words inside the frame are free.
+    admin
+        .create_template(&CreateTemplateRequest {
+            name: "Spec".into(),
+            slug: "spec".into(),
+            content: "## Requirements\n".into(),
+            metadata: Vec::new(),
+            sections: vec![TemplateSection {
+                heading: "Requirements".into(),
+                section_type: "ears".into(),
+            }],
+        })
+        .await
+        .expect("a template with an ears section");
+    let spec = |content: &str| {
+        json!({
+            "item_type": "document",
+            "title": "A spec",
+            "board": board,
+            "template": "spec",
+            "content": content,
+        })
+    };
+    let before = document_count(&mut conn);
+    let (text, details) = mcp
+        .call_refused(
+            "create_item",
+            spec(
+                "## Requirements\n\
+                 - When a write fails, the server shall name the field.\n\
+                 - A move names `reopen_item` when the item is done.\n",
+            ),
+        )
+        .await;
+    assert!(
+        text.contains(
+            "\n- Section \"Requirements\" (ears), EARS-1: \"A move names `reopen_item` when the \
+             item is done.\". The requirement has no \"shall\". Put the \"when\" clause first"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("Closest frame: event-driven"), "{text}");
+    assert_eq!(details["sections"][0]["type"], "ears");
+    assert_eq!(details["sections"][0]["violations"][0]["rule"], "EARS-1");
+    assert_eq!(details["sections"].as_array().unwrap().len(), 1);
+    assert_eq!(document_count(&mut conn), before, "nothing is saved");
+    mcp.call_ok(
+        "create_item",
+        spec(
+            "## Requirements\n\
+             - When a write fails, the server shall utilize the field.\n\
+             - If the item is done, then `move_item` shall name `reopen_item`.\n",
+        ),
+    )
+    .await;
+    assert_eq!(document_count(&mut conn), before + 1);
 }

@@ -108,16 +108,10 @@ pub fn attach_reviews<T: crate::api::convert::TaskDto>(
 }
 
 /// The line of the review state in `get_item`:
-/// `- review: needed (set 5 min ago by Robin)`. Empty when nobody decided.
-pub fn review_line(conn: &mut PgConnection, task_id: Uuid) -> Result<String, ApiError> {
-    let Some(row) = task_review::review_of(conn, task_id).map_err(ApiError::internal)? else {
-        return Ok(String::new());
-    };
-    let names = display_names(conn, &[row.updated_by]).map_err(ApiError::internal)?;
-    Ok(format!(
-        "- review: {}\n",
-        review_text(&review_dto(&row, &names), Utc::now())
-    ))
+/// `- review: needed (set 5 min ago by Robin)`. `get_item` reads the review
+/// in its facts query (KAIROS-T-0726).
+pub fn review_line(review: &dto::TaskReview, now: DateTime<Utc>) -> String {
+    format!("- review: {}\n", review_text(review, now))
 }
 
 /// The text of a review state: the value, and who set it when.

@@ -1,0 +1,480 @@
+{
+ "prose": [
+  {
+   "text": "Run the command. The server starts.",
+   "expected": []
+  },
+  {
+   "text": "---\ntitle: The page is created by the build\n---\n\n# The file is created\n\nRead the log.",
+   "expected": []
+  },
+  {
+   "text": "Open the file and read each line of the log that the server writes when it starts and then stops again later.",
+   "expected": [
+    [
+     "STE-S2",
+     "22 words"
+    ]
+   ]
+  },
+  {
+   "text": "One. Two. Three. Four. Five. Six. Seven.",
+   "expected": [
+    [
+     "STE-S4",
+     "paragraph of 7 sentences"
+    ]
+   ]
+  },
+  {
+   "text": "One. Two. Three. Four. Five. Six.",
+   "expected": []
+  },
+  {
+   "text": "The file is created by the server. The key was not rotated. The board is already archived.",
+   "expected": [
+    [
+     "STE-G1",
+     "passive: is created"
+    ],
+    [
+     "STE-G1",
+     "passive: was not rotated"
+    ]
+   ]
+  },
+  {
+   "text": "The value is based on the setting. It is needed and is required.",
+   "expected": []
+  },
+  {
+   "text": "Starting the server after configuring the variable and restarting it is slow.",
+   "expected": [
+    [
+     "STE-G4",
+     "gerunds: starting, configuring, restarting"
+    ]
+   ]
+  },
+  {
+   "text": "The setting and the string are missing during the morning.",
+   "expected": []
+  },
+  {
+   "text": "An org admin opens a ticket on the kanban board of the squad.",
+   "expected": [
+    [
+     "STE-V3",
+     "\"org admin\": write \"organization admin\"."
+    ],
+    [
+     "STE-V3",
+     "\"kanban\": write \"board\"."
+    ],
+    [
+     "STE-V3",
+     "\"ticket\": write \"task\"."
+    ],
+    [
+     "STE-V3",
+     "\"squad\": write \"team\"."
+    ]
+   ]
+  },
+  {
+   "text": "Ask the IdP. A bot is a machine user. The superuser or sysadmin owns the installation.",
+   "expected": [
+    [
+     "STE-V3",
+     "\"idp\": write \"issuer\"."
+    ],
+    [
+     "STE-V3",
+     "\"bot\": write \"service account\"."
+    ],
+    [
+     "STE-V3",
+     "\"machine user\": write \"service account\"."
+    ],
+    [
+     "STE-V3",
+     "\"superuser\": write \"deployment admin\"."
+    ],
+    [
+     "STE-V3",
+     "\"sysadmin\": write \"deployment admin\"."
+    ],
+    [
+     "STE-V3",
+     "\"installation\": write \"deployment\"."
+    ]
+   ]
+  },
+  {
+   "text": "An epic is not an epicenter. Orgs are organizations. A swimlane is a lane.",
+   "expected": [
+    [
+     "STE-V3",
+     "\"epic\": write \"initiative\"."
+    ],
+    [
+     "STE-V3",
+     "\"orgs\": write \"organizations\"."
+    ],
+    [
+     "STE-V3",
+     "\"swimlane\": write \"lane\"."
+    ]
+   ]
+  },
+  {
+   "text": "Use `the file is created` in a test.\n\n```\nThe file is created by the server and the key was rotated.\n```\n\nThe end.",
+   "expected": []
+  },
+  {
+   "text": "See [the page is created](a/b.md) and **the key is rotated** here.",
+   "expected": [
+    [
+     "STE-G1",
+     "passive: is created"
+    ],
+    [
+     "STE-G1",
+     "passive: is rotated"
+    ]
+   ]
+  },
+  {
+   "text": "- The file is created.\n- The key was rotated.\n- Read the log.",
+   "expected": [
+    [
+     "STE-G1",
+     "passive: is created"
+    ],
+    [
+     "STE-G1",
+     "passive: was rotated"
+    ]
+   ]
+  },
+  {
+   "text": "Intro line of the list:\n1. The key is rotated.\n2. Read it.\nA last line that is joined.",
+   "expected": [
+    [
+     "STE-G1",
+     "passive: is rotated"
+    ],
+    [
+     "STE-G1",
+     "passive: is joined"
+    ]
+   ]
+  },
+  {
+   "text": "Read the log, e.g. the server log. Then stop, i.e. press the key.",
+   "expected": []
+  },
+  {
+   "text": "| The file is created | x |\n|---|---|\n> The file is created.\n## The key is rotated",
+   "expected": []
+  },
+  {
+   "text": "<!-- The file is created. -->\nThe end.",
+   "expected": []
+  },
+  {
+   "text": "Is it set? Yes! (The key was given.) Done.",
+   "expected": [
+    [
+     "STE-G1",
+     "passive: was given"
+    ]
+   ]
+  },
+  {
+   "text": "The value is 3.5 and the path is a/b.c here. The file's owner is set.",
+   "expected": []
+  },
+  {
+   "text": "Écrire le texte. The café is opened by Robin.",
+   "expected": [
+    [
+     "STE-G1",
+     "passive: is opened"
+    ]
+   ]
+  },
+  {
+   "text": "Le serveur démarre. Running, walking, talking and singing are gerunds.",
+   "expected": [
+    [
+     "STE-G4",
+     "gerunds: walking, talking, singing"
+    ]
+   ]
+  },
+  {
+   "text": "THE FILE IS CREATED BY THE SERVER. GETTING AND SETTING THINGS.",
+   "expected": [
+    [
+     "STE-G1",
+     "passive: IS CREATED"
+    ]
+   ]
+  },
+  {
+   "text": "The log    has   extra    spaces. And\nmore lines\nhere.",
+   "expected": []
+  }
+ ],
+ "code": [
+  {
+   "text": "The board does not exist.",
+   "expected": []
+  },
+  {
+   "text": "the board does not exist.",
+   "expected": [
+    [
+     "STE-C1",
+     "the text does not start with a capital"
+    ]
+   ]
+  },
+  {
+   "text": "The board does not exist",
+   "expected": [
+    [
+     "STE-C2",
+     "the text does not end with a period"
+    ]
+   ]
+  },
+  {
+   "text": "The board {board} does not exist.",
+   "expected": []
+  },
+  {
+   "text": "{board} does not exist.",
+   "expected": []
+  },
+  {
+   "text": "board_id is not valid.",
+   "expected": []
+  },
+  {
+   "text": "The board doesn't exist and it's gone.",
+   "expected": [
+    [
+     "STE-C3",
+     "contraction: doesn't"
+    ],
+    [
+     "STE-C3",
+     "contraction: it's"
+    ]
+   ]
+  },
+  {
+   "text": "The board isn't there; ask the admin.",
+   "expected": [
+    [
+     "STE-C3",
+     "contraction: isn't"
+    ],
+    [
+     "STE-C4",
+     "semicolon"
+    ]
+   ]
+  },
+  {
+   "text": "The board is gone — ask again.",
+   "expected": [
+    [
+     "STE-C5",
+     "dash or arrow as punctuation"
+    ]
+   ]
+  },
+  {
+   "text": "The board is gone -- ask again.",
+   "expected": [
+    [
+     "STE-C5",
+     "dash or arrow as punctuation"
+    ]
+   ]
+  },
+  {
+   "text": "Use a -> b to move.",
+   "expected": [
+    [
+     "STE-C5",
+     "dash or arrow as punctuation"
+    ]
+   ]
+  },
+  {
+   "text": "Send a field, e.g. the name, etc.",
+   "expected": [
+    [
+     "STE-C6",
+     "Latin abbreviation: e.g."
+    ],
+    [
+     "STE-C6",
+     "Latin abbreviation: etc."
+    ]
+   ]
+  },
+  {
+   "text": "Send a field via the API vs. the CLI.",
+   "expected": [
+    [
+     "STE-C6",
+     "Latin abbreviation: via"
+    ],
+    [
+     "STE-C6",
+     "Latin abbreviation: vs."
+    ]
+   ]
+  },
+  {
+   "text": "Send the name(s) of the board(s).",
+   "expected": [
+    [
+     "STE-C7",
+     "plural in parentheses: write the plural"
+    ]
+   ]
+  },
+  {
+   "text": "The board was deleted by the admin and the key was revoked by the server.",
+   "expected": [
+    [
+     "STE-G1",
+     "passive: was revoked"
+    ]
+   ]
+  },
+  {
+   "text": "Write the name of the board and the name of the column and the name of the team and then send it again.",
+   "expected": [
+    [
+     "STE-S2",
+     "23 words"
+    ]
+   ]
+  },
+  {
+   "text": "The name of the board and the name of the column and the name of the team and the name of the lane are wrong here.",
+   "expected": [
+    [
+     "STE-S3",
+     "26 words"
+    ]
+   ]
+  },
+  {
+   "text": "The name of the board and the name of the column and the name of the team and the name of the lane and the key are wrong here.",
+   "expected": [
+    [
+     "STE-S3",
+     "29 words"
+    ]
+   ]
+  },
+  {
+   "text": "The value \"{name}\" is not valid. Send `a_b` again.",
+   "expected": []
+  },
+  {
+   "text": "Failed to read {path}: {error}",
+   "expected": [
+    [
+     "STE-C2",
+     "the text does not end with a period"
+    ]
+   ]
+  },
+  {
+   "text": "The limit is {{max}} items.",
+   "expected": []
+  },
+  {
+   "text": "",
+   "expected": [
+    [
+     "STE-C1",
+     "the text does not start with a capital"
+    ],
+    [
+     "STE-C2",
+     "the text does not end with a period"
+    ]
+   ]
+  },
+  {
+   "text": "   ",
+   "expected": [
+    [
+     "STE-C1",
+     "the text does not start with a capital"
+    ],
+    [
+     "STE-C2",
+     "the text does not end with a period"
+    ]
+   ]
+  },
+  {
+   "text": "The ticket of the bot is gone.",
+   "expected": [
+    [
+     "STE-V3",
+     "\"ticket\": write \"task\"."
+    ],
+    [
+     "STE-V3",
+     "\"bot\": write \"service account\"."
+    ]
+   ]
+  },
+  {
+   "text": "Ask the IdP for a new key.",
+   "expected": [
+    [
+     "STE-V3",
+     "\"idp\": write \"issuer\"."
+    ]
+   ]
+  },
+  {
+   "text": "The board is gone. {detail}",
+   "expected": []
+  },
+  {
+   "text": "The board is gone.{detail}",
+   "expected": []
+  },
+  {
+   "text": "The board is gone (see the log.)",
+   "expected": []
+  },
+  {
+   "text": "Étape invalide.",
+   "expected": []
+  },
+  {
+   "text": "1 board is gone.",
+   "expected": [
+    [
+     "STE-C1",
+     "the text does not start with a capital"
+    ]
+   ]
+  }
+ ]
+}

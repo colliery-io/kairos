@@ -421,6 +421,11 @@ pub struct AppConfig {
     /// releases of Kairos. A mirror has the same layout:
     /// `<url>/download/v<version>/kairos-<version>-<target>.tar.gz`.
     pub cli_download_url: Option<String>,
+    /// `KAIROS_CLI_DIR` (KAIROS-T-0745): the folder of the CLI tarballs in
+    /// the image, which `GET /cli/<file>` serves. Default
+    /// `/usr/share/kairos/cli`. A folder with no tarball for a target
+    /// sends the CLI to the published release for that target.
+    pub cli_dir: Option<std::path::PathBuf>,
     /// `KAIROS_PAGES_*` (KAIROS-T-0405): the store of the uploaded
     /// repository sites ([`crate::site_store`]).
     pub pages: crate::site_store::PagesSettings,
@@ -843,6 +848,11 @@ impl AppConfig {
             },
             cli_download_url: get("KAIROS_CLI_DOWNLOAD_URL")
                 .map(|url| url.trim().trim_end_matches('/').to_string()),
+            cli_dir: Some(std::path::PathBuf::from(
+                get("KAIROS_CLI_DIR")
+                    .map(|dir| dir.trim().to_string())
+                    .unwrap_or_else(|| crate::version::DEFAULT_CLI_DIR.to_string()),
+            )),
             pages: crate::site_store::parse_settings(&get)?,
             bootstrap_admin,
             bootstrap_password,

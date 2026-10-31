@@ -1073,7 +1073,8 @@ installs from these links.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `KAIROS_CLI_DOWNLOAD_URL` | URL | `https://github.com/colliery-io/kairos/releases` | Where the tarballs of the CLI are. A mirror has the layout of the GitHub releases: `<url>/download/v<version>/kairos-<version>-<target>.tar.gz`, with the `.sha256` beside each. |
+| `KAIROS_CLI_DIR` | path | `/usr/share/kairos/cli` | The folder of the CLI tarballs of this version and their `.sha256` files. The image holds the four tarballs there. The server serves them at `GET /cli/<file>` (open), and `/version` names them: `<KAIROS_PUBLIC_URL>/cli/<file>`, or the path `/cli/<file>` when `KAIROS_PUBLIC_URL` is not set. For a platform with no tarball in the folder, `/version` names the GitHub release. |
+| `KAIROS_CLI_DOWNLOAD_URL` | URL | not set | A mirror of the GitHub releases for the tarballs of the CLI. When set, `/version` names the mirror, not the tarballs of the server. A mirror has the layout of the GitHub releases: `<url>/download/v<version>/kairos-<version>-<target>.tar.gz`, with the `.sha256` beside each. |
 
 ## Default board configurations
 

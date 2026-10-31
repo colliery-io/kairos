@@ -321,6 +321,7 @@ async fn cli_command_tree_golden_path_live() {
         webhooks: Default::default(),
         writeback: Default::default(),
         cli_download_url: None,
+        cli_dir: None,
         pages: Default::default(),
         bootstrap_admin: None,
         bootstrap_password: None,

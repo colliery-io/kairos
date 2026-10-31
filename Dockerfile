@@ -152,6 +152,15 @@ RUN cargo run --release -p kairos-embed --bin fetch-model -- /build/models
 # It must match the BUILDER's Debian release, not merely be recent: the binary
 # now carries a C++ runtime (KAIROS-T-0189) and an older libstdc++ here would
 # fail at startup rather than at build, which is the worse of the two.
+# KAIROS-T-0745 (KAIROS-A-0080): the CLI tarballs that the server serves at
+# /cli/<file>, so an upgrade of the CLI needs no access to github.com. The
+# release workflow replaces this stage with the tarballs of the release
+# (`--build-context cli=<folder>`, a folder that holds `cli/`). A build with
+# no tarballs (CI, a local build) gets an empty folder, and /version then
+# names the published release.
+FROM debian:trixie-slim AS cli
+RUN mkdir /cli
+
 FROM debian:trixie-slim AS runtime
 
 # Native runtime dependencies — two of them since KAIROS-T-0189:
@@ -201,6 +210,8 @@ RUN ldconfig && ! ldd /usr/local/bin/kairos-server | grep "not found"
 # Apache-2.0 section 4(d): a redistributable build carries the licence and the
 # NOTICE, so an operator who only ever has the image can still read both.
 COPY --from=builder /build/LICENSE /build/NOTICE /usr/share/doc/kairos/
+# The CLI tarballs and their .sha256 files (KAIROS_CLI_DIR, see the cli stage).
+COPY --from=cli /cli/ /usr/share/kairos/cli/
 # The embedding model, owned by the runtime user so nothing needs to write here.
 COPY --from=builder --chown=10001:10001 /build/models /var/lib/kairos/models
 

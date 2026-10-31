@@ -105,10 +105,10 @@ impl Found {
     }
 }
 
-/// True when the checkout at `root` has a local index: in the user cache
-/// (KAIROS-A-0072), or an old one in the checkout that the next open moves.
+/// True when the checkout at `root` has a local index in the user cache
+/// (KAIROS-A-0072).
 fn has_index(root: &Path) -> bool {
-    super::db_path(root).is_file() || root.join(kairos_index::INDEX_FILE).is_file()
+    super::db_path(root).is_file()
 }
 
 /// The checkouts in the immediate subfolders of `folder`, as `kairos repos
@@ -392,7 +392,7 @@ impl CodeTools {
     }
 
     fn index_at(root: &Path) -> Result<Index, ToolError> {
-        let (db, _moved) = super::prepare_quiet(root)?;
+        let db = super::prepare_quiet(root)?;
         if !db.is_file() {
             return Err(ToolError::NoIndex(db));
         }
@@ -428,7 +428,7 @@ impl CodeTools {
         // KAIROS-T-0526: this server is the `kairos` binary of the session
         // start. Say so when the deployment is newer.
         let behind = crate::self_update::behind_server_line().await;
-        let (db, _moved) = super::prepare_quiet(&root)?;
+        let db = super::prepare_quiet(&root)?;
         // One process at a time (KAIROS-T-0357): another agent can fetch the
         // index of this checkout now. The wait is off the async threads.
         let _lock = {

@@ -33,15 +33,12 @@ SPEC.loader.exec_module(kairos_rules)
 SESSION = "session-0001"
 URL = "https://kairos.example.com"
 
-WIRING = (
-    "---\n"
-    "deployment_url: {url}\n"
-    "tenant: acme\n"
-    "repository: payments-api\n"
-    "team_board: platform-delivery\n"
-    "adr_board: platform-adrs\n"
-    "---\n\n# Kairos wiring\n"
-)
+WIRING = {
+    "tenant": "acme",
+    "repository": "payments-api",
+    "team_board": "platform-delivery",
+    "adr_board": "platform-adrs",
+}
 
 
 def payload(tool_name, tool_input=None, session=SESSION):
@@ -56,18 +53,22 @@ class KairosRulesCase(unittest.TestCase):
         self.project = os.path.join(self.tmp.name, "project")
         os.makedirs(os.path.join(self.project, ".claude"))
         self.state_dir = os.path.join(self.tmp.name, "rules")
+        # A stub `kairos` gives the binding (KAIROS-T-0742: no file is read).
+        hook_test_env.stub_kairos(os.path.join(self.tmp.name, "bin"))
+        self.binding = os.path.join(self.tmp.name, "binding.json")
         self.env = dict(
             os.environ,
             KAIROS_RULES_STATE_DIR=self.state_dir,
             CLAUDE_PROJECT_DIR=self.project,
+            PATH=os.path.join(self.tmp.name, "bin") + os.pathsep + "/usr/bin:/bin",
+            STUB_BINDING=self.binding,
         )
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def wire(self, url=URL):
-        with open(os.path.join(self.project, ".claude", "kairos.local.md"), "w") as handle:
-            handle.write(WIRING.format(url=url))
+        hook_test_env.write_binding(self.binding, dict(WIRING, deployment_url=url))
 
     def run_hook(self, stdin, env=None):
         return subprocess.run(

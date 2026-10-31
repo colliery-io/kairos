@@ -89,10 +89,6 @@ fn clean_env(command: &mut Command) -> &mut Command {
         .env("KAIROS_CONFIG_DIR", home.join(".config/kairos"))
 }
 
-/// The index in a checkout.
-/// The old place of the index in a checkout (before KAIROS-T-0709).
-const OLD_INDEX_DB: &str = ".kairos/index.db";
-
 /// How long the agent waits for one answer of the server.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -738,7 +734,6 @@ fn json_counts(world: &mut CliWorld) {
             .is_some_and(|p| Path::new(p) == world.db()),
         "{out}"
     );
-    assert_eq!(build["moved_from"], Value::Null, "{out}");
     assert_eq!(build["structure"]["files"], files, "{out}");
     assert_eq!(build["structure"]["symbols"], symbols, "{out}");
     assert_eq!(build["structure"]["edges"]["total"], edges, "{out}");
@@ -1077,27 +1072,6 @@ fn the_index_is_in_the_cache(world: &mut CliWorld) {
     let status = git(world.root(), &["status", "--porcelain", "--ignored"]);
     let status = String::from_utf8_lossy(&status.stdout);
     assert!(!status.contains(".kairos"), "{status}");
-}
-
-#[given("the polyglot fixture with an index of an older CLI in .kairos/index.db")]
-fn an_old_index(world: &mut CliWorld) {
-    world.copy_fixture();
-    let old = world.root().join(OLD_INDEX_DB);
-    fs::create_dir_all(old.parent().expect("a folder")).expect("make .kairos");
-    kairos_index::build_structure(world.root(), &old).expect("an old index");
-}
-
-#[then("the old index is moved to the user cache")]
-fn the_old_index_moved(world: &mut CliWorld) {
-    assert!(!world.root().join(OLD_INDEX_DB).exists());
-    assert!(!world.root().join(".kairos").exists());
-    assert!(world.db().is_file());
-    assert!(world.index().counts().expect("counts").files > 0);
-    assert!(
-        world.status_out.contains(&world.db().display().to_string()),
-        "{}",
-        world.status_out
-    );
 }
 
 #[then("that function is in the first 3 results")]

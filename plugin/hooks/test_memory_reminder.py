@@ -35,15 +35,13 @@ SESSION = "session-0001"
 MEMORY = "/home/robin/.claude/projects/-home-robin-work-payments/memory/MEMORY.md"
 NOTE = "/home/robin/.claude/projects/-home-robin-work-payments/memory/refunds.md"
 
-WIRING = (
-    "---\n"
-    "deployment_url: https://kairos.example.com\n"
-    "tenant: acme\n"
-    "repository: payments-api\n"
-    "team_board: platform-delivery\n"
-    "adr_board: platform-adrs\n"
-    "---\n\n# Kairos wiring\n"
-)
+WIRING = {
+    "deployment_url": "https://kairos.example.com",
+    "tenant": "acme",
+    "repository": "payments-api",
+    "team_board": "platform-delivery",
+    "adr_board": "platform-adrs",
+}
 
 
 def payload(tool_name="Write", file_path=MEMORY, session=SESSION):
@@ -62,10 +60,15 @@ class MemoryReminderCase(unittest.TestCase):
         self.project = os.path.join(self.tmp.name, "project")
         os.makedirs(os.path.join(self.project, ".claude"))
         self.state_dir = os.path.join(self.tmp.name, "memory")
+        # A stub `kairos` gives the binding (KAIROS-T-0742: no file is read).
+        hook_test_env.stub_kairos(os.path.join(self.tmp.name, "bin"))
+        self.binding = os.path.join(self.tmp.name, "binding.json")
         self.env = dict(
             os.environ,
             KAIROS_MEMORY_STATE_DIR=self.state_dir,
             CLAUDE_PROJECT_DIR=self.project,
+            PATH=os.path.join(self.tmp.name, "bin") + os.pathsep + "/usr/bin:/bin",
+            STUB_BINDING=self.binding,
         )
         self.env.pop("CLAUDE_MEMORY_DIR", None)
 
@@ -73,8 +76,7 @@ class MemoryReminderCase(unittest.TestCase):
         self.tmp.cleanup()
 
     def wire(self):
-        with open(os.path.join(self.project, ".claude", "kairos.local.md"), "w") as handle:
-            handle.write(WIRING)
+        hook_test_env.write_binding(self.binding, WIRING)
 
     def run_hook(self, stdin, env=None):
         return subprocess.run(

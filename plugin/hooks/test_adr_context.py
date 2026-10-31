@@ -9,7 +9,7 @@ it).
 The tests run `adr_context.py` as a subprocess, the way Claude Code runs
 it. A stub `kairos` on PATH answers `adrs check` with a canned report and
 logs each call; it refuses each other command, so the hooks read the
-wiring file themselves. No test calls a server."""
+binding (KAIROS-T-0742: the hooks read no file). No test calls a server."""
 
 import os as _os  # noqa: E402
 import sys as _sys  # noqa: E402
@@ -34,14 +34,9 @@ adr_context = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(adr_context)
 
 SESSION = "session-0001"
-WIRING = "---\ndeployment_url: https://kairos.example.com\ntenant: acme\n---\n"
+WIRING = {"deployment_url": "https://kairos.example.com", "tenant": "acme"}
 
-STUB = """#!/bin/sh
-# An older kairos with no `config` verb: the hooks read the wiring file.
-if [ "$1" = "config" ]; then
-  exit 64
-fi
-echo "$*" >> "$STUB_LOG"
+STUB = "#!/bin/sh\n" + hook_test_env.STUB_CONFIG_SH + """echo "$*" >> "$STUB_LOG"
 if [ "$1" = "adrs" ] && [ "$2" = "check" ]; then
   cat "$STUB_REPORT"
   exit "${STUB_EXIT:-0}"
@@ -87,12 +82,11 @@ REPORT = {
 class AdrContextCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        root = self.tmp.name
+        root = os.path.realpath(self.tmp.name)
         self.project = os.path.join(root, "project")
         os.makedirs(os.path.join(self.project, ".git"))
-        os.makedirs(os.path.join(self.project, ".claude"))
-        with open(os.path.join(self.project, ".claude", "kairos.local.md"), "w") as handle:
-            handle.write(WIRING)
+        self.binding = os.path.join(root, "binding.json")
+        hook_test_env.write_binding(self.binding, WIRING)
         self.bin = os.path.join(root, "bin")
         os.makedirs(self.bin)
         stub = os.path.join(self.bin, "kairos")
@@ -110,6 +104,9 @@ class AdrContextCase(unittest.TestCase):
             "KAIROS_ADR_STATE_DIR": self.state_dir,
             "STUB_LOG": self.log,
             "STUB_REPORT": self.report,
+            "STUB_BINDING": self.binding,
+            # The project alone is wired, not each checkout of the test.
+            "STUB_BOUND": self.project,
         }
         self.write("src/refund.rs", "// ACME-A-0001, ACME-A-0002\n// ACME-A-0003 and ACME-A-0001\n")
 

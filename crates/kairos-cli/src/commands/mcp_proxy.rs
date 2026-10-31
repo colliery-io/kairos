@@ -7,8 +7,8 @@
 //! whole session, so two repositories could not use two deployments. The
 //! proxy finds the deployment as each command does: `--url`, then
 //! `KAIROS_URL`, then the `[[project]]` of the folder of the session
-//! (`CLAUDE_PROJECT_DIR`), then `.claude/kairos.local.md`, then `[default]`,
-//! then the only deployment of a login. The credential: `KAIROS_KEY` or
+//! (`CLAUDE_PROJECT_DIR`), then `[default]`, then the only deployment of a
+//! login. The credential: `KAIROS_KEY` or
 //! `KAIROS_MCP_KEY`, else the token of `kairos login`, refreshed as it
 //! expires. The tenant of a login: `--tenant`, then the binding, then the
 //! tenant of the login, sent as `X-Tenant` as the CLI sends it.
@@ -121,9 +121,6 @@ struct Upstream {
     credential: Credential,
     tenant: Option<String>,
     session: Mutex<Option<String>>,
-    /// The warning of `.claude/kairos.local.md` (KAIROS-T-0710): the proxy
-    /// adds it to the instructions of the server.
-    warning: Option<String>,
     /// The waits before each retry of a read; its length is the number of
     /// retries.
     backoff: Vec<Duration>,
@@ -403,16 +400,7 @@ fn connect(args: McpProxyArgs) -> Result<Upstream, String> {
         .unwrap_or_else(|| ".".to_string());
     let binding =
         project_config::binding_here().map_err(|e| tools_off(&e, &config_fix(&folder)))?;
-    // KAIROS-T-0710: the warning of the retired file, on stderr and in the
-    // instructions of the server.
-    crate::commands::config::warn_wiring_once(&binding);
-    let warning = crate::commands::config::wiring_file(&binding)
-        .map(|file| crate::commands::config::wiring_warning(&file));
-    let with_warning = |text: String| match &warning {
-        Some(warning) => format!("{text}\n\n{warning}"),
-        None => text,
-    };
-    let off = |e: CliError| with_warning(tools_off(&e, &login_fix(&folder)));
+    let off = |e: CliError| tools_off(&e, &login_fix(&folder));
     let env = auth::Env::from_process();
     let url = args.url.or_else(|| {
         env.url
@@ -441,43 +429,19 @@ fn connect(args: McpProxyArgs) -> Result<Upstream, String> {
     };
     let timeout = kairos_client::timeout_from_env()
         .map_err(|e| {
-            with_warning(tools_off(
+            tools_off(
                 &e.into(),
                 "Correct the variable, then start the session again.",
-            ))
+            )
         })?
         .unwrap_or(kairos_client::DEFAULT_TIMEOUT);
-    let mut upstream = Upstream::new(
+    Upstream::new(
         endpoint(&deployment, args.profile),
         credential,
         tenant,
         timeout,
     )
-    .map_err(|e| with_warning(tools_off(&e, "Start the session again.")))?;
-    upstream.warning = warning;
-    Ok(upstream)
-}
-
-/// The answer lines of `initialize` with `warning` at the end of the
-/// instructions of the server (KAIROS-T-0710). Other lines stay as they are.
-fn with_instructions_warning(lines: Vec<String>, warning: &str) -> Vec<String> {
-    lines
-        .into_iter()
-        .map(|line| {
-            let Ok(mut message) = serde_json::from_str::<Value>(&line) else {
-                return line;
-            };
-            let Some(result) = message.get_mut("result").and_then(Value::as_object_mut) else {
-                return line;
-            };
-            let text = match result.get("instructions").and_then(Value::as_str) {
-                Some(before) if !before.is_empty() => format!("{before}\n\n{warning}"),
-                _ => warning.to_string(),
-            };
-            result.insert("instructions".into(), Value::String(text));
-            message.to_string()
-        })
-        .collect()
+    .map_err(|e| tools_off(&e, "Start the session again."))
 }
 
 impl Upstream {
@@ -500,7 +464,6 @@ impl Upstream {
             credential,
             tenant,
             session: Mutex::new(None),
-            warning: None,
             backoff: READ_BACKOFF.to_vec(),
         })
     }
@@ -534,15 +497,9 @@ impl Upstream {
         let mut attempts = 1;
         // True when an attempt before the last got to the deployment.
         let mut sent_before = false;
-        let initialize = message.get("method").and_then(Value::as_str) == Some("initialize");
         let failure = loop {
             match self.post(line).await {
-                Ok(lines) => {
-                    return match (&self.warning, initialize) {
-                        (Some(warning), true) => with_instructions_warning(lines, warning),
-                        _ => lines,
-                    };
-                }
+                Ok(lines) => return lines,
                 Err(Failure::Unavailable { sent, .. })
                     if retry != Retry::None && attempts <= self.backoff.len() =>
                 {
@@ -753,25 +710,6 @@ fn sse_messages(body: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_wiring_warning_ends_the_instructions_of_initialize() {
-        let lines = vec![
-            json!({"jsonrpc": "2.0", "id": 1, "result": {"instructions": "Use whoami."}})
-                .to_string(),
-            json!({"jsonrpc": "2.0", "id": 2, "result": {}}).to_string(),
-            "not json".to_string(),
-        ];
-        let out = with_instructions_warning(lines, "Warning: move it.");
-        let first: Value = serde_json::from_str(&out[0]).unwrap();
-        assert_eq!(
-            first["result"]["instructions"],
-            "Use whoami.\n\nWarning: move it."
-        );
-        let second: Value = serde_json::from_str(&out[1]).unwrap();
-        assert_eq!(second["result"]["instructions"], "Warning: move it.");
-        assert_eq!(out[2], "not json");
-    }
 
     #[test]
     fn an_event_stream_gives_each_json_message_as_one_line() {

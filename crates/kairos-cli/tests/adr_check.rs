@@ -375,13 +375,8 @@ fn the_binding_comes_from_the_checkout_of_the_files() {
     sandbox.write(".git/HEAD", "ref: refs/heads/main\n");
     sandbox.write("a.md", "ACME-A-0001\n");
     let board = sandbox.dir.path();
-    // The board folder has the wiring of a deployment that is not there.
-    std::fs::create_dir_all(board.join(".claude")).unwrap();
-    std::fs::write(
-        board.join(".claude/kairos.local.md"),
-        "---\ndeployment_url: http://127.0.0.1:9\ntenant: board\n---\n",
-    )
-    .unwrap();
+    // The [default] of the config names a deployment that is not there;
+    // the [[project]] of the checkout names the stub.
     std::fs::create_dir_all(board.join("config")).unwrap();
     std::fs::write(
         board.join("config/config.toml"),

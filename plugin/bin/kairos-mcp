@@ -4,8 +4,8 @@
 - With `kairos` on PATH at the version of the plugin or newer: run
   `kairos mcp-proxy` in place of this process (exec). The proxy finds the
   deployment of the project of the session (`--url`, `KAIROS_URL`, the
-  `[[project]]` of `~/.config/kairos/config.toml`, `.claude/kairos.local.md`,
-  `[default]`, a login), and forwards MCP over stdio to its `/mcp`.
+  `[[project]]` of `~/.config/kairos/config.toml`, `[default]`, a login),
+  and forwards MCP over stdio to its `/mcp`.
 - With an older `kairos`, or none: serve MCP over stdio with no tools, as
   `kairos-code` does; the instructions say why and what to do.
 

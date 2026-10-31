@@ -2,7 +2,7 @@
 title: "Install Kairos on Kubernetes with Helm"
 ---
 
-Get a Kairos 0.18.1 deployment serving on a cluster you already run.
+Get a Kairos 0.19.0 deployment serving on a cluster you already run.
 
 **Before you start**, have all four:
 
@@ -123,7 +123,7 @@ mounts the Swagger UI at `/api/docs`.
 
 ```sh
 helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
-  --version 0.18.1 -f my-values.yaml
+  --version 0.19.0 -f my-values.yaml
 ```
 
 `--version` is not optional in practice: the chart publishes no floating tag.
@@ -534,6 +534,60 @@ setting. A 0.18.0 server and a 0.18.1 server can serve together.
 - The CLI of 0.18.0 did not build for Intel macOS, so the release has no
   CLI tarballs and `kairos self-update` cannot install 0.18.0. 0.18.1 has
   all four tarballs again. The image of 0.18.1 is the same code as 0.18.0.
+
+### From 0.18.1 to 0.19.0
+
+These changes of 0.19.0 show after the upgrade. They apply to Compose too.
+
+Before the upgrade, stop every 0.18.1 server before a new one serves. No
+test runs 0.18.1 servers and a 0.19.0 server together.
+
+10 migrations run, for each tenant:
+
+- `task_review` adds the empty table `task_review`: the review state of a
+  task.
+- `template_sections` adds the empty table `template_sections`: the typed
+  sections of a template.
+- `notices` adds the empty tables `notices` and `notice_mutes`, the column
+  `notifications.agent_key_id`, and the kind `notice` to the CHECK of the
+  kind of the notification tables. `notices_validate` validates that CHECK.
+- `item_watches` adds the empty table `item_watches` and the kind `watch`
+  to the same CHECK. `item_watches_validate` validates it.
+- `dictionary_template` adds the system template "Dictionary".
+- `section_checks` adds the empty table `section_checks` and its foreign
+  key to `documents`. `section_checks_validate` validates the key.
+- `section_type_ears` lets a typed section have the type `ears`.
+
+- Locks: `notifications` can be large, so the migration adds its new
+  CHECK `NOT VALID`, and the next migration validates it. A validate reads each
+  row and does not block a write. The other changes touch new or small
+  tables. No migration builds an index with `CONCURRENTLY`.
+- After the upgrade, a pass named `section-checks` checks the documents
+  whose template has typed sections, up to 500 in each run of 60 s.
+
+1 new setting:
+
+- `KAIROS_NOTICE_LIMIT_PER_HOUR`: the notices that one agent key, or one
+  person with no key, can send in one hour. The default is 20. 0 turns the
+  limit off.
+
+Changes that people and agents see:
+
+- A team has a stand-up page: open it from the team page or the delivery
+  board. It goes around the people of the team, then the tasks that no one
+  claims.
+- A template can name typed sections: `free`, `plain` (the plain-language
+  checker and its word list) or `ears` (each list item is an EARS
+  requirement). Kairos refuses an MCP write of a document that does not
+  pass its typed sections, and saves nothing. Kairos saves a web write, and
+  the document shows that it does not pass.
+- The organization has one dictionary, a document on the board `strategy`.
+  `get_item` ends with the terms that the item uses, and the web links each
+  term to its meaning.
+- A person can watch an item, with or without its children, and can send a
+  notice to a person or to a team. An agent key sends notices for its
+  person.
+- A task has a review state: `not_needed`, `needed` or `done`.
 
 ## Trying it out without a database
 

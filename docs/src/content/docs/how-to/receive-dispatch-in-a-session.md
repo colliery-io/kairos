@@ -2,7 +2,7 @@
 title: "Receive dispatch in a Claude Code session"
 ---
 
-This page describes Kairos 0.18.1 and the `kairos` plugin.
+This page describes Kairos 0.19.0 and the `kairos` plugin.
 
 Send the tasks of a board to a Claude Code session that runs now. A runner
 is not necessary. The `kairos` plugin has a channel, `kairos-dispatch`. The

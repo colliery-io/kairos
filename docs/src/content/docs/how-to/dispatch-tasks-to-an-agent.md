@@ -106,11 +106,6 @@ The filter is optional. Each part that you set must match:
 - `--metadata`: a metadata value, for example `priority=high`.
 - `--repository`: the repository of the task.
 
-A rule on an initiative board fires when an initiative enters the column
-(KAIROS-T-0719). The event is `initiative.entered_column`; its `data` has
-no task type, lane or repository. A strategy board does the same with
-`strategy.entered_column`. Such a rule takes the metadata filter only.
-
 A rule can also fire when an item loses its last open blocker. The blocker
 goes into a done column, or a person archives or purges it. A person can also
 remove the `blocks` link. A cancel does not fire the rule: a cancelled blocker
@@ -129,17 +124,6 @@ kairos boards dispatch add-rule platform-delivery \
 Without `--column`, a task in each column that is not done matches.
 
 The rule names no done column: a task in a done column waits for nothing.
-
-A rule can also fire when the review state of a task changes
-(`kairos tasks review`, the MCP tool `set_review`). The event is
-`task.review_changed`; its `review` is the new value, `not_needed`, `needed`
-or `done`. Use this trigger to send a task to a reviewer:
-
-```sh
-kairos boards dispatch add-rule platform-delivery \
-  --trigger review_changed --target 6f1a…
-# → Made the dispatch rule 9c2d…: each task whose review state changes goes to Agent runner.
-```
 
 An agent can make the same rule with the MCP tool `create_dispatch_rule`. With
 `url` in place of `target_id`, the tool makes the target too, and its answer

@@ -319,7 +319,6 @@ differ.
 | `cancel` | no | no | yes | no | no |
 | `reopen` | no | no | yes | no | no |
 | `lane` | no | no | yes | no | no |
-| `review` | no | no | yes | no | no |
 | `set-parent` | no | yes | yes | no | no |
 | `complexity` | no | yes | no | no | no |
 | `lifecycle` | no | no | no | yes | no |
@@ -807,33 +806,6 @@ after the call:
 
 ```text
 ACME-T-0001 is in the planned lane.
-```
-
-### `tasks review`
-
-```
-kairos tasks review <SHORT_CODE> <REVIEW> [OPTIONS]
-```
-
-| Argument / Option | Type | Default | Description |
-|---|---|---|---|
-| `<SHORT_CODE>` | string | required | The task's short code. |
-| `<REVIEW>` | string | required | `not_needed`, `needed` or `done`. |
-
-Sets the review state of a task (KAIROS-T-0718): whether the task needs a
-review before it is done. The review state is a reserved field, like the
-claim and the live state. It is not a column and not a metadata value. No
-value means nobody decided. It is not content: the command needs no version
-and makes no new version. A value the task already has changes nothing.
-
-The edit rule applies: you created the task, you hold its claim, or you hold
-`manage_tasks` on its board. A change writes one activity row (`review:
-needed`) and emits `task_review_changed`. It fires the dispatch rules of the
-board with the trigger `review_changed`. `tasks show --json` has the value
-under `review`. The command prints:
-
-```text
-Review of ACME-T-0001: needed (set by Robin).
 ```
 
 ### `initiatives complexity`
@@ -1670,7 +1642,7 @@ kairos boards dispatch remove-target <BOARD> <TARGET> --confirm [OPTIONS]
 kairos boards dispatch enable-target <BOARD> <TARGET> [OPTIONS]
 kairos boards dispatch redeliver <BOARD> <TARGET> [--since <TIME>] [OPTIONS]
 kairos boards dispatch test-target <BOARD> <TARGET> [OPTIONS]
-kairos boards dispatch add-rule <BOARD> [--trigger entered_column|unblocked|review_changed] [--column <COLUMN>] --target <TARGET> [--kind <KIND>] [--metadata <SLUG=VALUE>] [--repo <REPOSITORY>] [OPTIONS]
+kairos boards dispatch add-rule <BOARD> [--trigger entered_column|unblocked] [--column <COLUMN>] --target <TARGET> [--kind <KIND>] [--metadata <SLUG=VALUE>] [--repo <REPOSITORY>] [OPTIONS]
 kairos boards dispatch remove-rule <BOARD> <RULE> --confirm [OPTIONS]
 kairos boards dispatch agent-triage <BOARD> [--on | --off] [OPTIONS]
 kairos boards dispatch log <BOARD> [--target <TARGET>] [--rule <RULE>] [--limit <N>] [--before <DELIVERY>] [OPTIONS]
@@ -1700,12 +1672,12 @@ nothing and exit 1.
 
 | Option of `add-rule` | Type | Default | Description |
 |---|---|---|---|
-| `--trigger <TRIGGER>` | string | `entered_column` | `entered_column`: a task enters the column; on an initiative or a strategy board, an initiative or a strategy does (the event `initiative.entered_column`, KAIROS-T-0719). `unblocked`: the last open blocker of a task closes (the event `task.unblocked`). `review_changed`: the review state of a task changes (the event `task.review_changed`, KAIROS-T-0718). |
-| `--column <COLUMN>` | name or UUID | required for `entered_column` | The column. For `unblocked` and `review_changed`, the column the task must be in; with none, each column that is not done. |
+| `--trigger <TRIGGER>` | string | `entered_column` | `entered_column`: a task enters the column. `unblocked`: the last open blocker of a task closes (the event `task.unblocked`). |
+| `--column <COLUMN>` | name or UUID | required for `entered_column` | The column. For `unblocked`, the column the task must be in; with none, each column that is not done. |
 | `--target <TARGET>` | UUID | required | A target of the board. |
-| `--kind <KIND>` | string | none | Only tasks of this kind: `task`, `bug`, `tech_debt` or `support`. The old name `--task-type` still works. Refused on an initiative or a strategy board. |
+| `--kind <KIND>` | string | none | Only tasks of this kind: `task`, `bug`, `tech_debt` or `support`. The old name `--task-type` still works. |
 | `--metadata <SLUG=VALUE>` | string | none | Only tasks with this metadata value, for example `priority=high`. |
-| `--repo <REPOSITORY>` | slug or UUID | none | Only tasks of this repository. The old name `--repository` still works. Refused on an initiative or a strategy board. |
+| `--repo <REPOSITORY>` | slug or UUID | none | Only tasks of this repository. The old name `--repository` still works. |
 
 ### `kairos boards archive-completed`
 

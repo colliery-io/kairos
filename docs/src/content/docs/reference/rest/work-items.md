@@ -623,28 +623,6 @@ Request body (required): `application/json`, [`SetTaskRepositoryRequest`](../sch
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown repository |
 
-### `PUT /api/tasks/{short_code}/review`
-
-Set the review state of a task (KAIROS-T-0718): `not_needed`, `needed`
-or `done`. A reserved field, like the claim and the live state: not a
-column, not a metadata value. The edit rule applies. A write that
-changes the value writes one activity row and emits
-`task_review_changed`. It fires the `review_changed` dispatch rules of
-the board.
-
-| Parameter | In | Required | Type | Description |
-|---|---|---|---|---|
-| `short_code` | path | yes | `string` | Task short code |
-
-Request body (required): `application/json`, [`SetTaskReviewRequest`](../schemas/#settaskreviewrequest)
-
-| Response | Body | Meaning |
-|---|---|---|
-| `200` | [`Task`](../schemas/#task) | The task, with its review state |
-| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Refused by the edit rule: the caller did not create the task, has no claim on it, and lacks manage_tasks |
-| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code, or the task is archived |
-| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The value is not not_needed, needed or done, or the body has an unknown field |
-
 ### `PUT /api/tasks/{short_code}/state`
 
 Write the live state of a task (KAIROS-T-0506): branch, last commit,

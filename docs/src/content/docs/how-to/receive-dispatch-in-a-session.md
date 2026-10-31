@@ -130,7 +130,7 @@ the plugin lets that push through, and asks for each other push.
 | An event older than 24 hours, or more than 5 minutes in the future | 401 | no |
 | `X-Kairos-Delivery` different from the `id` of the body | 401 | no |
 | A delivery id that already arrived (a try again) | 200 | no |
-| An event other than `ping`, `task.entered_column`, `initiative.entered_column`, `strategy.entered_column`, `task.unblocked` and `task.review_changed` | 200 | no |
+| An event other than `ping`, `task.entered_column` and `task.unblocked` | 200 | no |
 
 Events that arrive while the session is busy wait, and arrive together on its
 next turn. The channel keeps the delivery ids in `<board>.seen.json` beside

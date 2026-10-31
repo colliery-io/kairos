@@ -1266,14 +1266,13 @@ fn after_column_move(
         )?;
         // KAIROS-T-0362: a move out of done ends the cancel mark.
         crate::task_cancellations::after_column_change(conn, item_id, to_column_id)?;
+        // KAIROS-T-0385: the dispatch rules of the column.
+        crate::dispatch::on_task_entered_column(conn, item_id, to_column_id, actor_id)?;
     }
     // KAIROS-T-0678: the cancel mark of an initiative ends in the same way.
     if entity_type == "initiative" {
         crate::task_cancellations::after_column_change(conn, item_id, to_column_id)?;
     }
-    // KAIROS-T-0385: the dispatch rules of the column. KAIROS-T-0719: for an
-    // initiative and a strategy too; an ADR matches no rule.
-    crate::dispatch::on_item_entered_column(conn, item_id, to_column_id, actor_id)?;
     // KAIROS-T-0386: the GitHub write-back of its pull requests.
     crate::writeback::on_item_changed(conn, item_id)?;
     // KAIROS-T-0022: thin event (new column), delivered on commit.
@@ -1635,7 +1634,7 @@ pub fn move_task_with(
         };
         // KAIROS-T-0385: the dispatch rules of the entry column, after the
         // rename, so the delivery has the new code.
-        crate::dispatch::on_item_entered_column(conn, task_id, to_column_id, actor_id)?;
+        crate::dispatch::on_task_entered_column(conn, task_id, to_column_id, actor_id)?;
         // KAIROS-T-0386: the GitHub write-back of its pull requests.
         crate::writeback::on_item_changed(conn, task_id)?;
         // The board it LEFT gets the event with the source board so its

@@ -867,9 +867,6 @@ pub fn create_strategy(
             &created.title,
             &created.content,
         )?;
-        // KAIROS-T-0719: a create puts the item in a column, as a move does;
-        // the dispatch rules of that column fire, in this transaction.
-        crate::dispatch::on_item_entered_column(conn, created.id, column_id, actor)?;
         Ok(created)
     })
 }
@@ -920,9 +917,6 @@ pub fn create_initiative(
             &created.title,
             &created.content,
         )?;
-        // KAIROS-T-0719: a create puts the item in a column, as a move does;
-        // the dispatch rules of that column fire, in this transaction.
-        crate::dispatch::on_item_entered_column(conn, created.id, column_id, actor)?;
         Ok(created)
     })
 }
@@ -1012,7 +1006,7 @@ pub fn create_task(
         // does. The dispatch rules of that column fire, in this
         // transaction. The column is the entry column for each caller but
         // the demo seed (the server refuses any other).
-        crate::dispatch::on_item_entered_column(conn, created.id, column_id, actor)?;
+        crate::dispatch::on_task_entered_column(conn, created.id, column_id, actor)?;
         Ok(created)
     })
 }

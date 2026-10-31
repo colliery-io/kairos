@@ -129,19 +129,6 @@ class Events(unittest.TestCase):
         self.assertIn("COLLIERY-I-0662", event["content"])
         self.assertIn("entered Active", event["content"])
 
-    def test_claim_released_names_the_branch_and_the_pr(self):
-        body, _ = delivery(event="task.claim_released", data={
-            "code": "WEB-T-0015", "task_type": "task", "work_class": "planned",
-            "board": {"slug": "web-delivery"}, "column": {"name": "Active"},
-            "rule_id": "r-5",
-            "state": {"branch": "web-t-0015", "commit": "abc1234", "pushed": True,
-                      "pr_url": "https://example.com/pr/15", "next_step": None},
-        })
-        event = channel.event_of(json.loads(body))
-        self.assertEqual(event["meta"]["branch"], "web-t-0015")
-        self.assertEqual(event["meta"]["pr_url"], "https://example.com/pr/15")
-        self.assertIn("has its claim released", event["content"])
-
     def test_review_changed_names_the_review_state(self):
         body, _ = delivery(event="task.review_changed", data={
             "code": "WEB-T-0014", "task_type": "task", "work_class": "planned",

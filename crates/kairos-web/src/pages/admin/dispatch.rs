@@ -86,11 +86,10 @@ pub struct Delivery {
 const TASK_TYPES: [&str; 5] = ["any type", "task", "bug", "tech_debt", "support"];
 
 /// The triggers of a rule, in words: the first is `entered_column`.
-const TRIGGERS: [&str; 4] = [
+const TRIGGERS: [&str; 3] = [
     "enters the column",
     "is unblocked",
     "has its review state changed",
-    "has its claim released",
 ];
 
 /// The column option of an `unblocked` rule with no column.
@@ -103,8 +102,6 @@ fn when_words(rule: &Rule) -> String {
         ("unblocked", None) => "that is unblocked".to_string(),
         ("review_changed", Some(column)) => format!("in {column} whose review state changes"),
         ("review_changed", None) => "whose review state changes".to_string(),
-        ("claim_released", Some(column)) => format!("in {column} whose claim is released"),
-        ("claim_released", None) => "whose claim is released".to_string(),
         (_, column) => format!("that enters {}", column.unwrap_or("?")),
     }
 }
@@ -143,8 +140,6 @@ fn rule_body(
         body["trigger"] = json!("unblocked");
     } else if trigger == TRIGGERS[2] {
         body["trigger"] = json!("review_changed");
-    } else if trigger == TRIGGERS[3] {
-        body["trigger"] = json!("claim_released");
     }
     if column != ANY_COLUMN {
         body["column"] = json!(column);
@@ -849,13 +844,6 @@ mod tests {
             ..review
         };
         assert_eq!(when_words(&review_anywhere), "whose review state changes");
-        // KAIROS-T-0720: the claim.
-        let released = Rule {
-            trigger: "claim_released".into(),
-            column: None,
-            ..rule()
-        };
-        assert_eq!(when_words(&released), "whose claim is released");
     }
 
     #[test]
@@ -893,18 +881,6 @@ mod tests {
             )
             .unwrap(),
             json!({ "trigger": "review_changed", "column": "Active", "target_id": "t1" })
-        );
-        assert_eq!(
-            rule_body(
-                "has its claim released",
-                "any column",
-                "t1",
-                "any type",
-                "",
-                ""
-            )
-            .unwrap(),
-            json!({ "trigger": "claim_released", "target_id": "t1" })
         );
     }
 

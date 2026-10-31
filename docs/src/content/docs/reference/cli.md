@@ -1670,7 +1670,7 @@ kairos boards dispatch remove-target <BOARD> <TARGET> --confirm [OPTIONS]
 kairos boards dispatch enable-target <BOARD> <TARGET> [OPTIONS]
 kairos boards dispatch redeliver <BOARD> <TARGET> [--since <TIME>] [OPTIONS]
 kairos boards dispatch test-target <BOARD> <TARGET> [OPTIONS]
-kairos boards dispatch add-rule <BOARD> [--trigger entered_column|unblocked|review_changed|claim_released] [--column <COLUMN>] --target <TARGET> [--kind <KIND>] [--metadata <SLUG=VALUE>] [--repo <REPOSITORY>] [OPTIONS]
+kairos boards dispatch add-rule <BOARD> [--trigger entered_column|unblocked|review_changed] [--column <COLUMN>] --target <TARGET> [--kind <KIND>] [--metadata <SLUG=VALUE>] [--repo <REPOSITORY>] [OPTIONS]
 kairos boards dispatch remove-rule <BOARD> <RULE> --confirm [OPTIONS]
 kairos boards dispatch agent-triage <BOARD> [--on | --off] [OPTIONS]
 kairos boards dispatch log <BOARD> [--target <TARGET>] [--rule <RULE>] [--limit <N>] [--before <DELIVERY>] [OPTIONS]
@@ -1700,8 +1700,8 @@ nothing and exit 1.
 
 | Option of `add-rule` | Type | Default | Description |
 |---|---|---|---|
-| `--trigger <TRIGGER>` | string | `entered_column` | `entered_column`: a task enters the column; on an initiative or a strategy board, an initiative or a strategy does (the event `initiative.entered_column`, KAIROS-T-0719). `unblocked`: the last open blocker of a task closes (the event `task.unblocked`). `review_changed`: the review state of a task changes (the event `task.review_changed`, KAIROS-T-0718). `claim_released`: the claim of a task is released, or ends on a move out of the claims column (the event `task.claim_released` with the live state of the task, KAIROS-T-0720). |
-| `--column <COLUMN>` | name or UUID | required for `entered_column` | The column. For the other triggers, the column the task must be in; with none, each column that is not done. |
+| `--trigger <TRIGGER>` | string | `entered_column` | `entered_column`: a task enters the column; on an initiative or a strategy board, an initiative or a strategy does (the event `initiative.entered_column`, KAIROS-T-0719). `unblocked`: the last open blocker of a task closes (the event `task.unblocked`). `review_changed`: the review state of a task changes (the event `task.review_changed`, KAIROS-T-0718). |
+| `--column <COLUMN>` | name or UUID | required for `entered_column` | The column. For `unblocked` and `review_changed`, the column the task must be in; with none, each column that is not done. |
 | `--target <TARGET>` | UUID | required | A target of the board. |
 | `--kind <KIND>` | string | none | Only tasks of this kind: `task`, `bug`, `tech_debt` or `support`. The old name `--task-type` still works. Refused on an initiative or a strategy board. |
 | `--metadata <SLUG=VALUE>` | string | none | Only tasks with this metadata value, for example `priority=high`. |

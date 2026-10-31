@@ -260,13 +260,6 @@ fn end_claim(
             task_id,
             format!("release:{} reason:{reason}", claim.user_id),
         )?;
-        // KAIROS-T-0720: the dispatch rules on a released claim: a release,
-        // or a move out of the claims column. Not an archive, a column that
-        // lost its flag, or a person who left. Before the clear below, so
-        // the delivery carries the next step as the holder left it.
-        if matches!(reason, "release" | "transition" | "board_move") {
-            crate::dispatch::on_claim_released(conn, task_id, actor_id)?;
-        }
         // KAIROS-T-0533: the next step was the plan of the person who held
         // the claim; the next holder starts from the facts.
         crate::task_state::clear_next_step(conn, task_id, actor_id)?;

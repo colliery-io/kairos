@@ -35,10 +35,6 @@
 //!     fires `initiative.entered_column` on a transition and on a create,
 //!     with `entity_type` initiative and no task type; a rule there cannot
 //!     filter on a task type or a repository.
-//! 12. KAIROS-T-0720: a `claim_released` rule fires on a release and on
-//!     the end of a claim by a move to another board, with the live state
-//!     of the task in `data.state` as the holder left it; not on a
-//!     hand-off, not on a move to a done column.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`), with
 //! KAIROS_WEBHOOK_ALLOW_PRIVATE on (the receiver is on 127.0.0.1). Owns the
@@ -58,9 +54,7 @@ use uuid::Uuid;
 use common::{
     AUDIENCE, ISSUER, base_config, recreate_scratch_db, spawn_server, user_token, with_database,
 };
-use kairos_client::types::{
-    CreateInitiativeRequest, CreateTaskRequest, SetTaskReviewRequest, SetTaskStateRequest,
-};
+use kairos_client::types::{CreateInitiativeRequest, CreateTaskRequest, SetTaskReviewRequest};
 use kairos_client::types_dispatch::{
     CreateDispatchRuleRequest, CreateWebhookTargetRequest, RedeliverQuery, WebhookDeliveriesQuery,
 };
@@ -1511,144 +1505,4 @@ async fn a_task_that_enters_the_column_of_a_rule_fires_one_signed_delivery() {
             .all(|r| r.headers["x-kairos-event"] != "task.entered_column"),
         "no task moved"
     );
-
-    // --- 12. KAIROS-T-0720: claim_released --------------------------------
-    let err = alice
-        .create_dispatch_rule(
-            &slug,
-            &CreateDispatchRuleRequest {
-                trigger: Some("claim_released".into()),
-                ..rule("Completed", None)
-            },
-        )
-        .await
-        .expect_err("a done column");
-    assert!(err.to_string().contains("done column"), "{err}");
-    let released_rule = alice
-        .create_dispatch_rule(
-            &slug,
-            &CreateDispatchRuleRequest {
-                trigger: Some("claim_released".into()),
-                column: None,
-                ..rule("x", None)
-            },
-        )
-        .await
-        .expect("claim_released rule");
-    assert_eq!(
-        (
-            released_rule.trigger.as_str(),
-            released_rule.column.as_deref()
-        ),
-        ("claim_released", None)
-    );
-    // The api board too, for the end of a claim by a move there.
-    admin
-        .create_dispatch_rule(
-            &api_board,
-            &CreateDispatchRuleRequest {
-                trigger: Some("claim_released".into()),
-                column: None,
-                target_id: api_target.target.id.clone(),
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("claim_released rule on the api board");
-    let handed = new_task(&alice, &board, "Handed back", "task").await;
-    for name in ["Todo", "Active"] {
-        alice
-            .transition_task(&handed, &column[name])
-            .await
-            .expect("to Active");
-    }
-    alice
-        .set_task_state(
-            &handed,
-            &SetTaskStateRequest {
-                branch: Some(Some("web-t-handed".into())),
-                commit: Some(Some("abc1234".into())),
-                pushed: Some(true),
-                pr_url: Some(Some("https://example.com/pr/7".into())),
-                next_step: Some(Some("Wait for the review".into())),
-                expected_updated_at: None,
-            },
-        )
-        .await
-        .expect("state");
-    let before_claim = receiver.received().len();
-    let released = |from: usize| -> Vec<Value> {
-        receiver.received()[from..]
-            .iter()
-            .filter(|r| r.headers["x-kairos-event"] == "task.claim_released")
-            .map(|r| r.json())
-            .collect()
-    };
-    // A hand-off fires nothing.
-    alice
-        .hand_off_task(&handed, &bob_id.to_string())
-        .await
-        .expect("hand-off to bob");
-    deliver(&worker, &scratch_url).await;
-    assert!(
-        released(before_claim).is_empty(),
-        "{:?}",
-        released(before_claim)
-    );
-    // A release fires once, with the state as bob left it (the hand-off
-    // cleared alice's next step; bob writes his own); Kairos clears the
-    // next step after.
-    bob.set_task_state(
-        &handed,
-        &SetTaskStateRequest {
-            next_step: Some(Some("Wait for the review".into())),
-            ..Default::default()
-        },
-    )
-    .await
-    .expect("bob's next step");
-    bob.release_task(&handed).await.expect("bob releases");
-    deliver(&worker, &scratch_url).await;
-    let got = released(before_claim);
-    assert_eq!(got.len(), 1, "{got:?}");
-    assert_eq!(got[0]["data"]["code"], handed);
-    assert_eq!(got[0]["data"]["column"]["name"], "Active");
-    assert_eq!(got[0]["data"]["rule_id"], released_rule.id);
-    assert_eq!(got[0]["data"]["state"]["branch"], "web-t-handed");
-    assert_eq!(got[0]["data"]["state"]["commit"], "abc1234");
-    assert_eq!(got[0]["data"]["state"]["pushed"], true);
-    assert_eq!(
-        got[0]["data"]["state"]["pr_url"],
-        "https://example.com/pr/7"
-    );
-    assert_eq!(got[0]["data"]["state"]["next_step"], "Wait for the review");
-    // A move to a done column ends the claim and fires nothing.
-    alice.claim_task(&handed).await.expect("alice claims");
-    let before_done = receiver.received().len();
-    alice
-        .transition_task(&handed, &column["Completed"])
-        .await
-        .expect("to Completed");
-    deliver(&worker, &scratch_url).await;
-    assert!(
-        released(before_done).is_empty(),
-        "{:?}",
-        released(before_done)
-    );
-    // A move to another board ends the claim: the rule of that board fires,
-    // in its entry column, with no state.
-    let moved = new_task(&alice, &board, "Moved away", "task").await;
-    for name in ["Todo", "Active"] {
-        alice
-            .transition_task(&moved, &column[name])
-            .await
-            .expect("to Active");
-    }
-    let before_move = receiver.received().len();
-    admin.move_task(&moved, &api_board).await.expect("move");
-    deliver(&worker, &scratch_url).await;
-    let got = released(before_move);
-    assert_eq!(got.len(), 1, "{got:?}");
-    assert_eq!(got[0]["data"]["board"]["id"], api_board);
-    assert!(got[0]["data"]["state"].is_null(), "{}", got[0]);
 }

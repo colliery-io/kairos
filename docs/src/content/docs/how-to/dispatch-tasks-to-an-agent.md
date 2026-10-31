@@ -106,11 +106,6 @@ The filter is optional. Each part that you set must match:
 - `--metadata`: a metadata value, for example `priority=high`.
 - `--repository`: the repository of the task.
 
-A rule on an initiative board fires when an initiative enters the column
-(KAIROS-T-0719). The event is `initiative.entered_column`; its `data` has
-no task type, lane or repository. A strategy board does the same with
-`strategy.entered_column`. Such a rule takes the metadata filter only.
-
 A rule can also fire when an item loses its last open blocker. The blocker
 goes into a done column, or a person archives or purges it. A person can also
 remove the `blocks` link. A cancel does not fire the rule: a cancelled blocker

@@ -24,7 +24,6 @@ use diesel::prelude::*;
 use kairos_client::types_dispatch as dto;
 use kairos_db::dispatch::{self, NewRule};
 use kairos_db::models::boards::Board;
-use kairos_db::models::enums::BoardLevel;
 use kairos_db::webhooks as db;
 use serde_json::json;
 use uuid::Uuid;
@@ -537,23 +536,6 @@ pub fn create_rule_as(
     };
     let target = target_of(conn, &board, &request.target_id)
         .map_err(|e| e.with_details(json!({ "field": "target_id" })))?;
-    // KAIROS-T-0719: an initiative or a strategy has no task type and no
-    // repository, so a rule on its board cannot filter on them.
-    if board.board_level != BoardLevel::Delivery {
-        for (field, value) in [
-            ("task_type", &request.task_type),
-            ("repository", &request.repository),
-        ] {
-            if given(value).is_some() {
-                return Err(ApiError::validation(format!(
-                    "A rule on a {} board cannot filter on {field}: its items have none. \
-                     Such a rule filters on metadata only.",
-                    board.board_level.as_str()
-                ))
-                .with_details(json!({ "field": field })));
-            }
-        }
-    }
     let task_type = given(&request.task_type);
     if let Some(t) = &task_type
         && !dispatch::TASK_TYPES.contains(&t.as_str())

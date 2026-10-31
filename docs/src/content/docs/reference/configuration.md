@@ -1162,19 +1162,15 @@ one order for each value:
 1. A flag, for example `--url` or `--tenant`.
 2. The environment: `KAIROS_URL`.
 3. The `[[project]]` of the checkout.
-4. `.claude/kairos.local.md` of the checkout, or of its clone in a worktree.
-   This release reads this file and gives a warning. The next release does
-   not read it. `kairos config migrate` moves its values
-   to a `[[project]]`.
-5. `[default]`.
-6. The deployment and the tenant of `kairos login`.
+4. `[default]`.
+5. The deployment and the tenant of `kairos login`.
 
 A subfolder of a checkout has the binding of the top of the checkout: its
-remote and its `.claude/kairos.local.md`.
+remote. The retired `.claude/kairos.local.md` is not read. `kairos config
+migrate` moves its values to a `[[project]]`.
 
 `[default]` alone does not wire a repository. The hooks of the plugin give
-the Kairos context only when a `[[project]]` (or the retired
-`.claude/kairos.local.md`) binds the folder. To wire a board folder, use a
+the Kairos context only when a `[[project]]` binds the folder. To wire a board folder, use a
 `[[project]]` with `path`, not `[default]`. `kairos config show` gives each
 value of a folder and where it comes from.
 
@@ -1269,11 +1265,9 @@ Each worktree has its own key, so it has its own index. When you move or
 rename a checkout, its key changes. Then the CLI builds the index again, or
 it downloads the base index from Kairos.
 
-An index of an older CLI is in the checkout, at `.kairos/index.db`. On the
-first open, the CLI moves it to the user cache with a rename. When the
-rename fails, the CLI leaves the old file, and it builds the index again. The
-CLI does not change the line of `.kairos/index.db` in `.git/info/exclude`.
-You can remove that line. The CLI writes no line there now.
+An index of a CLI before 0.18 is in the checkout, at `.kairos/index.db`.
+The CLI does not read it and does not move it. Delete the old file, and
+remove its line from `.git/info/exclude`. The CLI writes no line there now.
 
 The plugin hooks find the index with the same rule.
 
@@ -1291,7 +1285,7 @@ index. The output says so. The tool `fetch_index` of the code tools does the sam
 
 | Setting | Description |
 |---|---|
-| `--url`, then `KAIROS_URL`, then the binding of the checkout (the `[[project]]` of [`config.toml`](#configtoml), the retired `.claude/kairos.local.md`, `[default]`) | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |
+| `--url`, then `KAIROS_URL`, then the binding of the checkout (the `[[project]]` of [`config.toml`](#configtoml), `[default]`) | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |
 | `KAIROS_KEY`, then `KAIROS_MCP_KEY` | An agent key or a service-account key, sent as the bearer, as for each other command ([CLI → Authentication](../cli/#authentication)). With neither, the CLI uses the credentials of `kairos login`. |
 | `--tenant`, then `tenant` of the binding of the checkout (`kairos config show`) | The tenant, for the credentials of `kairos login`. With neither, the CLI uses the tenant of the login. A key carries its tenant. |
 | `--repository`, then `repository` of the binding of the checkout (`kairos config show`) | The repository in Kairos. With neither, the CLI uses the repository whose `repo_url` is the `origin` remote of the checkout. |
@@ -1299,10 +1293,7 @@ index. The output says so. The tool `fetch_index` of the code tools does the sam
 | `--link-only` | Do not run the summary model. The update links the summaries that are in the pool of the index, and it does not make new summaries. The background update of the Claude Code plugin uses this option. |
 
 A worktree has the `[[project]]` of its clone, because the entry matches the
-`origin` remote. Git excludes the retired `.claude/kairos.local.md`, so a
-worktree has no such file. In a worktree, the CLI reads the file of the main
-clone. The main clone is the folder above `git rev-parse --git-common-dir`.
-The plugin hooks use the same rule.
+`origin` remote. The plugin hooks use the same rule.
 
 A repository can opt in to the hosted provider of its organization
 (`code_index_summaries = hosted`). On such a repository, the update makes

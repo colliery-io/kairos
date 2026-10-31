@@ -3,10 +3,9 @@
 //!
 //! - **The connection.** The URL: `--url`, else `KAIROS_URL`, else the
 //!   binding of the checkout ([`crate::project_config`]: a `[[project]]` of
-//!   `config.toml`, then the retired `.claude/kairos.local.md`, KAIROS-T-0710),
-//!   else the credential cache of `kairos login`. A worktree has no file of
-//!   its own (git excludes it): the CLI then reads the file of its main clone
-//!   ([`settings_path`], KAIROS-T-0646), as the plugin hooks do. The token: `KAIROS_KEY`, else
+//!   `config.toml`, then `[default]`), else the credential cache of `kairos
+//!   login`. A worktree has the `[[project]]` of its clone: the entry
+//!   matches the `origin` remote. The token: `KAIROS_KEY`, else
 //!   `KAIROS_MCP_KEY` (an agent key or a service-account key, as the plugin
 //!   and `scripts/render-references.sh` use), else the credential cache.
 //!   [`crate::auth`] resolves both, as for each other command.
@@ -23,7 +22,7 @@
 //!   not ignore.
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,9 +32,6 @@ use super::git_output;
 use crate::auth::{self, Source};
 use crate::credentials;
 use crate::provider::CachedTokenProvider;
-
-/// The settings file of the plugin in a checkout (KAIROS-A-0014).
-const SETTINGS_FILE: &str = ".claude/kairos.local.md";
 
 /// How long a short request to Kairos can take.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
@@ -211,7 +207,7 @@ pub async fn find(root: &Path, args: &RemoteArgs) -> Found {
 }
 
 /// The repository of the checkout at `root` in `repositories`: `--repo`,
-/// else `repository` in `.claude/kairos.local.md`, else the repository
+/// else `repository` of the binding of the checkout, else the repository
 /// whose `repo_url` is the `origin` remote. The error says why none is.
 fn pick_repository<'a>(
     root: &Path,
@@ -376,7 +372,7 @@ fn client(
         .url
         .clone()
         .or_else(|| env.url.clone())
-        .or_else(|| settings.get("deployment_url").cloned());
+        .or_else(|| settings.get("deployment").cloned());
     let path = credentials::credentials_path().map_err(|e| e.to_string())?;
     let source = match auth::resolve(url.as_deref(), &env, || credentials::load(&path)) {
         Ok(source) => source,
@@ -418,8 +414,8 @@ fn client(
 }
 
 /// The tenant of a token from `kairos login` (KAIROS-T-0594): `--tenant`,
-/// else `tenant` in `.claude/kairos.local.md`, else the tenant of the login.
-/// A key carries its tenant, so a key does not use the settings file.
+/// else `tenant` of the binding of the checkout, else the tenant of the
+/// login. A key carries its tenant, so a key does not use the binding.
 fn login_tenant(
     args: &RemoteArgs,
     settings: &HashMap<String, String>,
@@ -432,77 +428,13 @@ fn login_tenant(
 }
 
 /// The settings of the checkout at `root` with the config of the person
-/// (#270): its `[[project]]`, then `.claude/kairos.local.md`, then
-/// `[default]`, with the key names of the settings file. A `config.toml`
-/// that does not parse is an error that names the file and the line
-/// (KAIROS-T-0706); before, the settings file alone was used.
+/// (#270): its `[[project]]`, then `[default]`, by the keys of the binding.
+/// A `config.toml` that does not parse is an error that names the file and
+/// the line (KAIROS-T-0706).
 fn bound_settings(root: &Path) -> Result<HashMap<String, String>, String> {
     crate::project_config::binding(root)
-        .inspect(crate::commands::config::warn_wiring_once)
         .map(|b| b.as_settings())
         .map_err(|e| e.to_string())
-}
-
-/// The settings file of the checkout at `root` (KAIROS-T-0646):
-/// `.claude/kairos.local.md` in `root`, else the same file in the main
-/// clone. Git excludes the file, so a worktree has none. The main clone is
-/// the folder above `git rev-parse --git-common-dir`, as in
-/// `session_start.wiring_path` of the plugin. `None` when neither exists.
-/// A folder with no `.git` gets no git call.
-pub(crate) fn settings_path(root: &Path) -> Option<PathBuf> {
-    let own = root.join(SETTINGS_FILE);
-    if own.is_file() {
-        return Some(own);
-    }
-    if !root.join(".git").exists() {
-        return None;
-    }
-    let common = git_output(root, &["rev-parse", "--git-common-dir"])?;
-    let common = std::fs::canonicalize(root.join(common)).ok()?;
-    let clone = common.parent()?.join(SETTINGS_FILE);
-    clone.is_file().then_some(clone)
-}
-
-/// The `key: value` lines of the front matter of the settings file of the
-/// checkout at `root` ([`settings_path`]).
-pub(crate) fn settings(root: &Path) -> HashMap<String, String> {
-    let Some(text) = settings_path(root).and_then(|path| std::fs::read(path).ok()) else {
-        return HashMap::new();
-    };
-    front_matter(&String::from_utf8_lossy(&text))
-}
-
-/// The `key: value` lines of a front matter. The rule is also the rule of
-/// `read_frontmatter` of the plugin hooks (KAIROS-T-0708): an indented
-/// line, a blank line and a `#` line are not keys; one pair of matching
-/// quotes is removed from a value; with no quotes, a ` #` comment is cut;
-/// an empty value is not set.
-pub(crate) fn front_matter(text: &str) -> HashMap<String, String> {
-    let mut lines = text.lines();
-    if lines.next().map(str::trim) != Some("---") {
-        return HashMap::new();
-    }
-    lines
-        .take_while(|line| line.trim() != "---")
-        .filter(|line| !line.starts_with(char::is_whitespace) && !line.starts_with('#'))
-        .filter_map(|line| {
-            let (key, value) = line.split_once(':')?;
-            let value = front_value(value);
-            (!value.is_empty()).then(|| (key.trim().to_string(), value.to_string()))
-        })
-        .collect()
-}
-
-/// One value of a front matter line ([`front_matter`]).
-fn front_value(raw: &str) -> &str {
-    let value = raw.trim();
-    let quoted = value.len() >= 2
-        && (value.starts_with('"') && value.ends_with('"')
-            || value.starts_with('\'') && value.ends_with('\''));
-    if quoted {
-        return &value[1..value.len() - 1];
-    }
-    value.find(" #").map_or(value, |cut| value[..cut].trim())
 }
 
 /// A remote URL as `host/path`, in lower case, with no scheme, user,
@@ -631,71 +563,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_settings_are_the_front_matter() {
-        let dir = tempfile::tempdir().expect("a folder");
-        std::fs::create_dir_all(dir.path().join(".claude")).expect("make .claude");
-        std::fs::write(
-            dir.path().join(SETTINGS_FILE),
-            "---\ndeployment_url: https://kairos.example\ntenant: colliery\nrepository: kairos\n---\n\nrepository: not this\n",
-        )
-        .expect("write");
-        let settings = settings(dir.path());
-        assert_eq!(settings["deployment_url"], "https://kairos.example");
-        assert_eq!(settings["repository"], "kairos");
-        assert_eq!(settings.len(), 3);
-        assert!(super::settings(&dir.path().join("none")).is_empty());
-    }
-
-    /// KAIROS-T-0708: the CLI and the plugin hooks read each front matter
-    /// to the same values (the cases are shared with the hook tests).
-    #[test]
-    fn the_front_matter_rule_is_the_rule_of_the_hooks() {
-        let cases: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../plugin/hooks/frontmatter_cases.json"
-        ))
-        .expect("the cases parse");
-        for case in cases["cases"].as_array().expect("a list of cases") {
-            let text = case["text"].as_str().expect("a text");
-            let want: HashMap<String, String> =
-                serde_json::from_value(case["values"].clone()).expect("the values");
-            assert_eq!(front_matter(text), want, "{}", case["name"]);
-        }
-    }
-
-    /// KAIROS-T-0646: a worktree has no settings file (git excludes it).
-    /// The CLI reads the file of its main clone. A file in the worktree
-    /// comes first.
-    #[test]
-    fn a_worktree_reads_the_settings_file_of_its_clone() {
-        let dir = tempfile::tempdir().expect("a folder");
-        let clone = dir.path().join("payments");
-        std::fs::create_dir_all(clone.join(".claude")).expect("make .claude");
-        crate::index::test_git(&clone, &["init", "-q", "-b", "main"]);
-        crate::index::test_git(&clone, &["commit", "-q", "--allow-empty", "-m", "A"]);
-        std::fs::write(
-            clone.join(SETTINGS_FILE),
-            "---\ndeployment_url: https://kairos.example\nrepository: payments\n---\n",
-        )
-        .expect("write");
-        let worktree = dir.path().join("wt-payments");
-        let path = worktree.display().to_string();
-        crate::index::test_git(&clone, &["worktree", "add", "-q", "-b", "work", &path]);
-
-        let settings = settings(&worktree);
-        assert_eq!(settings["deployment_url"], "https://kairos.example");
-        assert_eq!(settings["repository"], "payments");
-
-        std::fs::create_dir_all(worktree.join(".claude")).expect("make .claude");
-        std::fs::write(worktree.join(SETTINGS_FILE), "---\nrepository: own\n---\n").expect("write");
-        assert_eq!(super::settings(&worktree)["repository"], "own");
-
-        // A folder that is no checkout has no settings, and git is not asked.
-        let plain = dir.path().join("plain");
-        std::fs::create_dir_all(&plain).expect("make the folder");
-        assert!(settings_path(&plain).is_none());
-    }
-
     /// KAIROS-T-0516: the base with the smaller diff, the branch point on a
     /// tie.
     #[test]
@@ -713,9 +580,9 @@ mod tests {
     }
 
     /// KAIROS-T-0594: the tenant of a login is `--tenant`, else `tenant`
-    /// in the settings file, else the tenant of the login.
+    /// of the binding, else the tenant of the login.
     #[test]
-    fn the_tenant_of_a_login_reads_the_settings_file() {
+    fn the_tenant_of_a_login_reads_the_binding() {
         let settings: HashMap<String, String> =
             [("tenant".to_string(), "colliery".to_string())].into();
         let none = RemoteArgs::default();

@@ -585,6 +585,11 @@ Changes that people and agents see:
 - A person can watch an item, with or without its children, and can send a
   notice to a person or to a team. An agent key sends notices for its
   person.
+- `.claude/kairos.local.md` is no longer read. Run `kairos config migrate`
+  once in each checkout that has the file. Then remove the file.
+- A `.kairos/index.db` is no longer moved. Run `kairos index build` once
+  and delete the old file. The `moved_from` field of `kairos index status
+  --json` is gone.
 
 ## Trying it out without a database
 

@@ -13,10 +13,10 @@
 //! branch is the one of the repository in Kairos, when the clone has its
 //! ref. Else it is `origin/HEAD`, else `origin/main`, else `origin/master`.
 //!
-//! The deployment: `--url`, else `KAIROS_URL`, else `deployment_url` in
-//! `.claude/kairos.local.md` of the folder (of its main clone in a
-//! worktree), else the deployment of `kairos login`. The session hook of
-//! the plugin runs the verb in a board folder.
+//! The deployment: `--url`, else `KAIROS_URL`, else `deployment` of the
+//! binding of the folder (`kairos config show`), else the deployment of
+//! `kairos login`. The session hook of the plugin runs the verb in a board
+//! folder.
 
 use std::path::{Path, PathBuf};
 

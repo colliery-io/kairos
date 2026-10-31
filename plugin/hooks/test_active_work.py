@@ -29,16 +29,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "active_work.py")
 SESSION = "session-0001"
 
-WIRING = (
-    "---\n"
-    "deployment_url: {url}\n"
-    "tenant: acme\n"
-    "repository: payments-api\n"
-    "delivery_stream: platform\n"
-    "team_board: platform-delivery\n"
-    "initiative_board: initiatives\n"
-    "---\n\n# Kairos wiring\n"
-)
+WIRING = {
+    "tenant": "acme",
+    "repository": "payments-api",
+    "delivery_stream": "platform",
+    "team_board": "platform-delivery",
+    "initiative_board": "initiatives",
+}
 
 GET_ITEM = """# ACME-T-0042 — Refunds keep the original currency
 - type: task (task) · lane: planned · repository: {repository} (owner: platform)
@@ -77,11 +74,16 @@ class ActiveWorkCase(unittest.TestCase):
         os.makedirs(os.path.join(self.project, ".claude"))
         self.work_dir = os.path.join(self.tmp.name, "work")
         self.ralph_dir = os.path.join(self.tmp.name, "ralph")
+        # A stub `kairos` gives the binding (KAIROS-T-0742: no file is read).
+        hook_test_env.stub_kairos(os.path.join(self.tmp.name, "bin"))
+        self.binding = os.path.join(self.tmp.name, "binding.json")
         self.env = dict(
             os.environ,
             KAIROS_WORK_STATE_DIR=self.work_dir,
             KAIROS_RALPH_STATE_DIR=self.ralph_dir,
             CLAUDE_PROJECT_DIR=self.project,
+            PATH=os.path.join(self.tmp.name, "bin") + os.pathsep + "/usr/bin:/bin",
+            STUB_BINDING=self.binding,
         )
         self.wire("https://acme.kairos.example")
 
@@ -89,9 +91,7 @@ class ActiveWorkCase(unittest.TestCase):
         self.tmp.cleanup()
 
     def wire(self, url):
-        path = os.path.join(self.project, ".claude", "kairos.local.md")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(WIRING.format(url=url))
+        hook_test_env.write_binding(self.binding, dict(WIRING, deployment_url=url))
 
     def run_script(self, command, payload):
         stdin = payload if isinstance(payload, str) else json.dumps(payload)
@@ -357,7 +357,7 @@ class NoKairosNoFailure(ActiveWorkCase):
                 self.assertEqual(result.stdout, "", (command, stdin))
 
     def test_not_a_kairos_repository_gives_no_output(self):
-        os.remove(os.path.join(self.project, ".claude", "kairos.local.md"))
+        os.remove(self.binding)
         result, context = self.compact()
         self.assertEqual(context, "")
         self.assertEqual(result.stdout, "")
@@ -427,8 +427,8 @@ if __name__ == "__main__":
 
 
 class WiringAndRulesAfterACompaction(ActiveWorkCase):
-    """KAIROS-T-0525: the compaction gives the wiring summary (from the
-    file, no probe) and the Kairos rules again."""
+    """KAIROS-T-0525: the compaction gives the wiring summary (no probe)
+    and the Kairos rules again."""
 
     def test_the_context_has_the_wiring_and_the_rules(self):
         _, context = self.compact()
@@ -442,7 +442,6 @@ class UnwiredSessionsKeepTheirTasks(ActiveWorkCase):
     `compact` names them with or without wiring."""
 
     def unwire(self):
-        os.remove(os.path.join(self.project, ".claude", "kairos.local.md"))
         self.env["PATH"] = "/usr/bin:/bin"  # no CLI: no binding
 
     def test_an_unwired_session_gets_its_active_task_back(self):

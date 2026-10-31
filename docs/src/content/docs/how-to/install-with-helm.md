@@ -542,10 +542,8 @@ These changes of 0.19.0 show after the upgrade. They apply to Compose too.
 Before the upgrade, stop every 0.18.1 server before a new one serves. No
 test runs 0.18.1 servers and a 0.19.0 server together.
 
-10 migrations run, for each tenant:
+9 migrations run, for each tenant:
 
-- `task_review` adds the empty table `task_review`: the review state of a
-  task.
 - `template_sections` adds the empty table `template_sections`: the typed
   sections of a template.
 - `notices` adds the empty tables `notices` and `notice_mutes`, the column
@@ -587,7 +585,6 @@ Changes that people and agents see:
 - A person can watch an item, with or without its children, and can send a
   notice to a person or to a team. An agent key sends notices for its
   person.
-- A task has a review state: `not_needed`, `needed` or `done`.
 
 ## Trying it out without a database
 

@@ -11,9 +11,9 @@
 #   bdd          Gate 4: the cucumber scenarios (their own runner), one job
 #                for each of the two suites
 #   web          Gate 7: the GUI wasm build (release with the size budget in
-#                the queue and on main, debug on a PR)
+#                a pull request and on main)
 #   e2e          tier 4 (`angreal test e2e --down`): the API and MCP golden
-#                path and the Playwright GUI suite, in the queue only, split
+#                path and the Playwright GUI suite, on a pull request, split
 #                over 2 shards, each with its own compose stack (KAIROS-T-0662),
 #                in chromium only; e2e.yml adds Firefox and WebKit on a tag
 #   ci           the one required check: it fails when a gate failed
@@ -21,20 +21,20 @@
 # A change to the docs only runs lint. On a pull request a new push cancels
 # the old run.
 #
-# Merges to main go through the GitHub merge queue (KAIROS-T-0650), and
-# `ci` is the check that the ruleset of main requires. The `changes` job
-# gives the stage of the run:
+# `ci` is the check that the ruleset of main requires, and the ruleset
+# requires a branch that is up to date with main (KAIROS-T-0741): what CI
+# tested is what merges. There is no merge queue since KAIROS-T-0741; the
+# `merge_group` trigger stays harmless. The `changes` job gives the stage
+# of the run:
 #
-#   pr     a pull request: lint, unit (with the Python tests) and web. The
-#          fast gates; the agent ran the integration tests it needs.
-#   queue  the merge queue, on the merge commit of a group of pull
-#          requests: every gate, integration, bdd and e2e included. e2e
-#          runs beside build-tests and integration, not after them. It checks
-#          the parts that the group changes against main. The web gate
-#          builds in release, so the size budget is checked before main
-#          moves (KAIROS-T-0656).
-#   push   main: the queue tested this commit, and main moves to it. It
-#          runs lint, build-tests and web only, to save the caches that
+#   pr     a pull request: every gate, integration, bdd and e2e included.
+#          e2e runs beside build-tests and integration, not after them. The
+#          web gate builds in release, so the size budget is checked before
+#          the merge (KAIROS-T-0656).
+#   queue  a merge group, if a queue is ever turned on again: the same
+#          gates as a pull request.
+#   push   main: the pull request tested this commit, and main moves to it.
+#          It runs lint, build-tests and web only, to save the caches that
 #          pull requests read. A push does not cancel the run before it.
 #
 # Run one shard locally: `cargo nextest run --profile ci --partition hash:2/4`
@@ -99,9 +99,9 @@ jobs:
             for part in rust web helm python; do echo "${part}=true" >> "$GITHUB_OUTPUT"; done
             # The release workflow builds the images of a tag.
             echo "image=false" >> "$GITHUB_OUTPUT"
-            # e2e runs in the merge queue only (KAIROS-T-0662).
+            # e2e runs on a pull request (KAIROS-T-0662, KAIROS-T-0741).
             echo "e2e=false" >> "$GITHUB_OUTPUT"
-            # The merge queue tested this commit (KAIROS-T-0650).
+            # The pull request tested this commit (KAIROS-T-0741).
             echo "stage=push" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -291,8 +291,7 @@ jobs:
   build-tests:
     name: build-tests
     needs: changes
-    # Not on a pull request: no integration or bdd job reads the archive.
-    if: needs.changes.outputs.rust == 'true' && needs.changes.outputs.stage != 'pr'
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -436,7 +435,7 @@ jobs:
   integration:
     name: integration (${{ matrix.shard }}/4)
     needs: [changes, build-tests]
-    if: needs.changes.outputs.stage == 'queue'
+    if: needs.changes.outputs.stage != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -479,7 +478,7 @@ jobs:
   bdd:
     name: bdd (${{ matrix.suite.name }})
     needs: [changes, build-tests]
-    if: needs.changes.outputs.stage == 'queue'
+    if: needs.changes.outputs.stage != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
@@ -573,21 +572,13 @@ jobs:
 
       # KAIROS-T-0039 (A-0015): the GUI must keep compiling to wasm.
       # `angreal web build` provisions the wasm32 target and trunk itself.
-      # The release profile (wasm-opt) and its size budget run in the merge
-      # queue and on main (KAIROS-T-0656), so the queue does not merge a
-      # bundle over the budget. A pull request gets the debug profile, which
-      # compiles the same code faster.
+      # The release profile (wasm-opt) and its size budget run on a pull
+      # request and on main (KAIROS-T-0656, KAIROS-T-0741), so a bundle over
+      # the budget does not merge.
       - name: Gate 7 — GUI wasm build
-        env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          if [ "${EVENT}" = "push" ] || [ "${EVENT}" = "merge_group" ]; then
-            angreal web build --release
-          else
-            angreal web build
-          fi
+        run: angreal web build --release
 
-  # Tier 4 (KAIROS-A-0012), in the merge queue only (KAIROS-T-0662): the
+  # Tier 4 (KAIROS-A-0012), on a pull request (KAIROS-T-0662, KAIROS-T-0741): the
   # same steps as e2e.yml, which still runs on a release tag and on
   # dispatch. It needs only `changes`, so it runs beside build-tests and
   # integration. The Playwright suite runs one spec at a time on the shared
@@ -600,7 +591,7 @@ jobs:
     name: e2e (${{ matrix.shard }}/2)
     needs: changes
     if: >-
-      needs.changes.outputs.stage == 'queue' && (
+      needs.changes.outputs.stage != 'push' && (
       needs.changes.outputs.rust == 'true' ||
       needs.changes.outputs.web == 'true' ||
       needs.changes.outputs.e2e == 'true')

@@ -723,7 +723,7 @@ def _run_gui_smoke(env, shard=None):
         `--shard I/N` (KAIROS-T-0662) runs part I of N of the Playwright
         spec files (`npx playwright test --shard I/N`). The other steps
         run in each shard; the golden path takes about one second. The
-        merge queue runs 2 shards, each on its own runner and stack.
+        pull request runs 2 shards, each on its own runner and stack.
 
         DESTRUCTIVE for the dev database's `demo` tenant (seed --force,
         run twice — once for the API path, once for the GUI leg). The

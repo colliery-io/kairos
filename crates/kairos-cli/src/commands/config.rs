@@ -426,11 +426,16 @@ mod tests {
     use crate::project_config::Resolved;
 
     fn git(dir: &Path, args: &[&str]) {
+        // A CI runner has no git identity: a commit needs one.
         let ok = std::process::Command::new("git")
             .args(args)
             .current_dir(dir)
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
+            .env("GIT_AUTHOR_NAME", "Robin")
+            .env("GIT_AUTHOR_EMAIL", "robin@example.test")
+            .env("GIT_COMMITTER_NAME", "Robin")
+            .env("GIT_COMMITTER_EMAIL", "robin@example.test")
             .output()
             .expect("git runs")
             .status

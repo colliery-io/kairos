@@ -209,6 +209,67 @@ pub(crate) fn prose_blocks(text: &str) -> Vec<Mapped> {
     out
 }
 
+/// The list items of markdown text (KAIROS-T-0732): each bullet (`-`, `*`,
+/// `+`) and each numbered item (`1.`), cleaned as `prose_blocks` cleans a
+/// block. The lines that continue an item are part of it. A nested item is
+/// an item of its own. Paragraphs, headings, tables, quotes, front matter,
+/// code fences and HTML comments are not list items.
+pub(crate) fn list_items(text: &str) -> Vec<Mapped> {
+    let text = Mapped::new(text)
+        .replace_all(&FRONT_MATTER, Rep::Delete)
+        .replace_all(&FENCE, Rep::Delete)
+        .replace_all(&COMMENT, Rep::Delete);
+    let clean = |lines: &[Mapped]| {
+        Mapped::join(lines, " ")
+            .replace_all(&INLINE_CODE, Rep::Literal("CODE"))
+            .replace_all(&LINK, Rep::Group(1))
+            .replace_all(&EMPHASIS, Rep::Group(1))
+    };
+
+    let mut out = Vec::new();
+    // The lines of the open item, and the indent of its marker.
+    let mut item: Vec<Mapped> = Vec::new();
+    let mut indent = 0;
+    let mut after_blank = false;
+    for line in text.split("\n") {
+        let stripped = line.trim();
+        let s = stripped.text.as_str();
+        let line_indent = line.text.len() - line.text.trim_start().len();
+        if s.is_empty() {
+            after_blank = true;
+            continue;
+        }
+        if let Some(marker) = LIST_MARKER.find(s) {
+            if !item.is_empty() {
+                out.push(clean(&item));
+            }
+            item = vec![stripped.slice(marker.end()..stripped.len())];
+            indent = line_indent;
+            after_blank = false;
+            continue;
+        }
+        // A line that continues the open item: the next line, or an
+        // indented line after a blank line. Any other line ends the item.
+        let continues = !item.is_empty()
+            && (!after_blank || line_indent > indent)
+            && !["#", "|", ">", "---"].iter().any(|p| s.starts_with(p));
+        if continues {
+            item.push(stripped);
+        } else if !item.is_empty() {
+            out.push(clean(&item));
+            item.clear();
+        }
+        after_blank = false;
+    }
+    if !item.is_empty() {
+        out.push(clean(&item));
+    }
+    out.into_iter()
+        .map(|m| m.trim())
+        .filter(|m| !m.text.is_empty())
+        .collect()
+}
+
 /// The sentences of a block, as `sentences` of the Python does: a split at
 /// whitespace after `.`, `!` or `?` and before a capital or `(`.
 pub(crate) fn sentences(block: &Mapped) -> Vec<Mapped> {

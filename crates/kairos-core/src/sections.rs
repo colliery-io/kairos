@@ -15,25 +15,29 @@ use std::str::FromStr;
 
 /// The type of a typed section: which check the server runs on its text.
 ///
-/// `ace` (a controlled language for checkable sections) comes later
-/// (KAIROS-T-0732). Until then it is an unknown type, and it is refused.
+/// `ace` (a controlled language) was dropped for now (KAIROS-T-0732 n-2):
+/// it is an unknown type, and it is refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SectionType {
     /// Free text: the section must be there and have text; no language check.
     Free,
     /// Plain language: the text must pass the plain-language checker.
     Plain,
+    /// Requirements: each list item must fit one frame of EARS; paragraphs
+    /// are free text (KAIROS-T-0732).
+    Ears,
 }
 
 impl SectionType {
     /// Each type, in the order of the docs and of the error texts.
-    pub const ALL: [SectionType; 2] = [SectionType::Free, SectionType::Plain];
+    pub const ALL: [SectionType; 3] = [SectionType::Free, SectionType::Plain, SectionType::Ears];
 
     /// The stored and wire name.
     pub fn as_str(self) -> &'static str {
         match self {
             SectionType::Free => "free",
             SectionType::Plain => "plain",
+            SectionType::Ears => "ears",
         }
     }
 
@@ -51,7 +55,7 @@ impl fmt::Display for SectionType {
 
 /// The refusal of an unknown section type. It names the value.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("The section type {0:?} is not known. Use one of: free, plain.")]
+#[error("The section type {0:?} is not known. Use one of: free, plain, ears.")]
 pub struct UnknownSectionType(pub String);
 
 impl FromStr for SectionType {
@@ -201,10 +205,10 @@ fn heading(line: &str) -> Option<(u8, String)> {
     Some((hashes as u8, text))
 }
 
-/// One rule that the text of a `plain` section breaks.
+/// One rule that the text of a `plain` or an `ears` section breaks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SectionViolation {
-    /// The rule id, as `STE-S2`.
+    /// The rule id, as `STE-S2` or `EARS-1`.
     pub rule: &'static str,
     /// The text that breaks the rule: a sentence, a paragraph or a word.
     pub text: String,
@@ -234,8 +238,10 @@ pub struct SectionFailure {
 /// Check `content` against the typed sections of its template
 /// (KAIROS-T-0730, COLLIERY-I-0664 decision 1). Each section must be there
 /// and have text. The text of a `plain` section must also pass the
-/// plain-language checker and the vocabulary. A `free` section gets no
-/// language check. A heading that the content repeats: each occurrence is
+/// plain-language checker and the vocabulary. Each list item of an `ears`
+/// section is a requirement and must fit one frame of EARS; an `ears`
+/// section needs at least one list item (KAIROS-T-0732). A `free` section gets
+/// no language check. A heading that the content repeats: each occurrence is
 /// checked. Gives the failures in the order of `sections`; empty when the
 /// content passes.
 pub fn check_sections(
@@ -258,6 +264,15 @@ pub fn check_sections(
                     let violations: Vec<SectionViolation> = found
                         .iter()
                         .flat_map(|s| plain_violations(&s.body, vocabulary))
+                        .collect();
+                    (!violations.is_empty()).then_some(SectionProblem::Violations(violations))
+                }
+                SectionType::Ears => {
+                    let violations: Vec<SectionViolation> = found
+                        .iter()
+                        .flat_map(|s| {
+                            as_section_violations(&s.body, kairos_plain::check_ears(&s.body))
+                        })
                         .collect();
                     (!violations.is_empty()).then_some(SectionProblem::Violations(violations))
                 }
@@ -303,6 +318,12 @@ fn plain_violations(body: &str, vocabulary: &kairos_plain::Vocabulary) -> Vec<Se
     let mut found = kairos_plain::check_text(body);
     found.extend(vocabulary.check_text(body));
     found.sort_by_key(|v| (v.span.start, v.span.end));
+    as_section_violations(body, found)
+}
+
+/// The violations of the checker as violations of a section: the text that
+/// each one is about, and its message as the fix.
+fn as_section_violations(body: &str, found: Vec<kairos_plain::Violation>) -> Vec<SectionViolation> {
     found
         .into_iter()
         .map(|v| SectionViolation {
@@ -440,17 +461,48 @@ mod tests {
     }
 
     #[test]
+    fn an_ears_section_names_each_requirement_that_fits_no_frame() {
+        let sections = vec![("Requirements".to_string(), SectionType::Ears)];
+        // Only list items are requirements: the paragraph is free text.
+        let content = "## Requirements\n\
+            The server saves each item.\n\n\
+            - When a write fails, the server shall name the field.\n\
+            - The server refuses the write.\n";
+        let failures = check_sections(content, &sections, &small_vocabulary());
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].section_type, SectionType::Ears);
+        let SectionProblem::Violations(violations) = &failures[0].problem else {
+            panic!("expected violations, got {:?}", failures[0].problem);
+        };
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].rule, "EARS-1");
+        assert_eq!(violations[0].text, "The server refuses the write.");
+        assert!(violations[0].fix.contains("Closest frame: ubiquitous"));
+        // Words inside the frame are free: no vocabulary check.
+        let content = "## Requirements\n- The server shall utilize the cache.\n";
+        assert!(check_sections(content, &sections, &small_vocabulary()).is_empty());
+        // A section with text but no list item has no requirement: EARS-7.
+        let content = "## Requirements\nThe server shall utilize the cache.\n";
+        let failures = check_sections(content, &sections, &small_vocabulary());
+        let SectionProblem::Violations(violations) = &failures[0].problem else {
+            panic!("expected violations, got {:?}", failures[0].problem);
+        };
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].rule, "EARS-7");
+    }
+
+    #[test]
     fn known_types_parse_and_round_trip() {
         for t in SectionType::ALL {
             assert_eq!(t.as_str().parse::<SectionType>(), Ok(t));
             assert_eq!(t.to_string(), t.as_str());
         }
-        assert_eq!(SectionType::names(), vec!["free", "plain"]);
+        assert_eq!(SectionType::names(), vec!["free", "plain", "ears"]);
     }
 
     #[test]
     fn an_unknown_type_is_refused_and_named() {
-        for value in ["ace", "Plain", " plain", "", "markdown"] {
+        for value in ["ace", "Plain", " plain", "EARS", "", "markdown"] {
             let error = value.parse::<SectionType>().unwrap_err();
             assert_eq!(error, UnknownSectionType(value.to_string()));
             assert!(error.to_string().contains(&format!("{value:?}")));

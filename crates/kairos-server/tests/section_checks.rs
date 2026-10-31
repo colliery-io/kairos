@@ -480,4 +480,56 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
     assert!(outcome.removed >= 3, "{outcome:?}");
     let read = admin.get_document(&old.short_code).await.expect("get");
     assert!(read.section_check.is_none());
+
+    // 8. An `ears` section (KAIROS-T-0732): a REST write that fits no frame
+    // is saved and gets the mark, with the EARS rule.
+    let spec = admin
+        .create_template(&CreateTemplateRequest {
+            name: "Spec".into(),
+            slug: "spec".into(),
+            content: "## Requirements\n".into(),
+            metadata: Vec::new(),
+            sections: vec![TemplateSection {
+                heading: "Requirements".into(),
+                section_type: "ears".into(),
+            }],
+        })
+        .await
+        .expect("a template with an ears section");
+    let requirements =
+        "## Requirements\n- The server shall log.\n- The server refuses the write.\n";
+    let doc = admin
+        .create_document(&CreateDocumentRequest {
+            title: "A spec".into(),
+            board: board.clone(),
+            content: Some(requirements.into()),
+            template_id: Some(spec.id.clone()),
+            parent_short_code: None,
+        })
+        .await
+        .expect("a REST create with a failing ears section is saved");
+    let read = admin.get_document(&doc.short_code).await.expect("get");
+    let check = read.section_check.expect("check");
+    assert!(!check.passes, "{check:?}");
+    assert_eq!(check.violations, 1, "{check:?}");
+    assert_eq!(check.sections[0].section_type, "ears");
+    assert_eq!(check.sections[0].violations[0].rule, "EARS-1");
+    assert_eq!(
+        check.sections[0].violations[0].text,
+        "The server refuses the write."
+    );
+    let text = mcp
+        .call_ok("get_item", json!({"short_code": doc.short_code}))
+        .await;
+    assert!(
+        text.contains("- sections: does not pass (1 violation)"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "  - Section \"Requirements\" (ears), EARS-1: \"The server refuses the write.\". \
+             The requirement has no \"shall\"."
+        ),
+        "{text}"
+    );
 }

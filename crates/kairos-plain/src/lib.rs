@@ -14,6 +14,9 @@
 //!   ([`approved_words`], [`not_approved_words`], KAIROS-T-0728).
 //! - [`terms_used`]: which terms of a dictionary a text uses, longest
 //!   first (KAIROS-T-0735).
+//! - [`check_ears`]: the text of an `ears` section. EARS-1 to EARS-7:
+//!   each list item fits one frame of EARS, and there is at least one
+//!   (KAIROS-T-0732).
 //! - [`parse_dictionary`]: the entries of a dictionary document
 //!   (KAIROS-T-0733; one dictionary for the organization, KAIROS-A-0079).
 //!
@@ -22,6 +25,7 @@
 
 mod code;
 mod dictionary;
+mod ears;
 mod mapped;
 mod prose;
 mod standard;
@@ -31,6 +35,7 @@ use std::ops::Range;
 
 pub use code::check_code_text;
 pub use dictionary::{DictionaryEntry, DictionaryProblem, ParsedDictionary, parse_dictionary};
+pub use ears::{Frame, check_ears};
 pub use prose::check_text;
 pub use standard::{ApprovedWord, NotApprovedWord, approved_words, not_approved_words};
 pub use vocabulary::{Vocabulary, terms_used};

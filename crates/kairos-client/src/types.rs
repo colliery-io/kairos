@@ -464,7 +464,7 @@ pub struct SectionCheck {
     /// `true` when the document passes each typed section.
     pub passes: bool,
     /// The number of problems: 1 for each missing or empty section, and 1
-    /// for each violation of a `plain` section.
+    /// for each violation of a `plain` or an `ears` section.
     pub violations: i32,
     /// The typed sections of the template or a dictionary changed after
     /// the check. The server checks the document again soon.
@@ -482,12 +482,13 @@ pub struct SectionCheck {
 pub struct SectionCheckFailure {
     /// The heading of the section, with no `#`.
     pub heading: String,
-    /// The type of the section: `free` or `plain`.
+    /// The type of the section: `free`, `plain` or `ears`.
     #[serde(rename = "type")]
     pub section_type: String,
     /// `missing`, `empty` or `violations`.
     pub problem: String,
-    /// The violations of a `plain` section; empty for the other problems.
+    /// The violations of a `plain` or an `ears` section; empty for the other
+    /// problems.
     #[serde(default)]
     pub violations: Vec<SectionCheckViolation>,
 }
@@ -495,7 +496,7 @@ pub struct SectionCheckFailure {
 /// One rule that the text of a section breaks (KAIROS-T-0731).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct SectionCheckViolation {
-    /// The rule id, as `STE-V1`.
+    /// The rule id, as `STE-V1` or `EARS-1`.
     pub rule: String,
     /// The text that breaks the rule.
     pub text: String,

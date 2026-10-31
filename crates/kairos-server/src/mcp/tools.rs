@@ -1565,8 +1565,9 @@ pub struct TemplateSectionParams {
     /// The text of the heading, with no `#`. It matches a heading of each
     /// level in the content.
     pub heading: String,
-    /// The type of the section: `free` (text that is not empty) or `plain`
-    /// (text that passes the plain-language check).
+    /// The type of the section: `free` (text that is not empty), `plain`
+    /// (text that passes the plain-language check) or `ears` (each list
+    /// item fits one frame of EARS).
     #[serde(rename = "type")]
     pub section_type: String,
 }
@@ -3042,7 +3043,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the templates of the organization: slug, name, the metadata that each template stamps on an item (the default value, and whether the field is required), and the typed sections (a heading and a type: `free` or `plain`). With `slug`, show that one template with its full content."
+        description = "List the templates of the organization: slug, name, the metadata that each template stamps on an item (the default value, and whether the field is required), and the typed sections (a heading and a type: `free`, `plain` or `ears`). With `slug`, show that one template with its full content."
     )]
     pub async fn list_templates(
         &self,
@@ -5852,7 +5853,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content`, `metadata` and `sections` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. `sections` is a list of typed sections: `heading` (the text, no `#`) and `type` (`free` or `plain`); an unknown type is refused. Organization admins only."
+        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content`, `metadata` and `sections` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. `sections` is a list of typed sections: `heading` (the text, no `#`) and `type` (`free`, `plain` or `ears`); an unknown type is refused. Organization admins only."
     )]
     pub async fn save_template(
         &self,

@@ -1324,7 +1324,10 @@ document against the typed sections of its template (KAIROS-T-0730):
   text, at each level.
 - Each typed section must have text.
 - The text of a `plain` section must pass the plain-language check and the
-  vocabulary. The check of a `free` section stops at the two rules above.
+  vocabulary.
+- Each list item of an `ears` section must fit one frame of EARS. See
+  [The EARS check](#the-ears-check).
+- The check of a `free` section stops at the first two rules.
 
 The vocabulary is the word list and the terms of the dictionary of the
 organization (KAIROS-T-0733). The owner board of the document does not
@@ -1339,8 +1342,8 @@ section of an old document that does not pass a different section.
 
 When the content does not pass, the tool refuses the write with
 `SECTIONS_NOT_PASSED`, and it saves nothing. The refusal gives each section
-that does not pass. For a `plain` section, it gives each violation: the rule,
-the text and the fix. The message lists 40 violations at most. `details`
+that does not pass. For a `plain` or an `ears` section, it gives each
+violation: the rule, the text and the fix. The message lists 40 violations at most. `details`
 gives each one.
 
 ```text
@@ -1352,6 +1355,50 @@ details: {"field":"content","sections":[{"heading":"Summary","problem":"empty","
 
 `problem` is `missing`, `empty` or `violations`. The REST routes and the web
 do not do this check: a person can write free text.
+
+### The EARS check
+
+EARS (Easy Approach to Requirements Syntax) puts each requirement in a fixed
+frame (KAIROS-T-0732). In an `ears` section, only a list item is a
+requirement. A list item is a bullet (`-`, `*` or `+`) or a numbered item
+(`1.`). An item on more lines is one requirement. A nested item is a
+requirement of its own.
+
+The check does not read paragraphs: write the context of the requirements
+in a paragraph. Headings, code blocks, tables and quotes are not
+requirements. The words in the frame are free: the check reads the frame
+only, not the vocabulary. A word in inline code is not a keyword.
+
+| Frame | Template |
+|---|---|
+| Ubiquitous | The <system> shall <response>. |
+| Event-driven | When <trigger>, the <system> shall <response>. |
+| State-driven | While <state>, the <system> shall <response>. |
+| Unwanted behaviour | If <condition>, then the <system> shall <response>. |
+| Optional feature | Where <feature>, the <system> shall <response>. |
+| Complex | While <state>, when <trigger>, the <system> shall <response>. |
+
+A complex requirement has more than one clause before the system. Each
+clause starts with While, When, Where or If, and a comma follows it. You can
+write a list of systems before "shall": "The server, the worker and the CLI
+shall ...".
+
+A requirement that does not fit a frame gives one violation. The `fix` names
+the change and the closest frame.
+
+| Rule | Problem |
+|---|---|
+| `EARS-1` | The requirement has no "shall". |
+| `EARS-2` | The clause before the system does not start with While, When, Where or If, or the clause has no comma after it. |
+| `EARS-3` | The requirement has no system before "shall". |
+| `EARS-4` | The requirement has no response after "shall". |
+| `EARS-5` | An "If" clause has no "then", or a "then" has no "If" clause. |
+| `EARS-6` | The requirement has more than one "shall". Write one requirement in each list item. |
+| `EARS-7` | The section has no list item, so it has no requirement. Write each requirement as a list item. |
+
+```text
+- Section "Requirements" (ears), EARS-1: "A move names CODE when the item is a task in a done column.". The requirement has no "shall". Put the "when" clause first, then a comma, then the system, "shall" and the response. Closest frame: event-driven, "When <trigger>, the <system> shall <response>."
+```
 
 ### The mark of a document that does not pass
 

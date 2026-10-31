@@ -717,23 +717,16 @@ fn a_branch(world: &mut CliWorld, changed: usize) {
     assert!(!index_db(&root).exists());
 }
 
-/// KAIROS-T-0646: a clone whose `.claude/kairos.local.md` names the
-/// deployment and the repository, and a worktree of it on a branch with the
-/// 3 changes. The `origin` of the clone is a folder, so no repository of
-/// Kairos has it: only the file of the clone names the repository.
+/// KAIROS-T-0646: a clone whose `[[project]]` (by its `origin` remote, the
+/// step that runs the CLI writes it) names the deployment and the
+/// repository, and a worktree of it on a branch with the 3 changes. The
+/// `origin` of the clone is a folder, so no repository of Kairos has it:
+/// only the `[[project]]` of the clone names the repository.
 #[given("a worktree of a wired clone, on a branch from A with 3 changed files")]
 fn a_worktree(world: &mut CliWorld) {
     let w = base(world);
     w.clone_remote();
     let clone = w.root().to_path_buf();
-    write(
-        &clone,
-        ".claude/kairos.local.md",
-        &format!(
-            "---\ndeployment_url: {}\nrepository: {REPOSITORY}\n---\n",
-            w.kairos().url
-        ),
-    );
     let folder = TempDir::new().expect("a folder for the worktree");
     let worktree = folder.path().join("wt-feature");
     let path = worktree.display().to_string();
@@ -748,9 +741,10 @@ fn a_worktree(world: &mut CliWorld) {
     w.worktree = Some((folder, worktree));
 }
 
-/// KAIROS-T-0646: a board folder. Its wiring names the deployment. It
-/// holds a clone of `payments-api` 1 commit behind origin/main, a worktree
-/// of that clone, and a clone of a repository that Kairos does not have.
+/// KAIROS-T-0646: a board folder. Its `[[project]]` with `path` (the step
+/// that runs the CLI writes it) names the deployment. It holds a clone of
+/// `payments-api` 1 commit behind origin/main, a worktree of that clone,
+/// and a clone of a repository that Kairos does not have.
 #[given(
     "a board folder with a clone 1 commit behind, a worktree of it and a clone of another repository"
 )]
@@ -758,11 +752,6 @@ fn a_board_folder(world: &mut CliWorld) {
     let w = base(world);
     let board = TempDir::new().expect("a board folder");
     let remote = w.kairos().remote.display().to_string();
-    write(
-        board.path(),
-        ".claude/kairos.local.md",
-        &format!("---\ndeployment_url: {}\n---\n", w.kairos().url),
-    );
     git(board.path(), &["clone", "-q", &remote, REPOSITORY]);
     let clone = board.path().join(REPOSITORY);
     let source = w.kairos().remote.clone();
@@ -1064,11 +1053,21 @@ fn run_update(world: &mut CliWorld, command: String) {
 }
 
 /// KAIROS-T-0646: no `KAIROS_URL` and no `--repo`: the deployment and the
-/// repository come from the file of the clone. The key is in `KAIROS_KEY`.
+/// repository come from the `[[project]]` of the `origin` remote of the
+/// clone, which the worktree shares. The key is in `KAIROS_KEY`.
 #[when("I run \"kairos index update\" in the worktree, with no KAIROS_URL and no --repo")]
 fn run_update_in_worktree(world: &mut CliWorld) {
     let w = base(world);
     let config = TempDir::new().expect("a config folder");
+    let origin = git(w.root(), &["config", "--get", "remote.origin.url"]);
+    write(
+        config.path(),
+        "config.toml",
+        &format!(
+            "[[project]]\nremote = \"{origin}\"\ndeployment = \"{}\"\nrepository = \"{REPOSITORY}\"\n",
+            w.kairos().url
+        ),
+    );
     let run = clean_env(&mut Command::new(KAIROS))
         .args(["index", "update", "--root"])
         .arg(w.root())
@@ -1082,12 +1081,22 @@ fn run_update_in_worktree(world: &mut CliWorld) {
     w.run = Some(run);
 }
 
-/// KAIROS-T-0646: the deployment comes from the wiring of the board folder.
+/// KAIROS-T-0646: the deployment comes from the `[[project]]` with `path`
+/// of the board folder.
 #[when("I run \"kairos repos local --json\" on the board folder, with no KAIROS_URL")]
 fn run_repos_local(world: &mut CliWorld) {
     let w = base(world);
     let config = TempDir::new().expect("a config folder");
     let board = w.board.as_ref().expect("no board folder").path();
+    write(
+        config.path(),
+        "config.toml",
+        &format!(
+            "[[project]]\npath = \"{}\"\ndeployment = \"{}\"\n",
+            board.display(),
+            w.kairos().url
+        ),
+    );
     let run = clean_env(&mut Command::new(KAIROS))
         .args(["repos", "local", "--json"])
         .arg(board)

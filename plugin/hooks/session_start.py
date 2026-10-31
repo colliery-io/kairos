@@ -2,8 +2,7 @@
 """SessionStart hook: inject the Kairos wiring of the folder as session context.
 
 The CLI gives the wiring: `kairos config show --json` (#270), a
-`[[project]]` of the config of the person, `.claude/kairos.local.md`, then
-`[default]`. The hook emits the values — deployment, tenant, repository,
+`[[project]]` of the config of the person, then `[default]`. The hook emits the values — deployment, tenant, repository,
 stream, boards, each with its source (KAIROS-T-0708) — as
 `additionalContext`, plus an instruction to pull live state. With a
 `repository` (KAIROS-A-0019, T-0108) the hint is repo-scoped: read the
@@ -22,16 +21,18 @@ agent to call `my_boards` / `board_items` over the already-authenticated
 kairos MCP connection for live items. Offline degrades to a note, never a
 failure.
 
-In a worktree the wiring is the file of its clone (KAIROS-T-0520,
-`wiring_path`). In a board folder the hook lists the clones there
+A worktree has the `[[project]]` of its clone: the entry matches the
+`origin` remote. In a board folder the hook lists the clones there
 (KAIROS-T-0521). When the `kairos` CLI has `kairos repos local`
 (KAIROS-T-0646), the CLI gives the list, with the repository of each clone:
 the CLI uses its own credentials (a key in the environment or its login),
 and the hook still holds none. An older CLI, or a CLI that fails, gives the
-listing of the hook. An older CLI with no `kairos config` gives the parser
-of the hook (`read_frontmatter`, the rule of the CLI). Not wired -> silent
-exit 0. Each error goes to stderr with exit 0: the hook fails open
-(KAIROS-T-0708). Python stdlib only.
+listing of the hook. With no CLI, or an older CLI with no `kairos config`,
+nothing wires the folder: the hook reads no file (KAIROS-T-0742: the
+retired `.claude/kairos.local.md` is not read; `kairos config migrate`
+moves an old one to `config.toml`). Not wired -> silent exit 0. Each error
+goes to stderr with exit 0: the hook fails open (KAIROS-T-0708). Python
+stdlib only.
 """
 
 import json
@@ -42,7 +43,9 @@ import time
 import sys
 import urllib.request
 
-FRONTMATTER_KEYS = (
+# The keys of the wiring, in the order of the summary. The CLI names
+# `deployment_url` as `deployment`.
+WIRING_KEYS = (
     "deployment_url",
     "tenant",
     "repository",
@@ -51,39 +54,6 @@ FRONTMATTER_KEYS = (
     "initiative_board",
     "adr_board",
 )
-
-
-WIRING_FILE = os.path.join(".claude", "kairos.local.md")
-WIRING_SOURCE = ".claude/kairos.local.md"  # retired (KAIROS-T-0710): read with a warning
-
-
-def wiring_path(project_dir=None):
-    """The path of the wiring of a session, or None (KAIROS-T-0520).
-
-    First `<project>/.claude/kairos.local.md`. The file is git-excluded, so
-    a worktree has none: then the file of the main clone, the folder above
-    `git rev-parse --git-common-dir`. Each hook reads the wiring with this."""
-    project = project_dir or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    path = os.path.join(project, WIRING_FILE)
-    if os.path.isfile(path):
-        return path
-    if not os.path.exists(os.path.join(project, ".git")):
-        return None  # not a checkout: no git call, no clone to look in
-    try:
-        out = subprocess.run(
-            ["git", "-C", project, "rev-parse", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    common = out.stdout.strip()
-    if out.returncode != 0 or not common:
-        return None
-    clone = os.path.dirname(os.path.realpath(os.path.join(project, common)))
-    path = os.path.join(clone, WIRING_FILE)
-    return path if os.path.isfile(path) else None
 
 
 def git_out(folder, *args, timeout=1.0):
@@ -281,13 +251,11 @@ CONFIG_SHOW_SECONDS = 3.0
 def config_binding(project, timeout=CONFIG_SHOW_SECONDS):
     """The binding of the folder from `kairos config show --json` (#270):
     the `[[project]]` of its origin remote in the config of the person,
-    then `.claude/kairos.local.md`, then `[default]`, in the order of the
-    CLI. None when `kairos` is not on PATH, when it has no such verb (an
-    older CLI: the usage exit code 64), or when it does not
-    answer in time: then the hook reads the file itself. When the CLI has
-    the verb and fails (a `config.toml` that does not parse), the result
-    is `{"error": <the message of the CLI>}`: the hook does not read the
-    file in place of a broken config (KAIROS-T-0708)."""
+    then `[default]`, in the order of the CLI. None when `kairos` is not on
+    PATH, when it has no such verb (an older CLI: the usage exit code 64),
+    or when it does not answer in time: then nothing wires the folder. When
+    the CLI has the verb and fails (a `config.toml` that does not parse),
+    the result is `{"error": <the message of the CLI>}` (KAIROS-T-0708)."""
     binary = shutil.which("kairos")
     if not binary:
         return None
@@ -322,7 +290,7 @@ def older_cli(code, stderr):
 
 
 class Wiring(dict):
-    """The values of the wiring, with the keys of the front matter, and
+    """The values of the wiring, by the keys of WIRING_KEYS, and
     `sources`: the source of each value, by key, in words (KAIROS-T-0708).
     `error` is the message of a CLI that failed: then there are no values."""
 
@@ -340,28 +308,22 @@ def source_label(item):
         return f"config.toml [[project]] {entry}" if entry else "config.toml [[project]]"
     if origin == "default":
         return "config.toml [default]"
-    if origin == "wiring":
-        return WIRING_SOURCE
     return "kairos config show"
 
 
 def wiring(project_dir=None):
-    """The wiring of the project, with the keys of the front matter, or None
-    when nothing binds it to Kairos (#270). The CLI gives the binding: a
-    `[[project]]` of the config of the person, else the file. KAIROS_URL
-    comes first for `deployment_url`, as in the CLI. With a `[[project]]`
-    that has no deployment, the only login of the CLI gives it
-    (`login_url`, KAIROS-T-0708). With no CLI that has `kairos config`, the
-    hook reads `.claude/kairos.local.md` itself. A CLI that fails gives a
-    Wiring with `error` and no values."""
+    """The wiring of the project, by the keys of WIRING_KEYS, or None when
+    nothing binds it to Kairos (#270). The CLI gives the binding: a
+    `[[project]]` of the config of the person. KAIROS_URL comes first for
+    `deployment_url`, as in the CLI. With a `[[project]]` that has no
+    deployment, the only login of the CLI gives it (`login_url`,
+    KAIROS-T-0708). With no CLI that has `kairos config`, nothing wires the
+    folder (KAIROS-T-0742). A CLI that fails gives a Wiring with `error`
+    and no values."""
     project = project_dir or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     data = config_binding(project)
     if data is None:
-        path = wiring_path(project)
-        if not path:
-            return None
-        values = read_frontmatter(path)
-        return Wiring(values, {key: WIRING_SOURCE for key in values})
+        return None
     if isinstance(data.get("error"), str):
         return Wiring(error=data["error"])
     if not data.get("bound"):
@@ -371,7 +333,7 @@ def wiring(project_dir=None):
     for key, item in (found.items() if isinstance(found, dict) else ()):
         name = "deployment_url" if key == "deployment" else key
         value = item.get("value") if isinstance(item, dict) else None
-        if name in FRONTMATTER_KEYS and isinstance(value, str) and value:
+        if name in WIRING_KEYS and isinstance(value, str) and value:
             values[name] = value
             sources[name] = source_label(item)
     for field, label in (("env_url", "KAIROS_URL"), ("login_url", "the login of the CLI")):
@@ -382,40 +344,6 @@ def wiring(project_dir=None):
             values["deployment_url"] = url
             sources["deployment_url"] = label
     return Wiring(values, sources)
-
-
-def front_value(raw):
-    """The value of one `key: value` line of the front matter, by the rule
-    of the CLI (`index::base::settings`, KAIROS-T-0708): one pair of
-    matching quotes is removed; with no quotes, a ` #` comment is cut."""
-    value = raw.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        return value[1:-1]
-    cut = value.find(" #")
-    return (value[:cut] if cut >= 0 else value).strip()
-
-
-def read_frontmatter(path):
-    """Parse the YAML frontmatter's simple `key: value` pairs (no external
-    YAML dependency; the /bootstrap contract writes flat scalar keys). The
-    rule is the rule of the CLI: an indented line, a blank line and a `#`
-    line are not keys. The CLI is the parser of the hooks; this one is for
-    an older CLI only. A file that is not UTF-8 gives no values."""
-    with open(path, encoding="utf-8", errors="replace") as f:
-        lines = f.read().splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
-    values = {}
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        if ":" not in line or line.lstrip() != line or line.startswith("#"):
-            continue
-        key, _, raw = line.partition(":")
-        value = front_value(raw)
-        if key.strip() in FRONTMATTER_KEYS and value:
-            values[key.strip()] = value
-    return values
 
 
 class Budget:
@@ -580,7 +508,7 @@ def build_context(values, status, note=None, checkouts=None):
         "Kairos wiring for this folder (the source of each value is in "
         "brackets; `kairos config project` or /kairos:bootstrap changes it):",
     ]
-    for key in FRONTMATTER_KEYS:
+    for key in WIRING_KEYS:
         value = values.get(key)
         if value and sources.get(key):
             lines.append(f"- {key}: {value} [{sources[key]}]")
@@ -601,20 +529,6 @@ NO_DEPLOYMENT = (
     "no deployment: set `deployment` in the [[project]] or in [default] of "
     "config.toml (`kairos config path` names it), or run `kairos login --url <deployment>`"
 )
-
-
-def wiring_warning(values):
-    """One line at the start of a session when `.claude/kairos.local.md`
-    gives a value (KAIROS-T-0710), else None. The compaction does not
-    repeat it."""
-    sources = getattr(values, "sources", None) or {}
-    if WIRING_SOURCE not in sources.values():
-        return None
-    return (
-        "- warning: .claude/kairos.local.md gives values of this wiring. Tell the "
-        "user: move them to config.toml with `kairos config migrate`, then remove "
-        "the file. The next release does not read this file."
-    )
 
 
 def error_context(error):
@@ -662,9 +576,6 @@ def run(payload):
     if checkouts is None:
         checkouts = board_checkouts(project_dir)
     context = build_context(values, status, note, checkouts)
-    warning = wiring_warning(values)
-    if warning:
-        context = context + "\n" + warning
     try:
         rules = rules_at_start(values, session)
     except Exception as error:  # a state folder that cannot be written

@@ -48,7 +48,7 @@ On a re-run, a `kairos` entry with an `Authorization` header shows the agent-key
 - `config.toml` does not parse: `kairos config show` refuses and names the file. Show the user the message and the path that `kairos config path` gives, and let the user correct the file.
 - `KAIROS_URL` names a different deployment from the project entry. `KAIROS_URL` comes first, and `kairos config show` says so. Tell the user to correct or unset it, then start a new session.
 - The deployment refuses the key (HTTP 401): `KAIROS_MCP_KEY` is not set in the session, or the key is revoked, expired, or of a different deployment. Tell the user to set a key of this deployment ([AGENT-KEY.md](AGENT-KEY.md)) and start a new session.
-- `kairos config show` warns about `.claude/kairos.local.md`. The file is retired: this release still reads it, the next one does not. With the user's go, run `kairos config migrate` in the checkout, check the result with `kairos config show`, and tell the user to remove the file.
+- The checkout has a `.claude/kairos.local.md`. The file is retired: no command and no hook reads it, so its values do not bind the folder. With the user's go, run `kairos config migrate` in the checkout, check the result with `kairos config show`, and tell the user to remove the file.
 - The session did not start in the root of the repository, so it did not read a project `.mcp.json`. Tell the user to start Claude Code there.
 - The user did not approve the project server. Tell the user to approve `kairos` in `/mcp`.
 - The plugin server and a project `kairos` entry both connect. Each tool is there 2 times. Tell the user to remove the project entry, unless they asked for this repository only.
@@ -178,7 +178,7 @@ The command adds the entry and keeps the rest of the file. If the file has an en
 
 When the `kairos` CLI is not on PATH, or it is older and has no `config` verb, stop and tell the user to install or update the CLI (`kairos self-update`), then run this bootstrap again. The plugin needs the CLI for its `kairos` server too.
 
-**Do not write `.claude/kairos.local.md`.** The file is retired (KAIROS-T-0710). This release still reads it, after the project entry, and says to move it; the next release does not read it. When a checkout has the file, run `kairos config migrate` with the user's go: it writes the values of the file to the project entry. Check with `kairos config show`, then tell the user to remove the file.
+**Do not write `.claude/kairos.local.md`.** The file is retired (KAIROS-T-0710), and no command and no hook reads it (KAIROS-T-0742). When a checkout has the file, run `kairos config migrate` with the user's go: it writes the values of the file to the project entry. Check with `kairos config show`, then tell the user to remove the file.
 
 Use the slugs that `my_boards` and the directory give: `repository` is the slug (KAIROS-A-0019); `team_board`, `initiative_board` and `adr_board` are board **slugs** (what `board_items` resolves — never display names); `delivery_stream` and `team_board` come from the team of the principal, also when a different team owns the repository. Leave out a flag whose value is not known.
 

@@ -1396,10 +1396,10 @@ async fn an_amended_adr_shows_its_amendment_in_the_check_and_the_hook() {
     .await;
     assert_eq!(linked.code, 0, "{}", linked.all());
 
-    // A checkout that cites the amended ADR, wired to the deployment.
+    // A checkout that cites the amended ADR, wired to the deployment by a
+    // [[project]] with its path (it has no remote).
     let repo = scratch.path().join("repo");
     std::fs::create_dir_all(repo.join("src")).expect("src");
-    std::fs::create_dir_all(repo.join(".claude")).expect(".claude");
     let git = std::process::Command::new("git")
         .args(["init", "-q"])
         .current_dir(&repo)
@@ -1407,10 +1407,13 @@ async fn an_amended_adr_shows_its_amendment_in_the_check_and_the_hook() {
         .expect("git init");
     assert!(git.success());
     std::fs::write(
-        repo.join(".claude/kairos.local.md"),
-        format!("---\ndeployment_url: {base_url}\ntenant: {TENANT}\n---\n"),
+        config_dir.path().join("config.toml"),
+        format!(
+            "[[project]]\npath = \"{}\"\ndeployment = \"{base_url}\"\ntenant = \"{TENANT}\"\n",
+            repo.display()
+        ),
     )
-    .expect("wiring");
+    .expect("the config");
     let file = repo.join("src/refund.rs");
     std::fs::write(&file, format!("// {amended}: refunds.\nfn refund() {{}}\n")).expect("file");
 

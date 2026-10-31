@@ -45,19 +45,15 @@ ACTIVE_WORK = os.path.join(HERE, "active_work.py")
 ROOT = os.path.dirname(os.path.dirname(HERE))
 WRAPPER = os.path.join(ROOT, "plugin", "bin", "kairos-code")
 
-WIRING = "---\ndeployment_url: http://127.0.0.1:1\nrepository: kairos\n---\n"
+WIRING = {"deployment_url": "http://127.0.0.1:1", "repository": "kairos"}
 
 # A fake `kairos`: it writes its arguments, its folder and the list of
 # changed files (as the worker left it) to calls.txt, then sleeps, writes
 # FAKE_KAIROS_ERROR as an `error: ` line to stderr (as the CLI does), and
 # exits with the code in FAKE_KAIROS_EXIT.
-FAKE_KAIROS = """#!/bin/sh
-# An older kairos with no `config` verb (#270): the hooks read the wiring
-# file themselves, and the call is not an update.
-if [ "$1" = "config" ]; then
-  exit 64
-fi
-{
+# `config show` gives the binding of STUB_BINDING (KAIROS-T-0742: the
+# hooks read no file), and that call is not an update.
+FAKE_KAIROS = "#!/bin/sh\n" + hook_test_env.STUB_CONFIG_SH + """{
   echo "args: $*"
   echo "cwd: $(pwd)"
 } >> "$FAKE_KAIROS_CALLS"
@@ -90,6 +86,7 @@ class Harness(unittest.TestCase):
         os.makedirs(os.path.join(self.project, ".git"))
         os.makedirs(self.bin)
         self.calls = os.path.join(base, "calls.txt")
+        self.binding = os.path.join(base, "binding.json")
         self.wire()
         self.fake_kairos()
 
@@ -97,10 +94,7 @@ class Harness(unittest.TestCase):
         self.tmp.cleanup()
 
     def wire(self):
-        with open(
-            os.path.join(self.project, ".claude", "kairos.local.md"), "w"
-        ) as handle:
-            handle.write(WIRING)
+        hook_test_env.write_binding(self.binding, WIRING)
 
     def fake_kairos(self):
         path = os.path.join(self.bin, "kairos")
@@ -115,6 +109,7 @@ class Harness(unittest.TestCase):
             "CLAUDE_PROJECT_DIR": self.project,
             "KAIROS_INDEX_STATE_DIR": self.state,
             "FAKE_KAIROS_CALLS": self.calls,
+            "STUB_BINDING": self.binding,
             # HOME is the temporary folder: with no bytecode cache, the
             # detached worker writes nothing there while tearDown removes it.
             "PYTHONDONTWRITEBYTECODE": "1",
@@ -298,8 +293,8 @@ class SessionStart(Harness):
         self.assertEqual(self.calls_text(), "", "no update ran")
 
     def test_a_worktree_of_a_wired_clone_runs_the_update(self):
-        # KAIROS-T-0520: the wiring is git-excluded, so the worktree has
-        # none; the hook reads the file of its clone.
+        # KAIROS-T-0520: a worktree has the [[project]] of its clone (the
+        # entry matches the origin remote), so the CLI binds it too.
         base = os.path.dirname(self.project)
         clone = os.path.join(base, "clone")
         worktree = os.path.join(base, "wt-acme-t-0001")
@@ -309,13 +304,10 @@ class SessionStart(Harness):
                 ["git", "-c", "user.name=Robin", "-c", "user.email=robin@example.com", *args],
                 cwd=clone, check=True, capture_output=True, env=git_env,
             )
-        os.makedirs(os.path.join(clone, ".claude"))
+        os.makedirs(clone)
         git("init", "-q", "-b", "main")
         git("commit", "-q", "--allow-empty", "-m", "first")
-        with open(os.path.join(clone, ".claude", "kairos.local.md"), "w") as handle:
-            handle.write(WIRING)
         git("worktree", "add", "-q", "-b", "acme-t-0001", worktree)
-        self.assertFalse(os.path.exists(os.path.join(worktree, ".claude")))
         result = self.run_hook(
             "start",
             {"session_id": "s1", "source": "startup"},
@@ -338,7 +330,7 @@ class SessionStart(Harness):
         self.assertTrue(self.wait_for(finished, 15))
 
     def test_a_checkout_with_no_wiring_is_a_silent_no_op(self):
-        os.remove(os.path.join(self.project, ".claude", "kairos.local.md"))
+        os.remove(self.binding)
         result = self.run_hook("start", {"session_id": "s1", "source": "startup"})
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
@@ -372,7 +364,7 @@ class ChangedFiles(Harness):
         self.assertFalse(os.path.exists(self.state) and self.changed())
 
     def test_no_wiring_records_nothing(self):
-        os.remove(os.path.join(self.project, ".claude", "kairos.local.md"))
+        os.remove(self.binding)
         self.edit("Edit", os.path.join(self.project, "lib.rs"))
         self.assertFalse(os.path.exists(self.state))
 
@@ -496,13 +488,14 @@ class DebouncedUpdate(Harness):
         super().setUp()
         base = os.path.dirname(self.project)
         # A board folder: wired, not a checkout, with 2 clones below it.
-        # The clones have no wiring of their own.
+        # The stub binds the board folder and the project; a checkout
+        # outside them is not wired.
         self.board = os.path.join(base, "board")
         self.one = self.checkout(os.path.join(self.board, "one"))
         self.two = self.checkout(os.path.join(self.board, "two"))
-        os.makedirs(os.path.join(self.board, ".claude"))
-        with open(os.path.join(self.board, ".claude", "kairos.local.md"), "w") as handle:
-            handle.write(WIRING)
+
+    def env(self, **extra):
+        return super().env(STUB_BOUND=f"{self.project}:{self.board}", **extra)
 
     def tearDown(self):
         # No detached worker may outlive the test.
@@ -747,12 +740,12 @@ class DebouncedUpdate(Harness):
         self.assertTrue(self.wait_for(lambda: self.finished(self.project)))
         self.assertIn(f"cwd: {self.project}", self.calls_text())
 
-    def test_no_kairos_on_path_records_the_edit_and_starts_nothing(self):
+    def test_no_kairos_on_path_records_nothing_and_starts_nothing(self):
+        # KAIROS-T-0742: with no CLI nothing is wired, so no edit is recorded.
         os.remove(os.path.join(self.bin, "kairos"))
         self.edit_in(os.path.join(self.one, "a.rs"))
         time.sleep(1.0)
-        self.assertEqual(self.list_of(self.one), ["a.rs"])
-        self.assertEqual(self.log_of(self.one), "")
+        self.assertFalse(os.path.exists(self.state))
 
 
 class DebounceSeconds(unittest.TestCase):

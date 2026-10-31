@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Unit tests for the SessionStart hook's pure parts (KAIROS-T-0108):
-frontmatter parsing and the repo-scoped vs board-scoped hint. Stdlib only;
+the binding of `kairos config show` (a stub `kairos` on PATH gives it,
+KAIROS-T-0742) and the repo-scoped vs board-scoped hint. Stdlib only;
 run with `python3 -m unittest plugin/hooks/test_session_start.py` (or
 `angreal test unit`, which includes it)."""
 
@@ -23,42 +24,6 @@ SPEC = importlib.util.spec_from_file_location(
 )
 session_start = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(session_start)
-
-
-def write(text):
-    handle = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
-    handle.write(text)
-    handle.close()
-    return handle.name
-
-
-class ReadFrontmatter(unittest.TestCase):
-    def test_reads_every_known_key_including_repository(self):
-        path = write(
-            "---\n"
-            "deployment_url: https://acme.kairos.example\n"
-            "tenant: acme\n"
-            "repository: payments-api\n"
-            "delivery_stream: platform\n"
-            "team_board: platform-delivery\n"
-            "initiative_board: initiatives\n"
-            "adr_board: platform-adrs\n"
-            "---\n\n# prose\n"
-        )
-        values = session_start.read_frontmatter(path)
-        self.assertEqual(values["repository"], "payments-api")
-        self.assertEqual(values["adr_board"], "platform-adrs")
-        self.assertEqual(values["team_board"], "platform-delivery")
-        self.assertEqual(set(values), set(session_start.FRONTMATTER_KEYS))
-
-    def test_empty_values_and_unknown_keys_are_dropped(self):
-        path = write(
-            "---\nrepository:\nteam_board: web-delivery\nunknown: x\n---\n"
-        )
-        values = session_start.read_frontmatter(path)
-        self.assertNotIn("repository", values)
-        self.assertNotIn("unknown", values)
-        self.assertEqual(values["team_board"], "web-delivery")
 
 
 class LiveStateHint(unittest.TestCase):
@@ -151,7 +116,7 @@ class BuildContext(unittest.TestCase):
             {"deployment_url": "http://localhost:41080", "repository": "kairos"},
             "deployment reachable",
         )
-        for key in session_start.FRONTMATTER_KEYS:
+        for key in session_start.WIRING_KEYS:
             self.assertIn(f"- {key}:", text)
         self.assertIn("- repository: kairos", text)
         self.assertIn("- tenant: (not set)", text)
@@ -242,16 +207,21 @@ class RulesAtTheStart(unittest.TestCase):
         self.project = os.path.join(self.tmp.name, "project")
         os.makedirs(os.path.join(self.project, ".claude"))
         self.rules_dir = os.path.join(self.tmp.name, "rules")
-        with open(os.path.join(self.project, ".claude", "kairos.local.md"), "w") as handle:
-            handle.write(
-                "---\ndeployment_url: http://127.0.0.1:9\ntenant: acme\n"
-                "repository: payments-api\nteam_board: platform\n---\n"
-            )
+        # A stub `kairos` gives the binding; its other verbs are an older
+        # CLI (exit 64), so there is no version note.
+        hook_test_env.stub_kairos(os.path.join(self.tmp.name, "bin"))
+        binding = os.path.join(self.tmp.name, "binding.json")
+        hook_test_env.write_binding(
+            binding,
+            {"deployment_url": "http://127.0.0.1:9", "tenant": "acme",
+             "repository": "payments-api", "team_board": "platform"},
+        )
         self.env = dict(
             os.environ,
             CLAUDE_PROJECT_DIR=self.project,
             KAIROS_RULES_STATE_DIR=self.rules_dir,
-            PATH="/nonexistent",  # no kairos on PATH: no CLI probe
+            PATH=os.path.join(self.tmp.name, "bin") + os.pathsep + "/usr/bin:/bin",
+            STUB_BINDING=binding,
         )
 
     def tearDown(self):
@@ -280,8 +250,8 @@ class RulesAtTheStart(unittest.TestCase):
         self.assertIn("Kairos wiring for this folder", context)
         self.assertIn("Kairos rules (once per session", context)
         self.assertIn("http://127.0.0.1:9/items/COLLIERY-I-0627", context)
-        # KAIROS-T-0710: the file is retired, so the start says to move it.
-        self.assertIn("`kairos config migrate`", context)
+        # KAIROS-T-0742: no file is read, so the start names no file.
+        self.assertNotIn("kairos.local.md", context)
         self.assertTrue(
             any(name.startswith("session-0525-") for name in os.listdir(self.rules_dir)),
             "the marker of the session is written",
@@ -338,60 +308,47 @@ def make_clone(parent, name="kairos", origin=None):
 
 
 class WorktreeWiring(unittest.TestCase):
-    """KAIROS-T-0520: `.claude/kairos.local.md` is git-excluded, so a
-    worktree has none. Each hook reads the wiring of the clone through
-    `git rev-parse --git-common-dir`."""
+    """KAIROS-T-0520: a worktree has the `[[project]]` of its clone, because
+    the entry matches the `origin` remote; `kairos config show` binds it
+    (KAIROS-T-0742: no hook reads a file of the clone). A stub `kairos`
+    gives the binding."""
 
-    WIRING = (
-        "---\ndeployment_url: http://127.0.0.1:9\ntenant: acme\n"
-        "repository: payments-api\nteam_board: platform\nadr_board: platform-adrs\n---\n"
-    )
+    WIRING = {
+        "deployment_url": "http://127.0.0.1:9", "tenant": "acme",
+        "repository": "payments-api", "team_board": "platform", "adr_board": "platform-adrs",
+    }
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         board = os.path.realpath(self.tmp.name)
         self.clone = make_clone(board)
-        os.makedirs(os.path.join(self.clone, ".claude"))
-        self.wiring = os.path.join(self.clone, ".claude", "kairos.local.md")
-        with open(self.wiring, "w") as handle:
-            handle.write(self.WIRING)
         self.worktree = os.path.join(board, "wt-acme-t-0001")
         git("worktree", "add", "-q", "-b", "acme-t-0001", self.worktree, cwd=self.clone)
+        self.bin = os.path.join(board, "bin")
+        hook_test_env.stub_kairos(self.bin)
+        self.binding = os.path.join(board, "binding.json")
+        hook_test_env.write_binding(self.binding, self.WIRING)
+        self.env = {
+            "CLAUDE_PROJECT_DIR": self.worktree,
+            "PATH": self.bin + os.pathsep + "/usr/bin:/bin",
+            "STUB_BINDING": self.binding,
+        }
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_the_worktree_has_no_wiring_of_its_own(self):
-        self.assertFalse(
-            os.path.exists(os.path.join(self.worktree, ".claude", "kairos.local.md"))
-        )
+    def test_the_worktree_has_no_file_of_its_own(self):
+        self.assertFalse(os.path.exists(os.path.join(self.worktree, ".claude")))
 
-    def test_the_clone_reads_its_own_file(self):
-        self.assertEqual(session_start.wiring_path(self.clone), self.wiring)
+    def test_the_binding_of_the_cli_wires_the_worktree(self):
+        with unittest.mock.patch.dict(os.environ, self.env):
+            self.assertEqual(session_start.wiring()["repository"], "payments-api")
 
-    def test_a_worktree_reads_the_file_of_its_clone(self):
-        self.assertEqual(session_start.wiring_path(self.worktree), self.wiring)
-
-    def test_a_subfolder_of_a_worktree_is_not_a_checkout_root(self):
-        # The hooks run with CLAUDE_PROJECT_DIR, the root of the session.
-        os.makedirs(os.path.join(self.worktree, "src"))
-        self.assertIsNone(session_start.wiring_path(os.path.join(self.worktree, "src")))
-
-    def test_a_file_in_the_worktree_comes_first(self):
-        os.makedirs(os.path.join(self.worktree, ".claude"))
-        own = os.path.join(self.worktree, ".claude", "kairos.local.md")
-        with open(own, "w") as handle:
-            handle.write("---\nrepository: other\n---\n")
-        self.assertEqual(session_start.wiring_path(self.worktree), own)
-
-    def test_no_wiring_anywhere_is_none(self):
-        os.remove(self.wiring)
-        self.assertIsNone(session_start.wiring_path(self.worktree))
-        self.assertIsNone(session_start.wiring_path(self.tmp.name))
-
-    def test_the_project_dir_comes_from_the_environment(self):
-        with unittest.mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": self.worktree}):
-            self.assertEqual(session_start.wiring_path(), self.wiring)
+    def test_no_binding_is_none(self):
+        os.remove(self.binding)
+        with unittest.mock.patch.dict(os.environ, self.env):
+            self.assertIsNone(session_start.wiring(self.worktree))
+            self.assertIsNone(session_start.wiring(self.clone))
 
     def run_script(self, script, *args, payload=None):
         import json
@@ -400,11 +357,10 @@ class WorktreeWiring(unittest.TestCase):
 
         env = dict(
             os.environ,
-            CLAUDE_PROJECT_DIR=self.worktree,
             KAIROS_RULES_STATE_DIR=os.path.join(self.tmp.name, "rules"),
             KAIROS_WORK_STATE_DIR=os.path.join(self.tmp.name, "work"),
             KAIROS_RALPH_STATE_DIR=os.path.join(self.tmp.name, "ralph"),
-            PATH="/usr/bin:/bin",
+            **self.env,
         )
         result = subprocess.run(
             [sys.executable, os.path.join(HERE, script), *args],
@@ -444,7 +400,7 @@ class WorktreeWiring(unittest.TestCase):
             spec.loader.exec_module(module)
             return module
 
-        with unittest.mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": self.worktree}):
+        with unittest.mock.patch.dict(os.environ, self.env):
             self.assertEqual(load("kairos_rules").deployment_url(), "http://127.0.0.1:9")
             self.assertEqual(load("memory_reminder").adr_board(), "platform-adrs")
             self.assertTrue(load("index_update").is_wired(self.worktree))
@@ -567,14 +523,18 @@ class BoardFolder(unittest.TestCase):
         import subprocess
         import sys
 
-        os.makedirs(os.path.join(self.board, ".claude"))
-        with open(os.path.join(self.board, ".claude", "kairos.local.md"), "w") as handle:
-            handle.write("---\ndeployment_url: http://127.0.0.1:9\nteam_board: platform\n---\n")
+        # A stub `kairos` with no `repos local` (exit 64): the hook lists.
+        hook_test_env.stub_kairos(os.path.join(self.tmp.name, "bin"))
+        binding = os.path.join(self.tmp.name, "binding.json")
+        hook_test_env.write_binding(
+            binding, {"deployment_url": "http://127.0.0.1:9", "team_board": "platform"}
+        )
         env = dict(
             os.environ,
             CLAUDE_PROJECT_DIR=self.board,
             KAIROS_RULES_STATE_DIR=os.path.join(self.tmp.name, "rules"),
-            PATH="/usr/bin:/bin",
+            PATH=os.path.join(self.tmp.name, "bin") + os.pathsep + "/usr/bin:/bin",
+            STUB_BINDING=binding,
         )
         result = subprocess.run(
             [sys.executable, os.path.join(HERE, "session_start.py")],
@@ -587,8 +547,7 @@ class BoardFolder(unittest.TestCase):
         self.assertIn("- wt-acme-t-0001/: worktree of payments/", context)
 
 
-STUB_CLI = """#!/bin/sh
-echo "$@" >> "$STUB_LOG"
+STUB_CLI = "#!/bin/sh\n" + hook_test_env.STUB_CONFIG_SH + """echo "$@" >> "$STUB_LOG"
 case "$1 $2" in
   "--version ") echo "kairos 99.0.0" ;;
   "repos local") if [ -n "$STUB_JSON" ]; then cat "$STUB_JSON"; else echo "error: unrecognized subcommand 'local'" >&2; exit 64; fi ;;
@@ -713,13 +672,13 @@ class BoardFolderWithTheCli(unittest.TestCase):
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         url = f"http://127.0.0.1:{server.server_address[1]}"
-        os.makedirs(os.path.join(self.board, ".claude"))
-        with open(os.path.join(self.board, ".claude", "kairos.local.md"), "w") as handle:
-            handle.write(f"---\ndeployment_url: {url}\nteam_board: platform\n---\n")
+        binding = os.path.join(self.folder.tmp.name, "binding.json")
+        hook_test_env.write_binding(binding, {"deployment_url": url, "team_board": "platform"})
         hook_env = dict(
             os.environ,
             CLAUDE_PROJECT_DIR=self.board,
             KAIROS_RULES_STATE_DIR=os.path.join(self.folder.tmp.name, "rules"),
+            STUB_BINDING=binding,
             **{**self.env, **env},
         )
         result = subprocess.run(
@@ -747,7 +706,7 @@ class BoardFolderWithTheCli(unittest.TestCase):
 
 class ProjectConfig(unittest.TestCase):
     """#270: the binding of `kairos config show --json` (a [[project]] of
-    the config of the person), else the file."""
+    the config of the person). KAIROS-T-0742: with no CLI, nothing."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -793,14 +752,14 @@ class ProjectConfig(unittest.TestCase):
         with self.binding(data):
             self.assertIsNone(session_start.wiring(self.folder))
 
-    def test_with_no_cli_the_file_is_read(self):
+    def test_with_no_cli_nothing_is_wired(self):
+        # KAIROS-T-0742: the retired file wires nothing, with or without a CLI.
         os.makedirs(os.path.join(self.folder, ".claude"))
         with open(os.path.join(self.folder, ".claude", "kairos.local.md"), "w") as f:
             f.write("---\nteam_board: from-file\n---\n")
         with self.binding(None):
-            self.assertEqual(session_start.wiring(self.folder), {"team_board": "from-file"})
-        os.remove(os.path.join(self.folder, ".claude", "kairos.local.md"))
-        with self.binding(None):
+            self.assertIsNone(session_start.wiring(self.folder))
+        with self.binding({"bound": False, "values": {}}):
             self.assertIsNone(session_start.wiring(self.folder))
 
     def test_an_older_cli_with_no_config_verb_gives_none(self):
@@ -812,30 +771,6 @@ class ProjectConfig(unittest.TestCase):
         os.chmod(fake, 0o755)
         with unittest.mock.patch.dict(os.environ, {"PATH": bin_dir}):
             self.assertIsNone(session_start.config_binding(self.folder))
-
-
-class OneRuleOfTheFrontMatter(unittest.TestCase):
-    """KAIROS-T-0708: the parser of the hooks (for an older CLI) and the
-    parser of the CLI read each case of frontmatter_cases.json to the same
-    values; the Rust test reads the same file."""
-
-    def test_each_shared_case(self):
-        import json
-
-        with open(os.path.join(HERE, "frontmatter_cases.json"), encoding="utf-8") as f:
-            cases = json.load(f)["cases"]
-        self.assertGreaterEqual(len(cases), 5)
-        for case in cases:
-            with self.subTest(case["name"]):
-                path = write(case["text"])
-                self.assertEqual(session_start.read_frontmatter(path), case["values"])
-
-    def test_a_file_that_is_not_utf8_gives_no_error(self):
-        handle = tempfile.NamedTemporaryFile("wb", suffix=".md", delete=False)
-        handle.write(b"---\ntenant: acme\xff\nteam_board: delivery\n---\n")
-        handle.close()
-        values = session_start.read_frontmatter(handle.name)
-        self.assertEqual(values["team_board"], "delivery")
 
 
 class SourceOfEachValue(unittest.TestCase):
@@ -860,23 +795,15 @@ class SourceOfEachValue(unittest.TestCase):
                 "values": {
                     "deployment": {"value": "https://kairos.example.com", "from": "default", "file": "/c/config.toml"},
                     "team_board": {"value": "other-delivery", "from": "project", "file": "/c/config.toml", "entry": 'remote = "github.com/acme/app"'},
-                    "tenant": {"value": "acme", "from": "wiring", "file": "/w/.claude/kairos.local.md"},
+                    "tenant": {"value": "acme", "from": "elsewhere"},
                 },
             }
         )
         text = session_start.build_context(values, "deployment reachable")
         self.assertIn("- deployment_url: https://kairos.example.com [config.toml [default]]", text)
         self.assertIn('- team_board: other-delivery [config.toml [[project]] remote = "github.com/acme/app"]', text)
-        self.assertIn("- tenant: acme [.claude/kairos.local.md]", text)
+        self.assertIn("- tenant: acme [kairos config show]", text)
         self.assertIn("- repository: (not set)", text)
-        self.assertNotIn("Kairos wiring for this repo (.claude/kairos.local.md", text)
-
-    def test_the_file_of_an_older_cli_is_named(self):
-        os.makedirs(os.path.join(self.folder, ".claude"))
-        with open(os.path.join(self.folder, ".claude", "kairos.local.md"), "w") as f:
-            f.write("---\nteam_board: from-file\n---\n")
-        text = session_start.build_context(self.wiring(None), "deployment reachable")
-        self.assertIn("- team_board: from-file [.claude/kairos.local.md]", text)
 
     def test_the_only_login_gives_a_missing_deployment(self):
         values = self.wiring(
@@ -909,10 +836,7 @@ class SourceOfEachValue(unittest.TestCase):
         values = self.wiring({"bound": True, "values": ["not", "a", "map"]})
         self.assertEqual(dict(values), {})
 
-    def test_a_failed_cli_gives_the_error_and_not_the_file(self):
-        os.makedirs(os.path.join(self.folder, ".claude"))
-        with open(os.path.join(self.folder, ".claude", "kairos.local.md"), "w") as f:
-            f.write("---\nteam_board: from-file\n---\n")
+    def test_a_failed_cli_gives_the_error(self):
         values = self.wiring({"error": "The file /c/config.toml is not correct."})
         self.assertEqual(dict(values), {})
         self.assertIn("config.toml is not correct", values.error)
@@ -1004,13 +928,6 @@ class TheHookFailsOpen(unittest.TestCase):
         self.assertIn("Kairos wiring for this folder", context)
         self.assertIn("no deployment", context)
 
-    def test_a_file_that_is_not_utf8(self):
-        self.stub("exit 64\n")  # an older CLI: the hook reads the file
-        with open(os.path.join(self.project, ".claude", "kairos.local.md"), "wb") as f:
-            f.write(b"---\nteam_board: delivery\ntenant: \xff\xfe\n---\n")
-        context = self.context(self.run_hook())
-        self.assertIn("- team_board: delivery", context)
-
     def test_a_state_folder_that_cannot_be_written(self):
         self.stub('if [ "$1" = config ]; then echo \'{"bound": true, "values": {"team_board": {"value": "d", "from": "project"}}}\'; exit 0; fi\nexit 64\n')
         blocker = os.path.join(self.tmp.name, "rules")
@@ -1022,12 +939,9 @@ class TheHookFailsOpen(unittest.TestCase):
 
     def test_a_broken_config_names_the_error(self):
         self.stub('echo "error: The file /c/config.toml is not correct" >&2\nexit 1\n')
-        with open(os.path.join(self.project, ".claude", "kairos.local.md"), "w") as f:
-            f.write("---\ndeployment_url: https://file.example.com\n---\n")
         context = self.context(self.run_hook())
         self.assertIn("`kairos config show` failed", context)
         self.assertIn("config.toml is not correct", context)
-        self.assertNotIn("file.example.com", context)
 
     def test_an_error_in_the_hook_goes_to_stderr_with_exit_0(self):
         import io
@@ -1040,26 +954,3 @@ class TheHookFailsOpen(unittest.TestCase):
             session_start.main()  # no exception: the hook exits 0
         self.assertEqual(out.getvalue(), "")
         self.assertIn("kairos session start: the hook failed: no state folder", err.getvalue())
-
-
-class TheFileIsRetired(unittest.TestCase):
-    """KAIROS-T-0710: this release reads .claude/kairos.local.md, and the
-    start of a session says once to move it to config.toml."""
-
-    def test_a_value_of_the_file_gives_the_warning(self):
-        values = session_start.Wiring({"team_board": "d"}, {"team_board": ".claude/kairos.local.md"})
-        warning = session_start.wiring_warning(values)
-        self.assertIn("kairos config migrate", warning)
-        self.assertIn("next release", warning)
-
-    def test_values_of_config_toml_give_no_warning(self):
-        values = session_start.Wiring({"team_board": "d"}, {"team_board": "config.toml [default]"})
-        self.assertIsNone(session_start.wiring_warning(values))
-        self.assertIsNone(session_start.wiring_warning({"team_board": "d"}))
-
-    def test_the_start_gives_the_warning_and_the_compaction_does_not(self):
-        text = session_start.build_context(
-            session_start.Wiring({"team_board": "d"}, {"team_board": ".claude/kairos.local.md"}),
-            "not probed after a compaction",
-        )
-        self.assertNotIn("kairos config migrate", text)

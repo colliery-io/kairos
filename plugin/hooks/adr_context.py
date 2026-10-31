@@ -15,8 +15,7 @@ code of another organization or deployment, or a typo) is "not known to
 this deployment": the hook does not tell the agent to remove it. The hook
 runs only in a wired checkout: the nearest folder with `.git` above the
 file has the wiring (`kairos config show`: a `[[project]]` of
-`config.toml`, or the retired `.claude/kairos.local.md`), or the session
-folder above it has.
+`config.toml`), or the session folder above it has.
 
 Once per session per file: the record is
 `$KAIROS_ADR_STATE_DIR/<session_id>.json`, default `~/.claude/kairos-adr/`,

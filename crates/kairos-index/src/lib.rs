@@ -89,12 +89,6 @@ pub use summary::{
     vector_model_name,
 };
 
-/// The old place of the index of a checkout, from its root (COLLIERY-T-1852).
-/// The index is in the user cache now (KAIROS-A-0072), and the CLI moves an
-/// old file from here on the first open. A build does not read it, or its
-/// journal, as a file of the tree.
-pub const INDEX_FILE: &str = ".kairos/index.db";
-
 /// A file larger than this is read only in part: enough for the header and
 /// the rules. The default rules exclude it (`too-large`), so it is never
 /// parsed.
@@ -878,7 +872,8 @@ struct Prepared<'a> {
 
 /// The files under `root`, sorted by path. `.gitignore` is honoured, so
 /// `target/` and `node_modules/` are not read; `.git/` is never read. Hidden
-/// files are read: `.angreal/` and `.kairos/` hold code and rules.
+/// files are read: `.angreal/` and `.kairos/` hold code and rules. The index
+/// is in the user cache (KAIROS-A-0072), so no file of it is in the tree.
 fn walk(root: &Path) -> Result<Vec<(String, PathBuf)>, IndexError> {
     let walker = ignore::WalkBuilder::new(root)
         .hidden(false)
@@ -889,7 +884,6 @@ fn walk(root: &Path) -> Result<Vec<(String, PathBuf)>, IndexError> {
         .follow_links(false)
         .filter_entry(|entry| entry.file_name() != ".git")
         .build();
-    let index_file = root.join(INDEX_FILE);
     let mut files = Vec::new();
     for entry in walker {
         let entry = entry?;
@@ -897,14 +891,6 @@ fn walk(root: &Path) -> Result<Vec<(String, PathBuf)>, IndexError> {
             continue;
         }
         let abs = entry.into_path();
-        // The index and its SQLite journal files (`-journal`, `-wal`).
-        if abs
-            .as_os_str()
-            .as_encoded_bytes()
-            .starts_with(index_file.as_os_str().as_encoded_bytes())
-        {
-            continue;
-        }
         let rel = abs
             .strip_prefix(root)
             .expect("the walk stays under the root")
@@ -1359,18 +1345,6 @@ mod tests {
         std::fs::write(repo.join("main.go"), "package main\nfunc main() {}\n").unwrap();
         let paths: Vec<String> = walk(repo).unwrap().into_iter().map(|(p, _)| p).collect();
         assert_eq!(paths, [".gitignore", "main.go"]);
-    }
-
-    #[test]
-    fn the_index_of_the_checkout_is_not_read() {
-        let dir = tempfile::tempdir().unwrap();
-        let repo = dir.path();
-        std::fs::create_dir_all(repo.join(".kairos")).unwrap();
-        std::fs::write(repo.join(".kairos/index.db"), "x").unwrap();
-        std::fs::write(repo.join(".kairos/index.db-journal"), "x").unwrap();
-        std::fs::write(repo.join(".kairos/index-rules.toml"), "").unwrap();
-        let paths: Vec<String> = walk(repo).unwrap().into_iter().map(|(p, _)| p).collect();
-        assert_eq!(paths, [".kairos/index-rules.toml"]);
     }
 
     #[test]

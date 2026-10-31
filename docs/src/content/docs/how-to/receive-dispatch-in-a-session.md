@@ -2,7 +2,7 @@
 title: "Receive dispatch in a Claude Code session"
 ---
 
-This page describes Kairos 0.18.1 and the `kairos` plugin.
+This page describes Kairos 0.19.0 and the `kairos` plugin.
 
 Send the tasks of a board to a Claude Code session that runs now. A runner
 is not necessary. The `kairos` plugin has a channel, `kairos-dispatch`. The
@@ -76,8 +76,8 @@ connected. Its instructions say where it listens, and that this session owns
 the port.
 
 With no config, the channel does not listen. A folder with Kairos wiring is
-a folder that `kairos config show` binds: a `[[project]]` of `config.toml`
-(or the retired `.claude/kairos.local.md`). There, the instructions say that
+a folder that `kairos config show` binds: a `[[project]]` of `config.toml`.
+There, the instructions say that
 dispatch is off, and give the three steps of this page. In a folder with no wiring, the channel gives no instructions.
 
 The channel is a server of the plugin, so it starts in each session of the

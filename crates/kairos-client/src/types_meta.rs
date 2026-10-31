@@ -438,7 +438,7 @@ pub struct TemplateSection {
     /// level. One line, not empty, one time in each template.
     pub heading: String,
     /// `free` (text that is not empty), `plain` (text that passes the
-    /// plain-language check) or `ears` (each requirement fits one frame of
+    /// plain-language check) or `ears` (each list item fits one frame of
     /// EARS). The server refuses each other value.
     #[serde(rename = "type")]
     pub section_type: String,

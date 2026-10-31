@@ -23,8 +23,8 @@ pub enum SectionType {
     Free,
     /// Plain language: the text must pass the plain-language checker.
     Plain,
-    /// Requirements: each requirement must fit one frame of EARS
-    /// (KAIROS-T-0732).
+    /// Requirements: each list item must fit one frame of EARS; paragraphs
+    /// are free text (KAIROS-T-0732).
     Ears,
 }
 
@@ -238,8 +238,9 @@ pub struct SectionFailure {
 /// Check `content` against the typed sections of its template
 /// (KAIROS-T-0730, COLLIERY-I-0664 decision 1). Each section must be there
 /// and have text. The text of a `plain` section must also pass the
-/// plain-language checker and the vocabulary. Each requirement of an `ears`
-/// section must fit one frame of EARS (KAIROS-T-0732). A `free` section gets
+/// plain-language checker and the vocabulary. Each list item of an `ears`
+/// section is a requirement and must fit one frame of EARS; an `ears`
+/// section needs at least one list item (KAIROS-T-0732). A `free` section gets
 /// no language check. A heading that the content repeats: each occurrence is
 /// checked. Gives the failures in the order of `sections`; empty when the
 /// content passes.
@@ -462,7 +463,9 @@ mod tests {
     #[test]
     fn an_ears_section_names_each_requirement_that_fits_no_frame() {
         let sections = vec![("Requirements".to_string(), SectionType::Ears)];
+        // Only list items are requirements: the paragraph is free text.
         let content = "## Requirements\n\
+            The server saves each item.\n\n\
             - When a write fails, the server shall name the field.\n\
             - The server refuses the write.\n";
         let failures = check_sections(content, &sections, &small_vocabulary());
@@ -476,8 +479,16 @@ mod tests {
         assert_eq!(violations[0].text, "The server refuses the write.");
         assert!(violations[0].fix.contains("Closest frame: ubiquitous"));
         // Words inside the frame are free: no vocabulary check.
-        let content = "## Requirements\nThe server shall utilize the cache.\n";
+        let content = "## Requirements\n- The server shall utilize the cache.\n";
         assert!(check_sections(content, &sections, &small_vocabulary()).is_empty());
+        // A section with text but no list item has no requirement: EARS-7.
+        let content = "## Requirements\nThe server shall utilize the cache.\n";
+        let failures = check_sections(content, &sections, &small_vocabulary());
+        let SectionProblem::Violations(violations) = &failures[0].problem else {
+            panic!("expected violations, got {:?}", failures[0].problem);
+        };
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].rule, "EARS-7");
     }
 
     #[test]

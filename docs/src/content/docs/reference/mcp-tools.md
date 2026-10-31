@@ -1325,7 +1325,7 @@ document against the typed sections of its template (KAIROS-T-0730):
 - Each typed section must have text.
 - The text of a `plain` section must pass the plain-language check and the
   vocabulary.
-- Each requirement of an `ears` section must fit one frame of EARS. See
+- Each list item of an `ears` section must fit one frame of EARS. See
   [The EARS check](#the-ears-check).
 - The check of a `free` section stops at the first two rules.
 
@@ -1359,11 +1359,15 @@ do not do this check: a person can write free text.
 ### The EARS check
 
 EARS (Easy Approach to Requirements Syntax) puts each requirement in a fixed
-frame (KAIROS-T-0732). In an `ears` section, each list item is one
-requirement, and each sentence of a paragraph is one requirement. Headings,
-code blocks, tables and quotes are not requirements. The words in the frame
-are free: the check reads the frame only, not the vocabulary. A word in
-inline code is not a keyword.
+frame (KAIROS-T-0732). In an `ears` section, only a list item is a
+requirement. A list item is a bullet (`-`, `*` or `+`) or a numbered item
+(`1.`). An item on more lines is one requirement. A nested item is a
+requirement of its own.
+
+The check does not read paragraphs: write the context of the requirements
+in a paragraph. Headings, code blocks, tables and quotes are not
+requirements. The words in the frame are free: the check reads the frame
+only, not the vocabulary. A word in inline code is not a keyword.
 
 | Frame | Template |
 |---|---|
@@ -1389,7 +1393,8 @@ the change and the closest frame.
 | `EARS-3` | The requirement has no system before "shall". |
 | `EARS-4` | The requirement has no response after "shall". |
 | `EARS-5` | An "If" clause has no "then", or a "then" has no "If" clause. |
-| `EARS-6` | The requirement has more than one "shall". Write one requirement in each sentence. |
+| `EARS-6` | The requirement has more than one "shall". Write one requirement in each list item. |
+| `EARS-7` | The section has no list item, so it has no requirement. Write each requirement as a list item. |
 
 ```text
 - Section "Requirements" (ears), EARS-1: "A move names CODE when the item is a task in a done column.". The requirement has no "shall". Put the "when" clause first, then a comma, then the system, "shall" and the response. Closest frame: event-driven, "When <trigger>, the <system> shall <response>."

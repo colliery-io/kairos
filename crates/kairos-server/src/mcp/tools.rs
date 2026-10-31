@@ -1566,8 +1566,8 @@ pub struct TemplateSectionParams {
     /// level in the content.
     pub heading: String,
     /// The type of the section: `free` (text that is not empty), `plain`
-    /// (text that passes the plain-language check) or `ears` (each
-    /// requirement fits one frame of EARS).
+    /// (text that passes the plain-language check) or `ears` (each list
+    /// item fits one frame of EARS).
     #[serde(rename = "type")]
     pub section_type: String,
 }

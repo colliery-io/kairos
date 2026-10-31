@@ -13,15 +13,17 @@
 //! - Optional feature: "Where <feature>, the <system> shall <response>."
 //! - Complex: more than one of these clauses before the system.
 //!
-//! The text is split as the plain-language checker splits it: each list
-//! item is one requirement, and each sentence of a paragraph is one
-//! requirement. Code fences, headings, tables and quotes are not
-//! requirements. Inline code is one word, so a "shall" or a comma in code
-//! does not count.
+//! Only list items are requirements (Dylan, 2026-10-30, note n-7 on
+//! KAIROS-T-0732): each bullet (`-`, `*`, `+`) and each numbered item
+//! (`1.`) is one requirement, with the lines that continue it. A nested item
+//! is a requirement of its own. Paragraphs are free text and are not
+//! checked; code fences, headings, tables and quotes neither. Inline code is
+//! one word, so a "shall" or a comma in code does not count.
 //!
 //! Each failing requirement gives one [`Violation`]: the first rule that it
 //! breaks, the span of the requirement, and a message that names the fix and
-//! the closest frame.
+//! the closest frame. A text with no list item gives one violation, EARS-7:
+//! the section has no requirement.
 
 use std::sync::LazyLock;
 
@@ -29,7 +31,7 @@ use regex::Regex;
 
 use crate::Violation;
 use crate::mapped::Mapped;
-use crate::prose::{prose_blocks, sentences};
+use crate::prose::list_items;
 
 static SHALL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)\bshall\b").expect("valid regex"));
@@ -98,14 +100,23 @@ impl Frame {
     }
 }
 
-/// Check the text of an `ears` section: each requirement must fit one frame
-/// of EARS. Gives the violations in the order of the text.
+/// Check the text of an `ears` section: each list item is a requirement and
+/// must fit one frame of EARS. A text with no list item gives EARS-7.
+/// Gives the violations in the order of the text.
 pub fn check_ears(text: &str) -> Vec<Violation> {
-    prose_blocks(text)
-        .iter()
-        .flat_map(sentences)
-        .filter_map(|requirement| check_requirement(&requirement))
-        .collect()
+    let items = list_items(text);
+    if items.is_empty() {
+        let start = text.len() - text.trim_start().len();
+        let end = text.trim_end().len().max(start);
+        return vec![Violation::new(
+            "EARS-7",
+            start..end,
+            "The section has no requirement: it has no list item. Write each requirement \
+             as a list item (\"- \" or \"1. \"). Paragraphs are not checked."
+                .to_string(),
+        )];
+    }
+    items.iter().filter_map(check_requirement).collect()
 }
 
 /// The lower-case first word of `text`, if any.
@@ -166,7 +177,7 @@ fn check_requirement(requirement: &Mapped) -> Option<Violation> {
         return fail(
             "EARS-6",
             format!("The requirement has {} \"shall\".", shalls.len()),
-            "Write one requirement in each sentence.",
+            "Write one requirement in each list item.",
             frame,
         );
     }
@@ -306,10 +317,15 @@ mod tests {
         check_ears(text).iter().map(|v| v.rule).collect()
     }
 
-    fn one(text: &str) -> Violation {
-        let found = check_ears(text);
+    /// The one violation of a text, as a list item.
+    fn one(item: &str) -> Violation {
+        let found = check_ears(&format!("- {item}"));
         assert_eq!(found.len(), 1, "{found:?}");
         found.into_iter().next().unwrap()
+    }
+
+    fn item_rules(item: &str) -> Vec<&'static str> {
+        rules(&format!("- {item}"))
     }
 
     #[test]
@@ -324,14 +340,14 @@ mod tests {
             "While the sidecar is down, if a write comes, then the server shall refuse it.",
             "Where search is on, while the index builds, when a query comes, the server shall wait.",
         ] {
-            assert_eq!(check_ears(text), vec![], "{text}");
+            assert_eq!(item_rules(text), Vec::<&str>::new(), "{text}");
         }
     }
 
     #[test]
     fn words_inside_the_frame_are_free() {
         // Commas inside a clause, code, a list of systems, lower case.
-        let text = "When `create_item` gets a key, a body, and a board, the server shall utilize the cache.\n\
+        let text = "- When `create_item` gets a key, a body, and a board, the server shall utilize the cache.\n\
                     - The server, the worker and the CLI shall read `config.toml`.\n\
                     - when a run ends, kairos shall write the log";
         assert_eq!(check_ears(text), vec![]);
@@ -363,10 +379,13 @@ mod tests {
 
     #[test]
     fn a_near_miss_says_to_put_the_clause_first() {
-        let text = "A move names `reopen_item` when the item is a task in a done column.";
-        let v = one(text);
+        let item = "A move names `reopen_item` when the item is a task in a done column.";
+        let text = format!("- {item}");
+        let found = check_ears(&text);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let v = &found[0];
         assert_eq!(v.rule, "EARS-1");
-        assert_eq!(v.span, 0..text.len());
+        assert_eq!(&text[v.span.clone()], item);
         assert_eq!(
             v.message,
             "The requirement has no \"shall\". Put the \"when\" clause first, then a comma, then \
@@ -398,8 +417,11 @@ mod tests {
 
     #[test]
     fn no_system_and_no_response_are_named() {
-        assert_eq!(rules("When the job fails, shall retry."), vec!["EARS-3"]);
-        assert_eq!(rules("The server shall."), vec!["EARS-4"]);
+        assert_eq!(
+            item_rules("When the job fails, shall retry."),
+            vec!["EARS-3"]
+        );
+        assert_eq!(item_rules("The server shall."), vec!["EARS-4"]);
     }
 
     #[test]
@@ -408,34 +430,39 @@ mod tests {
         assert_eq!(v.rule, "EARS-5");
         assert!(v.message.contains("unwanted behaviour"), "{}", v.message);
         assert_eq!(
-            rules("When the disk is full, then the server shall stop."),
+            item_rules("When the disk is full, then the server shall stop."),
             vec!["EARS-5"]
         );
-        assert_eq!(rules("Then the server shall stop."), vec!["EARS-5"]);
+        assert_eq!(item_rules("Then the server shall stop."), vec!["EARS-5"]);
     }
 
     #[test]
     fn two_shalls_are_two_requirements() {
         assert_eq!(
-            rules("The server shall save the item and shall send a mail."),
+            item_rules("The server shall save the item and shall send a mail."),
             vec!["EARS-6"]
         );
     }
 
     #[test]
-    fn each_bullet_and_each_sentence_is_one_requirement() {
-        let text = "The server shall save. The server saves.\n\n\
+    fn only_list_items_are_requirements() {
+        // Paragraphs are free text: a paragraph with no "shall" passes. Each
+        // bullet and each numbered item is one requirement.
+        let text = "The server saves each item. This is context, not a requirement.\n\n\
                     - The worker shall run.\n\
                     - The worker runs\n\
                     * When it stops, the worker shall log.\n\
-                    1. Tests cover each frame.\n";
+                    + The worker logs.\n\
+                    1. Tests cover each frame.\n\
+                    2. The CLI shall print the code.\n\n\
+                    A closing paragraph with no keyword at all.\n";
         let found = check_ears(text);
         let texts: Vec<&str> = found.iter().map(|v| &text[v.span.clone()]).collect();
         assert_eq!(
             texts,
             vec![
-                "The server saves.",
                 "The worker runs",
+                "The worker logs.",
                 "Tests cover each frame."
             ]
         );
@@ -443,9 +470,49 @@ mod tests {
     }
 
     #[test]
+    fn a_multi_line_item_is_one_requirement() {
+        let text = "- When a write fails,\n  the server shall name the field.\n\
+                    - The server\n  refuses the write.\n";
+        let found = check_ears(text);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].rule, "EARS-1");
+        assert_eq!(
+            &text[found[0].span.clone()],
+            "The server\n  refuses the write."
+        );
+    }
+
+    #[test]
+    fn a_nested_item_is_a_requirement_of_its_own() {
+        let text = "- The server shall check each item:\n  \
+                    - The checker shall read the frame.\n  \
+                    - The checker reads the words.\n";
+        let found = check_ears(text);
+        let texts: Vec<&str> = found.iter().map(|v| &text[v.span.clone()]).collect();
+        assert_eq!(texts, vec!["The checker reads the words."]);
+    }
+
+    #[test]
     fn headings_fences_and_tables_are_not_requirements() {
-        let text = "### Edge cases\n```\nnot ears\n```\n| a | b |\n\nThe server shall log.\n";
+        let text = "### Edge cases\n```\n- not ears\n```\n| a | b |\n\n- The server shall log.\n";
         assert_eq!(check_ears(text), vec![]);
+    }
+
+    #[test]
+    fn a_section_with_no_list_item_has_no_requirement() {
+        let text = "The server saves each item.\n\n```\n- not an item\n```\n";
+        let found = check_ears(text);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].rule, "EARS-7");
+        assert_eq!(found[0].span, 0..text.trim_end().len());
+        assert!(
+            found[0]
+                .message
+                .starts_with("The section has no requirement: it has no list item."),
+            "{}",
+            found[0].message
+        );
+        assert_eq!(rules(""), vec!["EARS-7"]);
     }
 
     #[test]

@@ -14,8 +14,9 @@
 //!   ([`approved_words`], [`not_approved_words`], KAIROS-T-0728).
 //! - [`terms_used`]: which terms of a dictionary a text uses, longest
 //!   first (KAIROS-T-0735).
-//! - [`check_ears`]: the text of an `ears` section. EARS-1 to EARS-6:
-//!   each requirement fits one frame of EARS (KAIROS-T-0732).
+//! - [`check_ears`]: the text of an `ears` section. EARS-1 to EARS-7:
+//!   each list item fits one frame of EARS, and there is at least one
+//!   (KAIROS-T-0732).
 //! - [`parse_dictionary`]: the entries of a dictionary document
 //!   (KAIROS-T-0733; one dictionary for the organization, KAIROS-A-0079).
 //!

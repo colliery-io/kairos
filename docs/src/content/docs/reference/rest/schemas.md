@@ -3272,7 +3272,7 @@ A typed section of a template (KAIROS-T-0729). It has the text of a heading in t
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `heading` | `string` | yes | The text of the heading, with no `#`. It matches a heading of each level. One line, not empty, one time in each template. |
-| `type` | `string` | yes | `free` (text that is not empty), `plain` (text that passes the plain-language check) or `ears` (each requirement fits one frame of EARS). The server refuses each other value. |
+| `type` | `string` | yes | `free` (text that is not empty), `plain` (text that passes the plain-language check) or `ears` (each list item fits one frame of EARS). The server refuses each other value. |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 

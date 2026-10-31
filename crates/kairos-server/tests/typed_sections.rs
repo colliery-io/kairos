@@ -502,7 +502,8 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
 
     // 13. An `ears` section (KAIROS-T-0732): the template takes the type, a
     // requirement that fits no frame is refused with its rule and the
-    // closest frame, and nothing is saved. Words inside the frame are free.
+    // closest frame, and nothing is saved. Words inside the frame are free,
+    // and a paragraph is not checked (only list items are requirements).
     admin
         .create_template(&CreateTemplateRequest {
             name: "Spec".into(),
@@ -552,6 +553,7 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         "create_item",
         spec(
             "## Requirements\n\
+             A paragraph is context, not a requirement.\n\n\
              - When a write fails, the server shall utilize the field.\n\
              - If the item is done, then `move_item` shall name `reopen_item`.\n",
         ),

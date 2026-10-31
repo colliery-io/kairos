@@ -95,8 +95,6 @@ use crate::app::AppState;
         crate::api::tasks::set_repository,
         // The live state of a task (KAIROS-T-0506).
         crate::api::tasks::set_state,
-        // The review state of a task (KAIROS-T-0718).
-        crate::api::tasks::set_review,
         crate::api::documents::list_documents,
         crate::api::documents::get_document,
         crate::api::documents::create_document,

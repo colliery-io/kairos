@@ -24,7 +24,6 @@ use diesel::prelude::*;
 use kairos_client::types_dispatch as dto;
 use kairos_db::dispatch::{self, NewRule};
 use kairos_db::models::boards::Board;
-use kairos_db::models::enums::BoardLevel;
 use kairos_db::webhooks as db;
 use serde_json::json;
 use uuid::Uuid;
@@ -512,14 +511,10 @@ pub fn create_rule_as(
         Some(column) => {
             let id = column_of(conn, &board, &column)?;
             // KAIROS-T-0457: an unblocked rule on a done column never fires
-            // (a task in a done column waits for nothing). KAIROS-T-0718: a
-            // review_changed rule neither (the review of done work fires
-            // nothing).
-            if dispatch::TRIGGERS_WITH_OPTIONAL_COLUMN.contains(&trigger.as_str())
-                && column_is_done(conn, id)?
-            {
+            // (a task in a done column waits for nothing).
+            if trigger == dispatch::TRIGGER_UNBLOCKED && column_is_done(conn, id)? {
                 return Err(ApiError::validation(format!(
-                    "A {trigger} rule cannot name a done column: a task in {} waits for \
+                    "An unblocked rule cannot name a done column: a task in {} waits for \
                      nothing.",
                     column.trim()
                 ))
@@ -527,7 +522,7 @@ pub fn create_rule_as(
             }
             Some(id)
         }
-        None if dispatch::TRIGGERS_WITH_OPTIONAL_COLUMN.contains(&trigger.as_str()) => None,
+        None if trigger == dispatch::TRIGGER_UNBLOCKED => None,
         None => {
             return Err(ApiError::validation(
                 "A rule with the trigger entered_column needs a column.",
@@ -537,23 +532,6 @@ pub fn create_rule_as(
     };
     let target = target_of(conn, &board, &request.target_id)
         .map_err(|e| e.with_details(json!({ "field": "target_id" })))?;
-    // KAIROS-T-0719: an initiative or a strategy has no task type and no
-    // repository, so a rule on its board cannot filter on them.
-    if board.board_level != BoardLevel::Delivery {
-        for (field, value) in [
-            ("task_type", &request.task_type),
-            ("repository", &request.repository),
-        ] {
-            if given(value).is_some() {
-                return Err(ApiError::validation(format!(
-                    "A rule on a {} board cannot filter on {field}: its items have none. \
-                     Such a rule filters on metadata only.",
-                    board.board_level.as_str()
-                ))
-                .with_details(json!({ "field": field })));
-            }
-        }
-    }
     let task_type = given(&request.task_type);
     if let Some(t) = &task_type
         && !dispatch::TASK_TYPES.contains(&t.as_str())

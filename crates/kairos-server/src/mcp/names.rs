@@ -174,8 +174,6 @@ const NAMES: &[Name] = &[
     one("pr_url", "the URL of the pull request"),
     one("next_step", "what comes next"),
     one("expected_updated_at", "the time of the state that you read"),
-    // The review state of a task (KAIROS-T-0718).
-    one("review", "the review state: not_needed, needed or done"),
     // Values.
     one("values", "metadata values, by definition slug"),
     one(

@@ -463,9 +463,6 @@ fn describe_update(details: &str) -> Option<String> {
     if let Some(rest) = details.strip_prefix(STATE_PREFIX) {
         return Some(format!("state changed: {}", rest.replace(',', ", ")));
     }
-    if let Some(value) = details.strip_prefix(REVIEW_PREFIX) {
-        return Some(format!("review: {value}"));
-    }
     details
         .strip_prefix("agent_triage:")
         .map(|what| format!("agent triage: {what}"))
@@ -478,10 +475,6 @@ pub const METADATA_PREFIX: &str = "metadata:";
 /// The prefix of the details of a state row: `state:<field>,<field>`, the
 /// fields that the write changed.
 pub const STATE_PREFIX: &str = "state:";
-
-/// The prefix of the details of a review row (KAIROS-T-0718):
-/// `review:<value>`, the value that the write set.
-pub const REVIEW_PREFIX: &str = "review:";
 
 /// The details of a metadata row.
 pub fn metadata_details(slug: &str, value: Option<&str>) -> String {

@@ -1453,7 +1453,6 @@ pub(crate) async fn board_items(
                 crate::cancel::attach_cancellations(conn, &mut all).map_err(ApiError::internal)?;
                 // KAIROS-T-0506: the live state of each task.
                 crate::task_state::attach_states(conn, &mut all).map_err(ApiError::internal)?;
-                crate::task_review::attach_reviews(conn, &mut all).map_err(ApiError::internal)?;
                 let mut by_column: HashMap<String, Vec<cards::TaskCard>> = HashMap::new();
                 for task in all {
                     by_column

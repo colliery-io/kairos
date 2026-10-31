@@ -302,6 +302,11 @@ pub fn MarkdownEditor(
     /// that mounts the editor again for each copy.
     #[prop(optional, into)]
     server: Option<Signal<ServerCopy>>,
+    /// The terms of the dictionary of the organization (KAIROS-T-0734). The
+    /// rendered content links each term, with its meaning on hover. Empty:
+    /// no links.
+    #[prop(optional, into)]
+    terms: Signal<Vec<markdown::TermLink>>,
 ) -> impl IntoView {
     // KAIROS-T-0581: a stored draft of this item, when it differs from
     // the server copy.
@@ -641,11 +646,15 @@ pub fn MarkdownEditor(
                     // A stored draft is not shown here and stays stored.
                     view! {
                         <Text bright=true bold=true>{orig_title.get()}</Text>
-                        <div class="kairos-markdown" inner_html=markdown::to_html(&orig_content.get())></div>
+                        <div class="kairos-markdown" inner_html=terms.with(|terms| {
+                            markdown::to_html_with_terms(&orig_content.get(), terms)
+                        })></div>
                     }.into_any()
                 } else if mode.get() == "Preview" {
                     view! {
-                        <div class="kairos-markdown" inner_html=markdown::to_html(&content.get())></div>
+                        <div class="kairos-markdown" inner_html=terms.with(|terms| {
+                            markdown::to_html_with_terms(&content.get(), terms)
+                        })></div>
                     }.into_any()
                 } else {
                     view! {

@@ -1001,6 +1001,25 @@ A delivery stream (`/api/delivery-streams`).
 | `slug` | `string` | yes |  |
 | `updated_at` | `string` | yes | RFC 3339. |
 
+## DictionaryProblem
+
+One bad row of the dictionary.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `line` | `integer` | yes | The 1-based line of the row in the document. |
+| `message` | `string` | yes |  |
+
+## DictionaryTerm
+
+One term of [`OrganizationDictionary`].
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `meaning` | `string` | yes |  |
+| `part_of_speech` | `string` | yes |  |
+| `word` | `string` | yes | The term: one word or more, as the dictionary writes it. |
+
 ## DispatchRule
 
 A dispatch rule of a board. With the trigger `entered_column`, the rule fires when a task that matches the filter enters `column`. On an initiative or a strategy board the item is an initiative or a strategy (KAIROS-T-0719: the event `initiative.entered_column`). With `unblocked` (KAIROS-T-0427), it fires when the last open blocker of a task that matches closes. Then the task must be in `column`, if the rule names one. Kairos sends one signed delivery to the target.
@@ -2083,6 +2102,16 @@ The read token of the organization for one forge host (KAIROS-T-0431). A read sh
 | `set_at` | `string` | yes | RFC 3339. |
 | `set_by` | `string` | yes |  |
 | `set_by_name` | `string`, nullable | no | The display name of `set_by`, else the email. |
+
+## OrganizationDictionary
+
+`GET /api/org/dictionary` (KAIROS-T-0734, KAIROS-A-0079): the dictionary of the organization. An organization has one dictionary, on the board `strategy`; there are no team dictionaries.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `problems` | array of [`DictionaryProblem`](#dictionaryproblem) | yes | The bad rows of the dictionary. A bad row gives no term. |
+| `short_code` | `string`, nullable | no | The short code of the dictionary document; `null` when the organization has no dictionary. |
+| `terms` | array of [`DictionaryTerm`](#dictionaryterm) | yes | Each term, sorted by the word (case ignored). |
 
 ## PlaceTeamItemRequest
 

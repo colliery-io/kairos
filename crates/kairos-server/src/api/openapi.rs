@@ -228,6 +228,7 @@ use crate::app::AppState;
         crate::api::org::code_index_settings::put_settings,
         // The retention settings and the last pass (KAIROS-T-0631).
         crate::api::org::retention::get_retention,
+        crate::api::org::dictionary::get_organization_dictionary,
         // The job queue (KAIROS-T-0576).
         crate::api::org::jobs::get_jobs,
         // The read tokens of the organization by host (KAIROS-T-0431).

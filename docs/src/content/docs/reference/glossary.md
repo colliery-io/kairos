@@ -354,6 +354,14 @@ The server refuses a dictionary on a different board with
 the owner board. It refuses a second live dictionary on the board `strategy`
 with `DICTIONARY_EXISTS`.
 
+`GET /api/org/dictionary` gives the terms of the dictionary (KAIROS-T-0734).
+Each member of the organization can read it. The web app uses it for each
+item.
+
+In the content and the notes of an item, each term is a link to the
+dictionary. Put the pointer on the term to see its meaning. The longest
+term is used first. Code, links and headings do not get links.
+
 ## document
 
 One of the five work-item types, letter `D`. Documents have no board

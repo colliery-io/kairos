@@ -454,6 +454,21 @@
   opacity: 1;
 }
 
+/* KAIROS-T-0734: a term of the team dictionary. The text keeps its colour;
+   a dotted line marks the term, and the title gives the meaning on hover. */
+.kairos-markdown .kairos-term {
+  color: inherit;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--muted);
+  text-underline-offset: 2px;
+  cursor: help;
+}
+
+.kairos-markdown .kairos-term:hover,
+.kairos-markdown .kairos-term:focus {
+  text-decoration-color: var(--ice);
+}
+
 /* KAIROS-T-0579: a note of the Notes panel, and the note of the URL hash. */
 .kairos-note {
   border-radius: var(--radius-xs);

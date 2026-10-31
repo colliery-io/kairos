@@ -152,6 +152,10 @@ pub(super) fn NotesPanel(
     #[prop(into)] read_only: Signal<bool>,
     #[prop(into)] read_only_reason: Signal<String>,
     on_changed: Callback<()>,
+    /// The terms of the dictionary of the organization (KAIROS-T-0734): each note
+    /// links them, with the meaning on hover.
+    #[prop(into)]
+    terms: Signal<Vec<markdown::TermLink>>,
 ) -> impl IntoView {
     let code = StoredValue::new(code);
     let hash = use_location().hash;
@@ -193,7 +197,8 @@ pub(super) fn NotesPanel(
         let form_open =
             move || promoting.with(|open| id.with_value(|id| open.as_ref() == Some(id)));
         let byline = note_byline(&note.created_at, &note.author);
-        let html = markdown::to_html(&note.text);
+        let text = note.text.clone();
+        let html = move || terms.with(|terms| markdown::to_html_with_terms(&text, terms));
         let href = format!("#{}", note.id);
         let label = note.id.clone();
         view! {

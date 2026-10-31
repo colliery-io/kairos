@@ -34,6 +34,11 @@
 //! caller resolves the codes (one call for the whole document); a code it
 //! does not resolve stays text. Code spans, code blocks and the text of links
 //! are left alone.
+//!
+//! [`to_html_with_terms`] and [`to_html_with_links`] also link the terms of a
+//! dictionary (KAIROS-T-0734, [`terms`]): the longest term first, case
+//! ignored, with the meaning in the `title` of the link. Code, the text of
+//! links and headings are left alone.
 
 use std::collections::HashMap;
 
@@ -42,6 +47,10 @@ use pulldown_cmark::{
 };
 
 pub mod notes;
+pub mod terms;
+
+pub use terms::TermLink;
+use terms::Terms;
 
 /// A fence that renders specially.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -66,7 +75,13 @@ fn fence_of(info: &str) -> Option<Fence> {
 /// Render markdown to HTML, escaping raw HTML events (XSS-safe for
 /// `inner_html` under the same-origin API's user-authored content).
 pub fn to_html(source: &str) -> String {
-    render(source, None)
+    render(source, None, &Terms::new(&[]))
+}
+
+/// [`to_html`], and each term of `terms` in text becomes a link with its
+/// meaning on hover (KAIROS-T-0734).
+pub fn to_html_with_terms(source: &str, terms: &[TermLink]) -> String {
+    render(source, None, &Terms::new(terms))
 }
 
 /// [`to_html`], and each short code in text that `resolve` gives an href
@@ -75,6 +90,18 @@ pub fn to_html_with_codes(
     source: &str,
     resolve: impl FnOnce(&[String]) -> HashMap<String, String>,
 ) -> String {
+    to_html_with_links(source, resolve, &[])
+}
+
+/// [`to_html_with_codes`] and [`to_html_with_terms`] in one pass: a short
+/// code is a link to its item, and a dictionary term in the rest of the
+/// text is a link with its meaning on hover.
+pub fn to_html_with_links(
+    source: &str,
+    resolve: impl FnOnce(&[String]) -> HashMap<String, String>,
+    terms: &[TermLink],
+) -> String {
+    let terms = Terms::new(terms);
     let codes = {
         let mut codes: Vec<String> = Vec::new();
         let mut in_link = 0usize;
@@ -99,10 +126,10 @@ pub fn to_html_with_codes(
         codes
     };
     if codes.is_empty() {
-        return render(source, None);
+        return render(source, None, &terms);
     }
     let links = resolve(&codes);
-    render(source, Some(&links))
+    render(source, Some(&links), &terms)
 }
 
 fn options() -> Options {
@@ -112,7 +139,7 @@ fn options() -> Options {
         | Options::ENABLE_FOOTNOTES
 }
 
-fn render(source: &str, links: Option<&HashMap<String, String>>) -> String {
+fn render(source: &str, links: Option<&HashMap<String, String>>, terms: &Terms) -> String {
     let mut events: Vec<Event> = Vec::new();
     // The open special fence and its text.
     let mut open: Option<(Fence, String)> = None;
@@ -122,7 +149,14 @@ fn render(source: &str, links: Option<&HashMap<String, String>>) -> String {
     let mut in_code = false;
     // KAIROS-T-0504: the note headings seen, for the id of a note without one.
     let mut note_count = 0usize;
+    // KAIROS-T-0734: no dictionary term is linked in a heading.
+    let mut in_heading = false;
     for event in Parser::new_ext(source, options()) {
+        match &event {
+            Event::Start(Tag::Heading { .. }) => in_heading = true,
+            Event::End(TagEnd::Heading(_)) => in_heading = false,
+            _ => {}
+        }
         match (&mut open, event) {
             // A note heading gets its id as the anchor, and a link to it.
             (None, Event::Text(text))
@@ -196,9 +230,12 @@ fn render(source: &str, links: Option<&HashMap<String, String>>) -> String {
             }
             // No link inside a link: the text of a kept link stays as it is.
             (None, Event::Text(text))
-                if links.is_some() && !in_code && !dropped.iter().any(|dropped| !dropped) =>
+                if (links.is_some() || !terms.is_empty())
+                    && !in_code
+                    && !dropped.iter().any(|dropped| !dropped) =>
             {
-                link_codes(&text, links.expect("checked"), &mut events);
+                let terms = (!in_heading).then_some(terms);
+                link_text(&text, links, terms, &mut events);
             }
             (None, other) => events.push(other),
         }
@@ -268,26 +305,56 @@ fn short_codes(text: &str) -> Vec<(usize, usize)> {
     found
 }
 
-/// Push `text` as events, with each resolved short code as a link.
-fn link_codes<'a>(text: &CowStr<'a>, links: &HashMap<String, String>, events: &mut Vec<Event<'a>>) {
+/// Push `text` as events, with each resolved short code as a link, and
+/// each dictionary term of `terms` in the rest as a link (KAIROS-T-0734).
+fn link_text<'a>(
+    text: &CowStr<'a>,
+    links: Option<&HashMap<String, String>>,
+    terms: Option<&Terms>,
+    events: &mut Vec<Event<'a>>,
+) {
+    let mut out: Vec<Event<'a>> = Vec::new();
     let mut last = 0;
-    for (start, end) in short_codes(text) {
-        let Some(href) = links.get(&text[start..end]) else {
-            continue;
-        };
-        if start > last {
-            events.push(Event::Text(CowStr::from(text[last..start].to_string())));
-        }
-        events.push(Event::Html(CowStr::from(format!(
+    let codes = links.map(|links| {
+        short_codes(text)
+            .into_iter()
+            .filter_map(|(start, end)| links.get(&text[start..end]).map(|href| (start, end, href)))
+            .collect::<Vec<_>>()
+    });
+    for (start, end, href) in codes.unwrap_or_default() {
+        link_terms(&text[last..start], terms, &mut out);
+        out.push(Event::Html(CowStr::from(format!(
             "<a href=\"{}\">{}</a>",
             escape(href),
             escape(&text[start..end])
         ))));
         last = end;
     }
-    if last == 0 {
+    link_terms(&text[last..], terms, &mut out);
+    // Nothing linked: the text as it was.
+    if out.iter().all(|event| matches!(event, Event::Text(_))) {
         events.push(Event::Text(text.clone()));
-    } else if last < text.len() {
+    } else {
+        events.extend(out);
+    }
+}
+
+/// Push `text` as events, with each term of `terms` as a link.
+fn link_terms<'a>(text: &str, terms: Option<&Terms>, events: &mut Vec<Event<'a>>) {
+    let mut last = 0;
+    if let Some(terms) = terms.filter(|terms| !terms.is_empty()) {
+        for (start, end, term) in terms::find(text, terms) {
+            if start > last {
+                events.push(Event::Text(CowStr::from(text[last..start].to_string())));
+            }
+            events.push(Event::Html(CowStr::from(terms::term_html(
+                term,
+                &text[start..end],
+            ))));
+            last = end;
+        }
+    }
+    if last < text.len() {
         events.push(Event::Text(CowStr::from(text[last..].to_string())));
     }
 }

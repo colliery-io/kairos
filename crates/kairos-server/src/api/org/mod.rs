@@ -27,6 +27,7 @@ pub mod boards;
 pub mod code_index_query;
 pub mod code_index_settings;
 pub mod code_indexes;
+pub mod dictionary;
 pub mod dispatch;
 pub mod flow;
 pub mod forge;
@@ -71,6 +72,8 @@ pub fn router() -> Router<AppState> {
         .merge(code_index_settings::router())
         // KAIROS-T-0631: the retention settings and the last pass.
         .merge(retention::router())
+        // KAIROS-T-0734: the dictionary of the organization (KAIROS-A-0079).
+        .merge(dictionary::router())
         // KAIROS-T-0576: the job queue for an organization admin.
         .merge(jobs::router())
         .merge(code_index_query::router())

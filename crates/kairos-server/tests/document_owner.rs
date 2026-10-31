@@ -2608,6 +2608,15 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
             reply.1.contains("the board strategy"),
             &reply.1,
         );
+        checks.same(
+            "J4: with no dictionary, GET /api/org/dictionary gives no code and no term",
+            alice
+                .get_organization_dictionary()
+                .await
+                .map(|d| (d.short_code, d.terms.len(), d.problems.len()))
+                .ok(),
+            Some((None, 0, 0)),
+        );
         let first = checks.allowed(
             "J4: the dictionary of the organization is created on the board strategy",
             svc.create_document(&body(&strategy_board, "J4: dictionary"))
@@ -2658,6 +2667,54 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
                 stored_board(&mut conn, &first.short_code) == Some(strategy_board.clone()),
                 format!("{:?}", stored_board(&mut conn, &first.short_code)),
             );
+
+            // J4 (KAIROS-T-0734, KAIROS-A-0079): GET /api/org/dictionary
+            // gives the dictionary of the organization to each member.
+            let entries = "| Word | Part of speech | Meaning |\n\
+                           |---|---|---|\n\
+                           | production document | noun | A document that the team gives out. |\n\
+                           | board | noun | A set of columns. |\n\
+                           | lane |\n";
+            checks.allowed(
+                "J4: the dictionary gets its entries",
+                edit(&svc, &first.short_code, entries).await,
+            );
+            if let Some(read) = checks.allowed(
+                "J4: a member with no grant on the board strategy reads the dictionary",
+                alice.get_organization_dictionary().await,
+            ) {
+                checks.same(
+                    "J4: the code of the dictionary",
+                    read.short_code.clone(),
+                    Some(first.short_code.clone()),
+                );
+                checks.same(
+                    "J4: the terms, sorted by the word",
+                    read.terms
+                        .iter()
+                        .map(|t| {
+                            (
+                                t.word.as_str(),
+                                t.part_of_speech.as_str(),
+                                t.meaning.as_str(),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                    vec![
+                        ("board", "noun", "A set of columns."),
+                        (
+                            "production document",
+                            "noun",
+                            "A document that the team gives out.",
+                        ),
+                    ],
+                );
+                checks.same(
+                    "J4: the bad row is a problem with its line",
+                    read.problems.iter().map(|p| p.line).collect::<Vec<_>>(),
+                    vec![5],
+                );
+            }
         }
     }
 

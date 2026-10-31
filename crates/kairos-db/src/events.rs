@@ -195,10 +195,6 @@ pub enum EventKind {
     /// `change` is the id of the note. Comes after the `item_updated` of
     /// the same write.
     NotePromoted,
-    /// The review state of a task changed (KAIROS-T-0718): `not_needed`,
-    /// `needed` or `done`. Comes after the `item_updated` of the same
-    /// write.
-    TaskReviewChanged,
 }
 
 /// What happened to a claim: the `change` of a `claim_changed` event.
@@ -230,7 +226,7 @@ impl ClaimChange {
 impl EventKind {
     /// Each kind, in the order of the enum. A test checks that the list is
     /// complete.
-    pub const ALL: [EventKind; 17] = [
+    pub const ALL: [EventKind; 16] = [
         EventKind::ItemCreated,
         EventKind::ItemUpdated,
         EventKind::ItemTransitioned,
@@ -247,7 +243,6 @@ impl EventKind {
         EventKind::BoardConfigured,
         EventKind::NoteAppended,
         EventKind::NotePromoted,
-        EventKind::TaskReviewChanged,
     ];
 
     /// The kind of a wire name, or `None` for a name of no kind (the events
@@ -309,7 +304,6 @@ impl EventKind {
             EventKind::BoardConfigured => "board_configured",
             EventKind::NoteAppended => "note_appended",
             EventKind::NotePromoted => "note_promoted",
-            EventKind::TaskReviewChanged => "task_review_changed",
         }
     }
 }
@@ -887,7 +881,6 @@ mod tests {
         assert_eq!(EventKind::BoardConfigured.as_str(), "board_configured");
         assert_eq!(EventKind::NoteAppended.as_str(), "note_appended");
         assert_eq!(EventKind::NotePromoted.as_str(), "note_promoted");
-        assert_eq!(EventKind::TaskReviewChanged.as_str(), "task_review_changed");
         let changes: Vec<&str> = [
             ClaimChange::Taken,
             ClaimChange::HandedOff,
@@ -909,7 +902,6 @@ mod tests {
             EventKind::BoardConfigured,
             EventKind::NoteAppended,
             EventKind::NotePromoted,
-            EventKind::TaskReviewChanged,
         ] {
             assert!(!kind.changes_blocks_counts(), "{}", kind.as_str());
         }
@@ -946,7 +938,6 @@ mod tests {
             EventKind::BoardConfigured => 13,
             EventKind::NoteAppended => 14,
             EventKind::NotePromoted => 15,
-            EventKind::TaskReviewChanged => 16,
         };
         for (n, kind) in EventKind::ALL.into_iter().enumerate() {
             assert_eq!(position(kind), n, "{}", kind.as_str());

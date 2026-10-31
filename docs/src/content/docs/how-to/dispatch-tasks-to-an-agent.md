@@ -125,17 +125,6 @@ Without `--column`, a task in each column that is not done matches.
 
 The rule names no done column: a task in a done column waits for nothing.
 
-A rule can also fire when the review state of a task changes
-(`kairos tasks review`, the MCP tool `set_review`). The event is
-`task.review_changed`; its `review` is the new value, `not_needed`, `needed`
-or `done`. Use this trigger to send a task to a reviewer:
-
-```sh
-kairos boards dispatch add-rule platform-delivery \
-  --trigger review_changed --target 6f1a…
-# → Made the dispatch rule 9c2d…: each task whose review state changes goes to Agent runner.
-```
-
 An agent can make the same rule with the MCP tool `create_dispatch_rule`. With
 `url` in place of `target_id`, the tool makes the target too, and its answer
 has the secret.

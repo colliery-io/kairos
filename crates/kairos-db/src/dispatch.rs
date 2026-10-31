@@ -30,11 +30,6 @@
 //! two blockers fires once, when the second closes. A blocker that opens
 //! again blocks the item again, so its next close fires again.
 //!
-//! A rule with the trigger [`TRIGGER_REVIEW_CHANGED`] (KAIROS-T-0718) fires
-//! when the review state of a task changes ([`on_review_changed`]): the
-//! event [`EVENT_REVIEW_CHANGED`], with the value in `data.review`. The
-//! rule can name a column that the task must be in.
-//!
 //! The connection must be pinned to a tenant schema. This module does not
 //! check rights: the caller does.
 
@@ -58,39 +53,11 @@ pub const TRIGGER_ENTERED_COLUMN: &str = "entered_column";
 /// The trigger of a rule that fires when a task is unblocked.
 pub const TRIGGER_UNBLOCKED: &str = "unblocked";
 
-/// The event of a task whose review state changed (KAIROS-T-0718).
-pub const EVENT_REVIEW_CHANGED: &str = "task.review_changed";
-
-/// The trigger of a rule that fires when the review state of a task
-/// changes (KAIROS-T-0718).
-pub const TRIGGER_REVIEW_CHANGED: &str = "review_changed";
-
 /// The triggers that a rule can name.
-pub const TRIGGERS: [&str; 3] = [
-    TRIGGER_ENTERED_COLUMN,
-    TRIGGER_UNBLOCKED,
-    TRIGGER_REVIEW_CHANGED,
-];
-
-/// The triggers whose rule can have no column: the task can be in any
-/// column that is not done.
-pub const TRIGGERS_WITH_OPTIONAL_COLUMN: [&str; 2] = [TRIGGER_UNBLOCKED, TRIGGER_REVIEW_CHANGED];
+pub const TRIGGERS: [&str; 2] = [TRIGGER_ENTERED_COLUMN, TRIGGER_UNBLOCKED];
 
 /// The task types that a rule can name.
 pub const TASK_TYPES: [&str; 4] = ["task", "bug", "tech_debt", "support"];
-
-/// The filter of a rule as SQL, for a query where `r` is the rule and `t`
-/// the item: the task type, the repository, the metadata value (no case,
-/// no space at the ends), then the order of the rules. Each trigger's
-/// match adds its own trigger, board and column conditions before it.
-const RULE_FILTER: &str = "AND (r.task_type IS NULL OR r.task_type = t.task_type) \
-            AND (r.repository_id IS NULL OR r.repository_id = t.repository_id) \
-            AND (r.metadata_slug IS NULL OR EXISTS ( \
-                  SELECT 1 FROM item_metadata m \
-                    JOIN metadata_definitions d ON d.id = m.metadata_definition_id \
-                   WHERE m.item_id = t.id AND d.slug = r.metadata_slug \
-                     AND lower(btrim(m.value)) = lower(btrim(r.metadata_value)))) \
-          ORDER BY r.created_at, r.id";
 
 /// A dispatch rule, with the names of its column, target and repository.
 #[derive(Debug, Clone, PartialEq, Eq, QueryableByName)]
@@ -139,7 +106,7 @@ const RULE_SELECT: &str = "SELECT r.id, r.board_id, r.trigger, r.column_id, c.na
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewRule {
     pub board_id: Uuid,
-    /// One of [`TRIGGERS`].
+    /// [`TRIGGER_ENTERED_COLUMN`] or [`TRIGGER_UNBLOCKED`].
     pub trigger: String,
     /// Required for [`TRIGGER_ENTERED_COLUMN`].
     pub column_id: Option<Uuid>,
@@ -292,89 +259,30 @@ pub fn on_task_entered_column(
     column_id: Uuid,
     actor: Uuid,
 ) -> Result<Vec<crate::webhooks::Delivery>, DieselError> {
-    let matches: Vec<Match> = sql_query(format!(
+    let matches: Vec<Match> = sql_query(
         "SELECT r.id AS rule_id, r.target_id FROM dispatch_rules r \
            JOIN tasks t ON t.id = $1 \
           WHERE r.trigger = 'entered_column' \
             AND r.board_id = t.board_id AND r.column_id = $2 AND t.deleted_at IS NULL \
-            {RULE_FILTER}"
-    ))
+            AND (r.task_type IS NULL OR r.task_type = t.task_type) \
+            AND (r.repository_id IS NULL OR r.repository_id = t.repository_id) \
+            AND (r.metadata_slug IS NULL OR EXISTS ( \
+                  SELECT 1 FROM item_metadata m \
+                    JOIN metadata_definitions d ON d.id = m.metadata_definition_id \
+                   WHERE m.item_id = t.id AND d.slug = r.metadata_slug \
+                     AND lower(btrim(m.value)) = lower(btrim(r.metadata_value)))) \
+          ORDER BY r.created_at, r.id",
+    )
     .bind::<SqlUuid, _>(task_id)
     .bind::<SqlUuid, _>(column_id)
     .load(conn)?;
-    queue(
-        conn,
-        task_id,
-        column_id,
-        actor,
-        &matches,
-        EVENT,
-        Detail::None,
-    )
-}
-
-#[derive(QueryableByName)]
-struct TaskColumn {
-    #[diesel(sql_type = SqlUuid)]
-    column_id: Uuid,
-}
-
-/// The review state of the task `task_id` changed to `review`, by `actor`
-/// (KAIROS-T-0718): queue one delivery of [`EVENT_REVIEW_CHANGED`] for
-/// each `review_changed` rule of its board that it matches. The rule's
-/// column, if any, must be the column of the task. Nothing for a task in a
-/// done column or an archived one. Runs in the transaction of the write.
-pub fn on_review_changed(
-    conn: &mut PgConnection,
-    task_id: Uuid,
-    review: &str,
-    actor: Uuid,
-) -> Result<Vec<crate::webhooks::Delivery>, DieselError> {
-    let Some(task) = sql_query(
-        "SELECT t.column_id FROM tasks t \
-           JOIN board_columns c ON c.id = t.column_id AND NOT c.is_done \
-          WHERE t.id = $1 AND t.deleted_at IS NULL",
-    )
-    .bind::<SqlUuid, _>(task_id)
-    .get_result::<TaskColumn>(conn)
-    .optional()?
-    else {
-        return Ok(Vec::new());
-    };
-    let matches: Vec<Match> = sql_query(format!(
-        "SELECT r.id AS rule_id, r.target_id FROM dispatch_rules r \
-           JOIN tasks t ON t.id = $1 \
-          WHERE r.trigger = 'review_changed' AND r.board_id = t.board_id \
-            AND (r.column_id IS NULL OR r.column_id = t.column_id) \
-            {RULE_FILTER}"
-    ))
-    .bind::<SqlUuid, _>(task_id)
-    .load(conn)?;
-    queue(
-        conn,
-        task_id,
-        task.column_id,
-        actor,
-        &matches,
-        EVENT_REVIEW_CHANGED,
-        Detail::Review(review),
-    )
-}
-
-/// The fact of an event that its delivery carries beside the item.
-#[derive(Debug, Clone, Copy)]
-enum Detail<'a> {
-    /// [`EVENT`]: nothing more.
-    None,
-    /// [`EVENT_UNBLOCKED`]: the code of the blocker that closed.
-    Blocker(&'a str),
-    /// [`EVENT_REVIEW_CHANGED`]: the new review state.
-    Review(&'a str),
+    queue(conn, task_id, column_id, actor, &matches, EVENT, None)
 }
 
 /// Queue one delivery of `event` for each of `matches`, for the item
 /// `task_id` (a task, or for [`EVENT_UNBLOCKED`] any workflow item) in the
-/// column `column_id`, with `detail` in its data.
+/// column `column_id`. `blocker` is the code of the
+/// blocker that closed, for [`EVENT_UNBLOCKED`].
 fn queue(
     conn: &mut PgConnection,
     task_id: Uuid,
@@ -382,7 +290,7 @@ fn queue(
     actor: Uuid,
     matches: &[Match],
     event: &str,
-    detail: Detail<'_>,
+    blocker: Option<&str>,
 ) -> Result<Vec<crate::webhooks::Delivery>, DieselError> {
     if matches.is_empty() {
         return Ok(Vec::new());
@@ -445,14 +353,8 @@ fn queue(
             "actor": { "id": actor, "name": facts.actor_name },
             "rule_id": m.rule_id,
         });
-        match detail {
-            Detail::None => {}
-            Detail::Blocker(code) => {
-                data["blocker"] = serde_json::Value::String(code.to_string());
-            }
-            Detail::Review(value) => {
-                data["review"] = serde_json::Value::String(value.to_string());
-            }
+        if let Some(code) = blocker {
+            data["blocker"] = serde_json::Value::String(code.to_string());
         }
         if let Some(delivery) = crate::webhooks::queue_delivery(
             conn,
@@ -619,7 +521,14 @@ pub fn on_dependants_freed(
                JOIN {WORKFLOW_ITEMS} t ON t.id = $1 \
               WHERE r.trigger = 'unblocked' AND r.board_id = t.board_id \
                 AND (r.column_id IS NULL OR r.column_id = t.column_id) \
-                    {RULE_FILTER}"
+                AND (r.task_type IS NULL OR r.task_type = t.task_type) \
+                AND (r.repository_id IS NULL OR r.repository_id = t.repository_id) \
+                AND (r.metadata_slug IS NULL OR EXISTS ( \
+                      SELECT 1 FROM item_metadata m \
+                        JOIN metadata_definitions d ON d.id = m.metadata_definition_id \
+                       WHERE m.item_id = t.id AND d.slug = r.metadata_slug \
+                         AND lower(btrim(m.value)) = lower(btrim(r.metadata_value)))) \
+              ORDER BY r.created_at, r.id"
         ))
         .bind::<SqlUuid, _>(item.id)
         .load(conn)?;
@@ -630,7 +539,7 @@ pub fn on_dependants_freed(
             actor,
             &matches,
             EVENT_UNBLOCKED,
-            Detail::Blocker(blocker),
+            Some(blocker),
         )?);
     }
     Ok(deliveries)

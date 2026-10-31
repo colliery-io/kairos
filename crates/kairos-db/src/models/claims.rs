@@ -78,30 +78,6 @@ pub struct TaskState {
     pub updated_by: Uuid,
 }
 
-/// The review state of a task (KAIROS-T-0718): one row for each task at
-/// most. No row: nobody decided yet.
-#[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Identifiable)]
-#[diesel(table_name = crate::schema::task_review)]
-#[diesel(primary_key(task_id))]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct TaskReview {
-    pub task_id: Uuid,
-    /// `not_needed`, `needed` or `done` ([`crate::task_review::Review`]).
-    pub review: String,
-    pub updated_at: DateTime<Utc>,
-    /// The person or the service account that set it (`public.users.id`).
-    pub updated_by: Uuid,
-}
-
-/// Insert or replace for [`TaskReview`]. `updated_at` is `now()`.
-#[derive(Debug, Clone, Insertable, AsChangeset)]
-#[diesel(table_name = crate::schema::task_review)]
-pub struct NewTaskReview {
-    pub task_id: Uuid,
-    pub review: String,
-    pub updated_by: Uuid,
-}
-
 /// Insert or replace for [`TaskState`]. `updated_at` is `now()`.
 #[derive(Debug, Clone, Insertable, AsChangeset)]
 #[diesel(table_name = crate::schema::task_state)]

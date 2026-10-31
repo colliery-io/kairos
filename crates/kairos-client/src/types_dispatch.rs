@@ -77,7 +77,7 @@ pub struct CreatedWebhookTarget {
 pub struct DispatchRule {
     pub id: String,
     pub board_id: String,
-    /// `entered_column`, `unblocked` or `review_changed` (KAIROS-T-0718).
+    /// `entered_column` or `unblocked`.
     pub trigger: String,
     /// `null`: an `unblocked` rule with no column.
     pub column_id: Option<String>,
@@ -103,13 +103,11 @@ pub struct DispatchRule {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateDispatchRuleRequest {
-    /// `entered_column` (the default), `unblocked` or `review_changed`
-    /// (KAIROS-T-0718: the review state of a task changed).
+    /// `entered_column` (the default) or `unblocked`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger: Option<String>,
     /// The name or the id of a column of the board. Required for
-    /// `entered_column`; for `unblocked` and `review_changed`, the column
-    /// the task must be in.
+    /// `entered_column`; for `unblocked`, the column the task must be in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column: Option<String>,
     /// The id of a webhook target of the board.

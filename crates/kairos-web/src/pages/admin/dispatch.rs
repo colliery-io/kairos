@@ -46,8 +46,7 @@ struct Created {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Rule {
     pub id: String,
-    /// `entered_column`, `unblocked` (KAIROS-T-0427) or `review_changed`
-    /// (KAIROS-T-0718).
+    /// `entered_column` or `unblocked` (KAIROS-T-0427).
     pub trigger: String,
     /// `None`: an `unblocked` rule with no column.
     pub column: Option<String>,
@@ -86,11 +85,7 @@ pub struct Delivery {
 const TASK_TYPES: [&str; 5] = ["any type", "task", "bug", "tech_debt", "support"];
 
 /// The triggers of a rule, in words: the first is `entered_column`.
-const TRIGGERS: [&str; 3] = [
-    "enters the column",
-    "is unblocked",
-    "has its review state changed",
-];
+const TRIGGERS: [&str; 2] = ["enters the column", "is unblocked"];
 
 /// The column option of an `unblocked` rule with no column.
 const ANY_COLUMN: &str = "any column";
@@ -100,8 +95,6 @@ fn when_words(rule: &Rule) -> String {
     match (rule.trigger.as_str(), rule.column.as_deref()) {
         ("unblocked", Some(column)) => format!("in {column} that is unblocked"),
         ("unblocked", None) => "that is unblocked".to_string(),
-        ("review_changed", Some(column)) => format!("in {column} whose review state changes"),
-        ("review_changed", None) => "whose review state changes".to_string(),
         (_, column) => format!("that enters {}", column.unwrap_or("?")),
     }
 }
@@ -138,12 +131,10 @@ fn rule_body(
     let mut body = json!({ "target_id": target_id });
     if trigger == TRIGGERS[1] {
         body["trigger"] = json!("unblocked");
-    } else if trigger == TRIGGERS[2] {
-        body["trigger"] = json!("review_changed");
     }
     if column != ANY_COLUMN {
         body["column"] = json!(column);
-    } else if trigger == TRIGGERS[0] {
+    } else if trigger != TRIGGERS[1] {
         return Err("A rule that fires when a task enters a column needs a column.".to_string());
     }
     if task_type != TASK_TYPES[0] && !task_type.is_empty() {
@@ -833,17 +824,6 @@ mod tests {
             ..unblocked
         };
         assert_eq!(when_words(&anywhere), "that is unblocked");
-        // KAIROS-T-0718: the review state.
-        let review = Rule {
-            trigger: "review_changed".into(),
-            ..rule()
-        };
-        assert_eq!(when_words(&review), "in Todo whose review state changes");
-        let review_anywhere = Rule {
-            column: None,
-            ..review
-        };
-        assert_eq!(when_words(&review_anywhere), "whose review state changes");
     }
 
     #[test]
@@ -857,31 +837,6 @@ mod tests {
             json!({ "trigger": "unblocked", "column": "Todo", "target_id": "t1" })
         );
         assert!(rule_body("enters the column", "any column", "t1", "any type", "", "").is_err());
-        // KAIROS-T-0718: the third trigger, with and without a column.
-        assert_eq!(
-            rule_body(
-                "has its review state changed",
-                "any column",
-                "t1",
-                "any type",
-                "",
-                ""
-            )
-            .unwrap(),
-            json!({ "trigger": "review_changed", "target_id": "t1" })
-        );
-        assert_eq!(
-            rule_body(
-                "has its review state changed",
-                "Active",
-                "t1",
-                "any type",
-                "",
-                ""
-            )
-            .unwrap(),
-            json!({ "trigger": "review_changed", "column": "Active", "target_id": "t1" })
-        );
     }
 
     #[test]

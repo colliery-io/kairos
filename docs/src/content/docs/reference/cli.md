@@ -3054,7 +3054,7 @@ kairos index build [--root <ROOT>] [--json]
 ```
 
 Builds the index of the checkout: the structure and the call edges. The CLI
-has no summarizer: it links the summaries of the pool of the Kairos server,
+has no summarizer. It links the summaries of the pool of the Kairos server,
 and says why it made no others.
 
 ### `kairos index update`

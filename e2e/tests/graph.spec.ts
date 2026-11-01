@@ -71,6 +71,7 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
   let sampled: Array<{ code: string; x: string }> = [];
   await test.step('canvas renders groups, focus, arrows by blocks — deterministically', async () => {
     // KAIROS-T-0492: the parent is a group box with a header, not a column.
+    await expect(page.locator('[data-testid="item-graph"]')).toBeVisible();
     await expect(page.locator('.cl-dag__header')).toHaveCount(0);
     await expect(page.locator('.kairos-graph__group').first()).toBeVisible();
     await expect(

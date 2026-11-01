@@ -42,7 +42,7 @@ async function api(token: string, method: string, path: string, body?: unknown):
   return { status: res.status, body: text ? JSON.parse(text) : null };
 }
 
-const note = (page: Page, id: string) => page.locator(`section.kairos-note[id="${id}"]`);
+const note = (page: Page, id: string) => page.locator(`[data-testid="item-note"][id="${id}"]`);
 const banner = (page: Page) => page.getByTestId('item-changed-banner');
 
 test('the Notes panel adds, anchors and promotes a note', async ({ page }) => {

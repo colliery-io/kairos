@@ -598,11 +598,11 @@ Changes that people and agents see:
   is not set, run `kairos self-update --version 0.19.0` once. That command
   downloads from GitHub. The next upgrades use the server.
 
-### From 0.19.0 to 0.20.0
+### From 0.19.0 to 0.19.1
 
-These changes of 0.20.0 show after the upgrade. They apply to Compose too.
+These changes of 0.19.1 show after the upgrade. They apply to Compose too.
 
-0.20.0 does not have these routes (KAIROS-T-0743):
+0.19.1 does not have these routes (KAIROS-T-0743):
 
 - `PUT /api/boards/{id}/code-sequences/{item_type}`. Only the Metis
   importer used it. The importer is gone too.

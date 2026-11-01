@@ -68,6 +68,8 @@ test('search keeps its state in the URL, and the top bar opens it', async ({ pag
     const row = page.locator('tr', { hasText: task.short_code });
     await expect(row).toBeVisible({ timeout: 20_000 });
     await expect(row.locator('[data-testid="search-hit-place"]')).toContainText(BOARD_SLUG);
+    // No claim and no owner: the person cell is empty.
+    await expect(row.locator('[data-testid="search-hit-person"]')).toHaveText('');
   });
 
   await test.step('Search writes the filters, the sort and the page size', async () => {

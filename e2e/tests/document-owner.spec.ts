@@ -194,7 +194,7 @@ test('the vision of a repository: owner board, impacts link, repository pages', 
     await page.goto('/teams/platform');
     const row = panel(page, 'Repositories').locator(`[data-repo="${REPOSITORY}"]`);
     await row.getByRole('button', { name: 'Show documents' }).click();
-    const listed = row.locator(`[data-impacting="${code}"]`);
+    const listed = row.locator(`[data-testid="repository-documents"] [data-impacting="${code}"]`);
     await expect(listed).toBeVisible();
     await expect(listed).toContainText(title);
     await expect(listed).toContainText('vision');
@@ -204,7 +204,7 @@ test('the vision of a repository: owner board, impacts link, repository pages', 
       `[data-repo="${SECOND_REPOSITORY}"]`,
     );
     await other.getByRole('button', { name: 'Show documents' }).click();
-    await expect(other).toContainText(
+    await expect(other.locator('[data-testid="repository-documents"]')).toContainText(
       'No document and no ADR impacts this repository.',
     );
     // The link of the row opens the document.

@@ -145,7 +145,8 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     await expect(page.locator('.kairos-card__repo[data-repo="payments-api"]')).toHaveCount(0);
 
     // Clear it, then group by repository: one lane per repo + the remainder.
-    await page.locator('[data-testid="repo-lens"] .cl-chip[data-repo="platform-infra"]').click();
+    await page.locator('[data-testid="clear-repo-lens"]').click();
+    await expect(page.locator('[data-testid="clear-repo-lens"]')).toHaveCount(0);
     await expect(page).not.toHaveURL(/repo=/);
     await page.locator('[data-testid="group-by-repo"]').click();
     await expect(page).toHaveURL(/by_repo=1/);

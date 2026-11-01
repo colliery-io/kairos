@@ -54,7 +54,8 @@ stack has a fake of that service, so that the spec tests the main path
 (KAIROS-T-0744).
 
 - `fakes/github.ts`: the REST API of GitHub, for the write-back and the
-  import of open issues. `angreal test e2e` gives the server
+  import of open issues. `angreal test e2e` gives both servers (the GUI
+  server and the API server, whose worker also takes the write-back jobs)
   `KAIROS_GITHUB_API_URL=http://127.0.0.1:41091`. A spec starts the fake on
   that port with `startFakeGithub()` and stops it at the end. The fake keeps
   each request, and answers 401 to the token `refused-token`.

@@ -836,6 +836,9 @@ def e2e(down=False, shard=None):
             # and sends signed forge deliveries to this server.
             "KAIROS_WEBHOOK_SIGNING_KEY": "e2e-webhook-signing-key",
             "KAIROS_PUBLIC_URL": E2E_BASE_URL,
+            # KAIROS-T-0744: this worker can take the write-back jobs of the
+            # GUI leg, so it calls the same fake GitHub as the GUI server.
+            "KAIROS_GITHUB_API_URL": f"http://127.0.0.1:{E2E_FAKE_GITHUB_PORT}",
         })
         server = subprocess.Popen(
             [str(SERVER_BIN), "serve"],

@@ -117,7 +117,10 @@ test('the forge lines of a repository: write-back, filters, branch and import', 
       );
       expect(status).toBeLessThan(300);
       await waitForLine(page, slug, 'write-back-status', /The last write at .* failed/);
-      expect(fake.requests.some((r) => r.token === REFUSED_TOKEN)).toBe(true);
+      expect(
+        fake.requests.some((r) => r.token === REFUSED_TOKEN),
+        `the requests of the fake: ${JSON.stringify(fake.requests.map((r) => [r.method, r.path, r.token]))}`,
+      ).toBe(true);
     });
 
     await test.step('a new write token: the write-back works', async () => {

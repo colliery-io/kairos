@@ -46,7 +46,8 @@ test('the board page shows the flow metrics', async ({ page }) => {
       await expect(panel.locator('[data-testid="flow-throughput"] tbody tr').first()).toBeVisible();
       // One row for each column; a column with an old name in the history
       // adds a row.
-      expect(await panel.locator('[data-testid="cfd-row"]').count()).toBeGreaterThanOrEqual(
+      await expect(panel.locator('[data-testid="flow-cfd"]')).toContainText('Cumulative flow');
+      expect(await panel.locator('[data-testid="flow-cfd"] [data-testid="cfd-row"]').count()).toBeGreaterThanOrEqual(
         board.columnId.size,
       );
       await expect(panel.locator('[data-testid="flow-ageing"]')).toContainText(task.short_code);

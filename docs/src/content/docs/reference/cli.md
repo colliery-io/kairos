@@ -3011,9 +3011,13 @@ Drops the tenant's organization and schema. Destructive and unrecoverable.
 ## The code index of a checkout
 
 `kairos index` updates the code index of a git checkout, and serves its code
-tools to an agent. The CLI does not build an index: the Kairos server builds
-the index of each repository, and the CLI takes it as the base of its
-update. The CLI has no `kairos index build` and no `kairos index --full`. The index is in the user cache, not in the checkout
+tools to an agent.
+
+The CLI does not build an index. The Kairos server builds the index of each
+repository. The CLI takes that index as the base of its update. The CLI has
+no `kairos index build` and no `kairos index --full`.
+
+The index is in the user cache, not in the checkout
 (KAIROS-A-0072). Each checkout and each worktree has its own folder. See
 [The place of the code index](../configuration/#the-place-of-the-code-index).
 The CLI writes no file into the checkout. It does not read or move a
@@ -3072,8 +3076,8 @@ The local index can have a different schema version from the CLI:
   The error gives the 2 versions. Run `kairos self-update`.
 
 With no index and no base index in Kairos, the CLI builds nothing. The error
-`NO_START` gives the reason, for example "the CLI could not reach Kairos" or
-"Kairos has no index yet". Make sure that the repository is in Kairos and
+`NO_START` gives the reason. For example, the CLI could not reach Kairos, or
+Kairos has no index yet. Make sure that the repository is in Kairos and
 that the CLI can reach Kairos. When the server has an index of the
 repository, run `kairos index update` again.
 
@@ -3137,8 +3141,8 @@ kairos index upload [--root <ROOT>] [--url <URL>] [--tenant <TENANT>] [--repo <R
 | `--url`, `--tenant` | | as `kairos index update` | The deployment and the tenant. |
 
 Sends the index of the checkout to Kairos as the index of its HEAD commit:
-`PUT /api/repositories/{slug}/code-indexes/{commit}`, for example in a CI
-job. Update the index first:
+`PUT /api/repositories/{slug}/code-indexes/{commit}`. A CI job can use it.
+Update the index first:
 
 ```sh
 kairos index update

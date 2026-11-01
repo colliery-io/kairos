@@ -675,12 +675,14 @@ server makes the first index of a repository.
 
 A stored index of a schema version that the server does not read counts as
 missing. The nearest-index lookup and the download skip it, and do not
-give an error 500. When a repository has only such indexes, the lookup
-answers "no index yet" and adds a build job of the repository. The sweep
+give an error 500. A repository can have only such indexes. Then the lookup
+answers "no index yet" and adds a build job of the repository.
+
+The sweep
 also builds a head whose index has another schema version, with no wait for
-`KAIROS_CODE_INDEX_MIN_REBUILD_SECS`. When a build or an upload stores an
-index of the current version, the indexes of an older version of that
-repository are deleted.
+`KAIROS_CODE_INDEX_MIN_REBUILD_SECS`. A build or an upload can store an
+index of the current version. Then the server deletes the indexes of an
+older version of that repository.
 
 #### Stop the builder for one repository
 
@@ -1288,10 +1290,10 @@ the base is nearer to the tree than the local index. Then it indexes the
 changed files.
 
 The CLI does not build an index. With no local index and no base index in
-Kairos, it builds nothing: the error `NO_START` gives the reason. A local
-index of an older schema version is not opened: the CLI moves it to
-`index.db.schema<N>.bak` and starts from the base index. A local index of a
-newer schema version is refused before the CLI does work.
+Kairos, it builds nothing: the error `NO_START` gives the reason. The CLI
+does not open a local index of an older schema version. It moves the file
+to `index.db.schema<N>.bak`, and starts from the base index. The CLI refuses
+a local index of a newer schema version before it does work.
 
 When the local index is as near to the tree as the base, the CLI keeps the
 local index. The base can have more summaries than the local index links.

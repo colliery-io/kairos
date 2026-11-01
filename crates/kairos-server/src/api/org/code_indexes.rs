@@ -455,9 +455,9 @@ fn no_index(slug: &str, commit: &str) -> ApiError {
 /// does not read (KAIROS-T-0746): it counts as missing.
 fn other_schema(slug: &str, commit: &str, found: i64) -> ApiError {
     ApiError::not_found(format!(
-        "The repository {slug:?} has no code index of the commit {commit} that this version \
-         of Kairos reads: its index has schema version {found}, and this version reads \
-         version {}. The builder of the server makes a new index of the repository.",
+        "The repository {slug:?} has no code index of the commit {commit} that Kairos reads. \
+         Its index has schema version {found}, and Kairos reads version {}. The builder of \
+         the server makes a new index of the repository.",
         kairos_index::SCHEMA_VERSION
     ))
     .with_details(json!({ "field": "commit", "schema_version": found }))

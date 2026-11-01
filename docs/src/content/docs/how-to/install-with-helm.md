@@ -600,24 +600,24 @@ Changes that people and agents see:
 
 ### From 0.19.0 to 0.19.1
 
-0.19.1 repairs the code index after the upgrade to 0.19.0. It has no
-migration and no new setting. It applies to Compose too.
+These changes of 0.19.1 show after the upgrade. They apply to Compose too.
 
-- The server reads only the code indexes of its schema version (8). A
+- The code index (KAIROS-T-0746) has no migration and no new setting. The
+  server reads only the code indexes of its schema version (8). A
   stored index of an older version (7, from a 0.18 worker) counts as
   missing. `fetch_index` and `kairos index update` no longer get an error
   500 for it.
 - When a repository has only indexes of an older version, the nearest-index
   lookup answers "no index yet" and adds a build of the repository. The
-  sweep also builds such a repository at once. When the new index is
-  stored, the indexes of the older version are deleted. You do not delete
+  sweep also builds such a repository at once. When the server stores the
+  new index, it deletes the indexes of the older version. You do not delete
   them by hand.
-- The CLI does not build an index. `kairos index build` and
-  `kairos index --full` are removed. The server builds the index of each
+- The CLI does not build an index. The CLI has no `kairos index build` and
+  no `kairos index --full` now. The server builds the index of each
   repository, and `kairos index update` takes it as its base.
-- A local index of an older version is moved aside: `kairos index update`
-  and `fetch_index` rename it to `index.db.schema<N>.bak` in the same folder,
-  and take a new base index from Kairos. You can delete the `.bak` file.
+- `kairos index update` and `fetch_index` move a local index of an older
+  version aside. They rename it to `index.db.schema<N>.bak` in the same
+  folder, and take a new base index from Kairos. You can delete the `.bak` file.
 - With no local index and no index in Kairos, `kairos index update` builds
   nothing. It says why, and what to do.
 

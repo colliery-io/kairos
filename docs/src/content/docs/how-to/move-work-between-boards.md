@@ -87,10 +87,6 @@ Select **Change owner board**, then select the new owner board. Set the switch *
 board**. Then select **Set owner board**. A rename of a document needs a new
 board.
 
-The Metis importer and a rename do not agree about a path. A rename keeps a
-code in a path. The importer changes a code in a path, for example
-`/FIDIUS-S-0001/`. See [Short codes](../../reference/short-codes/).
-
 ## When it is refused
 
 Every one of these is a 422 (a tool error over MCP) carrying a stable code —

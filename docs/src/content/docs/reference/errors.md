@@ -285,9 +285,6 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | `LAST_DELIVERY_BOARD` | 422 | The board is the only delivery board of a team. Delete the team to remove the team and its board together | `board_id` and `team` (`id`, `name`) |
 | `BOARD_TEAM_IS_FIXED` | 422 | The update of a board has a `team_id` that is not the team of the board. The team of a board does not change. Move the task to give work to a different team | `board_id` and `team_id`, the team that the board has |
 | `CODE_PREFIX_IS_FIXED` | 422 | The body of a route other than a create has the field `code_prefix`, for example the update of a board. The short-code prefix of a board does not change. To give an item a code with a different prefix, move it to a different board with a rename | `field`: `code_prefix`, and `allowed`: the fields of the body |
-| `CODE_IN_USE` | 409 | `PUT /api/boards/{board}/code-sequences/{item_type}`: an item (live or archived) has the code of the number. See [Short codes](../short-codes/#keep-the-numbers-of-an-import) | `code` |
-| `CODE_RETIRED` | 409 | The same route: the code of the number is retired | `code`, and `current_code`: the current code of its item, or null |
-| `SEQUENCE_IS_PAST` | 409 | The same route: the sequence is at the number or above it. A sequence does not go back | `last_number` and `next_code`: the code that the next create gets |
 
 ### Moving and restoring work
 

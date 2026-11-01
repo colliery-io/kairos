@@ -228,7 +228,7 @@ one of two scopes.
 
 | Scope | Authorises |
 |---|---|
-| The organization | Create, change and delete teams. Add and remove team members. Create boards, and set a code sequence. On each board: `configure_boards` and `administer_members`. Add, change and delete repositories. |
+| The organization | Create, change and delete teams. Add and remove team members. Create boards. On each board: `configure_boards` and `administer_members`. Add, change and delete repositories. |
 | One board | On that board only: `configure_boards` and `administer_members`. `configure_boards` includes the delete of the board when it is empty. No new team, no new board, no other board. |
 
 It does not authorise these. They stay with the organization admin:

@@ -283,7 +283,7 @@ pub fn require_capability(
 /// [`ApiError::structure_required`].
 ///
 /// The routes that ask it: create, change and delete a team; add and remove
-/// a team member; create a board; reset a code sequence; delete a
+/// a team member; create a board; delete a
 /// repository. Each other change to a board (its settings, columns,
 /// transitions, members and grants) asks [`require_capability`] for
 /// `configure_boards` or `administer_members` on the board, and

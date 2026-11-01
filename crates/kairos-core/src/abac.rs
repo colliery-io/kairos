@@ -283,7 +283,7 @@ pub const BOARD_LEVELS: &[&str] = &["strategy", "initiative", "delivery", "adr"]
 /// The grantable capabilities that APPLY on a board of the level
 /// `board_level` (KAIROS-T-0413): the capabilities that authorize a write
 /// that a board of that level can have. A board holds one item type and
-/// documents (`types_of_level` of the server), so each level has one
+/// documents, so each level has one
 /// `manage_<type>`, and `manage_documents`, `transition_items`,
 /// `configure_boards`, `administer_members` and `approve_proposals`
 /// (KAIROS-T-0659). An unknown level has none.

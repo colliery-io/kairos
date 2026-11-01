@@ -49,9 +49,9 @@ pub const MIN_REAL_WORDS: usize = 8;
 
 /// Where each importer footer starts, after its `---` rule.
 ///
-/// Both are written by tools of this repository: the first by
-/// `scripts/metis_import/remap.py` (`footer`), the second by the migration of
-/// the Kairos Metis record on 2026-09-26.
+/// Both were written by tools of this repository: the first by the Metis
+/// importer (removed in KAIROS-T-0743; the items keep the footer), the
+/// second by the migration of the Kairos Metis record on 2026-09-26.
 const FOOTER_LEADS: [&str; 2] = [
     "This item came from the Metis record of the repository ",
     "*Migrated from Metis `",

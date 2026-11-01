@@ -35,7 +35,7 @@
 //! does not resolve stays text. Code spans, code blocks and the text of links
 //! are left alone.
 //!
-//! [`to_html_with_terms`] and [`to_html_with_links`] also link the terms of a
+//! [`to_html_with_terms`] also links the terms of a
 //! dictionary (KAIROS-T-0734, [`terms`]): the longest term first, case
 //! ignored, with the meaning in the `title` of the link. Code, the text of
 //! links and headings are left alone.
@@ -90,18 +90,7 @@ pub fn to_html_with_codes(
     source: &str,
     resolve: impl FnOnce(&[String]) -> HashMap<String, String>,
 ) -> String {
-    to_html_with_links(source, resolve, &[])
-}
-
-/// [`to_html_with_codes`] and [`to_html_with_terms`] in one pass: a short
-/// code is a link to its item, and a dictionary term in the rest of the
-/// text is a link with its meaning on hover.
-pub fn to_html_with_links(
-    source: &str,
-    resolve: impl FnOnce(&[String]) -> HashMap<String, String>,
-    terms: &[TermLink],
-) -> String {
-    let terms = Terms::new(terms);
+    let terms = Terms::new(&[]);
     let codes = {
         let mut codes: Vec<String> = Vec::new();
         let mut in_link = 0usize;

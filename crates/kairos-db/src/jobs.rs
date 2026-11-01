@@ -535,20 +535,6 @@ pub fn last_done(conn: &mut PgConnection, dedupe_key: &str) -> QueryResult<Optio
     .optional()
 }
 
-/// Remove the `done` jobs with `dedupe_key`, except the job `keep`. A chain
-/// of short jobs keeps one finished row, not one row for each run. The
-/// number removed.
-pub fn remove_done_except(
-    conn: &mut PgConnection,
-    dedupe_key: &str,
-    keep: Uuid,
-) -> QueryResult<usize> {
-    sql_query("DELETE FROM public.jobs WHERE dedupe_key = $1 AND state = 'done' AND id <> $2")
-        .bind::<Text, _>(dedupe_key)
-        .bind::<SqlUuid, _>(keep)
-        .execute(conn)
-}
-
 /// End the lease of job `id` of the server `instance` well, and queue the
 /// same row again to run after `after_secs` (KAIROS-T-0636): a job that runs
 /// for ever as one row, as the embedding sweep of an organization. Its tries

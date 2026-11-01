@@ -595,7 +595,7 @@ fn abac_capability_lifecycle() {
         (ItemType::Strategy, strategy_id),
         (ItemType::Adr, off_board_adr),
     ] {
-        let creator = abac::item_created_by(&mut conn, id).expect("created_by");
+        let creator = item_created_by(&mut conn, id).expect("created_by");
         let board = abac::resolve_authorization_board(&mut conn, id).expect("resolve");
         assert_eq!(
             abac::creator_and_board(&mut conn, item_type, id).expect("creator and board"),
@@ -949,7 +949,7 @@ fn archived_items_resolve_the_same_capabilities_as_live_ones() {
         "the team member must hold something while the task is live, or this test proves nothing"
     );
     assert_eq!(
-        abac::item_created_by(&mut conn, task_id).expect("created_by"),
+        item_created_by(&mut conn, task_id).expect("created_by"),
         Some(member)
     );
 
@@ -957,7 +957,7 @@ fn archived_items_resolve_the_same_capabilities_as_live_ones() {
     // probed the five entity tables for the creator, re-joined the org for
     // the admin role, and probed the tables again for the board.
     let (_, before) = count_queries(&mut conn, |conn| {
-        let created = abac::item_created_by(conn, task_id).expect("created_by") == Some(member);
+        let created = item_created_by(conn, task_id).expect("created_by") == Some(member);
         let admin = abac::is_org_admin(conn, "archco", member).expect("is_org_admin");
         let board = abac::resolve_authorization_board(conn, task_id)
             .expect("resolve")
@@ -1039,7 +1039,7 @@ fn archived_items_resolve_the_same_capabilities_as_live_ones() {
         "archiving must not change what the team member may do"
     );
     assert_eq!(
-        abac::item_created_by(&mut conn, task_id).expect("created_by"),
+        item_created_by(&mut conn, task_id).expect("created_by"),
         Some(member),
         "who created a thing is a fact about the row, not about its visibility"
     );
@@ -1483,4 +1483,29 @@ fn board_membership_gives_edit_and_move_on_strategy_and_initiative_boards() {
     ))
     .execute(&mut admin_conn)
     .expect("dropping scratch database after test");
+}
+
+/// Who created a workflow item or document: a probe of the five entity
+/// tables, which span one UUID space. The old first fact of the edit rule
+/// (KAIROS-T-0111), kept here as the oracle of `creator_and_board`.
+fn item_created_by(conn: &mut PgConnection, item_id: Uuid) -> QueryResult<Option<Uuid>> {
+    use kairos_db::schema::{adrs, documents, initiatives, strategies, tasks};
+    macro_rules! try_table {
+        ($table:ident) => {
+            if let Some(creator) = $table::table
+                .filter($table::id.eq(item_id))
+                .select($table::created_by)
+                .first::<Uuid>(conn)
+                .optional()?
+            {
+                return Ok(Some(creator));
+            }
+        };
+    }
+    try_table!(strategies);
+    try_table!(initiatives);
+    try_table!(tasks);
+    try_table!(documents);
+    try_table!(adrs);
+    Ok(None)
 }

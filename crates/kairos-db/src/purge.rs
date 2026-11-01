@@ -20,8 +20,9 @@
 //!   proposal to or from it (`edge_proposals`);
 //! - its forge links (`item_links`), its `impacts` rows (`item_impacts`),
 //!   its external references (`item_external_refs`, KAIROS-T-0570), its
-//!   embeddings (`item_embeddings`, `item_chunks`) and its retired codes
-//!   (`retired_codes`);
+//!   embeddings and its mark for the embedding sweep (`item_embeddings`,
+//!   `item_chunks`, `embedding_dirty`: [`crate::embeddings::forget_item`])
+//!   and its retired codes (`retired_codes`);
 //! - its forge intake row (`forge_issue_intake`, KAIROS-T-0570). Intake
 //!   makes nothing for an issue that has a row, so with the row kept, the
 //!   issue of a purged task could never be imported again;
@@ -87,9 +88,8 @@ pub fn purge_task(
 ) -> Result<Purged, PurgeError> {
     conn.transaction::<_, PurgeError, _>(|conn| {
         use crate::schema::{
-            edge_proposals, forge_issue_intake, item_chunks, item_embeddings, item_external_refs,
-            item_history, item_impacts, item_links, item_metadata, item_relationships,
-            retired_codes, tasks,
+            edge_proposals, forge_issue_intake, item_external_refs, item_history, item_impacts,
+            item_links, item_metadata, item_relationships, retired_codes, tasks,
         };
         let found: Option<(String, String)> = tasks::table
             .filter(tasks::id.eq(task_id))
@@ -140,10 +140,6 @@ pub fn purge_task(
         diesel::delete(item_history::table.filter(item_history::item_id.eq(task_id)))
             .execute(conn)?;
         crate::item_notes::delete_for_item(conn, task_id)?;
-        diesel::delete(item_chunks::table.filter(item_chunks::item_id.eq(task_id)))
-            .execute(conn)?;
-        diesel::delete(item_embeddings::table.filter(item_embeddings::item_id.eq(task_id)))
-            .execute(conn)?;
         diesel::delete(retired_codes::table.filter(retired_codes::item_id.eq(task_id)))
             .execute(conn)?;
         // KAIROS-T-0678: no cascade from tasks any more.
@@ -153,6 +149,9 @@ pub fn purge_task(
         )
         .execute(conn)?;
         diesel::delete(tasks::table.filter(tasks::id.eq(task_id))).execute(conn)?;
+        // Its vectors and its mark for the embedding sweep (KAIROS-T-0743).
+        // After the other deletes, so that no later write marks it again.
+        crate::embeddings::forget_item(conn, task_id)?;
         crate::notifications::on_blocks_removed(
             conn,
             &freed,

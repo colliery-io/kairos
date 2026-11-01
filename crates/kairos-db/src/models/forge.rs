@@ -44,15 +44,6 @@ pub struct NewForgeConnection {
     pub created_by: Uuid,
 }
 
-/// Partial update for [`ForgeConnection`] (nothing but liveness is
-/// editable; ownership moved to the repository in KAIROS-T-0103).
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = forge_connections)]
-pub struct ForgeConnectionChangeset {
-    pub deleted_at: Option<Option<DateTime<Utc>>>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
 /// One branch or pull/merge request associated with a work item
 /// (`item_links`). `item_id` carries no FK — item ids span the five
 /// entity tables in one shared UUID space (the `item_metadata`

@@ -113,6 +113,20 @@ fn hot_updates(conn: &mut PgConnection) -> (i64, i64) {
     )
 }
 
+/// The rows of `embedding_dirty` for the item `id`: 0 or 1.
+fn dirty_rows(conn: &mut PgConnection, id: Uuid) -> i64 {
+    #[derive(QueryableByName)]
+    struct Count {
+        #[diesel(sql_type = BigInt)]
+        n: i64,
+    }
+    sql_query("SELECT count(*) AS n FROM embedding_dirty WHERE item_id = $1")
+        .bind::<SqlUuid, _>(id)
+        .get_result::<Count>(conn)
+        .expect("counting the marks")
+        .n
+}
+
 fn version_of(conn: &mut PgConnection, id: Uuid) -> i32 {
     use kairos_db::schema::tasks;
     tasks::table
@@ -330,11 +344,22 @@ fn the_vector_follows_the_title_and_the_content_only() {
         "a restore does not write the row"
     );
 
-    // A purge removes it.
+    // A purge removes it, and the mark of the task for the embedding sweep
+    // (KAIROS-T-0743): the purge calls `embeddings::forget_item`.
+    assert_eq!(
+        dirty_rows(&mut conn, task.id),
+        1,
+        "a write marks the task for the sweep"
+    );
     kairos_db::purge::purge_task(&mut conn, task.id, user).expect("purging");
     assert!(
         search_row(&mut conn, task.id).is_none(),
         "a purge removes the row"
+    );
+    assert_eq!(
+        dirty_rows(&mut conn, task.id),
+        0,
+        "a purge leaves no embedding_dirty row"
     );
     assert!(codes_for(&mut conn, "saffron").is_empty());
 

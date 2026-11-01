@@ -27,13 +27,6 @@ use uuid::Uuid;
 
 use crate::schema::code_index_builds;
 
-/// The values of `code_index_builds.trigger`. The column has a CHECK with
-/// the same values.
-pub const TRIGGERS: [&str; 4] = ["push", "first", "request", "upload"];
-
-/// The values of `code_index_builds.outcome`.
-pub const OUTCOMES: [&str; 3] = ["running", "ok", "failed"];
-
 /// The error of a run that the server did not end.
 pub const SERVER_STOPPED: &str = "The server stopped during the run.";
 
@@ -106,7 +99,8 @@ pub struct Counts {
     pub summaries_missing: i32,
 }
 
-/// Start a run: a `running` row. `trigger` is one of [`TRIGGERS`].
+/// Start a run: a `running` row. `trigger` is `push`, `first`, `request`
+/// or `upload`: the CHECK of the column `code_index_builds.trigger`.
 /// `server_instance` is the start of the server that runs it
 /// (KAIROS-T-0354).
 pub fn start(

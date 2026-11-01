@@ -8,7 +8,7 @@
 //! term matches at word bounds only: "board" is not found in "boards" or
 //! in "keyboard".
 //!
-//! [`crate::to_html_with_links`] calls [`find`] only for text outside
+//! [`crate::to_html_with_terms`] calls [`find`] only for text outside
 //! links, code and headings.
 
 /// One term of a dictionary, as the page links it.
@@ -146,10 +146,9 @@ pub(crate) fn term_html(term: &TermLink, shown: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
 
     use super::*;
-    use crate::{to_html, to_html_with_links, to_html_with_terms};
+    use crate::{to_html, to_html_with_terms};
 
     fn term(word: &str, meaning: &str) -> TermLink {
         TermLink {
@@ -278,20 +277,6 @@ mod tests {
         );
         assert!(!html.contains("javascript"), "{html}");
         assert_eq!(linked(&html), ["board", "lane"]);
-    }
-
-    #[test]
-    fn codes_and_terms_link_in_one_pass() {
-        let html = to_html_with_links(
-            "The board of ACME-T-0001 is a board.",
-            |_| HashMap::from([("ACME-T-0001".to_string(), "/items/ACME-T-0001".to_string())]),
-            &dictionary(),
-        );
-        assert!(
-            html.contains("<a href=\"/items/ACME-T-0001\">ACME-T-0001</a>"),
-            "{html}"
-        );
-        assert_eq!(linked(&html), ["board", "board"]);
     }
 
     #[test]

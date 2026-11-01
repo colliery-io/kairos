@@ -54,9 +54,6 @@ pub const DEFAULT_MAX_TRIES: i32 = 12;
 /// (KAIROS-T-0638), so the log of a quiet target goes too.
 pub const KEEP_DAYS: i64 = 30;
 
-/// The statuses of a delivery.
-pub const STATUSES: [&str; 4] = ["pending", "delivered", "failed", "skipped"];
-
 /// The columns of a [`Target`].
 const TARGET_COLUMNS: &str = "t.id, t.board_id, t.name, t.url, t.enabled, \
      t.consecutive_failures, t.disabled_at, t.disabled_reason, t.created_by, t.created_at";

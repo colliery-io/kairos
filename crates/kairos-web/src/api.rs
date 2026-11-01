@@ -97,20 +97,6 @@ pub fn page_url(path: &str, limit: i64, offset: i64) -> String {
     format!("{path}{separator}limit={limit}&offset={offset}")
 }
 
-/// The sentence that a page shows when it has only a part of a list
-/// (COLLIERY-T-0258), or `None` when the page has the full list. `shown`
-/// is the number of rows on the page, and `total` is the number of rows of
-/// the full list. Pure, host-tested.
-pub fn incomplete_list_note(shown: usize, total: i64) -> Option<String> {
-    let shown = i64::try_from(shown).unwrap_or(i64::MAX);
-    (shown < total).then(|| format!("The list shows {shown} of {total} items."))
-}
-
-/// The sentence of a pager (COLLIERY-T-0258): the rows that the page
-/// shows, and the number of rows of the full list. `offset` is the offset
-/// of the page, and `shown` is the number of rows on it. A page that does
-/// not have the full list thus says so, and the pager gives the next
-/// page. Pure, host-tested.
 /// The range text of an Aurora `Pagination` (KAIROS-T-0326): the sentence
 /// of [`page_range_note`], made from the range that the pager has.
 pub fn page_range_text(range: &aurora_dark::data::PageRange) -> String {
@@ -148,6 +134,11 @@ pub fn capped_range_text(range: &aurora_dark::data::PageRange, bound: i64) -> St
     )
 }
 
+/// The sentence of a pager (COLLIERY-T-0258): the rows that the page
+/// shows, and the number of rows of the full list. `offset` is the offset
+/// of the page, and `shown` is the number of rows on it. A page that does
+/// not have the full list thus says so, and the pager gives the next
+/// page. Pure, host-tested.
 pub fn page_range_note(offset: i64, shown: usize, total: i64) -> String {
     let shown = i64::try_from(shown).unwrap_or(i64::MAX);
     if shown == 0 {
@@ -652,23 +643,6 @@ mod tests {
             page_url("/api/metadata-definitions?entity_type=task", 200, 400),
             "/api/metadata-definitions?entity_type=task&limit=200&offset=400"
         );
-    }
-
-    /// COLLIERY-T-0258: a page that has a part of a list says so.
-    #[test]
-    fn a_page_with_a_part_of_a_list_says_so() {
-        assert_eq!(
-            incomplete_list_note(100, 2340).as_deref(),
-            Some("The list shows 100 of 2340 items.")
-        );
-        assert_eq!(
-            incomplete_list_note(200, 201).as_deref(),
-            Some("The list shows 200 of 201 items.")
-        );
-        // The full list, an empty list, and a list that lost a row.
-        assert_eq!(incomplete_list_note(12, 12), None);
-        assert_eq!(incomplete_list_note(0, 0), None);
-        assert_eq!(incomplete_list_note(13, 12), None);
     }
 
     /// COLLIERY-T-0258: the pager gives the rows of the page and the number

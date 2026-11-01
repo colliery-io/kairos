@@ -3,8 +3,7 @@
 //!
 //! The scenarios, on items that a tenant has before the migration:
 //!
-//! - unique ids stay, and a note without an id gets the id of its position,
-//!   as the parser of `kairos_markdown::notes` reads it;
+//! - unique ids stay, and a note without an id gets the id of its position;
 //! - a duplicate id gets the next free number, and a line in its text;
 //! - a `Promoted to CODE.` line sets `promoted_to`;
 //! - a name resolves to a member of the tenant, else it stays a name;
@@ -252,10 +251,6 @@ fn the_migration_moves_each_note_into_a_row() {
     let plain_content = "# Plain\n\n## Notes on the design\n\nNot a note.";
     let plain = task(&mut conn, "Plain", plain_content);
 
-    // The reading of the Rust parser, before the move.
-    let parsed = kairos_markdown::notes::notes(unique_content);
-    assert_eq!(parsed.len(), 3);
-    let parsed_cut = kairos_markdown::notes::notes(cut_content);
     let before: Vec<ItemRow> = [unique.id, duplicate.id, cut.id, odd_date.id, plain.id]
         .into_iter()
         .map(|id| item_row(&mut conn, id))
@@ -278,19 +273,19 @@ fn the_migration_moves_each_note_into_a_row() {
     let moved = notes(&mut conn, unique.id);
     assert_eq!(
         moved.iter().map(ItemNote::note_id).collect::<Vec<_>>(),
-        parsed
-            .iter()
-            .map(|note| note.id.clone())
-            .collect::<Vec<_>>(),
-        "each note keeps the id that the parser gives it"
+        ["n-1", "n-2", "n-3"],
+        "each note keeps its id, and a note with no id gets its position"
     );
-    assert_eq!(moved[0].text, parsed[0].text);
+    assert_eq!(moved[0].text, "First, in the old form.");
     assert_eq!(moved[0].author_id, Some(robin));
     assert_eq!(moved[0].author, "Robin");
     assert_eq!(moved[1].text, "Second.", "the promote mark leaves the text");
     assert_eq!(moved[1].promoted_to.as_deref(), Some("CORE-A-0007"));
     assert_eq!(moved[1].author_id, Some(sam));
-    assert_eq!(moved[2].text, parsed[2].text, "a fence stays in the note");
+    assert_eq!(
+        moved[2].text, "The saffron fuse.\n\n```\n## Note (2026-10-04, Fake)\n```",
+        "a fence stays in the note"
+    );
     assert!(moved[2].text.contains("## Note (2026-10-04, Fake)"));
     assert_eq!(moved[2].author_id, None, "Jamie is no member of the tenant");
     assert_eq!(moved[2].author, "Jamie");
@@ -344,7 +339,6 @@ fn the_migration_moves_each_note_into_a_row() {
     // --- a cut note --------------------------------------------------------
     let moved = notes(&mut conn, cut.id);
     assert_eq!(moved.len(), 1);
-    assert_eq!(moved[0].text, parsed_cut[0].text);
     assert_eq!(moved[0].text, "Start.");
     assert_eq!(
         item_row(&mut conn, cut.id).content,

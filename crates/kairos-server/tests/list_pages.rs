@@ -326,20 +326,20 @@ async fn each_list_has_pages_to_its_end() {
         offset,
     };
     let full = admin
-        .code_index_builds_page("site", &CodeIndexBuildListQuery::default())
+        .list_code_index_builds("site", &CodeIndexBuildListQuery::default())
         .await
         .expect("each run");
     assert_eq!((full.items.len(), full.total, full.offset), (12, 12, 0));
     let p1 = admin
-        .code_index_builds_page("site", &runs(None))
+        .list_code_index_builds("site", &runs(None))
         .await
         .expect("page 1");
     let p2 = admin
-        .code_index_builds_page("site", &runs(Some(5)))
+        .list_code_index_builds("site", &runs(Some(5)))
         .await
         .expect("a page past the first");
     let p3 = admin
-        .code_index_builds_page("site", &runs(Some(10)))
+        .list_code_index_builds("site", &runs(Some(10)))
         .await
         .expect("the last page");
     assert_eq!((p1.items.len(), p2.items.len(), p3.items.len()), (5, 5, 2));
@@ -351,7 +351,7 @@ async fn each_list_has_pages_to_its_end() {
     let all: Vec<&str> = full.items.iter().map(|r| r.id.as_str()).collect();
     assert_eq!(paged, all, "the pages agree with the full list");
     let past = admin
-        .code_index_builds_page("site", &runs(Some(12)))
+        .list_code_index_builds("site", &runs(Some(12)))
         .await
         .expect("past the end");
     assert!(past.items.is_empty());

@@ -12,8 +12,7 @@ use uuid::Uuid;
 
 use super::enums::{BoardLevel, FieldType, OrgRole};
 use crate::schema::{
-    organization_members, organizations, system_board_defaults, system_metadata_definitions,
-    system_metadata_enum_options, system_template_metadata, system_templates, users,
+    organization_members, organizations, system_board_defaults, system_metadata_definitions, users,
 };
 
 // ---------------------------------------------------------------------------
@@ -30,23 +29,6 @@ pub struct Organization {
     pub slug: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-}
-
-/// Insert for [`Organization`]; `id`/timestamps come from column defaults.
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = organizations)]
-pub struct NewOrganization {
-    pub name: String,
-    pub slug: String,
-}
-
-/// Partial update for [`Organization`] (`None` = leave unchanged).
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = organizations)]
-pub struct OrganizationChangeset {
-    pub name: Option<String>,
-    pub slug: Option<String>,
-    pub updated_at: Option<DateTime<Utc>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -151,16 +133,6 @@ impl NewServiceAccountUser {
     }
 }
 
-/// Partial update for [`User`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = users)]
-pub struct UserChangeset {
-    pub external_id: Option<String>,
-    pub email: Option<String>,
-    pub display_name: Option<String>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
 // ---------------------------------------------------------------------------
 // organization_members
 // ---------------------------------------------------------------------------
@@ -188,50 +160,6 @@ pub struct NewOrganizationMember {
     pub role: OrgRole,
 }
 
-/// Partial update for [`OrganizationMember`] (role changes).
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = organization_members)]
-pub struct OrganizationMemberChangeset {
-    pub role: Option<OrgRole>,
-}
-
-// ---------------------------------------------------------------------------
-// system_templates
-// ---------------------------------------------------------------------------
-
-/// System default template (`public.system_templates`), copied into tenant
-/// `templates` at provision time (KAIROS-A-0003).
-#[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Identifiable)]
-#[diesel(table_name = system_templates)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SystemTemplate {
-    pub id: Uuid,
-    pub name: String,
-    pub slug: String,
-    pub content: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-/// Insert for [`SystemTemplate`].
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = system_templates)]
-pub struct NewSystemTemplate {
-    pub name: String,
-    pub slug: String,
-    pub content: String,
-}
-
-/// Partial update for [`SystemTemplate`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = system_templates)]
-pub struct SystemTemplateChangeset {
-    pub name: Option<String>,
-    pub slug: Option<String>,
-    pub content: Option<String>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
 // ---------------------------------------------------------------------------
 // system_metadata_definitions
 // ---------------------------------------------------------------------------
@@ -247,97 +175,6 @@ pub struct SystemMetadataDefinition {
     pub field_type: FieldType,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-}
-
-/// Insert for [`SystemMetadataDefinition`].
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = system_metadata_definitions)]
-pub struct NewSystemMetadataDefinition {
-    pub name: String,
-    pub slug: String,
-    pub field_type: FieldType,
-}
-
-/// Partial update for [`SystemMetadataDefinition`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = system_metadata_definitions)]
-pub struct SystemMetadataDefinitionChangeset {
-    pub name: Option<String>,
-    pub slug: Option<String>,
-    pub field_type: Option<FieldType>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
-// ---------------------------------------------------------------------------
-// system_metadata_enum_options
-// ---------------------------------------------------------------------------
-
-/// Enum option for a system metadata definition
-/// (`public.system_metadata_enum_options`).
-#[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Identifiable, Associations)]
-#[diesel(table_name = system_metadata_enum_options)]
-#[diesel(belongs_to(SystemMetadataDefinition, foreign_key = metadata_definition_id))]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SystemMetadataEnumOption {
-    pub id: Uuid,
-    pub metadata_definition_id: Uuid,
-    pub value: String,
-    pub position: i32,
-}
-
-/// Insert for [`SystemMetadataEnumOption`].
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = system_metadata_enum_options)]
-pub struct NewSystemMetadataEnumOption {
-    pub metadata_definition_id: Uuid,
-    pub value: String,
-    pub position: i32,
-}
-
-/// Partial update for [`SystemMetadataEnumOption`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = system_metadata_enum_options)]
-pub struct SystemMetadataEnumOptionChangeset {
-    pub value: Option<String>,
-    pub position: Option<i32>,
-}
-
-// ---------------------------------------------------------------------------
-// system_template_metadata
-// ---------------------------------------------------------------------------
-
-/// Template-to-metadata association for system defaults
-/// (`public.system_template_metadata`).
-#[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Identifiable, Associations)]
-#[diesel(table_name = system_template_metadata)]
-#[diesel(belongs_to(SystemTemplate, foreign_key = template_id))]
-#[diesel(belongs_to(SystemMetadataDefinition, foreign_key = metadata_definition_id))]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SystemTemplateMetadata {
-    pub id: Uuid,
-    pub template_id: Uuid,
-    pub metadata_definition_id: Uuid,
-    pub default_value: Option<String>,
-    pub required: bool,
-}
-
-/// Insert for [`SystemTemplateMetadata`].
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = system_template_metadata)]
-pub struct NewSystemTemplateMetadata {
-    pub template_id: Uuid,
-    pub metadata_definition_id: Uuid,
-    pub default_value: Option<String>,
-    pub required: bool,
-}
-
-/// Partial update for [`SystemTemplateMetadata`]. `default_value` is
-/// double-`Option`: `None` = unchanged, `Some(None)` = SET NULL.
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = system_template_metadata)]
-pub struct SystemTemplateMetadataChangeset {
-    pub default_value: Option<Option<String>>,
-    pub required: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -358,24 +195,4 @@ pub struct SystemBoardDefault {
     pub columns: String,
     /// `"from -> to"` pairs, newline-separated.
     pub transitions: String,
-}
-
-/// Insert for [`SystemBoardDefault`].
-#[derive(Debug, Clone, Insertable)]
-#[diesel(table_name = system_board_defaults)]
-pub struct NewSystemBoardDefault {
-    pub board_level: BoardLevel,
-    #[diesel(column_name = columns_)]
-    pub columns: String,
-    pub transitions: String,
-}
-
-/// Partial update for [`SystemBoardDefault`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = system_board_defaults)]
-pub struct SystemBoardDefaultChangeset {
-    pub board_level: Option<BoardLevel>,
-    #[diesel(column_name = columns_)]
-    pub columns: Option<String>,
-    pub transitions: Option<String>,
 }

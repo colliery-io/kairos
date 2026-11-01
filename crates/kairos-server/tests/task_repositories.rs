@@ -34,6 +34,7 @@ use common::{
 };
 use kairos_client::Error;
 use kairos_client::types::CreateTaskRequest;
+use kairos_client::types_org::BoardItemsQuery;
 use kairos_client::types_org::CreateTeamRequest;
 use kairos_client::types_repositories::UpdateRepositoryRequest;
 use kairos_client::types_search::{SearchFilter, SearchRequest};
@@ -515,7 +516,7 @@ async fn task_repository_binding_against_live_stack() {
         "every bound task carries the embedded ref"
     );
     let filtered = svc
-        .board_items_for_repository(&platform_board, "payments-api")
+        .board_items_all(&platform_board, &by_repository("payments-api"))
         .await
         .expect("filtered board items");
     let filtered_tasks: Vec<_> = filtered
@@ -529,7 +530,7 @@ async fn task_repository_binding_against_live_stack() {
         "routed + agreeing: {filtered_tasks:?}"
     );
     let by_uuid_filter = svc
-        .board_items_for_repository(&platform_board, &payments.id.to_string())
+        .board_items_all(&platform_board, &by_repository(&payments.id.to_string()))
         .await
         .expect("filter by UUID");
     assert_eq!(
@@ -541,7 +542,7 @@ async fn task_repository_binding_against_live_stack() {
         2
     );
     let err = rejection(
-        svc.board_items_for_repository(&platform_board, "nope")
+        svc.board_items_all(&platform_board, &by_repository("nope"))
             .await,
     );
     assert!(
@@ -662,4 +663,12 @@ async fn task_repository_binding_against_live_stack() {
     drop(pool);
     drop(conn);
     drop_scratch_db(&mut admin_conn, SCRATCH_DB);
+}
+
+/// The board items narrowed to the tasks of one repository (slug or UUID).
+fn by_repository(repository: &str) -> BoardItemsQuery {
+    BoardItemsQuery {
+        repository: Some(repository.to_string()),
+        ..BoardItemsQuery::default()
+    }
 }

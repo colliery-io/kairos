@@ -422,7 +422,7 @@ async fn the_flow_of_a_board_from_transitions_at_known_times() {
 
     // KAIROS-T-0571: archived work keeps its numbers.
     let archived = admin
-        .archive_completed(&slug)
+        .archive_completed(&slug, None)
         .await
         .expect("archive completed");
     assert_eq!(archived.count, 3, "{archived:?}");
@@ -609,7 +609,7 @@ async fn bounded_read_and_cache(admin: &KairosClient, bob: &KairosClient, conn: 
         .expect("search_path");
     let now: chrono::DateTime<chrono::Utc> = "2026-10-11T12:00:00Z".parse().expect("now");
     let every_move =
-        flow::load_input(conn, board_id, flow::start_of(day("1970-01-01"))).expect("every move");
+        load_input(conn, board_id, flow::start_of(day("1970-01-01"))).expect("every move");
     assert_eq!(
         every_move.items.len(),
         4,
@@ -632,8 +632,7 @@ async fn bounded_read_and_cache(admin: &KairosClient, bob: &KairosClient, conn: 
         ("2026-10-05", "2026-10-11"),
     ] {
         let (from, to) = (day(from), day(to));
-        let bounded =
-            flow::load_input(conn, board_id, flow::start_of(from)).expect("bounded input");
+        let bounded = load_input(conn, board_id, flow::start_of(from)).expect("bounded input");
         assert!(bounded.moves.len() <= every_move.moves.len());
         // An item archived before the range is not read.
         let has_h = bounded.items.iter().any(|i| i.short_code == codes["H"]);
@@ -645,7 +644,7 @@ async fn bounded_read_and_cache(admin: &KairosClient, bob: &KairosClient, conn: 
         );
     }
     let bounded =
-        flow::load_input(conn, board_id, flow::start_of(day("2026-10-05"))).expect("bounded input");
+        load_input(conn, board_id, flow::start_of(day("2026-10-05"))).expect("bounded input");
     assert!(
         bounded.moves.len() < every_move.moves.len(),
         "the read of the last week has fewer moves: {} of {}",
@@ -696,6 +695,18 @@ async fn bounded_read_and_cache(admin: &KairosClient, bob: &KairosClient, conn: 
         .expect("G done");
     let after = bob.board_flow(&slug, &query).await.expect("after");
     assert!(after.ageing.is_empty(), "{:?}", after.ageing);
+}
+
+/// The input of the flow of the board `board_id` from `since`: the board,
+/// then its moves, as the route reads them.
+fn load_input(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Result<kairos_db::flow::FlowInput, diesel::result::Error> {
+    let board = kairos_db::flow::load_board(conn, board_id, since)?;
+    let moves = kairos_db::flow::load_moves(conn, board_id, &board, since)?;
+    Ok(kairos_db::flow::FlowInput::new(board, moves))
 }
 
 fn day(text: &str) -> chrono::NaiveDate {

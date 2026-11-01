@@ -1060,30 +1060,6 @@ fn sweep_current_schema(
     Ok(report)
 }
 
-/// Fleet sweep: run [`sweep_tenant`] for every provisioned organization,
-/// in slug order (same iteration pattern as
-/// [`crate::tenant::migrate_all_tenants`]). Stops at the first failing
-/// tenant. `mode = off` returns an empty report list without touching the
-/// database beyond the tenant listing.
-pub fn sweep_all_tenants(
-    conn: &mut PgConnection,
-    config: &RetentionConfig,
-    now: DateTime<Utc>,
-) -> Result<Vec<SweepReport>, RetentionError> {
-    if config.mode == RetentionMode::Off {
-        return Ok(Vec::new());
-    }
-    let tenants = tenant::list_tenants(conn)?;
-    let mut reports = Vec::with_capacity(tenants.len());
-    for tenant_info in tenants {
-        if !tenant_info.schema_exists {
-            return Err(RetentionError::TenantNotFound(tenant_info.slug));
-        }
-        reports.push(sweep_tenant(conn, &tenant_info.slug, config, now)?);
-    }
-    Ok(reports)
-}
-
 /// Run `f` in each tenant schema, with `search_path` pinned to it and
 /// restored after, and sum the counts.
 fn in_each_tenant(
@@ -1126,15 +1102,7 @@ fn delete_in_pages(
 /// Delete, in each tenant, the notifications that were read more than
 /// `notifications_read_days` days before `now` (KAIROS-T-0381). In each
 /// mode, also `off`: a read notification is not archived. 0 days deletes
-/// nothing. Returns the count. The default page size.
-pub fn delete_read_notifications(
-    conn: &mut PgConnection,
-    config: &RetentionConfig,
-    now: DateTime<Utc>,
-) -> Result<u64, RetentionError> {
-    delete_read_notifications_with(conn, config, now, SweepPaging::default())
-}
-
+/// nothing. Returns the count.
 fn delete_read_notifications_with(
     conn: &mut PgConnection,
     config: &RetentionConfig,
@@ -1179,15 +1147,7 @@ fn delete_unread_notifications(
 /// before `now`, and a summary whose last use is older than that and older
 /// than every stored index of its repository. In each mode, also `off`:
 /// such a summary is a cache that a build can make again. 0 days deletes
-/// nothing. Returns the count. The default page size.
-pub fn delete_unused_summaries(
-    conn: &mut PgConnection,
-    config: &RetentionConfig,
-    now: DateTime<Utc>,
-) -> Result<u64, RetentionError> {
-    delete_unused_summaries_with(conn, config, now, SweepPaging::default())
-}
-
+/// nothing. Returns the count.
 fn delete_unused_summaries_with(
     conn: &mut PgConnection,
     config: &RetentionConfig,
@@ -1348,7 +1308,7 @@ impl RetentionPass {
 }
 
 /// One retention pass of the server (KAIROS-T-0366): sweep each tenant (as
-/// [`sweep_all_tenants`], which obeys the mode) and delete the password
+/// [`sweep_tenant`], which obeys the mode) and delete the password
 /// sessions that expired before `now`. The session delete runs in every
 /// mode, also `off`: an expired session cannot authenticate, so the row has
 /// no use. So does the delete of the rows of the login throttle whose

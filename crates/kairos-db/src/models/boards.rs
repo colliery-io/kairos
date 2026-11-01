@@ -123,19 +123,6 @@ pub struct NewBoardColumn {
     pub keeps_claims: bool,
 }
 
-/// Partial update for [`BoardColumn`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = board_columns)]
-pub struct BoardColumnChangeset {
-    pub name: Option<String>,
-    pub position: Option<i32>,
-    pub is_done: Option<bool>,
-    pub claims: Option<bool>,
-    pub keeps_claims: Option<bool>,
-    pub deleted_at: Option<Option<DateTime<Utc>>>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
 // ---------------------------------------------------------------------------
 // board_transitions
 // ---------------------------------------------------------------------------
@@ -159,14 +146,6 @@ pub struct NewBoardTransition {
     pub board_id: Uuid,
     pub from_column_id: Uuid,
     pub to_column_id: Uuid,
-}
-
-/// Partial update for [`BoardTransition`] (rewiring an edge).
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = board_transitions)]
-pub struct BoardTransitionChangeset {
-    pub from_column_id: Option<Uuid>,
-    pub to_column_id: Option<Uuid>,
 }
 
 // ---------------------------------------------------------------------------
@@ -198,13 +177,4 @@ pub struct NewBoardMemberCapability {
     pub user_id: Uuid,
     pub capability: String,
     pub granted_by: Uuid,
-}
-
-/// Partial update for [`BoardMemberCapability`] (re-attribution; grants are
-/// otherwise insert/delete).
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = board_member_capabilities)]
-pub struct BoardMemberCapabilityChangeset {
-    pub granted_at: Option<DateTime<Utc>>,
-    pub granted_by: Option<Uuid>,
 }

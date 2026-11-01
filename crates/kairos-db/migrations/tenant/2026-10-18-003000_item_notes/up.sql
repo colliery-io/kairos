@@ -18,9 +18,9 @@
 -- THE MOVE OF THE OLD NOTES
 --
 -- The block below moves each `## Note` section of each item into a row, and
--- removes it from the content. It reads the content as the parser of
--- kairos_markdown::notes reads it (the test item_notes_migration compares
--- the two):
+-- removes it from the content. It reads the content as the old parser of
+-- kairos_markdown::notes read it (removed in KAIROS-T-0743; the test
+-- item_notes_migration holds the expected texts):
 --
 --   - a line `## Note n-3 (date, name)` or `## Note (date, name)` outside a
 --     fenced code block starts a note;

@@ -31,7 +31,7 @@
 //! - every sweep writes a `retention_sweep` activity row with per-table
 //!   counts; sweeps are idempotent (second run prunes nothing)
 //! - `discard` prunes without archive files; `off` is a full no-op
-//! - `sweep_all_tenants` iterates every provisioned org (fleet pattern)
+//! - the pass sweeps every provisioned org (fleet pattern)
 //! - `run_retention_pass` (the periodic job of the server, KAIROS-T-0376)
 //!   removes the old rows and the expired sessions, and reports progress
 //! - `team_page_history` follows the rules of `item_history`, paged by
@@ -60,10 +60,20 @@ use kairos_core::short_code::ItemType;
 use kairos_db::items::{self, ContentUpdate, CreateStrategy};
 use kairos_db::models::{ItemHistory, NewUser, User};
 use kairos_db::retention::{
-    RetentionError, SweepPaging, SweepReport, SweepSkip, TableCounts, sweep_all_tenants,
+    RetentionError, SweepPaging, SweepReport, SweepSkip, TableCounts, run_retention_pass,
     sweep_tenant, sweep_tenant_with,
 };
 use kairos_db::{provision_tenant, run_public_migrations, schema};
+
+/// The tenant sweeps of one retention pass: a report for each provisioned
+/// organization, in slug order; none in `off` mode.
+fn sweep_each_tenant(
+    conn: &mut PgConnection,
+    config: &RetentionConfig,
+    now: DateTime<Utc>,
+) -> Result<Vec<SweepReport>, RetentionError> {
+    Ok(run_retention_pass(conn, config, now, &mut || {})?.tenants)
+}
 
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
@@ -547,7 +557,7 @@ fn retention_sweeper_lifecycle() {
         "off writes no retention_sweep row"
     );
     assert_eq!(
-        sweep_all_tenants(&mut conn, &off, now3).expect("fleet off"),
+        sweep_each_tenant(&mut conn, &off, now3).expect("fleet off"),
         vec![],
         "fleet sweep in off mode is a no-op"
     );
@@ -579,7 +589,7 @@ fn retention_sweeper_lifecycle() {
         archive_target: None,
         ..RetentionConfig::default()
     };
-    let reports = sweep_all_tenants(&mut conn, &discard, now4).expect("fleet discard sweep");
+    let reports = sweep_each_tenant(&mut conn, &discard, now4).expect("fleet discard sweep");
     assert_eq!(reports.len(), 2, "one report per provisioned tenant");
     assert_eq!(reports[0].slug, "acme");
     assert_eq!(

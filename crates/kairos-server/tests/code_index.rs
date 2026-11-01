@@ -1478,7 +1478,7 @@ async fn a_first_build_does_not_stop_the_updates() {
 /// The runs of `payments-api`, newest first.
 async fn runs_of(w: &World) -> Vec<kairos_client::types_code_index::CodeIndexBuild> {
     w.alice
-        .list_code_index_builds("payments-api", None)
+        .list_code_index_builds("payments-api", &builds(None))
         .await
         .expect("the runs list")
         .items
@@ -1729,20 +1729,20 @@ async fn the_runs_list_clamps_its_limit() {
         .expect("the first index");
     let list = w
         .alice
-        .list_code_index_builds("payments-api", None)
+        .list_code_index_builds("payments-api", &builds(None))
         .await
         .unwrap();
     assert_eq!(list.limit, 20);
     assert_eq!(list.total, 1);
     let list = w
         .alice
-        .list_code_index_builds("payments-api", Some(0))
+        .list_code_index_builds("payments-api", &builds(Some(0)))
         .await
         .unwrap();
     assert_eq!(list.limit, 1);
     let list = w
         .alice
-        .list_code_index_builds("payments-api", Some(500))
+        .list_code_index_builds("payments-api", &builds(Some(500)))
         .await
         .unwrap();
     assert_eq!(list.limit, 100);
@@ -1750,7 +1750,7 @@ async fn the_runs_list_clamps_its_limit() {
     // An unknown repository
     let err = w
         .alice
-        .list_code_index_builds("no-such-repo", None)
+        .list_code_index_builds("no-such-repo", &builds(None))
         .await
         .expect_err("refused");
     assert!(matches!(err, Error::NotFound { .. }), "{err}");
@@ -2284,7 +2284,7 @@ async fn opt_in(w: &World, slug: &str) {
 /// The newest run of a repository.
 async fn newest_run(w: &World, slug: &str) -> kairos_client::types_code_index::CodeIndexBuild {
     w.alice
-        .list_code_index_builds(slug, Some(1))
+        .list_code_index_builds(slug, &builds(Some(1)))
         .await
         .expect("the runs")
         .items
@@ -3301,11 +3301,10 @@ async fn a_summary_of_a_stopped_update_stays_out_of_an_index_that_does_not_need_
     diesel::sql_query("SET search_path TO public")
         .execute(&mut w.conn)
         .unwrap();
-    let kept = kairos_db::retention::delete_unused_summaries(&mut w.conn, &config, later).unwrap();
+    let kept = unused_summaries_deleted(&mut w.conn, &config, later);
     assert_eq!(kept, 0, "a summary younger than the setting stays");
     let later = chrono::Utc::now() + chrono::Duration::days(31);
-    let deleted =
-        kairos_db::retention::delete_unused_summaries(&mut w.conn, &config, later).unwrap();
+    let deleted = unused_summaries_deleted(&mut w.conn, &config, later);
     diesel::sql_query("SET search_path TO org_acme, public")
         .execute(&mut w.conn)
         .unwrap();
@@ -4352,7 +4351,7 @@ async fn a_run_records_its_scip_warnings_and_an_admin_sees_the_disk_use() {
     // And the organization admin sees the disk use of the tools by language
     let admin = w
         .svc
-        .list_code_index_builds("payments-api", Some(1))
+        .list_code_index_builds("payments-api", &builds(Some(1)))
         .await
         .expect("the runs");
     let disk = admin.disk.expect("the disk use, for an admin");
@@ -4369,9 +4368,34 @@ async fn a_run_records_its_scip_warnings_and_an_admin_sees_the_disk_use() {
     // And a member does not
     let member = w
         .bob
-        .list_code_index_builds("payments-api", Some(1))
+        .list_code_index_builds("payments-api", &builds(Some(1)))
         .await
         .expect("the runs");
     assert!(member.disk.is_none());
     assert_eq!(member.items[0].scip_warnings, run.scip_warnings);
+}
+
+/// The first page of the runs of the code index builder, `limit` long.
+fn builds(limit: Option<i64>) -> kairos_client::types_code_index::CodeIndexBuildListQuery {
+    kairos_client::types_code_index::CodeIndexBuildListQuery {
+        limit,
+        offset: None,
+    }
+}
+
+/// The unused summaries that one retention pass deletes at `now`. The pass
+/// sweeps no history and keeps each code index.
+fn unused_summaries_deleted(
+    conn: &mut diesel::PgConnection,
+    config: &kairos_core::retention::RetentionConfig,
+    now: chrono::DateTime<chrono::Utc>,
+) -> u64 {
+    let config = kairos_core::retention::RetentionConfig {
+        mode: kairos_core::retention::RetentionMode::Off,
+        code_index_keep: 0,
+        ..config.clone()
+    };
+    kairos_db::retention::run_retention_pass(conn, &config, now, &mut || {})
+        .expect("pass")
+        .unused_summaries_deleted
 }

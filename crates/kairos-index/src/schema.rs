@@ -213,13 +213,6 @@ pub fn prepare(conn: &Connection) -> Result<(), IndexError> {
         }
         SCHEMA_VERSION => {
             conn.execute_batch(crate::parse_cache::TABLE)?;
-            // An index of this version made before the text table
-            // (KAIROS-T-0423) gets it here.
-            if !crate::text::exists(conn)? {
-                let tx = conn.unchecked_transaction()?;
-                crate::text::refresh(&tx)?;
-                tx.commit()?;
-            }
             Ok(())
         }
         found => Err(IndexError::SchemaVersion { found }),

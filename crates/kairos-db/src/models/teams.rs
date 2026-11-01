@@ -79,13 +79,6 @@ pub struct NewTeamMember {
     pub user_id: Uuid,
 }
 
-/// Partial update for [`TeamMember`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = team_members)]
-pub struct TeamMemberChangeset {
-    pub joined_at: Option<DateTime<Utc>>,
-}
-
 // ---------------------------------------------------------------------------
 // delivery_streams
 // ---------------------------------------------------------------------------

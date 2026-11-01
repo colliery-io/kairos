@@ -31,18 +31,18 @@ pub const DEFAULT_MIN_LINES: u32 = 5;
 /// 9 of 10 groups checked by hand were repeated code. A renamed copy with one
 /// changed line of 10 scores about 0.73. See `COLLIERY-I-0264`, "Repeated code
 /// on Kairos, 2026-10-01".
-pub const NEAR_THRESHOLD: f64 = 0.7;
+pub(crate) const NEAR_THRESHOLD: f64 = 0.7;
 
 /// The lowest cosine of the summary vectors of a `same-idea` pair. Not
 /// calibrated: no index of Kairos had summaries when it was set.
-pub const SAME_IDEA_THRESHOLD: f64 = 0.92;
+pub(crate) const SAME_IDEA_THRESHOLD: f64 = 0.92;
 
 /// The fewest tokens of a function that a `near` pair can have. A smaller
 /// function is mostly its signature and one call, and on Kairos such
 /// functions matched with no common code (`chat` and
 /// `only_delivery_board_note`: one `format!` of a string each). An exact copy
 /// of any size is still found.
-pub const MIN_NEAR_TOKENS: u32 = 30;
+pub(crate) const MIN_NEAR_TOKENS: u32 = 30;
 
 /// The rows of a signature in one band of the LSH that finds the `near`
 /// candidates: 32 bands of 4. A pair with a similarity of 0.5 is a

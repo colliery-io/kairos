@@ -47,6 +47,25 @@ E2E_GUI_BASE_URL=http://localhost:41080 npx playwright test
 Env knobs: `E2E_GUI_BASE_URL` (default `http://localhost:41080`), `E2E_ISSUER`
 (default `http://localhost:41558/dex`).
 
+## Fakes of outside services
+
+Some screens show the result of a call to an outside service. The e2e
+stack has a fake of that service, so that the spec tests the main path
+(KAIROS-T-0744).
+
+- `fakes/github.ts`: the REST API of GitHub, for the write-back and the
+  import of open issues. `angreal test e2e` gives the server
+  `KAIROS_GITHUB_API_URL=http://127.0.0.1:41091`. A spec starts the fake on
+  that port with `startFakeGithub()` and stops it at the end. The fake keeps
+  each request, and answers 401 to the token `refused-token`.
+
+A hand-run server needs the same setting. Change the port with
+`E2E_FAKE_GITHUB_PORT` (for the server and for the specs).
+
+The code index specs need no fake: the e2e server runs no builder, and the
+settings page does not call the summary or vector provider. A spec uploads
+an empty index (`helpers/index-db.ts`) to get indexed commits and runs.
+
 ## Flake posture
 
 - **`retries: 1`** (`playwright.config.ts`). The flow is inherently serial, so

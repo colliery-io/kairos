@@ -2701,7 +2701,7 @@ kairos pages unpublish --repo <REPOSITORY> --confirm [OPTIONS]
 |---|---|---|---|
 | `--confirm` | flag | off | Required for the unpublish to happen. Without it, the command exits 1. |
 
-Kairos deletes the files of the site. The list of the publishes stays.
+Kairos deletes the files of the site.
 
 ## Machine access
 

@@ -199,6 +199,27 @@ struct JobRow {
     later: bool,
 }
 
+#[derive(QueryableByName, Debug)]
+struct PublishRow {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    id: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    state: String,
+}
+
+/// The publishes of the tenant, newest first: (id, state).
+fn publishes(conn: &mut PgConnection) -> Vec<(String, String)> {
+    diesel::sql_query(
+        "SELECT id::text AS id, state FROM org_acme.site_publishes \
+         ORDER BY published_at DESC, id DESC",
+    )
+    .load::<PublishRow>(conn)
+    .expect("publishes")
+    .into_iter()
+    .map(|row| (row.id, row.state))
+    .collect()
+}
+
 fn cleanup_jobs(conn: &mut PgConnection) -> Vec<JobRow> {
     diesel::sql_query(
         "SELECT payload::text AS payload, run_after > now() + interval '4 minutes' AS later \
@@ -391,18 +412,8 @@ async fn ci_publishes_a_site_against_live_stack() {
             .contains("\"link\""),
         "{body}"
     );
-    let (status, history) = send(
-        &router,
-        Method::GET,
-        &format!("{SITE}/publishes"),
-        &robin,
-        &[],
-        None,
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{history}");
-    assert_eq!(history["total"], 0, "nothing was published: {history}");
+    let history = publishes(&mut conn);
+    assert!(history.is_empty(), "nothing was published: {history:?}");
     assert!(
         !store_root.exists() || std::fs::read_dir(&store_root).unwrap().next().is_none(),
         "nothing was stored"
@@ -478,21 +489,13 @@ async fn ci_publishes_a_site_against_live_stack() {
         "{repo}"
     );
     assert_eq!(repo["site"]["needs_republish"], false, "{repo}");
-    let (_, history) = send(
-        &router,
-        Method::GET,
-        &format!("{SITE}/publishes"),
-        &robin,
-        &[],
-        None,
-        None,
-    )
-    .await;
-    assert_eq!(history["total"], 2, "{history}");
-    assert_eq!(history["items"][0]["publish_id"], second_id.as_str());
-    assert_eq!(history["items"][0]["state"], "live");
-    assert_eq!(history["items"][1]["publish_id"], first_id.as_str());
-    assert_eq!(history["items"][1]["state"], "replaced");
+    assert_eq!(
+        publishes(&mut conn),
+        vec![
+            (second_id.clone(), "live".to_string()),
+            (first_id.clone(), "replaced".to_string()),
+        ]
+    );
     let jobs = cleanup_jobs(&mut conn);
     assert_eq!(jobs.len(), 1, "{jobs:?}");
     assert!(jobs[0].payload.contains(&first_id), "{jobs:?}");

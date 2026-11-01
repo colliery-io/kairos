@@ -606,6 +606,11 @@ These changes of 0.20.0 show after the upgrade. They apply to Compose too.
 
 - `PUT /api/boards/{id}/code-sequences/{item_type}`. Only the Metis
   importer used it. The importer is gone too.
+- `GET /api/teams/{id}/work-documents`. The web app stopped reading it
+  when the documents of a team became part of the team tree
+  (`GET /api/teams/{id}/tree-items`).
+- `GET /api/repositories/{slug}/site/publishes`. The repository still
+  shows its live publish (`site.published` of `GET /api/repositories/{slug}`).
 
 ## Trying it out without a database
 

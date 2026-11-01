@@ -29,7 +29,7 @@ storage:
 web:
   http: 0.0.0.0:41558
 
-# Long-lived test tokens per KAIROS-A-0012 (24h so soak/integration runs never
+# Long-lived test tokens per KAIROS-A-0012 (24h so integration runs never
 # hit mid-run expiry). Production TTLs are a Keycloak realm concern, not this file.
 expiry:
   idTokens: "24h"

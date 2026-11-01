@@ -166,10 +166,8 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   `kairos` is on PATH and `kairos config show` binds the checkout, it starts
   `kairos index update --link-only` as a detached process and does not wait for it. The
   update runs no model: it links the summaries that are in the pool and makes no new ones
-  (COLLIERY-T-2529). Summaries come from Kairos, or from a `kairos index update` that a person
-  runs. Set `KAIROS_INDEX_SUMMARIZE=1` in the environment of Claude Code to make the background
-  update run the model (a `kairos` built with `llama` can then summarize for some minutes with
-  about 4 GB of memory). It also tells the agent
+  (COLLIERY-T-2529). The summaries come from the pool of the Kairos server. It also tells the
+  agent
   to use the code tools before it reads files. In a board folder with the wiring, it starts
   the same update in each clone and worktree below the folder (#272). Else it does nothing and
   gives no output. The

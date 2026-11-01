@@ -612,6 +612,10 @@ These changes of 0.20.0 show after the upgrade. They apply to Compose too.
 - `GET /api/repositories/{slug}/site/publishes`. The repository still
   shows its live publish (`site.published` of `GET /api/repositories/{slug}`).
 
+- The `kairos` CLI has no feature `llama`, and the plugin does not read
+  `KAIROS_INDEX_SUMMARIZE`. The summaries of the code index come from the
+  pool of the Kairos server (KAIROS-T-0743).
+
 ## Trying it out without a database
 
 `helm install` with nothing but the two OIDC values works, because the chart

@@ -75,8 +75,7 @@ first-class, because a model that only admits top-down work makes every bug an
 exception.
 
 The column sequence each level's boards are seeded with is set out in
-[the decision that made columns
-configurable](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0002.md);
+the decision that made columns configurable (KAIROS-A-0002);
 the shapes differ because the levels differ, not because anything is being kept
 consistent for its own sake.
 
@@ -219,14 +218,12 @@ sharp edge exists and is the price of the flexibility.
 
 ## Where this comes from
 
-- [Configurable board columns and transitions, and the alternatives weighed
-  against them](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0002.md)
+- Configurable board columns and transitions, and the alternatives weighed
+  against them
   (KAIROS-A-0002).
-- [The entity model and the single relationship
-  graph](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0001.md)
+- The entity model and the single relationship graph
   (KAIROS-A-0001).
-- [What each level is for, its ownership and its
-  ceremonies](https://github.com/colliery-io/kairos/blob/main/.metis/vision.md)
+- What each level is for, its ownership and its ceremonies
   (KAIROS-V-0001).
 
 <!-- KAIROS-I-0016 / KAIROS-T-0171: the per-level default column sequences have

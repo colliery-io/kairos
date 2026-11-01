@@ -3053,9 +3053,9 @@ With no subcommand and no `--full`, the command prints its help.
 kairos index build [--root <ROOT>] [--json]
 ```
 
-Builds the index of the checkout: the structure, the call edges and the
-summaries. A CLI with no summarizer makes the structure and the edges, and
-says why it made no summaries.
+Builds the index of the checkout: the structure and the call edges. The CLI
+has no summarizer: it links the summaries of the pool of the Kairos server,
+and says why it made no others.
 
 ### `kairos index update`
 

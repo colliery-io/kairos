@@ -129,7 +129,7 @@ they refuse and change nothing. The text says what to do:
 | The text says | What to do |
 |---|---|
 | `The checkout is N commits behind origin/main.` | Run `git pull --ff-only`, or open a worktree at `origin/main`. |
-| `Rebase on main, or run kairos index --full.` | Rebase your branch, or build the index again on this machine. |
+| `Rebase on main.` | Rebase your branch. The CLI does not build an index: the server builds it. |
 | `Or give --max-changed N` (the tool: `max_changed`) | Update from this index with a higher limit. |
 
 An update that runs no model (`--link-only`, a hosted repository, or

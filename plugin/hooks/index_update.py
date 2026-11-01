@@ -358,8 +358,10 @@ def session_text(project, log):
         lines.append(
             "This checkout has no local index yet. The update tries to download "
             "the base index from Kairos. If the log says that no base index is "
-            "available, call `fetch_index` with this folder as `root`, or tell "
-            "the user to run `kairos index --full`."
+            "available, call `fetch_index` with this folder as `root`. The CLI "
+            "does not build an index: the Kairos server builds it. If Kairos has "
+            "no index of the repository, tell the user to register the "
+            "repository in Kairos."
         )
     return "\n".join(lines)
 

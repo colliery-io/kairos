@@ -670,9 +670,17 @@ The log has these lines for each build:
   index, or the repository has `code_index_build` off. The builder logs a
   reason one time, and again only when the reason changes.
 
-You can also make the first index on a computer and upload it
-(`kairos index build`, then the upload). Then the builder does not make a
-first build of the repository.
+The CLI does not build an index (KAIROS-T-0746). Only the builder of the
+server makes the first index of a repository.
+
+A stored index of a schema version that the server does not read counts as
+missing. The nearest-index lookup and the download skip it, and do not
+give an error 500. When a repository has only such indexes, the lookup
+answers "no index yet" and adds a build job of the repository. The sweep
+also builds a head whose index has another schema version, with no wait for
+`KAIROS_CODE_INDEX_MIN_REBUILD_SECS`. When a build or an upload stores an
+index of the current version, the indexes of an older version of that
+repository are deleted.
 
 #### Stop the builder for one repository
 
@@ -1279,6 +1287,12 @@ It downloads that index if the checkout has no index. It also downloads it if
 the base is nearer to the tree than the local index. Then it indexes the
 changed files.
 
+The CLI does not build an index. With no local index and no base index in
+Kairos, it builds nothing: the error `NO_START` gives the reason. A local
+index of an older schema version is not opened: the CLI moves it to
+`index.db.schema<N>.bak` and starts from the base index. A local index of a
+newer schema version is refused before the CLI does work.
+
 When the local index is as near to the tree as the base, the CLI keeps the
 local index. The base can have more summaries than the local index links.
 Then the CLI downloads the base and takes its summaries into the local
@@ -1304,8 +1318,7 @@ still built for the changed files. So search and the call graph are right
 on a branch before its push.
 
 The next push makes the summaries on Kairos. The CLI never has the key of
-the organization. `kairos index build` and `kairos index --full` do not ask
-Kairos. They run the model of the machine when it has one.
+the organization.
 
 The base is the nearest indexed commit at or below the merge base of `HEAD`
 and the default branch. The CLI also asks for the nearest indexed commit at
@@ -1330,8 +1343,7 @@ you what to do:
 - The checkout is only behind the default branch (`HEAD` is an ancestor of
   `origin/<default branch>`): run `git pull --ff-only`, or open a worktree
   at `origin/<default branch>`.
-- Else: rebase on the default branch, or run `kairos index --full`. The
-  text gives the time of a full build.
+- Else: rebase on the default branch.
 - In each case: give `--max-changed <N>` (the tool: `max_changed`) with the
   count, to update from this base.
 
@@ -1340,6 +1352,7 @@ checkout, and the error names it. With no previous checkout, the error says
 that the other tools refuse until `fetch_index` succeeds.
 
 If the CLI cannot reach Kairos, it updates the local index and says so.
+With no local index, it builds nothing.
 
 ### The code tools: choose one symbol
 
@@ -1442,10 +1455,10 @@ the line says so.
 
 The citations are part of the index since schema version 8. A base index
 of an earlier version has no citations: the next build of the repository
-reads them. Run `kairos index --full` to build a local index again. Run `kairos index --full`, or take a new base
-index from Kairos. A CLI refuses an index of a later version: the index comes
-from a newer server or CLI. Run `kairos self-update`, or run `kairos index
---full` with this CLI.
+reads them. `kairos index update` moves a local index of an older version
+aside and takes a new base index from Kairos. A CLI refuses an index of a
+later version: the index comes from a newer server or CLI. Run `kairos
+self-update`.
 
 ### The code index: Terraform
 

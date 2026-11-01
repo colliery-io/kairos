@@ -63,7 +63,7 @@ pub struct Base {
     pub commit: String,
     /// The files of the checkout that differ from the commit.
     pub changed: usize,
-    /// The summaries that the index uses: a full build makes about as many.
+    /// The summaries that the index uses.
     pub summaries: usize,
     /// The repository makes its summaries on Kairos, with a hosted
     /// provider (KAIROS-T-0343): the CLI links the pool and makes none.
@@ -297,6 +297,21 @@ async fn nearest_of(client: &KairosClient, slug: &str, root: &Path, from: &str) 
             ));
         }
     };
+    // KAIROS-T-0746: an index of another schema version is no base. A
+    // server before 0.19.1 can give one; this CLI cannot read it.
+    if let Some(found) = nearest
+        .index
+        .schema_version
+        .filter(|found| *found != kairos_index::SCHEMA_VERSION)
+    {
+        return Asked::NoBase(format!(
+            "the nearest index in Kairos, of commit {}, has schema version {found}, and this \
+             CLI reads version {}. The Kairos server builds a new index of the repository \
+             after its upgrade",
+            short(&nearest.index.commit),
+            kairos_index::SCHEMA_VERSION
+        ));
+    }
     let Some(changed) = changed_since(root, &nearest.index.commit) else {
         return Asked::NoBase(format!(
             "the checkout does not have commit {}",
@@ -481,66 +496,6 @@ fn changed_since(root: &Path, commit: &str) -> Option<usize> {
     Some(files.len())
 }
 
-/// The count of the files that git knows in the checkout, and those that it
-/// does not track and does not ignore.
-pub fn file_count(root: &Path) -> usize {
-    git_output(
-        root,
-        &["ls-files", "--cached", "--others", "--exclude-standard"],
-    )
-    .map_or(0, |out| out.lines().filter(|l| !l.is_empty()).count())
-}
-
-/// The seconds of the structure for each file (`COLLIERY-T-1852`: 962
-/// files of Kairos in 95 s, with the SCIP run).
-const SECONDS_PER_FILE: f64 = 0.1;
-
-/// The seconds of one summary with llama.cpp on Metal (`COLLIERY-T-1853`:
-/// 3,145 summaries of Kairos in 5,614 s on an M1 Max).
-#[cfg(feature = "llama")]
-const SECONDS_PER_SUMMARY_METAL: f64 = 1.8;
-
-/// The seconds of one summary with llama.cpp on a CPU (the benchmark of
-/// 2026-09-30: about 12 h for 3,288 model calls, with 4 threads).
-#[cfg(feature = "llama")]
-const SECONDS_PER_SUMMARY_CPU: f64 = 13.0;
-
-/// The estimated time of a full build on this machine, and what it counts.
-pub fn full_build_estimate(files: usize, summaries: usize) -> String {
-    let structure = files as f64 * SECONDS_PER_FILE;
-    #[cfg(feature = "llama")]
-    {
-        let per_summary = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-            SECONDS_PER_SUMMARY_METAL
-        } else {
-            SECONDS_PER_SUMMARY_CPU
-        };
-        let total = structure + summaries as f64 * per_summary;
-        format!(
-            "about {} on this machine: {files} files and about {summaries} summaries",
-            duration(total)
-        )
-    }
-    #[cfg(not(feature = "llama"))]
-    {
-        let _ = summaries;
-        format!(
-            "about {} on this machine: {files} files. This kairos binary has no summarizer, \
-             so it makes no summaries",
-            duration(structure)
-        )
-    }
-}
-
-fn duration(seconds: f64) -> String {
-    let seconds = seconds.round().max(1.0) as u64;
-    match (seconds / 3600, seconds % 3600 / 60, seconds % 60) {
-        (0, 0, s) => format!("{s} s"),
-        (0, m, _) => format!("{m} min"),
-        (h, m, _) => format!("{h} h {m} min"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -604,12 +559,5 @@ mod tests {
             Some("cached")
         );
         assert_eq!(login_tenant(&none, &HashMap::new(), None), None);
-    }
-
-    #[test]
-    fn durations_are_short() {
-        assert_eq!(duration(0.2), "1 s");
-        assert_eq!(duration(95.0), "1 min");
-        assert_eq!(duration(5614.0), "1 h 33 min");
     }
 }

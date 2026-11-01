@@ -451,6 +451,18 @@ fn no_index(slug: &str, commit: &str) -> ApiError {
     .with_details(json!({ "field": "commit" }))
 }
 
+/// The index of `commit` has the schema version `found`, which this server
+/// does not read (KAIROS-T-0746): it counts as missing.
+fn other_schema(slug: &str, commit: &str, found: i64) -> ApiError {
+    ApiError::not_found(format!(
+        "The repository {slug:?} has no code index of the commit {commit} that this version \
+         of Kairos reads: its index has schema version {found}, and this version reads \
+         version {}. The builder of the server makes a new index of the repository.",
+        kairos_index::SCHEMA_VERSION
+    ))
+    .with_details(json!({ "field": "commit", "schema_version": found }))
+}
+
 /// Each indexed commit of a repository, newest write first.
 #[utoipa::path(
     get,
@@ -576,7 +588,7 @@ pub(crate) async fn upload_code_index(
         kairos_index::store::split(file.path()).map_err(|e| {
             ApiError::validation(format!(
                 "The body is not a code index file of this version of Kairos: {e} Send the \
-                 file index.db of `kairos index build`. `kairos index status` gives its path."
+                 file index.db of the checkout. `kairos index status` gives its path."
             ))
             .with_details(json!({ "field": "body" }))
         })
@@ -619,6 +631,10 @@ pub(crate) async fn upload_code_index(
                 &keys,
             )
             .map_err(ApiError::internal)?;
+            // KAIROS-T-0746: the upload is a current index, so the indexes
+            // of an older schema version go.
+            crate::code_index::delete_old_schema_indexes(conn, repo.id)
+                .map_err(ApiError::internal)?;
             let info = code_indexes::info(conn, repo.id, &commit)
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| ApiError::internal("the stored index is not there"))?;
@@ -682,6 +698,16 @@ pub(crate) async fn download_code_index(
             .blocking
             .run(&tenant.slug, move |conn| {
                 let id = repository_id(conn, &slug)?;
+                // KAIROS-T-0746: an index of another schema version counts
+                // as missing. The server cannot assemble it: before, the
+                // answer was a 500.
+                let found = crate::code_index::stored_schema(conn, id, &commit)
+                    .map_err(ApiError::internal)?;
+                if let Some(found) = found
+                    && !crate::code_index::current_schema(Some(found))
+                {
+                    return Err(other_schema(&slug, &commit, found));
+                }
                 let structure = code_indexes::structure(conn, id, &commit)
                     .map_err(ApiError::internal)?
                     .ok_or_else(|| no_index(&slug, &commit))?;
@@ -780,6 +806,7 @@ pub(crate) async fn nearest_code_index(
             .await?
     };
     let repo_id = repo.id;
+    let repo_for_build = repo.clone();
     // The token of the fetch (KAIROS-T-0431): the read token of the
     // organization for the host, else the token of the repository.
     let token = {
@@ -822,31 +849,64 @@ pub(crate) async fn nearest_code_index(
             .with_details(json!({ "parameter": "commit" }))
         })?
     };
-    let nearest = state
+    // KAIROS-T-0746: an index of another schema version counts as missing.
+    // When only such indexes are below the commit, the answer is "no index
+    // yet", and the repository gets a build job (one at a time: the job has
+    // a dedupe key).
+    let max_tries = state.config.jobs.max_tries;
+    let tenant_slug = tenant.slug.clone();
+    let (nearest, queued) = state
         .blocking
         .run(&tenant.slug, move |conn| {
             let indexed = code_indexes::list(conn, repo_id).map_err(ApiError::internal)?;
-            let found = ancestors.iter().enumerate().find_map(|(distance, c)| {
-                indexed
-                    .iter()
-                    .find(|i| &i.commit_sha == c)
-                    .map(|i| (distance, i.clone()))
-            });
-            match found {
-                Some((distance, info)) => {
-                    let version = stored_version(conn, repo_id, &info.commit_sha)?;
-                    Ok(Some((distance, info, version)))
+            let mut other = false;
+            for (distance, c) in ancestors.iter().enumerate() {
+                let Some(info) = indexed.iter().find(|i| &i.commit_sha == c) else {
+                    continue;
+                };
+                let version = stored_version(conn, repo_id, &info.commit_sha)?;
+                if crate::code_index::current_schema(version) {
+                    return Ok((Some((distance, info.clone(), version)), false));
                 }
-                None => Ok(None),
+                other = true;
             }
+            if !other || !repo_for_build.code_index_build_on() {
+                return Ok((None, false));
+            }
+            let queued = crate::code_index::jobs::enqueue_build(
+                conn,
+                &tenant_slug,
+                &repo_for_build,
+                crate::code_index::jobs::FIRST,
+                None,
+                None,
+                max_tries,
+            )?;
+            if let Ok(job) = &queued {
+                tracing::info!(tenant = %tenant_slug, repository = %repo_for_build.slug, job = %job.id, "code index build added: the indexes are of another schema version");
+            }
+            Ok((None, true))
         })
         .await?;
+    if queued {
+        state.jobs.wake();
+    }
     let Some((distance, info, schema_version)) = nearest else {
-        return Err(ApiError::not_found(format!(
-            "No indexed commit is within {MAX_DISTANCE} commits at or below {commit}. Build \
-             the index with `kairos index build`."
-        ))
-        .with_details(json!({ "parameter": "commit" })));
+        let why = if queued {
+            format!(
+                "No code index that this version of Kairos reads is within {MAX_DISTANCE} \
+                 commits at or below {commit}: the indexes of the repository are of another \
+                 schema version. The builder of the server makes a new index now. Ask again \
+                 after its build."
+            )
+        } else {
+            format!(
+                "No indexed commit is within {MAX_DISTANCE} commits at or below {commit}. The \
+                 builder of the server makes the index of the repository. Ask again after its \
+                 build."
+            )
+        };
+        return Err(ApiError::not_found(why).with_details(json!({ "parameter": "commit" })));
     };
     Ok(Json(dto::NearestCodeIndex {
         from: commit,

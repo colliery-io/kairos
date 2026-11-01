@@ -2817,6 +2817,168 @@ async fn an_index_of_another_schema_version_gets_a_full_build() {
     assert!(outcomes.iter().all(|o| o.report.is_none()), "{outcomes:?}");
 }
 
+/// Put an index of `commit` with the schema version `version` in the
+/// store directly, as a server upgrade leaves it behind: an upload
+/// refuses such a file.
+fn put_with_schema(w: &mut World, commit: &str, version: u32) {
+    let mut old = w.index(commit);
+    old[60..64].copy_from_slice(&version.to_be_bytes());
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut encoder, &old).unwrap();
+    let structure = encoder.finish().unwrap();
+    kairos_db::code_indexes::put(
+        &mut w.conn,
+        &kairos_db::code_indexes::NewCodeIndex {
+            repository_id: w.repo_id,
+            commit_sha: commit.to_string(),
+            ref_name: Some("main".into()),
+            source: "build",
+            structure,
+            structure_bytes: old.len() as i64,
+            summary_keys: 0,
+            vector_model: None,
+            created_by: None,
+            citations: Vec::new(),
+        },
+        &[],
+        &[],
+    )
+    .expect("the index is stored");
+}
+
+// ===========================================================================
+// Scenario: An index of an older schema version counts as missing
+// (KAIROS-T-0746)
+// ===========================================================================
+#[tokio::test]
+async fn an_index_of_an_older_schema_is_skipped_by_the_nearest_lookup() {
+    // Given an index of commit A with the schema version of this server,
+    // and an index of commit C, after A, with schema version 7
+    let mut w = World::new("kairos_code_index_t0746_skip").await;
+    let a = w.a.clone();
+    let b = commit_b(&w.git);
+    let c = commit_c(&w.git);
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the upload of A");
+    put_with_schema(&mut w, &c, 7);
+
+    // When I ask for the nearest indexed commit at or below C
+    let nearest = w
+        .alice
+        .nearest_code_index("payments-api", &c)
+        .await
+        .expect("nearest at C");
+
+    // Then the answer is the index of A, of this schema version
+    assert_eq!(nearest.index.commit, a);
+    assert_eq!(nearest.distance, 2);
+    assert_eq!(
+        nearest.index.schema_version,
+        Some(kairos_index::SCHEMA_VERSION)
+    );
+    // And the download of C is "no index", not a 500
+    let err = w
+        .alice
+        .download_code_index("payments-api", &c)
+        .await
+        .expect_err("the index of C is of another version");
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
+    assert!(err.to_string().contains("schema version 7"), "{err}");
+    assert!(!err.to_string().contains("kairos index"), "{err}");
+
+    // When a current index of B is stored
+    w.bob
+        .upload_code_index("payments-api", &b, Some("main"), w.index(&b))
+        .await
+        .expect("the upload of B");
+
+    // Then the index of the older schema version is deleted
+    let listed: BTreeSet<String> = w
+        .alice
+        .list_code_indexes("payments-api")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|i| i.commit)
+        .collect();
+    assert_eq!(listed, [a.clone(), b.clone()].into());
+}
+
+#[tokio::test]
+async fn with_only_an_index_of_an_older_schema_the_answer_is_no_index_yet_and_a_build_is_queued() {
+    // Given only an index of commit A, the head, with schema version 7
+    let mut w = World::new("kairos_code_index_t0746_only_old").await;
+    let a = w.a.clone();
+    put_with_schema(&mut w, &a, 7);
+    let key = job_key("acme", w.repo_id);
+    assert!(
+        kairos_db::jobs::open_by_key(&mut w.conn, &key)
+            .unwrap()
+            .is_none()
+    );
+
+    // When I ask for the nearest indexed commit at or below A
+    let err = w
+        .alice
+        .nearest_code_index("payments-api", &a)
+        .await
+        .expect_err("no index of this version");
+
+    // Then the answer is "no index yet", not a 500, and names no CLI build
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
+    let text = err.to_string();
+    assert!(text.contains("another schema version"), "{text}");
+    assert!(text.contains("makes a new index now"), "{text}");
+    assert!(!text.contains("kairos index"), "{text}");
+    // And a build of the repository is queued, once
+    let job = kairos_db::jobs::open_by_key(&mut w.conn, &key)
+        .unwrap()
+        .expect("a build job");
+    assert_eq!(job.state, "queued");
+    w.alice
+        .nearest_code_index("payments-api", &a)
+        .await
+        .expect_err("still no index");
+    let again = kairos_db::jobs::open_by_key(&mut w.conn, &key)
+        .unwrap()
+        .expect("the build job");
+    assert_eq!(again.id, job.id, "one job");
+    // And the download of A is "no index", not a 500
+    let err = w
+        .alice
+        .download_code_index("payments-api", &a)
+        .await
+        .expect_err("the index of A is of another version");
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
+}
+
+// KAIROS-T-0746: after an upgrade, the sweep builds a head whose index is
+// of an older schema version, with no wait for the least time between 2
+// updates; the build deletes the old index.
+#[tokio::test]
+async fn the_sweep_rebuilds_an_old_schema_head_at_once_and_the_old_index_goes() {
+    // Given only an index of commit A, the head, with schema version 7,
+    // written just now, and a least time of 1 h between 2 updates
+    let mut w = World::new("kairos_code_index_t0746_sweep").await;
+    let a = w.a.clone();
+    put_with_schema(&mut w, &a, 7);
+    w.service.set_min_rebuild_secs(3600);
+
+    // When the builder runs
+    let outcomes = w.sweep().await;
+
+    // Then the head gets a full build at once
+    let built: Vec<_> = outcomes.iter().filter(|o| o.report.is_some()).collect();
+    assert_eq!(built.len(), 1, "{outcomes:?}");
+    assert_eq!(built[0].commit, a);
+    // And the stored index of A has the schema version of this server
+    let listed = w.alice.list_code_indexes("payments-api").await.unwrap();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].schema_version, Some(kairos_index::SCHEMA_VERSION));
+}
+
 // ===========================================================================
 // Scenario: An index of a commit that is not in the history gets a full
 // build (KAIROS-T-0356)

@@ -822,7 +822,6 @@ mod tests {
         };
         assert!(check(&["kairos", "index", "status"]));
         assert!(check(&["kairos", "index", "update"]));
-        assert!(check(&["kairos", "index", "--full"]));
         assert!(check(&["kairos", "tasks", "get", "X-T-1"]));
         assert!(!check(&["kairos", "index", "mcp"]));
         assert!(!check(&["kairos", "self-update", "--check"]));

@@ -10,10 +10,14 @@ use crate::error::CliError;
 /// An error of a `kairos index` command.
 #[derive(Debug, thiserror::Error)]
 pub enum IndexCommandError {
-    #[error("No index is at {0}. Run `kairos index build` first.")]
-    NoIndex(PathBuf),
     #[error(
-        "No index that this CLI can update is at {path}, and Kairos gave no base index, because {why}. Run `kairos index --full`."
+        "No index is at {0}. Run `kairos index update` to take the index from the Kairos server."
+    )]
+    NoIndex(PathBuf),
+    /// No local index, and no base from Kairos. The CLI does not build an
+    /// index (KAIROS-T-0746): the Kairos server builds it.
+    #[error(
+        "No index that this CLI can update is at {path}, and Kairos gave no base index, because {why}. The CLI does not build an index: the Kairos server builds it. Make sure that the repository is in Kairos and that the CLI can reach Kairos. When the server has an index of the repository, run `kairos index update` again."
     )]
     NoStart { path: PathBuf, why: String },
     /// More files than the limit changed since the index that the update
@@ -153,7 +157,7 @@ pub enum Stop {
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum Advice {
     /// HEAD is an ancestor of `origin/<branch>`: there is nothing to
-    /// rebase, and a full build is more work than the update.
+    /// rebase.
     #[error(
         "The checkout is {commits} commits behind origin/{branch}. Run `git pull --ff-only`, or open a worktree at origin/{branch}. {raise}"
     )]
@@ -162,14 +166,10 @@ pub enum Advice {
         branch: String,
         raise: Raise,
     },
-    #[error(
-        "Rebase on {branch}, or run `kairos index --full`. A full build takes {estimate}. {raise}"
-    )]
-    Rebase {
-        branch: String,
-        estimate: String,
-        raise: Raise,
-    },
+    /// The CLI does not build an index (KAIROS-T-0746), so the text names
+    /// no full build.
+    #[error("Rebase on {branch}. {raise}")]
+    Rebase { branch: String, raise: Raise },
 }
 
 /// The limit that lets the update start from this index.
@@ -295,7 +295,7 @@ impl From<IndexCommandError> for CliError {
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
     #[error(
-        "No index is at {0}. Call `fetch_index` with the checkout as `root`, or run `kairos index build` in the checkout."
+        "No index is at {0}. Call `fetch_index` with the checkout as `root`, or run `kairos index update` in the checkout."
     )]
     NoIndex(PathBuf),
     #[error(
@@ -315,7 +315,7 @@ pub enum ToolError {
     #[error("The folder {0} is not in a git checkout.")]
     NotACheckout(PathBuf),
     #[error(
-        "Kairos has no index for the checkout {root}, because {why}. There is no local index either. Register the repository in Kairos, and its builder makes the first index. Or run `kairos index --full` in the checkout."
+        "Kairos has no index for the checkout {root}, because {why}. There is no local index either, and the CLI does not build one: the Kairos server builds it. Register the repository in Kairos, and its builder makes the first index. Then call `fetch_index` again."
     )]
     NoBaseIndex { root: PathBuf, why: String },
     #[error("The download of the index of {commit} failed: {why}.")]
@@ -604,16 +604,14 @@ mod tests {
             Stop::Cli(200),
             Advice::Rebase {
                 branch: "main".into(),
-                estimate: "about 2 min".into(),
                 raise: Raise::Cli(250),
             },
         );
         assert_eq!(
             text,
             "250 files changed since abc123, the nearest indexed commit in Kairos. It is 40 \
-             commits before def456. The limit is 200, so the CLI built nothing. Rebase on main, or run \
-             `kairos index --full`. A full build takes about 2 min. Or give `--max-changed 250` \
-             to update from this index."
+             commits before def456. The limit is 200, so the CLI built nothing. Rebase on main. \
+             Or give `--max-changed 250` to update from this index."
         );
     }
 
@@ -629,7 +627,6 @@ mod tests {
             Stop::Tool(200),
             Advice::Rebase {
                 branch: "main".into(),
-                estimate: "about 2 min".into(),
                 raise: Raise::Tool(250),
             },
         );
@@ -648,6 +645,52 @@ mod tests {
             "{text}"
         );
         assert!(!text.contains("--max-changed"), "{text}");
+    }
+
+    /// KAIROS-T-0746: the CLI does not build an index, so no error text
+    /// names `kairos index build` or `kairos index --full`.
+    #[test]
+    fn no_error_names_a_build_command() {
+        let path = PathBuf::from("/cache/index.db");
+        let texts = [
+            IndexCommandError::NoIndex(path.clone()).to_string(),
+            IndexCommandError::NoStart {
+                path: path.clone(),
+                why: "Kairos has no index yet".into(),
+            }
+            .to_string(),
+            ToolError::NoIndex(path.clone()).to_string(),
+            ToolError::NoBaseIndex {
+                root: PathBuf::from("/work/a"),
+                why: "Kairos has no index yet".into(),
+            }
+            .to_string(),
+            too_far(
+                Since::Base {
+                    changed: 250,
+                    commit: "abc123".into(),
+                },
+                Stop::Cli(200),
+                Advice::Rebase {
+                    branch: "main".into(),
+                    raise: Raise::Cli(250),
+                },
+            ),
+        ];
+        for text in &texts {
+            assert!(!text.contains("index build"), "{text}");
+            assert!(!text.contains("--full"), "{text}");
+        }
+        assert!(
+            texts[1].contains("the Kairos server builds it"),
+            "{}",
+            texts[1]
+        );
+        assert!(
+            texts[1].contains("`kairos index update` again"),
+            "{}",
+            texts[1]
+        );
     }
 
     /// KAIROS-T-0517: the error of `fetch_index` says what the tools answer

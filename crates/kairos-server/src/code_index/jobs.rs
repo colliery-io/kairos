@@ -224,29 +224,41 @@ fn note_of(tenant: &str, repo: &Repository, commit: &str, note: String) -> Build
     }
 }
 
-/// True when the head `head` of `repo` has an index of the schema version
-/// of this server: an update has nothing to do.
-async fn head_indexed(blocking: &BlockingTenantPool, tenant: &str, repo: Uuid, head: &str) -> bool {
+/// The index of the head of a repository, for the sweep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HeadIndex {
+    /// An index of the schema version of this server: an update has
+    /// nothing to do.
+    Current,
+    /// An index of another schema version, as a server upgrade leaves
+    /// behind (KAIROS-T-0746): the server reads none of it, so the build
+    /// does not wait for the least time between 2 updates.
+    OtherSchema,
+    Missing,
+}
+
+/// The index of the head `head` of `repo`.
+async fn head_index(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    repo: Uuid,
+    head: &str,
+) -> HeadIndex {
     let head = head.to_string();
     blocking
         .run(tenant, move |conn| {
             let listed = kairos_db::code_indexes::list(conn, repo).map_err(ApiError::internal)?;
             if !listed.iter().any(|i| i.commit_sha == head) {
-                return Ok(false);
+                return Ok(HeadIndex::Missing);
             }
-            let prefix = kairos_db::code_indexes::structure_prefix(
-                conn,
-                repo,
-                &head,
-                kairos_index::store::VERSION_PREFIX_BYTES as i32,
-            )
-            .map_err(ApiError::internal)?
-            .unwrap_or_default();
-            Ok(kairos_index::store::structure_version(&prefix)
-                .is_none_or(|found| found == kairos_index::SCHEMA_VERSION))
+            let found = super::stored_schema(conn, repo, &head).map_err(ApiError::internal)?;
+            Ok(match found {
+                Some(found) if found != kairos_index::SCHEMA_VERSION => HeadIndex::OtherSchema,
+                _ => HeadIndex::Current,
+            })
         })
         .await
-        .unwrap_or(false)
+        .unwrap_or(HeadIndex::Missing)
 }
 
 /// The new-commits sweep: fetch each repository that has an index, and add
@@ -302,7 +314,8 @@ async fn enqueue_updates_with(
                 ));
                 continue;
             }
-            if head_indexed(blocking, &tenant, repo.id, &head).await {
+            let at_head = head_index(blocking, &tenant, repo.id, &head).await;
+            if at_head == HeadIndex::Current {
                 notes.push(note_of(
                     &tenant,
                     &repo,
@@ -313,8 +326,12 @@ async fn enqueue_updates_with(
             }
             // The least time between 2 updates of one repository
             // (KAIROS-T-0334): a repository updated a short time ago waits
-            // for a later pass.
-            if let (Some(min), Some(newest)) = (service.min_rebuild(), newest) {
+            // for a later pass. A head with an index of another schema
+            // version does not wait (KAIROS-T-0746): after an upgrade, no
+            // read of the server can use that index.
+            if let (Some(min), Some(newest), HeadIndex::Missing) =
+                (service.min_rebuild(), newest, at_head)
+            {
                 let age = (Utc::now() - newest).to_std().unwrap_or_default();
                 if age < min {
                     let note = format!(

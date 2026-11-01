@@ -693,6 +693,29 @@ async fn the_repository_is_hosted(world: &mut CliWorld) {
     regex = r"^a checkout of a branch from A with (\d+) changed files(?: and no local index)?$"
 )]
 fn a_branch(world: &mut CliWorld, changed: usize) {
+    branch_from_a(world, changed);
+}
+
+/// KAIROS-T-0746: a local index file of another schema version, as an
+/// older (or newer) CLI leaves behind. Only its `user_version` matters:
+/// the CLI must not open it.
+#[given(
+    regex = r"^a checkout of a branch from A with (\d+) changed files and a local index of schema version (\d+)$"
+)]
+fn a_branch_with_an_old_index(world: &mut CliWorld, changed: usize, version: i64) {
+    branch_from_a(world, changed);
+    let db = index_db(base(world).root());
+    fs::create_dir_all(db.parent().expect("a folder")).expect("make the index folder");
+    let conn = rusqlite::Connection::open(&db).expect("the old index");
+    conn.execute_batch("CREATE TABLE files (path TEXT PRIMARY KEY);")
+        .expect("a table");
+    conn.pragma_update(None, "user_version", version)
+        .expect("the version");
+    drop(conn);
+    assert_eq!(kairos_index::store::file_version(&db), Some(version));
+}
+
+fn branch_from_a(world: &mut CliWorld, changed: usize) {
     let w = base(world);
     w.clone_remote();
     let root = w.root().to_path_buf();
@@ -1002,14 +1025,20 @@ fn checkout_has_the_index(world: &mut CliWorld) {
 
 #[given("a kairos binary with no summarizer")]
 fn no_summarizer(_world: &mut CliWorld) {
-    // A build of one function with an empty pool: a binary with a
+    // An update of one function with an empty pool: a binary with a
     // summarizer and no model file says that the model file is missing.
+    // The CLI builds no index (KAIROS-T-0746): the library makes it.
     let dir = TempDir::new().expect("a folder");
     git(dir.path(), &["init", "-q"]);
     write(dir.path(), "one.py", "def one():\n    return 1\n");
+    let db = index_db(dir.path());
+    fs::create_dir_all(db.parent().expect("a folder")).expect("make the index folder");
+    kairos_index::build_structure(dir.path(), &db).expect("the structure");
     let out = clean_env(&mut Command::new(KAIROS))
-        .args(["index", "build", "--root"])
+        .args(["index", "update", "--root"])
         .arg(dir.path())
+        .env("KAIROS_URL", NO_KAIROS)
+        .env("KAIROS_KEY", "kairos_acme_not_a_key")
         .output()
         .expect("run kairos");
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -1018,6 +1047,18 @@ fn no_summarizer(_world: &mut CliWorld) {
         stdout.contains("This kairos binary has no summarizer."),
         "this scenario needs a kairos binary with no feature `llama`:\n{stdout}"
     );
+}
+
+/// KAIROS-T-0746: no index, and no Kairos to give a base.
+#[given("a checkout with no local index and no connection to Kairos")]
+fn no_local_index(world: &mut CliWorld) {
+    let w = base(world);
+    let checkout = TempDir::new().expect("a folder for the checkout");
+    repository_at_a(checkout.path());
+    assert!(!index_db(checkout.path()).exists());
+    w.checkout = Some(checkout);
+    w.url = NO_KAIROS.to_string();
+    w.key = "kairos_acme_not_a_key".to_string();
 }
 
 #[given("a checkout with a local index and no connection to Kairos")]
@@ -1478,11 +1519,13 @@ fn builds_nothing(world: &mut CliWorld) {
     );
 }
 
-#[then(expr = "it tells me to rebase on main, or to run {string}")]
-fn tells_to_rebase(world: &mut CliWorld, command: String) {
+#[then("it tells me to rebase on main, and names no full build")]
+fn tells_to_rebase(world: &mut CliWorld) {
     let out = base(world).output();
     assert!(out.contains("Rebase on main"), "{out}");
-    assert!(out.contains(&format!("run `{command}`")), "{out}");
+    // KAIROS-T-0746: the CLI does not build an index.
+    assert!(!out.contains("--full"), "{out}");
+    assert!(!out.contains("full build"), "{out}");
     // KAIROS-T-0517: and the limit that lets the update start.
     assert!(
         out.contains("Or give `--max-changed 250` to update from this index."),
@@ -1490,10 +1533,92 @@ fn tells_to_rebase(world: &mut CliWorld, command: String) {
     );
 }
 
-#[then("it gives the time of a full build")]
-fn gives_the_time(world: &mut CliWorld) {
-    let out = base(world).output();
-    assert!(out.contains("A full build takes about "), "{out}");
+/// The index file of another version, moved aside next to the index.
+fn moved_aside(root: &Path, version: i64) -> PathBuf {
+    index_db(root).with_extension(format!("db.schema{version}.bak"))
+}
+
+#[then(regex = r"^the CLI says that it moved the index of schema version (\d+) aside$")]
+fn cli_moved_aside(world: &mut CliWorld, version: i64) {
+    let w = base(world);
+    let out = w.output();
+    let aside = moved_aside(w.root(), version);
+    assert!(
+        out.contains(&format!(
+            "The local index has schema version {version}, and this CLI reads version {}. \
+             The CLI moved it to {}",
+            kairos_index::SCHEMA_VERSION,
+            aside.display()
+        )),
+        "{out}"
+    );
+    assert_eq!(kairos_index::store::file_version(&aside), Some(version));
+    assert_eq!(
+        kairos_index::store::file_version(&index_db(w.root())),
+        Some(kairos_index::SCHEMA_VERSION),
+        "{out}"
+    );
+}
+
+#[then(regex = r"^the server says that it moved the index of schema version (\d+) aside$")]
+fn server_moved_aside(world: &mut CliWorld, version: i64) {
+    let text = world.result.as_ref().expect("no result").text.clone();
+    let root = base(world).root().to_path_buf();
+    let aside = moved_aside(&root, version);
+    assert!(
+        text.contains(&format!("The CLI moved it to {}", aside.display())),
+        "{text}"
+    );
+    assert_eq!(kairos_index::store::file_version(&aside), Some(version));
+    assert_eq!(
+        kairos_index::store::file_version(&index_db(&root)),
+        Some(kairos_index::SCHEMA_VERSION),
+        "{text}"
+    );
+}
+
+#[then(regex = r"^the CLI refuses the index of schema version (\d+) and keeps it$")]
+fn refuses_newer(world: &mut CliWorld, version: i64) {
+    let w = base(world);
+    let out = w.output();
+    let run = w.run.as_ref().expect("no run");
+    assert_eq!(run.status.code(), Some(1), "{out}");
+    assert!(
+        out.contains(&format!(
+            "The index has schema version {version}. This version of Kairos reads version {}.",
+            kairos_index::SCHEMA_VERSION
+        )),
+        "{out}"
+    );
+    assert!(out.contains("`kairos self-update`"), "{out}");
+    // Before any work: no download and no structure.
+    assert!(!out.contains("Kairos: downloaded"), "{out}");
+    assert!(!out.contains("Structure:"), "{out}");
+    assert_eq!(
+        kairos_index::store::file_version(&index_db(w.root())),
+        Some(version)
+    );
+    assert!(!moved_aside(w.root(), version).exists());
+}
+
+#[then("the CLI builds nothing, and says that the Kairos server builds the index")]
+fn builds_nothing_with_no_base(world: &mut CliWorld) {
+    let w = base(world);
+    let out = w.output();
+    let run = w.run.as_ref().expect("no run");
+    assert_eq!(run.status.code(), Some(1), "{out}");
+    assert!(!index_db(w.root()).exists(), "{out}");
+    assert!(out.contains("could not reach Kairos"), "{out}");
+    assert!(
+        out.contains("The CLI does not build an index: the Kairos server builds it."),
+        "{out}"
+    );
+    assert!(out.contains("run `kairos index update` again"), "{out}");
+    assert!(
+        !out.contains("--full") && !out.contains("index build"),
+        "{out}"
+    );
+    assert!(!out.contains("Structure:"), "{out}");
 }
 
 #[then("each symbol of A has its summary from the base index")]

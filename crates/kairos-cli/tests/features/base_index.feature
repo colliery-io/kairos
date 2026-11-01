@@ -18,8 +18,7 @@ Feature: Start from the base index
     And a checkout of a branch from A with 250 changed files
     When I run "kairos index update"
     Then the CLI builds nothing
-    And it tells me to rebase on main, or to run "kairos index --full"
-    And it gives the time of a full build
+    And it tells me to rebase on main, and names no full build
 
   # KAIROS-T-0654: with --json, the update prints one JSON object. A
   # refusal is the error envelope on stderr, with a code and its counts.
@@ -100,6 +99,35 @@ Feature: Start from the base index
     When I run "kairos index update" on a checkout of A
     Then each symbol of A has its summary from the base index
     And no model ran
+
+  # KAIROS-T-0746: the CLI never builds an index. A local index of an
+  # older schema version is moved aside, not opened, and the update starts
+  # from the index that the server built.
+  Scenario: A local index of an older schema is moved aside, and the update starts from the base
+    Given Kairos has an index of commit A of main
+    And a checkout of a branch from A with 3 changed files and a local index of schema version 6
+    When I run "kairos index update"
+    Then the CLI says that it moved the index of schema version 6 aside
+    And the CLI downloads the index of A
+
+  Scenario: fetch_index moves a local index of an older schema aside
+    Given Kairos has an index of commit A of main
+    And a checkout of a branch from A with 3 changed files and a local index of schema version 6
+    And a kairos-code server started in a folder that is not a checkout
+    When the agent calls fetch_index with the path of the checkout
+    Then the server says that the index of A is open, with 3 changed files
+    And the server says that it moved the index of schema version 6 aside
+
+  Scenario: A local index of a newer schema is refused before any work
+    Given Kairos has an index of commit A of main
+    And a checkout of a branch from A with 3 changed files and a local index of schema version 99
+    When I run "kairos index update"
+    Then the CLI refuses the index of schema version 99 and keeps it
+
+  Scenario: With no index and no base from Kairos, the CLI builds nothing
+    Given a checkout with no local index and no connection to Kairos
+    When I run "kairos index update"
+    Then the CLI builds nothing, and says that the Kairos server builds the index
 
   Scenario: With no Kairos, the local index is updated
     Given a checkout with a local index and no connection to Kairos

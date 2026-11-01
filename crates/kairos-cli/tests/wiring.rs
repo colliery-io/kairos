@@ -454,7 +454,7 @@ fn a_checkout_with_no_origin_gets_a_path_entry() {
     assert_eq!(show["values"]["tenant"]["value"], "local");
 }
 
-/// KAIROS-T-0713: `kairos index build`, `update` and `status` in a board
+/// KAIROS-T-0713: `kairos index update` and `status` in a board
 /// folder do not index the clones as one tree. The refusal names each
 /// checkout below the folder, and writes no index.
 #[test]
@@ -468,12 +468,7 @@ fn the_index_commands_in_a_board_folder_refuse_and_name_the_checkouts() {
         Some("https://github.com/example-org/engine"),
     );
     let web = sandbox.checkout(&board, "web", None);
-    for args in [
-        &["index", "build"][..],
-        &["index", "update"],
-        &["index", "status"],
-        &["index", "--full"],
-    ] {
+    for args in [&["index", "update"][..], &["index", "status"]] {
         let output = sandbox.run_in(&board, args);
         let err = stderr(&output);
         assert_eq!(output.status.code(), Some(1), "{args:?}: {err}");
@@ -493,7 +488,7 @@ fn the_index_commands_in_a_board_folder_refuse_and_name_the_checkouts() {
         &sandbox.work(),
         &[
             "index",
-            "build",
+            "update",
             "--json",
             "--root",
             board.to_str().unwrap(),
@@ -545,5 +540,40 @@ fn the_index_commands_in_a_board_folder_refuse_and_name_the_checkouts() {
         !stderr(&output).contains("is not in a git checkout"),
         "{}",
         stderr(&output)
+    );
+}
+
+/// KAIROS-T-0746: the CLI never builds an index. `kairos index build` and
+/// `kairos index --full` are not commands: each is refused, and no index
+/// file is made.
+#[test]
+fn the_cli_has_no_command_that_builds_an_index() {
+    let sandbox = Sandbox::new();
+    let board = sandbox.work().join("board");
+    std::fs::create_dir_all(&board).unwrap();
+    let checkout = sandbox.checkout(&board, "engine", None);
+    for args in [&["index", "build"][..], &["index", "--full"]] {
+        let output = sandbox.run_in(&checkout, args);
+        // 64: a usage error (crate::error::EXIT_USAGE).
+        assert_eq!(
+            output.status.code(),
+            Some(64),
+            "{args:?}: {}",
+            stderr(&output)
+        );
+    }
+    let output = sandbox.run_in(&checkout, &["index", "--help"]);
+    let help = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(help.contains("update"), "{help}");
+    assert!(
+        !help.lines().any(|l| l.trim_start().starts_with("build")),
+        "{help}"
+    );
+    assert!(!help.contains("--full"), "{help}");
+    let index = sandbox.run_in(&checkout, &["index", "status"]);
+    assert!(
+        stderr(&index).contains("No index is at"),
+        "{}",
+        stderr(&index)
     );
 }

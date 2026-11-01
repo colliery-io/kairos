@@ -4,16 +4,18 @@ Feature: The CLI and the code tools
   # kairos-index, with a git repository in it. An agent is this test: it
   # starts `kairos index mcp` and talks MCP to it over stdio.
 
-  Scenario: Build, then read the status
-    Given the polyglot fixture with no index
-    When I run "kairos index build" and then "kairos index status"
+  # KAIROS-T-0746: the CLI never builds an index. The index of these
+  # scenarios comes from the kairos-index library, as the server builds it.
+  Scenario: Update, then read the status
+    Given an index of the polyglot fixture with no summaries
+    When I run "kairos index update" and then "kairos index status"
     Then the status shows the count of files, symbols, edges and summaries
     And the index is in the user cache and no file of it is in the checkout
 
   # KAIROS-T-0654: with --json, each command prints one JSON object.
-  Scenario: Build and status with --json give one JSON object each
-    Given the polyglot fixture with no index
-    When I run "kairos index build --json" and then "kairos index status --json"
+  Scenario: Update and status with --json give one JSON object each
+    Given an index of the polyglot fixture with no summaries
+    When I run "kairos index update --json" and then "kairos index status --json"
     Then each output is one JSON object with the counts of the index
 
   Scenario: duplicates and references with --json give the list envelope

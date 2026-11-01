@@ -387,13 +387,15 @@ pub fn build_structure_with(
 }
 
 /// What to do about an index of another schema version (KAIROS-T-0513): a
-/// newer index comes from a newer server or CLI, so the CLI is behind; an
-/// older index is one that this CLI can build again.
+/// newer index comes from a newer server or CLI, so the CLI is behind. An
+/// older index is not used: the CLI never builds an index (KAIROS-T-0746),
+/// so `kairos index update` moves it aside and takes a new index from the
+/// server.
 fn schema_hint(found: i64) -> &'static str {
     if found > SCHEMA_VERSION {
-        "The index is newer than this CLI: update the kairos CLI to the version of the server (`kairos self-update`), or run `kairos index --full`."
+        "The index is newer than this CLI: update the kairos CLI to the version of the server (`kairos self-update`)."
     } else {
-        "Run `kairos index --full` to build the index again with this CLI."
+        "Run `kairos index update`: it moves the old index aside and takes a new index from the Kairos server."
     }
 }
 
@@ -1323,14 +1325,19 @@ mod tests {
             "{newer}"
         );
         assert!(newer.contains("`kairos self-update`"), "{newer}");
-        assert!(newer.contains("`kairos index --full`"), "{newer}");
 
+        // KAIROS-T-0746: the CLI never builds an index, so no text names
+        // `kairos index --full` or `kairos index build`.
         let older = IndexError::SchemaVersion {
             found: SCHEMA_VERSION - 1,
         }
         .to_string();
-        assert!(older.contains("`kairos index --full`"), "{older}");
+        assert!(older.contains("`kairos index update`"), "{older}");
         assert!(!older.contains("self-update"), "{older}");
+        for text in [&newer, &older] {
+            assert!(!text.contains("--full"), "{text}");
+            assert!(!text.contains("index build"), "{text}");
+        }
     }
 
     #[test]

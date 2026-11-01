@@ -77,6 +77,9 @@ test('a notice of an agent key shows in the bell, and alice mutes the key', asyn
       await expect
         .poll(async () => (await call(alice, 'GET', '/api/me/notification-settings')).muted_keys.length)
         .toBeGreaterThan(0);
+      // Read it, so that the bell of alice is as the next spec expects.
+      await row.getByRole('button', { name: 'Mark read', exact: true }).click();
+      await expect(row).toHaveAttribute('data-unread', 'false');
     });
 
     await test.step('the muted key is listed, and its notice makes no notification', async () => {

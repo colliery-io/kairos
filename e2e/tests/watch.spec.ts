@@ -73,6 +73,10 @@ test('the watch panel watches an item and the bell tells of a move', async ({ pa
       hasText: code,
     });
     await expect(row.first()).toBeVisible({ timeout: 15_000 });
+    await expect(row.first()).toContainText(`bob moved ${code}`);
+    // Read it, so that the bell of alice is as the next spec expects.
+    await row.first().getByRole('button', { name: 'Mark read', exact: true }).click();
+    await expect(row.first()).toHaveAttribute('data-unread', 'false');
     await page.keyboard.press('Escape');
   });
 

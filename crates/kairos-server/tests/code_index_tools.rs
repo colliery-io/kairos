@@ -469,3 +469,25 @@ fn a_new_pin_hashes_the_file_again() {
         "{reason}"
     );
 }
+
+/// KAIROS-T-0747: `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB` goes into the options
+/// of each SCIP run, with the tools and without them; 0 is no check.
+#[test]
+fn the_scip_memory_setting_reaches_the_build_options() {
+    let work = tempfile::tempdir().unwrap();
+    let service =
+        CodeIndexService::from_repo_url(work.path().to_path_buf()).with_scip_memory_mib(6144);
+    assert_eq!(service.build_options().min_memory_bytes, Some(6144 << 20));
+    let fixture = fixture();
+    let server = FileServer::start(fixture.files.clone());
+    let tools = prepare(Some(work.path()), &fixture.set(&server.base))
+        .unwrap()
+        .expect("tools");
+    service.use_tools(&tools);
+    let options = service.build_options();
+    assert_eq!(options.min_memory_bytes, Some(6144 << 20));
+    assert_eq!(options.sysroot.as_ref(), Some(&tools.sysroot));
+
+    let off = CodeIndexService::from_repo_url(work.path().to_path_buf()).with_scip_memory_mib(0);
+    assert_eq!(off.build_options().min_memory_bytes, None);
+}

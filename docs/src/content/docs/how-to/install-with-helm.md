@@ -598,6 +598,45 @@ Changes that people and agents see:
   is not set, run `kairos self-update --version 0.19.0` once. That command
   downloads from GitHub. The next upgrades use the server.
 
+### From 0.19.0 to 0.19.1
+
+These changes of 0.19.1 show after the upgrade. They apply to Compose too.
+No migration runs.
+
+The Rust toolchain of the builder changes from 1.93.0 to 1.99.0, the
+release of the std source that rust-analyzer reads. At the first start, the
+server downloads `rustc`, `cargo` and `rust-std` 1.99.0 into
+`KAIROS_CODE_INDEX_DIR/tools/` (about 170 MB) and unpacks them
+to `tools/rust-1.99.0/`. With no network, put these 3 files in `tools/`
+before the start. After the start, you can remove the files of 1.93.0:
+`tools/rust-1.93.0/` and the 3 archives `*-1.93.0-<target>.tar.gz`.
+
+1 new setting:
+
+- `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB`: the memory in MiB that the
+  rust-analyzer SCIP run needs. The default is 6144. When the memory limit
+  of the container is less, the run does not start, and Rust gets its edges
+  by name with a warning. 0 turns the check off.
+
+What to set:
+
+- The packaged worker has a limit of 8 GiB. Keep it, or increase it. The
+  SCIP run of a repository of about 700 Rust files uses about 4.7 GiB.
+- When the builds run in the API server (no worker), the Helm limit of the
+  API pods is 512 MiB. The SCIP run of Rust then does not start. Use a
+  worker, or set `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB` lower for small
+  repositories.
+- `KAIROS_CODE_INDEX_THREADS` does not change the memory of the SCIP run.
+  Keep your value.
+
+Changes that people and agents see:
+
+- When the SCIP run of rust-analyzer fails, the warning of the build gives
+  the exit status or the signal (signal 9: "out of memory?") and the last
+  lines of the output and the log of rust-analyzer.
+- One server does one SCIP run of rust-analyzer at a time. Other builds
+  wait for it.
+
 ## Trying it out without a database
 
 `helm install` with nothing but the two OIDC values works, because the chart

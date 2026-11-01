@@ -303,6 +303,12 @@ pub enum IndexError {
     Parser(String),
     #[error("The SCIP run of rust-analyzer failed: {0}.")]
     Scip(String),
+    /// The memory limit of the container is below the need of the run
+    /// (KAIROS-T-0747): the run does not start.
+    #[error(
+        "The SCIP run of rust-analyzer did not start: the memory limit of this container is {limit_mib} MiB, and the run needs {need_mib} MiB. Give the container more memory, or set KAIROS_CODE_INDEX_SCIP_MEMORY_MIB to a lower value."
+    )]
+    ScipMemory { limit_mib: u64, need_mib: u64 },
     #[error(
         "The rust-analyzer binary {path} has the sha256 {found}. The pinned value is {expected}."
     )]

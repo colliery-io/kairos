@@ -158,6 +158,8 @@ services:
       KAIROS_CODE_INDEX_POLL_SECS: ${KAIROS_CODE_INDEX_POLL_SECS:-}
       KAIROS_CODE_INDEX_THREADS: ${KAIROS_CODE_INDEX_THREADS:-}
       KAIROS_CODE_INDEX_MIN_REBUILD_SECS: ${KAIROS_CODE_INDEX_MIN_REBUILD_SECS:-}
+      # 0.19.1: the memory that the rust-analyzer SCIP run needs (MiB).
+      KAIROS_CODE_INDEX_SCIP_MEMORY_MIB: ${KAIROS_CODE_INDEX_SCIP_MEMORY_MIB:-}
       # 0.14: the dependency caches of the Go, TypeScript and Python runners.
       KAIROS_CODE_INDEX_DEPS_CAP_MB: ${KAIROS_CODE_INDEX_DEPS_CAP_MB:-}
       KAIROS_CODE_INDEX_MIN_FREE_MB: ${KAIROS_CODE_INDEX_MIN_FREE_MB:-}
@@ -239,6 +241,9 @@ services:
   # The limits are for the builder. GitHub #34: a full build with the
   # embedded summary model of a repository of about 1,200 files used about
   # 6.3 GiB at its peak, and 4 cores. Raise mem_limit for big repositories.
+  # The rust-analyzer SCIP run of kairos (673 Rust files) alone used 4.7 GiB
+  # at its peak (KAIROS-T-0747); below KAIROS_CODE_INDEX_SCIP_MEMORY_MIB
+  # (6144) the run does not start.
   # A build that runs out of memory ends this container only: the API keeps
   # serving, Docker starts the worker again, and the breaker of the
   # repository (KAIROS-T-0399) stops the build until a person asks again.

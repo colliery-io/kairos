@@ -129,6 +129,7 @@ pub(crate) async fn cli_file(
                 env!("CARGO_PKG_VERSION")
             ),
         )
+        .with_details(serde_json::json!({"field": "file"}))
     };
     let Some(dir) = state.config.cli_dir.as_deref() else {
         return Err(not_found());

@@ -146,6 +146,27 @@ test('a dispatch rule of the board settings sends a signed delivery, and the log
         await expect(row.first()).toContainText('delivered', { timeout: 2_000 });
       }).toPass({ timeout: 30_000 });
     });
+
+    await test.step('the triage setting: an agent decides, then a person again', async () => {
+      const triage = page.locator('[data-testid="agent-triage"]');
+      const read = async () => {
+        const res = await fetch(`${GUI}/api/boards/${board.id}/agent-triage`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        return (await res.json()).agents_decide as boolean;
+      };
+      const before = await read();
+      await triage.getByText('An agent decides the triage of intake').click();
+      await triage.getByRole('button', { name: 'Save', exact: true }).click();
+      await expect(page.getByText('Kairos saved the triage setting.')).toBeVisible();
+      await expect.poll(read).toBe(!before);
+      await page
+        .locator('[data-testid="agent-triage"]')
+        .getByText('An agent decides the triage of intake')
+        .click();
+      await page.locator('[data-testid="agent-triage"]').getByRole('button', { name: 'Save', exact: true }).click();
+      await expect.poll(read).toBe(before);
+    });
   } finally {
     // Remove the target with its rule, so that no later move sends to it.
     const targets = await fetch(`${GUI}/api/boards/${board.id}/webhook-targets`, {

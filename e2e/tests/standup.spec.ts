@@ -169,6 +169,13 @@ test('the stand-up of a team with no work shows the empty stops', async ({ page 
       'Each Todo and Blocked task of this team has a claim.',
       { timeout: 30_000 },
     );
+
+    // The activity feed has the new team: an entry that is not about an
+    // item has no link, and says why.
+    await page.goto('/activity');
+    await expect(
+      page.locator('[data-testid="activity-no-link"]', { hasText: 'This entry is not about an item.' }).first(),
+    ).toBeVisible({ timeout: 30_000 });
   } finally {
     await fetch(`${GUI}/api/teams/${team.id}`, {
       method: 'DELETE',

@@ -116,6 +116,8 @@ E2E_RUNNER_BIN = TARGET_DIR / "debug" / "examples" / "e2e_golden_path"
 E2E_GUI_PORT = int(os.environ.get("KAIROS_E2E_GUI_PORT", "41080"))
 E2E_GUI_BASE_URL = f"http://localhost:{E2E_GUI_PORT}"
 E2E_DIR = PROJECT_ROOT / "e2e"
+# KAIROS-T-0744: the port of the fake GitHub (e2e/fakes/github.ts).
+E2E_FAKE_GITHUB_PORT = int(os.environ.get("E2E_FAKE_GITHUB_PORT", "41091"))
 WEB_DIST = PROJECT_ROOT / "crates" / "kairos-web" / "dist"
 
 # UAT tier (KAIROS-I-0011, A-0012 tier 6): persona journeys in uat/ against
@@ -563,6 +565,10 @@ def _gui_server_env(env, extra=None):
         # is on. A short first wait, so a failed try comes back fast.
         "KAIROS_WEBHOOK_ALLOW_PRIVATE": "true",
         "KAIROS_WEBHOOK_RETRY_BASE_SECS": "1",
+        # KAIROS-T-0744: the write-back and the import of issues call the
+        # fake GitHub of e2e/fakes/github.ts. A spec starts the fake on
+        # this port when it needs it.
+        "KAIROS_GITHUB_API_URL": f"http://127.0.0.1:{E2E_FAKE_GITHUB_PORT}",
     })
     if extra:
         gui_env.update(extra)

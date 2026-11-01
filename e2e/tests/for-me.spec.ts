@@ -104,3 +104,33 @@ test('the For me page shows the work of alice, live', async ({ page }) => {
     await expect(card(mine)).toBeVisible();
   });
 });
+
+// KAIROS-T-0744: a person with no work gets the empty page, which says
+// what to do next. carol has no claim and owns no initiative in the seed;
+// the spec releases a claim of hers that an earlier spec left.
+test('a person with no work gets the empty For me page', async ({ page }) => {
+  const carol = await mintToken({ email: 'carol@kairos.test', password: 'carol-password' });
+  const work = async () => {
+    const res = await fetch(`${GUI}/api/me/work`, { headers: { authorization: `Bearer ${carol}` } });
+    if (!res.ok) throw new Error(`GET /api/me/work -> ${res.status}`);
+    return res.json();
+  };
+  for (const task of (await work()).tasks as any[]) {
+    await fetch(`${GUI}/api/tasks/${task.short_code}/release`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${carol}` },
+    });
+  }
+  const left = await work();
+  expect(left.initiatives.length + left.tasks.length, JSON.stringify(left)).toBe(0);
+
+  await page.goto('/');
+  await page.waitForSelector('#login', { timeout: 30_000 });
+  await page.fill('#login', 'carol@kairos.test');
+  await page.fill('#password', 'carol-password');
+  await page.click('#submit-login');
+  await expect(page.locator('[data-testid="for-me-empty"]')).toContainText(
+    'You have no work in Kairos now.',
+    { timeout: 30_000 },
+  );
+});

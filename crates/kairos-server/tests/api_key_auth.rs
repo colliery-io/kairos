@@ -157,7 +157,11 @@ async fn api_key_authentication_end_to_end() {
     let first = stamped(&mut conn).expect("the auth path stamps the key");
     let (status, _) = whoami(&router, &good_key, &[]).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(stamped(&mut conn), Some(first), "no write inside the window");
+    assert_eq!(
+        stamped(&mut conn),
+        Some(first),
+        "no write inside the window"
+    );
 
     // 2. The key wins over a mismatched X-Tenant header (still acme).
     let (status, body) = whoami(&router, &good_key, &[("x-tenant", "globex")]).await;

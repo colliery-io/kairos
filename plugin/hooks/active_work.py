@@ -502,8 +502,8 @@ def cmd_compact(payload):
         failure = index_failure_line()
         if failure:
             context += "\n" + failure
-        # KAIROS-T-0525: the wiring summary again, from the file and with no
-        # probe, and the rules again; the compaction keeps neither.
+        # KAIROS-T-0525: the wiring summary again, with no probe, and the
+        # rules again; the compaction keeps neither.
         wiring = session_start.build_context(values, "not probed after a compaction")
         rules = kairos_rules.build_context(values.get("deployment_url", ""))
         context = "\n\n".join([context, wiring, rules])

@@ -53,12 +53,12 @@ router maps the whole user-invoked surface; changing the skill set without re-sy
 
 `hooks/hooks.json` registers `hooks/session_start.py` (python3, stdlib only) for SessionStart.
 It reads the wiring (absent → silent no-op): `kairos config show --json` gives the
-`[[project]]` of the config of the person, else the retired `.claude/kairos.local.md`, with `KAIROS_URL`
-first (#270; with no CLI that has the verb, the hook reads the file). With no deployment in the
-binding, the only login of the CLI gives it (`login_url`). Each value in the summary names its
-source: `KAIROS_URL`, a `[[project]]` or `[default]` of `config.toml`, the file, or the login.
-When `kairos config show` fails (a `config.toml` that does not parse), the context gives the
-message of the CLI and the hook does not read the file in its place. Each hook fails open: an
+`[[project]]` of the config of the person, with `KAIROS_URL` first (#270; with no CLI that has
+the verb, nothing wires the folder: the hooks read no `.claude/kairos.local.md`, KAIROS-T-0742).
+With no deployment in the binding, the only login of the CLI gives it (`login_url`). Each value
+in the summary names its source: `KAIROS_URL`, a `[[project]]` or `[default]` of `config.toml`,
+or the login. When `kairos config show` fails (a `config.toml` that does not parse), the context
+gives the message of the CLI. Each hook fails open: an
 error goes to stderr (the debug log) with exit 0 (KAIROS-T-0708). It probes `<deployment_url>/healthz`
 unauthenticated, and injects the wiring summary as `additionalContext` with an instruction to
 pull live state over the **authenticated MCP connection**: with a `repository` wired
@@ -66,11 +66,9 @@ pull live state over the **authenticated MCP connection**: with a `repository` w
 repository — the session's queue; without one, `my_boards`/`board_items` as before. The hint
 also says to name a board at create and how to send a request (COLLIERY-A-0023). Its pure parts are unit
 tested (`hooks/test_session_start.py`, part of `angreal test unit`).
-A worktree has the `[[project]]` of its clone: the entry matches the `origin` remote. With the
-retired `.claude/kairos.local.md` (git-excluded, so a worktree has none), the CLI and the hooks
-read the file of the clone, the folder above `git rev-parse --git-common-dir` (KAIROS-T-0520).
-While the file gives a value, the start of each session says to move it to `config.toml` with
-`kairos config migrate` (KAIROS-T-0710); the next release does not read the file.
+A worktree has the `[[project]]` of its clone: the entry matches the `origin` remote
+(KAIROS-T-0520). The retired `.claude/kairos.local.md` is not read; `kairos config migrate` moves
+an old one to `config.toml` (KAIROS-T-0710, KAIROS-T-0742).
 In a board folder (`~/Boards/<board>/`: clones and worktrees, no `.git` of its own) the hook
 lists each checkout with its origin remote, its branch and the count of commits behind the
 origin default branch, from the local refs with no fetch (KAIROS-T-0521).
@@ -344,8 +342,8 @@ flags a change whose task links to a different repository. Work for a different 
 `.claude-plugin/plugin.json` declares a `kairos` stdio server, `bin/kairos-mcp`. It runs
 `kairos mcp-proxy` (#270), which forwards MCP over stdio to `/mcp` of the deployment of the
 project. The deployment is the first of: `KAIROS_URL`, the `[[project]]` of the origin remote
-of the session folder in `~/.config/kairos/config.toml`, the retired `.claude/kairos.local.md`,
-`[default]` of that file, and the deployment of `kairos login`. So two repositories can use two
+of the session folder in `~/.config/kairos/config.toml`, `[default]` of that file, and the
+deployment of `kairos login`. So two repositories can use two
 deployments in one Claude Code, with no `.mcp.json` and no direnv. The credential is
 `KAIROS_KEY` or `KAIROS_MCP_KEY` (the agent-key path, KAIROS-A-0024), else the token of
 `kairos login`, which the proxy refreshes. An OAuth deployment therefore works through the plugin
@@ -393,8 +391,8 @@ Without the server, the CLI does the same work with the same login (`kairos team
 plugin server (an agent key or `kairos login`) or a user-scope entry (OAuth), and each
 repository of the user uses it. By default the skill writes the wiring as a `[[project]]` of
 `~/.config/kairos/config.toml` (`kairos config project`), so the repository gets no file. It
-does not write `.claude/kairos.local.md`: that file is retired, and `kairos config migrate`
-moves an old one to `config.toml`. A second
+does not write `.claude/kairos.local.md`: that file is retired and not read, and `kairos config
+migrate` moves an old one to `config.toml`. A second
 deployment is a `[[project]]` with its own `deployment`, not a project `.mcp.json`.
 
 ## `references/` are rendered artifacts

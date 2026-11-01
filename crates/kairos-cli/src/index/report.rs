@@ -47,9 +47,6 @@ struct RunJson {
     command: &'static str,
     /// The index file.
     index: Option<PathBuf>,
-    /// The old index of the checkout (`.kairos/index.db`), when this run
-    /// moved it to the user cache (KAIROS-A-0072).
-    moved_from: Option<PathBuf>,
     /// Where the update started; null for a build.
     start: Option<Start>,
     structure: Option<Value>,
@@ -90,18 +87,6 @@ impl Run {
     pub fn say(&self, line: &str) {
         if !self.json {
             println!("{line}");
-        }
-    }
-
-    /// The old index of the checkout, when this run moved it to the user
-    /// cache (KAIROS-A-0072).
-    pub fn moved(&mut self, old: Option<PathBuf>) {
-        if let Some(old) = old {
-            self.say(&format!(
-                "The CLI moved the old index {} to the user cache.",
-                old.display()
-            ));
-            self.report.moved_from = Some(old);
         }
     }
 
@@ -494,8 +479,8 @@ mod tests {
             pool: 9,
             ..Counts::default()
         };
-        let v = status(Path::new("/r/.kairos/index.db"), &c);
-        assert_eq!(v["index"], "/r/.kairos/index.db");
+        let v = status(Path::new("/c/app-4a68e4c25d4d38c3/index.db"), &c);
+        assert_eq!(v["index"], "/c/app-4a68e4c25d4d38c3/index.db");
         assert_eq!(v["edges"]["certain"], 4);
         assert_eq!(v["summaries"]["total"], 3);
         assert_eq!(v["summaries"]["pool"], 9);
@@ -505,8 +490,7 @@ mod tests {
     #[test]
     fn a_text_run_keeps_nothing_and_a_json_run_keeps_each_part() {
         let mut run = Run::new("update", true);
-        run.moved(Some(PathBuf::from("/r/.kairos/index.db")));
-        run.index(Path::new("/r/.kairos/index.db"));
+        run.index(Path::new("/c/app-4a68e4c25d4d38c3/index.db"));
         run.start(Start {
             from: "local",
             local_changed: Some(2),
@@ -516,8 +500,7 @@ mod tests {
         run.warn("The summaries of the local index are not kept: x".into());
         let v = serde_json::to_value(&run.report).expect("json");
         assert_eq!(v["command"], "update");
-        assert_eq!(v["moved_from"], "/r/.kairos/index.db");
-        assert_eq!(v["index"], "/r/.kairos/index.db");
+        assert_eq!(v["index"], "/c/app-4a68e4c25d4d38c3/index.db");
         assert_eq!(v["start"]["from"], "local");
         assert_eq!(v["start"]["local_changed"], 2);
         assert_eq!(v["start"]["base"], Value::Null);

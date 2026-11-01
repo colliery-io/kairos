@@ -576,6 +576,9 @@ pub fn router(state: AppState) -> Router {
         // Outside /api like the probes: /api/config can fail on an
         // unreachable issuer.
         .route("/version", get(crate::version::version))
+        // KAIROS-T-0745 (KAIROS-A-0080): the CLI tarballs of this version,
+        // open like /version: a first install has no login.
+        .route("/cli/{file}", get(crate::version::cli_file))
         // KAIROS-T-0049 (A-0013): readiness + Prometheus scrape, both
         // unauthenticated by convention and mounted OUTSIDE the auth stack
         // alongside /healthz. Non-/api, so outside the S-0005 surface (and
@@ -636,6 +639,7 @@ pub fn worker_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/version", get(crate::version::version))
+        .route("/cli/{file}", get(crate::version::cli_file))
         .route("/readyz", get(crate::metrics::readyz))
         .route("/metrics", get(crate::metrics::metrics_handler))
         .fallback(|| async {

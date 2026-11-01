@@ -35,9 +35,10 @@ Feature: Start from the base index
     When I run "kairos index update --json"
     Then stdout is empty, and stderr has the error TOO_FAR: 250 changed files, the limit is 200
 
-  # KAIROS-T-0646: git excludes .claude/kairos.local.md, so a worktree has
-  # none. The CLI reads the file of the main clone, as the plugin hooks do.
-  Scenario: kairos index update in a worktree reads the wiring of its clone
+  # KAIROS-T-0646: a worktree has the [[project]] of its clone, because
+  # the entry matches the origin remote (KAIROS-T-0742: the CLI does not
+  # read .claude/kairos.local.md).
+  Scenario: kairos index update in a worktree has the project of its clone
     Given Kairos has an index of commit A of main
     And a worktree of a wired clone, on a branch from A with 3 changed files
     When I run "kairos index update" in the worktree, with no KAIROS_URL and no --repo

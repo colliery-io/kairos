@@ -25,7 +25,7 @@ Four modes:
 In a board folder (a folder with the clones below it, KAIROS-T-0348), each
 edit goes to the list of its own clone or worktree, and the update runs
 there. An edit outside a git checkout records nothing and starts nothing.
-The checkout must have the wiring (its own, or the one of its clone), or be
+The checkout must have the wiring (`kairos config show` binds it), or be
 below the folder of the session, which has the wiring.
 
 N is 30 s: an agent edits files some seconds apart, so one update runs for
@@ -122,7 +122,8 @@ def project_dir():
 
 
 def is_wired(project):
-    """The checkout has the wiring, or its clone has (KAIROS-T-0520)."""
+    """The checkout has the wiring: `kairos config show` binds it. A
+    worktree has the [[project]] of its clone (KAIROS-T-0520)."""
     # Imported here, not at the top: the detached worker imports nothing,
     # so it writes no bytecode cache while a test removes its folder.
     here = os.path.dirname(os.path.abspath(__file__))
@@ -131,7 +132,7 @@ def is_wired(project):
     import session_start
 
     # The CLI gives the binding (#270, KAIROS-T-0708): a [[project]] of the
-    # config of the person, else the file. A CLI that fails is no wiring.
+    # config of the person. A CLI that fails, or none, is no wiring.
     values = session_start.wiring(project)
     return values is not None and not getattr(values, "error", None)
 
@@ -326,10 +327,8 @@ def index_file(root):
 
 
 def has_index(root):
-    """The checkout has a local index: in the user cache, or an old one in
-    the checkout that the next open of the CLI moves."""
-    old = os.path.join(root, ".kairos", "index.db")
-    return os.path.isfile(index_file(root)) or os.path.isfile(old)
+    """The checkout has a local index in the user cache (KAIROS-A-0072)."""
+    return os.path.isfile(index_file(root))
 
 
 # ----------------------------------------------------------------- start

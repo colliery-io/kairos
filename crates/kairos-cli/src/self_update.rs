@@ -4,12 +4,14 @@
 //! it with its own. `self-update` downloads the release tarball of this
 //! platform, checks it, and swaps the binary.
 //!
-//! The trust rule (KAIROS-T-0595, KAIROS-A-0058): the `.sha256` of a
-//! tarball always comes from the published release (GitHub, or
-//! `KAIROS_RELEASES_URL`), never from the server. The server can name a
-//! mirror for the tarball, but a tarball that is not the published one does
-//! not match. A version older than this CLI needs `--version` or
-//! `--allow-downgrade`.
+//! The trust rule (KAIROS-A-0080, which amends KAIROS-A-0058): the CLI
+//! trusts the server that it uses. It downloads the tarball and its
+//! `.sha256` from the links of `GET /version`, so an upgrade needs no
+//! access to github.com. The checksum finds a damaged download. A link
+//! that is a path resolves against the deployment. When the user sets
+//! `KAIROS_RELEASES_URL`, the checksum comes from there, as before.
+//! `--version` and `--latest` use the published release. A version older
+//! than this CLI needs `--version` or `--allow-downgrade`.
 //!
 //! The swap writes the new binary to a new file next to the old one and
 //! renames it over the old path. Writing over the old file in place gets
@@ -191,7 +193,7 @@ impl SelfUpdateArgs {
                         other => other,
                     })?;
                 let version = server.version.clone();
-                (server.release()?, Some((deployment, version)))
+                (server.release(&deployment)?, Some((deployment, version)))
             }
         };
         let mut outcome = match downgrade_refusal(&release.version, explicit, self.allow_downgrade)
@@ -334,8 +336,7 @@ fn is_release_version(version: &str) -> bool {
 }
 
 /// The body of `GET /version`: the version of the server and the tarballs
-/// of the CLI of that version. The server also sends a link to a
-/// `.sha256`; the CLI does not use it (KAIROS-T-0595).
+/// of the CLI of that version, each with the link of its `.sha256`.
 #[derive(Debug, Deserialize)]
 struct ServerVersion {
     version: String,
@@ -347,16 +348,44 @@ struct ServerVersion {
 struct CliDownload {
     target: String,
     url: String,
+    #[serde(default)]
+    sha256_url: Option<String>,
+}
+
+/// True when the user names the release source (`KAIROS_RELEASES_URL`):
+/// the checksum then comes from there, not from the server.
+fn own_release_source() -> bool {
+    std::env::var(RELEASES_URL_VAR).is_ok_and(|value| !value.is_empty())
+}
+
+/// A link of `GET /version` as a URL: a path resolves against the
+/// deployment (a server with no `KAIROS_PUBLIC_URL`, KAIROS-T-0745).
+fn resolve(deployment: &str, link: &str) -> Result<String, CliError> {
+    let base = reqwest::Url::parse(deployment).map_err(|err| {
+        CliError::Failure(format!("The deployment {deployment} is not a URL: {err}."))
+    })?;
+    base.join(link).map(String::from).map_err(|err| {
+        CliError::Failure(format!(
+            "The server sent the link `{link}`, not a URL: {err}."
+        ))
+    })
 }
 
 impl ServerVersion {
-    /// The tarball for this platform that the server names, with the
-    /// checksum of the published release. A server with no links (an older
-    /// one) gives the published release of its version. A server whose
-    /// links have no tarball for this platform is refused, and the message
-    /// names the platforms it lists (KAIROS-T-0460): a mirror that lacks
-    /// one is a gap to fix, not a reason to go to GitHub.
-    fn release(self) -> Result<Release, CliError> {
+    /// The tarball for this platform that the server names, and its
+    /// checksum (KAIROS-A-0080).
+    fn release(self, deployment: &str) -> Result<Release, CliError> {
+        self.release_with(deployment, own_release_source())
+    }
+
+    /// The tarball and the checksum that the server names. With
+    /// `own_source` (`KAIROS_RELEASES_URL`), the checksum of that release
+    /// source. A server with no links (an older one) gives the published
+    /// release of its version. A server whose links have no tarball for
+    /// this platform is refused, and the message names the platforms it
+    /// lists (KAIROS-T-0460): a mirror that lacks one is a gap to fix, not
+    /// a reason to go to GitHub.
+    fn release_with(self, deployment: &str, own_source: bool) -> Result<Release, CliError> {
         let target = target_triple()?;
         let published = Release::published(&self.version)?;
         if self.cli.is_empty() {
@@ -368,10 +397,19 @@ impl ServerVersion {
             .into_iter()
             .find(|download| download.target == target)
         {
-            Some(download) => Ok(Release {
-                url: download.url,
-                ..published
-            }),
+            Some(download) => {
+                let url = resolve(deployment, &download.url)?;
+                let sha256_url = match (own_source, download.sha256_url) {
+                    (true, _) => published.sha256_url,
+                    (false, Some(link)) => resolve(deployment, &link)?,
+                    (false, None) => format!("{url}.sha256"),
+                };
+                Ok(Release {
+                    version: published.version,
+                    url,
+                    sha256_url,
+                })
+            }
             None => Err(CliError::Failure(format!(
                 "The server lists the CLI {} for {}, not for this platform ({target}). \
                  Use --version {} or --latest for the published release.",
@@ -444,7 +482,7 @@ async fn check_once(dir: &Path, deployment: &str, now: u64, auto: bool) -> Optio
             newer_line(deployment, &version)
         ));
     }
-    let result = match (http(), server.release()) {
+    let result = match (http(), server.release(deployment)) {
         (Ok(http), Ok(release)) => update_to(&http, &release).await,
         (Err(err), _) | (_, Err(err)) => Err(err),
     };
@@ -943,10 +981,55 @@ mod tests {
         }
     }
 
-    /// KAIROS-T-0595: the server can name a mirror for the tarball, but the
-    /// checksum is the one of the published release, not the server's.
+    /// KAIROS-A-0080: the server names the tarball and the checksum.
     #[test]
-    fn the_server_names_the_tarball_but_not_the_checksum() {
+    fn the_server_names_the_tarball_and_the_checksum() {
+        let target = target_triple().unwrap();
+        let server: ServerVersion = serde_json::from_value(serde_json::json!({
+            "version": "9.9.9",
+            "cli": [
+                {"target": target, "url": "https://mirror/k.tar.gz", "sha256_url": "https://mirror/k.tar.gz.sha256"},
+            ],
+        }))
+        .unwrap();
+        let release = server
+            .release_with("https://kairos.example.com", false)
+            .unwrap();
+        assert_eq!(release.url, "https://mirror/k.tar.gz");
+        assert_eq!(release.sha256_url, "https://mirror/k.tar.gz.sha256");
+    }
+
+    /// KAIROS-T-0745: a server with no public URL sends paths; they
+    /// resolve against the deployment.
+    #[test]
+    fn a_path_resolves_against_the_deployment() {
+        let target = target_triple().unwrap();
+        let file = format!("kairos-9.9.9-{target}.tar.gz");
+        let server: ServerVersion = serde_json::from_value(serde_json::json!({
+            "version": "9.9.9",
+            "cli": [
+                {"target": target, "url": format!("/cli/{file}"), "sha256_url": format!("/cli/{file}.sha256")},
+            ],
+        }))
+        .unwrap();
+        let release = server
+            .release_with("https://kairos.example.com", false)
+            .unwrap();
+        assert_eq!(
+            release.url,
+            format!("https://kairos.example.com/cli/{file}")
+        );
+        assert_eq!(
+            release.sha256_url,
+            format!("https://kairos.example.com/cli/{file}.sha256")
+        );
+    }
+
+    /// KAIROS-T-0595: with `KAIROS_RELEASES_URL`, the server can name a
+    /// mirror for the tarball, but the checksum is the one of that release
+    /// source, not the server's.
+    #[test]
+    fn with_an_own_release_source_the_server_names_the_tarball_only() {
         let target = target_triple().unwrap();
         let server: ServerVersion = serde_json::from_value(serde_json::json!({
             "version": "9.9.9",
@@ -956,7 +1039,9 @@ mod tests {
             ],
         }))
         .unwrap();
-        let release = server.release().unwrap();
+        let release = server
+            .release_with("https://kairos.example.com", true)
+            .unwrap();
         let published = Release::published("9.9.9").unwrap();
         assert_eq!(release.url, "https://mirror/k.tar.gz");
         assert_eq!(release.sha256_url, published.sha256_url);
@@ -975,7 +1060,10 @@ mod tests {
     fn a_server_with_a_bad_version_is_refused() {
         let server: ServerVersion =
             serde_json::from_value(serde_json::json!({"version": "1.0.0/../../x"})).unwrap();
-        let err = server.release().unwrap_err().to_string();
+        let err = server
+            .release_with("https://kairos.example.com", false)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("not a release version"), "{err}");
     }
 
@@ -983,7 +1071,9 @@ mod tests {
     fn a_server_with_no_links_gives_the_published_release() {
         let server: ServerVersion =
             serde_json::from_value(serde_json::json!({"version": "9.9.9"})).unwrap();
-        let release = server.release().unwrap();
+        let release = server
+            .release_with("https://kairos.example.com", false)
+            .unwrap();
         assert!(
             release.url.contains("/download/v9.9.9/kairos-9.9.9-"),
             "{release:?}"
@@ -1002,7 +1092,10 @@ mod tests {
             ],
         }))
         .unwrap();
-        let err = server.release().unwrap_err().to_string();
+        let err = server
+            .release_with("https://kairos.example.com", false)
+            .unwrap_err()
+            .to_string();
         let target = target_triple().unwrap();
         assert!(err.contains("a-b-c, d-e-f"), "{err}");
         assert!(err.contains(target), "{err}");

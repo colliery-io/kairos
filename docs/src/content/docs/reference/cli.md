@@ -5,7 +5,7 @@ title: "CLI"
 `kairos` is the command-line client. It talks to the same HTTP API as the GUI
 and the MCP server.
 
-This page describes `kairos` 0.18.1. The command tree below mirrors
+This page describes `kairos` 0.19.0. The command tree below mirrors
 `kairos --help`. A unit test of `kairos-cli` checks that each command has a
 section or a synopsis line here.
 
@@ -157,7 +157,7 @@ A command can also use a key in place of the login.
 | `KAIROS_TIMEOUT` | The time in seconds that a command waits for an answer. The default is 60. A connection gets 5 seconds. A value that is not a positive integer stops the command with exit code 1. |
 | `KAIROS_UPDATE_CHECK` | `0` turns off the daily version check (see [`kairos self-update`](#kairos-self-update)). |
 | `KAIROS_AUTO_UPDATE` | `1` makes the daily check install the newer version of the server instead of printing a line. It does not install from an `http://` deployment. |
-| `KAIROS_RELEASES_URL` | The base URL of the published releases, for a mirror. `self-update` takes each checksum from it, and the tarballs of `--version` and `--latest`. The default is the GitHub releases. |
+| `KAIROS_RELEASES_URL` | The base URL of the published releases, for a mirror. When you set it, `self-update` takes each checksum from it. It gives the tarballs of `--version` and `--latest`. The default is the GitHub releases. |
 
 A key carries its tenant, so it needs no `--tenant`. A 401 for a key names the
 variable that holds it.
@@ -3014,8 +3014,8 @@ Drops the tenant's organization and schema. Destructive and unrecoverable.
 tools to an agent. The index is in the user cache, not in the checkout
 (KAIROS-A-0072). Each checkout and each worktree has its own folder. See
 [The place of the code index](../configuration/#the-place-of-the-code-index).
-The CLI writes no file into the checkout. On the first open, it moves an old
-`.kairos/index.db` of the checkout to the user cache.
+The CLI writes no file into the checkout. It does not read or move a
+`.kairos/index.db` of an older CLI: delete the old file.
 
 Each `index` command takes `--root`. Only `index update` takes `--url` and
 `--tenant`. Each `index` command except `index mcp` takes `--json`. See
@@ -3076,10 +3076,7 @@ Updates the index for the changes in the checkout, also the changes that are
 not committed.
 
 A worktree has the `[[project]]` of its clone (the entry
-matches the `origin` remote). Git excludes the retired
-`.claude/kairos.local.md`, so a worktree has no such file. In a worktree, the
-command reads the file of the main clone. The main clone is the folder above
-`git rev-parse --git-common-dir`. With no index, the command starts from the nearest base index
+matches the `origin` remote). With no index, the command starts from the nearest base index
 in Kairos. See
 [`kairos index update` and the base index](../configuration/#kairos-index-update-and-the-base-index).
 
@@ -3190,7 +3187,6 @@ text. A refusal is the error envelope on stderr (see
 {
   "command": "update",
   "index": "/home/robin/.cache/kairos/index/app-4a68e4c25d4d38c3/index.db",
-  "moved_from": null,
   "start": {
     "from": "base",
     "base": { "repository": "app", "branch": "main", "commit": "9f2c…", "changed": 3, … },
@@ -3208,7 +3204,6 @@ text. A refusal is the error envelope on stderr (see
 |---|---|
 | `command` | `build` or `update`. `index --full` gives `build`. |
 | `index` | The path of the index file. |
-| `moved_from` | The old index of the checkout (`.kairos/index.db`), when the run moved it to the user cache. Else `null`. |
 | `start` | Where the update started. It is `null` for a build. |
 | `start.from` | `base`: the update downloaded the base index of Kairos. `local`: the update changed the local index. |
 | `start.base` | The base index that Kairos gave: the repository, the branch, the commit, the changed files and the count of its summaries. The update can keep the local index and not use it. |
@@ -3266,12 +3261,11 @@ config directory (see [`config.toml`](../configuration/#configtoml)).
 `config show` gives the binding of the folder: the deployment, the tenant,
 the repository and the boards. A subfolder of a checkout has the binding of
 the top of the checkout. For each value it gives the source: the
-`[[project]]` of the folder, `.claude/kairos.local.md`, or `[default]`. For
-the file, see `config migrate`. When `KAIROS_URL` is set, the output says
-that commands use it.
+`[[project]]` of the folder, or `[default]`. When `KAIROS_URL` is set, the
+output says that commands use it.
 
 The hooks of the plugin read `config show --json`. The JSON has `bound`, which
-is `true` when a `[[project]]` or `.claude/kairos.local.md` binds the folder.
+is `true` when a `[[project]]` binds the folder.
 It also has `env_url`, the value of `KAIROS_URL`. It has `login_url`: the
 deployment of the only login of the CLI, else `null`. When the binding has
 no deployment, the hooks use `login_url` and name it as the source.
@@ -3287,18 +3281,15 @@ are a board folder that holds clones, and a checkout with no remote. In a
 checkout, the path is the top of the checkout. With `--path`, a folder that
 has a remote also gets a `path` entry.
 
-`config migrate` moves the values of `.claude/kairos.local.md` to a
-`[[project]]` for the `origin` remote of the folder, or for `--remote`. It
-moves only the values that the file gives to the binding: a value of the
-`[[project]]` stays. When the file gives no value, the command changes
-nothing.
+`config migrate` moves the values of the retired `.claude/kairos.local.md`
+to a `[[project]]`. The entry is for the `origin` remote of the folder, or
+for `--remote`. In a worktree, it reads the file of the main clone. With no
+file, or a file with no value, the command says that there is nothing to
+migrate. Then it changes nothing. When `config.toml` has an entry for the
+remote with other values, the command refuses, as `config project` does.
 
 The command does not remove the file: check the result with `config show`,
-then remove the file. This release still reads the file. While the file gives
-a value, `config show` gives a warning (`wiring_warning` in the JSON). Each
-other command that reads the binding gives the warning once on stderr.
-`mcp-proxy` also adds it to the instructions of the server.
-The next release does not read the file.
+then remove the file. No other command and no hook reads the file.
 
 `config path` prints the path of `config.toml`.
 
@@ -3360,16 +3351,17 @@ kairos self-update [--url <URL>] [--version <VERSION> | --latest | --check] [--a
 
 Installs the version of the server in place of the running binary. The server
 tells its version at `GET /version` (open). It also gives the link of the
-tarball of the CLI for each platform. `KAIROS_CLI_DOWNLOAD_URL` on the server
-sets these links; the default is the GitHub releases.
+tarball of the CLI for each platform, and the link of its `.sha256`. The
+server image holds the tarballs of its version. The server serves them at
+`/cli/<file>`, so the CLI needs no access to github.com. A link that is a path
+goes to the deployment.
 
 The CLI downloads the tarball of its platform,
-`kairos-<version>-<target>.tar.gz`. It checks the tarball against the
-`.sha256` of the published release. The CLI always takes the `.sha256` from
-the GitHub releases, also when the server names a mirror for the tarball. The
-CLI does not use the `.sha256` of the server. A server cannot give a tarball that is
-not a published release. `KAIROS_RELEASES_URL` replaces the GitHub releases,
-for a mirror that you trust.
+`kairos-<version>-<target>.tar.gz`, and its `.sha256`, from the links of the
+server. The CLI trusts the server. The checksum finds a damaged download. It
+does not find a tarball that the server changed. When you set
+`KAIROS_RELEASES_URL`, the CLI takes the `.sha256` from that release source.
+`--version` and `--latest` install from the published release.
 
 The CLI writes the new binary to a new file next to the old one. It keeps
 the old binary as `kairos.bak` and renames the new file over the old path. A

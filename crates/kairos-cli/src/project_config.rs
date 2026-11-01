@@ -28,8 +28,10 @@
 //! The order is the same for each command, for the hooks of the plugin
 //! (`kairos config show --json`) and for `kairos mcp-proxy`: a flag, then
 //! the environment (`KAIROS_URL`), then the `[[project]]` of the checkout,
-//! then `.claude/kairos.local.md` of the checkout, then `[default]`. A login
-//! gives the last deployment and tenant ([`crate::auth::resolve`]).
+//! then `[default]`. A login gives the last deployment and tenant
+//! ([`crate::auth::resolve`]). The CLI does not read the retired
+//! `.claude/kairos.local.md` (KAIROS-T-0742): `kairos config migrate` moves
+//! an old one to a `[[project]]`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -38,22 +40,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::credentials;
 use crate::error::CliError;
-use crate::index::{git_output, normalized_remote, settings, settings_path};
+use crate::index::{git_output, normalized_remote};
 
 /// The name of the file in the config directory.
 pub const CONFIG_FILE: &str = "config.toml";
-
-/// The keys of a binding. Each one has the name of the same key in
-/// `.claude/kairos.local.md`, but `deployment` is `deployment_url` there.
-pub const KEYS: [&str; 7] = [
-    "deployment",
-    "tenant",
-    "repository",
-    "team_board",
-    "initiative_board",
-    "adr_board",
-    "delivery_stream",
-];
 
 /// The values of `[default]` or of one `[[project]]`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -69,7 +59,7 @@ pub struct Values {
 }
 
 impl Values {
-    /// The values that are set, by key ([`KEYS`]). A blank value is not set.
+    /// The values that are set, by key. A blank value is not set.
     fn pairs(&self) -> Vec<(&'static str, &str)> {
         [
             ("deployment", &self.deployment),
@@ -215,8 +205,6 @@ fn project_line(text: &str, index: usize) -> Option<usize> {
 pub enum Origin {
     /// The `[[project]]` of the checkout.
     Project { file: String, entry: String },
-    /// `.claude/kairos.local.md` of the checkout or of its clone.
-    Wiring { file: String },
     /// `[default]`.
     Default { file: String },
 }
@@ -230,8 +218,8 @@ pub struct Resolved {
 }
 
 /// The binding of the checkout at `folder`, with no flag and no
-/// environment: `[[project]]`, then `.claude/kairos.local.md`, then
-/// `[default]`. The keys are those of [`KEYS`].
+/// environment: `[[project]]`, then `[default]`. The keys are those of
+/// [`Values`].
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Binding {
     /// The checkout, or the folder when it is not one.
@@ -248,33 +236,20 @@ impl Binding {
         self.values.get(key).map(|r| r.value.as_str())
     }
 
-    /// The values with the names of `.claude/kairos.local.md`
-    /// (`deployment_url`), for the code that reads that file.
+    /// The values by key, for the code that reads the settings of a
+    /// checkout.
     pub fn as_settings(&self) -> std::collections::HashMap<String, String> {
         self.values
             .iter()
-            .map(|(key, r)| (wiring_key(key).to_string(), r.value.clone()))
+            .map(|(key, r)| (key.clone(), r.value.clone()))
             .collect()
     }
 
-    /// True when a `[[project]]` or `.claude/kairos.local.md` binds the
-    /// folder. `[default]` alone binds nothing: the hooks of the plugin
-    /// stay silent in a repository of no project.
+    /// True when a `[[project]]` binds the folder. `[default]` alone binds
+    /// nothing: the hooks of the plugin stay silent in a repository of no
+    /// project.
     pub fn is_bound(&self) -> bool {
         self.project.is_some()
-            || self
-                .values
-                .values()
-                .any(|r| matches!(r.origin, Origin::Wiring { .. }))
-    }
-}
-
-/// The name of `key` in `.claude/kairos.local.md`.
-fn wiring_key(key: &str) -> &str {
-    if key == "deployment" {
-        "deployment_url"
-    } else {
-        key
     }
 }
 
@@ -338,8 +313,8 @@ fn project_for<'a>(
 
 /// The binding of `folder` with the config at `config_file`.
 /// A subfolder of a checkout has the binding of the top of the checkout
-/// (KAIROS-T-0707): its remote, its `.claude/kairos.local.md`. A `path` of
-/// a `[[project]]` holds `folder` or a folder above it.
+/// (KAIROS-T-0707): its remote. A `path` of a `[[project]]` holds `folder`
+/// or a folder above it.
 pub fn binding_with(folder: &Path, config_file: &Path) -> Result<Binding, CliError> {
     let config = load(config_file)?;
     let top = checkout_top(folder);
@@ -355,23 +330,6 @@ pub fn binding_with(folder: &Path, config_file: &Path) -> Result<Binding, CliErr
                 origin: Origin::Default { file: file.clone() },
             },
         );
-    }
-    if let Some(wiring) = settings_path(root) {
-        let wiring = wiring.display().to_string();
-        let found = settings(root);
-        for key in KEYS {
-            if let Some(value) = found.get(wiring_key(key)) {
-                values.insert(
-                    key.to_string(),
-                    Resolved {
-                        value: value.clone(),
-                        origin: Origin::Wiring {
-                            file: wiring.clone(),
-                        },
-                    },
-                );
-            }
-        }
     }
     let project = project_for(&config, folder, remote.as_deref());
     if let Some(project) = project {
@@ -571,15 +529,6 @@ mod tests {
         clone
     }
 
-    fn wire(folder: &Path, front: &str) {
-        std::fs::create_dir_all(folder.join(".claude")).unwrap();
-        std::fs::write(
-            folder.join(".claude/kairos.local.md"),
-            format!("---\n{front}---\n\nWiring.\n"),
-        )
-        .unwrap();
-    }
-
     const CONFIG: &str = r#"
 # The deployment of the company.
 [default]
@@ -592,17 +541,20 @@ remote     = "git@github.com:Example-Org/example-repo.git"
 team_board = "other-delivery"
 "#;
 
-    /// #270: the project of the remote, then the wiring, then [default].
+    /// #270: the project of the remote, then [default]. KAIROS-T-0742: the
+    /// retired `.claude/kairos.local.md` of the checkout gives no value.
     #[test]
-    fn a_project_is_found_by_its_remote_and_wins_over_the_wiring_and_the_default() {
+    fn a_project_is_found_by_its_remote_and_wins_over_the_default() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("config.toml");
         std::fs::write(&config, CONFIG).unwrap();
         let clone = clone_with_origin(dir.path(), "https://github.com/example-org/example-repo");
-        wire(
-            &clone,
-            "tenant: from-wiring\nteam_board: wired-board\nadr_board: adrs\n",
-        );
+        std::fs::create_dir_all(clone.join(".claude")).unwrap();
+        std::fs::write(
+            clone.join(".claude/kairos.local.md"),
+            "---\ntenant: from-wiring\nteam_board: wired-board\nadr_board: adrs\n---\n",
+        )
+        .unwrap();
 
         let b = binding_with(&clone, &config).unwrap();
         assert_eq!(
@@ -616,16 +568,16 @@ team_board = "other-delivery"
             b.values["deployment"].origin,
             Origin::Default { .. }
         ));
-        assert_eq!(b.get("tenant"), Some("from-wiring"));
-        assert!(matches!(b.values["tenant"].origin, Origin::Wiring { .. }));
+        assert_eq!(b.get("tenant"), Some("example"));
+        assert!(matches!(b.values["tenant"].origin, Origin::Default { .. }));
         assert_eq!(b.get("team_board"), Some("other-delivery"));
         assert!(matches!(
             b.values["team_board"].origin,
             Origin::Project { .. }
         ));
-        assert_eq!(b.get("adr_board"), Some("adrs"));
+        assert_eq!(b.get("adr_board"), None, "the file is not read");
         assert_eq!(
-            b.as_settings().get("deployment_url").map(String::as_str),
+            b.as_settings().get("deployment").map(String::as_str),
             Some("https://kairos.example.com")
         );
     }
@@ -724,14 +676,13 @@ team_board = "other-delivery"
     }
 
     /// KAIROS-T-0707: a subfolder of a checkout has the binding of the top
-    /// of the checkout: its remote and its `.claude/kairos.local.md`.
+    /// of the checkout: its remote.
     #[test]
     fn a_subfolder_has_the_binding_of_the_top_of_its_checkout() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("config.toml");
         std::fs::write(&config, CONFIG).unwrap();
         let clone = clone_with_origin(dir.path(), "https://github.com/example-org/example-repo");
-        wire(&clone, "adr_board: adrs\n");
         let sub = clone.join("crates").join("deep");
         std::fs::create_dir_all(&sub).unwrap();
         let b = binding_with(&sub, &config).unwrap();
@@ -741,7 +692,6 @@ team_board = "other-delivery"
         );
         assert!(b.is_bound());
         assert_eq!(b.get("team_board"), Some("other-delivery"));
-        assert_eq!(b.get("adr_board"), Some("adrs"));
         assert_eq!(
             Path::new(&b.folder).canonicalize().unwrap(),
             clone.canonicalize().unwrap(),

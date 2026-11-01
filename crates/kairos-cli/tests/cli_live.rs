@@ -293,6 +293,7 @@ async fn cli_login_whoami_refresh_logout_live() {
         webhooks: Default::default(),
         writeback: Default::default(),
         cli_download_url: None,
+        cli_dir: None,
         pages: Default::default(),
         bootstrap_admin: None,
         bootstrap_password: None,

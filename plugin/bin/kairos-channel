@@ -14,9 +14,7 @@ way: the session works the task with the Kairos MCP tools.
   `kairos-channel setup <board> --port <port>`, the secret on stdin.
 - With no config, the server serves MCP with no listener (KAIROS-T-0544).
   In a folder with no Kairos wiring (`kairos config show`: a `[[project]]`
-  of `config.toml`, or the retired `.claude/kairos.local.md`) it gives no
-  instructions: dispatch is
-  optional. In a wired folder its instructions give the three steps to turn
+  of `config.toml`) it gives no instructions: dispatch is optional. In a wired folder its instructions give the three steps to turn
   dispatch on. A config that others can read, a bad config or a taken port
   turns the channel off, and the instructions say why.
 - The listener answers 503 until the client sends

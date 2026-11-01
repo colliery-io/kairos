@@ -186,11 +186,16 @@ def load_json(path):
         return json.load(f)
 
 
-def wire(folder, board="web-delivery"):
-    """Write a Kairos wiring file into `folder`."""
-    os.makedirs(os.path.join(folder, ".claude"), exist_ok=True)
-    with open(os.path.join(folder, ".claude", "kairos.local.md"), "w") as f:
-        f.write(f"---\ndeployment_url: https://kairos.example\nteam_board: {board}\n---\n")
+def wire(env, home, board="web-delivery"):
+    """Wire the session folder of `env`: a stub `kairos` under `home` gives
+    the binding (KAIROS-T-0742: the channel reads no file)."""
+    hook_test_env.stub_kairos(os.path.join(home, "bin"))
+    binding = os.path.join(home, "binding.json")
+    hook_test_env.write_binding(
+        binding, {"deployment_url": "https://kairos.example", "team_board": board}
+    )
+    env["PATH"] = os.path.join(home, "bin") + os.pathsep + "/usr/bin:/bin"
+    env["STUB_BINDING"] = binding
 
 
 def sentences(text):
@@ -263,7 +268,7 @@ class EndToEnd(unittest.TestCase):
         self.assertNotIn("instructions", result)
 
     def test_with_no_config_in_a_wired_folder_the_message_gives_the_steps(self):
-        wire(self.project.name)
+        wire(self.env, self.home.name)
         _, reply = self.start()
         text = reply["result"]["instructions"]
         script = os.path.realpath(SCRIPT)
@@ -285,24 +290,10 @@ class EndToEnd(unittest.TestCase):
             with self.subTest(sentence=sentence[:60]):
                 self.assertLessEqual(len(sentence.split()), 20)
 
-    def test_a_worktree_reads_the_wiring_of_its_clone(self):
-        clone = os.path.join(self.project.name, "repo")
-        os.makedirs(clone)
-        run = lambda *args: subprocess.run(["git", "-C", clone, "-c", "user.name=Robin",
-                                            "-c", "user.email=robin@example.com", *args],
-                                           check=True, capture_output=True)
-        run("init", "-q", "-b", "main")
-        run("commit", "-q", "--allow-empty", "-m", "first")
-        wire(clone)
-        worktree = os.path.join(self.project.name, "wt-web-t-0001")
-        run("worktree", "add", "-q", worktree, "-b", "web-t-0001")
-        self.env["CLAUDE_PROJECT_DIR"] = worktree
-        _, reply = self.start()
-        self.assertIn("Kairos dispatch is off (optional)", reply["result"]["instructions"])
-
     def test_a_folder_name_that_is_not_plain_names_the_variable(self):
         folder = os.path.join(self.project.name, "my project")
-        wire(folder)
+        os.makedirs(folder)
+        wire(self.env, self.home.name)
         self.env["CLAUDE_PROJECT_DIR"] = folder
         del self.env["KAIROS_CHANNEL_BOARD"]
         _, reply = self.start()

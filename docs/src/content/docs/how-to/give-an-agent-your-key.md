@@ -80,9 +80,9 @@ the connection needs no `X-Tenant` header.
 
 In a repository, `/kairos:bootstrap` writes only a project entry in
 `~/.config/kairos/config.toml`. The entry has the deployment, your team board and
-the repository. It does not write `.claude/kairos.local.md`. The next
-release does not read that file. If a repository has one, `kairos config migrate` moves its values to
-the project entry. Then remove the file.
+the repository. It does not write `.claude/kairos.local.md`, and no
+command reads that file. If a repository has one, `kairos config migrate`
+moves its values to the project entry. Then remove the file.
 
 When one repository must use a different deployment, give its project entry
 its own `deployment`, and leave `KAIROS_URL` unset. `KAIROS_URL` comes before

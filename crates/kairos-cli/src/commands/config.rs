@@ -4,10 +4,12 @@
 //! from); the hooks of the plugin read it with `--json`. `project` adds a
 //! `[[project]]` for the `origin` remote of a checkout, or for the path of
 //! a folder with no remote: a board folder (KAIROS-T-0707). `migrate` moves
-//! the values of `.claude/kairos.local.md` to a `[[project]]` (KAIROS-T-0710:
-//! this release still reads the file, with a warning; the next one does
-//! not). `path` prints the path of the file.
+//! the values of the retired `.claude/kairos.local.md` to a `[[project]]`
+//! (KAIROS-T-0710). `migrate` is the one command that reads that file: no
+//! other command and no hook does (KAIROS-T-0742). `path` prints the path
+//! of `config.toml`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::json;
@@ -16,7 +18,12 @@ use crate::auth;
 use crate::context::print_json;
 use crate::credentials;
 use crate::error::CliError;
+use crate::index::git_output;
 use crate::project_config::{self, Added, Binding, Key, Origin, Values};
+
+/// The retired wiring file of a checkout (KAIROS-A-0014, KAIROS-T-0710).
+/// Only `config migrate` reads it.
+const WIRING_FILE: &str = ".claude/kairos.local.md";
 
 #[derive(clap::Subcommand, Debug)]
 pub enum ConfigCommand {
@@ -26,8 +33,8 @@ pub enum ConfigCommand {
     /// Add a [[project]] to config.toml: for the origin remote of a
     /// checkout, else for the path of the folder (a board folder)
     Project(ProjectArgs),
-    /// Move the values of .claude/kairos.local.md to a [[project]] of
-    /// config.toml
+    /// Move the values of the retired .claude/kairos.local.md to a
+    /// [[project]] of config.toml
     Migrate(MigrateArgs),
     /// Print the path of config.toml
     Path,
@@ -131,7 +138,6 @@ fn show(args: ShowArgs) -> Result<(), CliError> {
             "values": binding.values,
             "env_url": env_url,
             "login_url": login_url(),
-            "wiring_warning": wiring_file(&binding).map(|file| wiring_warning(&file)),
         }));
     }
     print!(
@@ -177,7 +183,6 @@ fn show_text(config: &str, binding: &Binding, env_url: Option<&str>) -> String {
     for (key, resolved) in &binding.values {
         let from = match &resolved.origin {
             Origin::Project { .. } => "project".to_string(),
-            Origin::Wiring { file } => file.clone(),
             Origin::Default { .. } => "default".to_string(),
         };
         out.push_str(&format!("{key}: {} ({from})\n", resolved.value));
@@ -188,66 +193,78 @@ fn show_text(config: &str, binding: &Binding, env_url: Option<&str>) -> String {
             auth::URL_VAR
         ));
     }
-    if let Some(file) = wiring_file(binding) {
-        out.push_str(&wiring_warning(&file));
-        out.push('\n');
-    }
     out
 }
 
-/// The file `.claude/kairos.local.md` when it gives a value of the binding
-/// (KAIROS-T-0710), else None.
-pub fn wiring_file(binding: &Binding) -> Option<String> {
-    binding.values.values().find_map(|r| match &r.origin {
-        Origin::Wiring { file } => Some(file.clone()),
-        _ => None,
-    })
-}
-
-/// The warning when `.claude/kairos.local.md` gives a value (KAIROS-T-0710).
-pub fn wiring_warning(file: &str) -> String {
-    format!(
-        "Warning: {file} gives values of this binding. Move them to config.toml with \
-         `kairos config migrate`. The next release does not read this file."
-    )
-}
-
-/// [`wiring_warning`] on stderr when the file gives a value of `binding`,
-/// once per process (KAIROS-T-0710): each command that reads the binding,
-/// not only `config show` and the hooks.
-pub fn warn_wiring_once(binding: &Binding) {
-    static SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if let Some(file) = wiring_file(binding)
-        && !SHOWN.swap(true, std::sync::atomic::Ordering::Relaxed)
-    {
-        eprintln!("{}", wiring_warning(&file));
+/// The wiring file of the checkout at `root` (KAIROS-T-0646): `WIRING_FILE`
+/// in `root`, else the same file in the main clone, the folder above `git
+/// rev-parse --git-common-dir` (git excluded the file, so a worktree has
+/// none). `None` when neither exists. A folder with no `.git` gets no git
+/// call.
+fn wiring_path(root: &Path) -> Option<PathBuf> {
+    let own = root.join(WIRING_FILE);
+    if own.is_file() {
+        return Some(own);
     }
+    if !root.join(".git").exists() {
+        return None;
+    }
+    let common = git_output(root, &["rev-parse", "--git-common-dir"])?;
+    let common = std::fs::canonicalize(root.join(common)).ok()?;
+    let clone = common.parent()?.join(WIRING_FILE);
+    clone.is_file().then_some(clone)
 }
 
-/// The values of the binding that `.claude/kairos.local.md` gives.
-fn wiring_values(binding: &Binding) -> Values {
-    let mut values = Values::default();
-    for (key, resolved) in &binding.values {
-        if !matches!(resolved.origin, Origin::Wiring { .. }) {
-            continue;
-        }
-        let slot = match key.as_str() {
-            "deployment" => &mut values.deployment,
-            "tenant" => &mut values.tenant,
-            "repository" => &mut values.repository,
-            "team_board" => &mut values.team_board,
-            "initiative_board" => &mut values.initiative_board,
-            "adr_board" => &mut values.adr_board,
-            "delivery_stream" => &mut values.delivery_stream,
-            _ => continue,
-        };
-        *slot = Some(resolved.value.clone());
+/// The `key: value` lines of the front matter of the wiring file: an
+/// indented line, a blank line and a `#` line are not keys; one pair of
+/// matching quotes is removed from a value; with no quotes, a ` #` comment
+/// is cut; an empty value is not set.
+fn front_matter(text: &str) -> HashMap<String, String> {
+    let mut lines = text.lines();
+    if lines.next().map(str::trim) != Some("---") {
+        return HashMap::new();
     }
-    values
+    lines
+        .take_while(|line| line.trim() != "---")
+        .filter(|line| !line.starts_with(char::is_whitespace) && !line.starts_with('#'))
+        .filter_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            let value = front_value(value);
+            (!value.is_empty()).then(|| (key.trim().to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+/// One value of a front matter line ([`front_matter`]).
+fn front_value(raw: &str) -> &str {
+    let value = raw.trim();
+    let quoted = value.len() >= 2
+        && (value.starts_with('"') && value.ends_with('"')
+            || value.starts_with('\'') && value.ends_with('\''));
+    if quoted {
+        return &value[1..value.len() - 1];
+    }
+    value.find(" #").map_or(value, |cut| value[..cut].trim())
+}
+
+/// The values of the binding that the wiring file gives. The file names
+/// `deployment` as `deployment_url`.
+fn wiring_values(front: &HashMap<String, String>) -> Values {
+    let get = |key: &str| front.get(key).cloned();
+    Values {
+        deployment: get("deployment_url"),
+        tenant: get("tenant"),
+        repository: get("repository"),
+        team_board: get("team_board"),
+        initiative_board: get("initiative_board"),
+        adr_board: get("adr_board"),
+        delivery_stream: get("delivery_stream"),
+    }
 }
 
 /// What `config migrate` did: the file, the remote, and the result of
-/// [`project_config::add_project`]. No file: nothing to move.
+/// [`project_config::add_project`]. No file, or a file with no value:
+/// nothing to move.
 #[derive(Debug, PartialEq)]
 struct Migrated {
     file: Option<String>,
@@ -255,18 +272,30 @@ struct Migrated {
     added: Option<Added>,
 }
 
-/// Move the values that `.claude/kairos.local.md` gives to the binding of
-/// `folder` into a `[[project]]` of the config at `config`.
+/// Move the values of the wiring file of `folder` into a `[[project]]` of
+/// the config at `config`. Nothing when the folder has no file, or the
+/// file gives no value.
 fn migrate_in(folder: &Path, config: &Path, remote: Option<String>) -> Result<Migrated, CliError> {
-    let binding = project_config::binding_with(folder, config)?;
-    let Some(file) = wiring_file(&binding) else {
-        return Ok(Migrated {
-            file: None,
-            remote: None,
-            added: None,
-        });
+    let nothing = Migrated {
+        file: None,
+        remote: None,
+        added: None,
     };
-    let Some(remote) = remote.or_else(|| binding.remote.clone()) else {
+    // A subfolder of a checkout has the file of the top (KAIROS-T-0707).
+    let top = project_config::checkout_top(folder);
+    let folder = top.as_deref().unwrap_or(folder);
+    let Some(path) = wiring_path(folder) else {
+        return Ok(nothing);
+    };
+    let text = std::fs::read(&path)
+        .map_err(|e| CliError::Failure(format!("The CLI cannot read {}: {e}.", path.display())))?;
+    let values = wiring_values(&front_matter(&String::from_utf8_lossy(&text)));
+    if values == Values::default() {
+        return Ok(nothing);
+    }
+    let file = path.display().to_string();
+    let remote = remote.or_else(|| project_config::origin_of(folder));
+    let Some(remote) = remote else {
         return Err(CliError::Failure(format!(
             "The folder {} has no origin remote. Give --remote, or add a [[project]] with \
              `path` to {} by hand.",
@@ -277,7 +306,7 @@ fn migrate_in(folder: &Path, config: &Path, remote: Option<String>) -> Result<Mi
     let added = project_config::add_project(
         config,
         &project_config::Key::Remote(remote.clone()),
-        &wiring_values(&binding),
+        &values,
     )?;
     Ok(Migrated {
         file: Some(file),
@@ -300,7 +329,7 @@ fn migrate(args: MigrateArgs) -> Result<(), CliError> {
     }
     let (Some(file), Some(remote), Some(added)) = (done.file, done.remote, done.added) else {
         println!(
-            "No value of {} comes from .claude/kairos.local.md. Nothing changed.",
+            "Nothing to migrate: {} has no {WIRING_FILE} with a value. Nothing changed.",
             folder.display()
         );
         return Ok(());
@@ -315,7 +344,7 @@ fn migrate(args: MigrateArgs) -> Result<(), CliError> {
             config.display()
         ),
     }
-    println!("Check it with `kairos config show`, then remove {file}.");
+    println!("Check it with `kairos config show`, then remove {file}. The CLI does not read it.");
     Ok(())
 }
 
@@ -397,11 +426,16 @@ mod tests {
     use crate::project_config::Resolved;
 
     fn git(dir: &Path, args: &[&str]) {
+        // A CI runner has no git identity: a commit needs one.
         let ok = std::process::Command::new("git")
             .args(args)
             .current_dir(dir)
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
+            .env("GIT_AUTHOR_NAME", "Robin")
+            .env("GIT_AUTHOR_EMAIL", "robin@example.test")
+            .env("GIT_COMMITTER_NAME", "Robin")
+            .env("GIT_COMMITTER_EMAIL", "robin@example.test")
             .output()
             .expect("git runs")
             .status
@@ -427,7 +461,8 @@ mod tests {
     }
 
     /// KAIROS-T-0710: `config migrate` writes the values of the file to a
-    /// [[project]]; then the file gives no value, so no warning.
+    /// [[project]]. KAIROS-T-0742: no other command reads the file, so the
+    /// binding has none of its values before the migrate.
     #[test]
     fn migrate_moves_the_values_of_the_file_to_a_project() {
         let dir = tempfile::tempdir().expect("a folder");
@@ -435,8 +470,8 @@ mod tests {
         let config = dir.path().join("config/config.toml");
 
         let before = project_config::binding_with(&clone, &config).expect("a binding");
-        let file = wiring_file(&before).expect("the file gives values");
-        assert!(wiring_warning(&file).contains("kairos config migrate"));
+        assert_eq!(before.get("tenant"), None, "the file is not read");
+        assert!(!before.is_bound());
 
         let done = migrate_in(&clone, &config, None).expect("migrate");
         assert_eq!(done.added, Some(Added::Added));
@@ -450,17 +485,76 @@ mod tests {
         assert!(text.contains("team_board = \"app-delivery\""), "{text}");
 
         let after = project_config::binding_with(&clone, &config).expect("a binding");
-        assert_eq!(wiring_file(&after), None);
+        assert!(after.is_bound());
         assert_eq!(after.get("tenant"), Some("acme"));
-        // A second run has nothing to move.
+        // A second run has the same values: nothing changes.
         assert_eq!(
-            migrate_in(&clone, &config, None).expect("migrate"),
-            Migrated {
-                file: None,
-                remote: None,
-                added: None
-            }
+            migrate_in(&clone, &config, None).expect("migrate").added,
+            Some(Added::Same)
         );
+    }
+
+    /// KAIROS-T-0742: with no file, or a file with no value, there is
+    /// nothing to migrate.
+    #[test]
+    fn migrate_with_no_file_or_no_value_has_nothing_to_move() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let clone = wired_checkout(dir.path());
+        let config = dir.path().join("config.toml");
+        let nothing = Migrated {
+            file: None,
+            remote: None,
+            added: None,
+        };
+        std::fs::write(clone.join(WIRING_FILE), "---\nrepository:\n---\n").expect("write");
+        assert_eq!(migrate_in(&clone, &config, None).expect("migrate"), nothing);
+        std::fs::remove_file(clone.join(WIRING_FILE)).expect("remove");
+        assert_eq!(migrate_in(&clone, &config, None).expect("migrate"), nothing);
+        assert!(!config.exists());
+    }
+
+    /// KAIROS-T-0646: git excluded the file, so a worktree has none;
+    /// `migrate` in a worktree reads the file of its clone.
+    #[test]
+    fn migrate_in_a_worktree_reads_the_file_of_its_clone() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let clone = wired_checkout(dir.path());
+        git(&clone, &["commit", "-q", "--allow-empty", "-m", "A"]);
+        let worktree = dir.path().join("wt-app");
+        let path = worktree.display().to_string();
+        git(&clone, &["worktree", "add", "-q", "-b", "work", &path]);
+        assert!(!worktree.join(".claude").exists());
+        assert_eq!(
+            wiring_path(&worktree).expect("the file of the clone"),
+            clone.canonicalize().expect("the clone").join(WIRING_FILE)
+        );
+        let plain = dir.path().join("plain");
+        std::fs::create_dir_all(&plain).expect("make the folder");
+        assert_eq!(wiring_path(&plain), None);
+        let config = dir.path().join("config.toml");
+        let done = migrate_in(&worktree, &config, None).expect("migrate");
+        assert_eq!(done.added, Some(Added::Added));
+        assert_eq!(done.remote.as_deref(), Some("github.com/acme/app"));
+    }
+
+    /// The front matter rule of the retired file: an indented line, a
+    /// comment line and an empty value are not keys; one pair of quotes is
+    /// removed; a ` #` comment after a value with no quotes is cut.
+    #[test]
+    fn the_front_matter_of_the_file_is_read_by_one_rule() {
+        let front = front_matter(
+            "---\n# tenant: commented\n  tenant: indented\nrepository:\n\
+             team_board: \"delivery\" \ntenant: acme # the tenant\nadr_board: 'a # b'\n---\n\n\
+             repository: not this\n",
+        );
+        assert_eq!(front["team_board"], "delivery");
+        assert_eq!(front["tenant"], "acme");
+        assert_eq!(front["adr_board"], "a # b");
+        assert_eq!(front.len(), 3);
+        assert!(front_matter("tenant: acme\n").is_empty());
+        let values = wiring_values(&front);
+        assert_eq!(values.deployment, None);
+        assert_eq!(values.tenant.as_deref(), Some("acme"));
     }
 
     #[test]
@@ -472,6 +566,10 @@ mod tests {
         let err = migrate_in(&clone, &config, None).expect_err("no remote");
         assert!(err.to_string().contains("--remote"), "{err}");
         assert!(!config.exists());
+        git(
+            &clone,
+            &["remote", "add", "origin", "git@github.com:acme/app.git"],
+        );
         let done = migrate_in(&clone, &config, Some("https://github.com/acme/app".into()))
             .expect("migrate with --remote");
         assert_eq!(done.added, Some(Added::Added));

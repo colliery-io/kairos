@@ -49,14 +49,12 @@ pub fn client_with_credential(common: &Common) -> Result<(KairosClient, String),
 
 /// [`client_with_credential`] for the binding of a folder (#270). The
 /// deployment: `--url`, then `KAIROS_URL`, then the binding (`[[project]]`,
-/// `.claude/kairos.local.md`, `[default]`), then the only deployment of a
-/// login. The tenant of a login: `--tenant`, then the binding, then the
+/// `[default]`), then the only deployment of a login. The tenant of a login: `--tenant`, then the binding, then the
 /// tenant of the login. A key carries its tenant: only `--tenant` changes it.
 pub fn client_for(
     common: &Common,
     binding: &project_config::Binding,
 ) -> Result<(KairosClient, String), CliError> {
-    crate::commands::config::warn_wiring_once(binding);
     let timeout = kairos_client::timeout_from_env()?;
     let path = credentials::credentials_path()?;
     let env = auth::Env::from_process();

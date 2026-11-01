@@ -15,6 +15,10 @@
 #   4. `docker stop` ends the server cleanly: exit code 0, within the stop
 #      timeout, and "shutdown complete" in the log.
 #
+# With KAIROS_SMOKE_EXPECT_CLI=1 (the release workflow), it also checks that
+# the image serves the four CLI tarballs at /cli/<file>, that each matches
+# its checksum, and that /version names them (KAIROS-T-0745).
+#
 # It removes its containers and its network at the end. The release workflow
 # runs it on each image before the tag is published.
 
@@ -65,6 +69,26 @@ for _ in $(seq 1 90); do
 done
 [ "$health" = "healthy" ] || fail "the container is not healthy (${health})"
 echo "image smoke: healthy"
+
+# 1b. The CLI tarballs (KAIROS-T-0745).
+if [ "${KAIROS_SMOKE_EXPECT_CLI:-0}" = "1" ]; then
+  docker exec "$app" sh -c '
+    set -e
+    files="$(cd /usr/share/kairos/cli && ls ./*.tar.gz)"
+    [ "$(echo "$files" | wc -l)" = "4" ] || { echo "not 4 tarballs: $files"; exit 1; }
+    mkdir -p /tmp/cli-smoke && cd /tmp/cli-smoke
+    for file in $files; do
+      file="${file#./}"
+      curl -fsS -o "$file" "http://localhost:8080/cli/$file"
+      curl -fsS -o "$file.sha256" "http://localhost:8080/cli/$file.sha256"
+      sha256sum -c "$file.sha256" >/dev/null
+    done
+    links="$(curl -fsS http://localhost:8080/version | grep -o "/cli/kairos-[^\"]*\.tar\.gz\"" | wc -l)"
+    [ "$links" = "4" ] || { echo "/version names $links tarballs of the server, not 4"; exit 1; }
+    rm -rf /tmp/cli-smoke
+  ' || fail "the image does not serve the CLI tarballs"
+  echo "image smoke: serves the 4 CLI tarballs"
+fi
 
 # 2. PID 1 is the init.
 pid1="$(docker exec "$app" cat /proc/1/comm)"

@@ -14,7 +14,9 @@
 # Each artifact is `kairos-<version>-<target>.tar.gz` containing the binary
 # (plus LICENSE files if the repo grows any — none exist today). All four
 # tarballs are attached to the GitHub release for the tag via
-# softprops/action-gh-release.
+# softprops/action-gh-release. The image jobs wait for them too: each image
+# holds the four tarballs, and the server serves them at /cli/<file>
+# (KAIROS-T-0745, KAIROS-A-0080), so an upgrade needs no access to github.com.
 #
 # The CLI links kairos-client (reqwest + rustls); it does NOT link libpq,
 # so no native Postgres packages are installed here (verified in
@@ -172,6 +174,8 @@ jobs:
   # a hosted provider. The hosted variant is tagged `<version>-hosted`.
   image:
     name: build image (${{ matrix.variant }}, ${{ matrix.platform }})
+    # KAIROS-T-0745: the image holds the CLI tarballs of the build job.
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -215,6 +219,27 @@ jobs:
           fi
           echo "VERSION=${version}" >> "$GITHUB_ENV"
 
+      # KAIROS-T-0745: the four CLI tarballs and their checksums, in the
+      # folder `cli/` of the build context `cli` (the stage `cli` of the
+      # Dockerfile). The tarballs only, as in the release job.
+      - name: Download the CLI tarballs
+        uses: actions/download-artifact@v7
+        with:
+          path: cli-context/cli
+          pattern: kairos-*
+          merge-multiple: true
+
+      - name: Check the CLI tarballs
+        run: |
+          count="$(find cli-context/cli -name "kairos-${VERSION}-*.tar.gz" | wc -l)"
+          sums="$(find cli-context/cli -name "kairos-${VERSION}-*.tar.gz.sha256" | wc -l)"
+          if [ "${count}" != "4" ] || [ "${sums}" != "4" ]; then
+            echo "expected 4 CLI tarballs and 4 checksums, got ${count} and ${sums}" >&2
+            ls -l cli-context/cli >&2
+            exit 1
+          fi
+          (cd cli-context/cli && sha256sum -c ./*.sha256)
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -238,6 +263,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             KAIROS_SERVER_FEATURES=${{ matrix.features }}
+          build-contexts: |
+            cli=cli-context
           # No tag here: each arch is pushed as an untagged digest, and the
           # merge job below is what gives the release its tag. Tagging both
           # would make them race, with the loser silently overwritten.
@@ -251,6 +278,9 @@ jobs:
       # stops the job before its digest goes to the manifest, so no tag gets
       # the image.
       - name: Smoke check the image
+        env:
+          # KAIROS-T-0745: the image must serve the four CLI tarballs.
+          KAIROS_SMOKE_EXPECT_CLI: "1"
         run: |
           image="ghcr.io/colliery-io/kairos@${{ steps.build.outputs.digest }}"
           docker pull "${image}"

@@ -590,6 +590,13 @@ Changes that people and agents see:
 - A `.kairos/index.db` is no longer moved. Run `kairos index build` once
   and delete the old file. The `moved_from` field of `kairos index status
   --json` is gone.
+- The image holds the CLI tarballs of its version (about 60 MB). The server
+  serves them at `/cli/<file>`. `kairos self-update` downloads the tarball
+  and its `.sha256` from the server. An upgrade of the CLI needs no access
+  to github.com.
+- A CLI of 0.18 cannot read a link that is a path. When `KAIROS_PUBLIC_URL`
+  is not set, run `kairos self-update --version 0.19.0` once. That command
+  downloads from GitHub. The next upgrades use the server.
 
 ## Trying it out without a database
 

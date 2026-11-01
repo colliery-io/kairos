@@ -206,6 +206,7 @@ services:
       KAIROS_GITHUB_API_URL: ${KAIROS_GITHUB_API_URL:-}
       # A mirror of the CLI tarballs for `kairos self-update`.
       KAIROS_CLI_DOWNLOAD_URL: ${KAIROS_CLI_DOWNLOAD_URL:-}
+      KAIROS_CLI_DIR: ${KAIROS_CLI_DIR:-}
       # KAIROS-T-0409: the store of the sites that repositories publish
       # (KAIROS-D-0012). `disk` keeps them in the volume below; set `s3` and
       # the KAIROS_PAGES_S3_* variables for a bucket instead.

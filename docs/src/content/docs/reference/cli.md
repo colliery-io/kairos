@@ -157,7 +157,7 @@ A command can also use a key in place of the login.
 | `KAIROS_TIMEOUT` | The time in seconds that a command waits for an answer. The default is 60. A connection gets 5 seconds. A value that is not a positive integer stops the command with exit code 1. |
 | `KAIROS_UPDATE_CHECK` | `0` turns off the daily version check (see [`kairos self-update`](#kairos-self-update)). |
 | `KAIROS_AUTO_UPDATE` | `1` makes the daily check install the newer version of the server instead of printing a line. It does not install from an `http://` deployment. |
-| `KAIROS_RELEASES_URL` | The base URL of the published releases, for a mirror. `self-update` takes each checksum from it, and the tarballs of `--version` and `--latest`. The default is the GitHub releases. |
+| `KAIROS_RELEASES_URL` | The base URL of the published releases, for a mirror. When you set it, `self-update` takes each checksum from it. It gives the tarballs of `--version` and `--latest`. The default is the GitHub releases. |
 
 A key carries its tenant, so it needs no `--tenant`. A 401 for a key names the
 variable that holds it.
@@ -3351,16 +3351,17 @@ kairos self-update [--url <URL>] [--version <VERSION> | --latest | --check] [--a
 
 Installs the version of the server in place of the running binary. The server
 tells its version at `GET /version` (open). It also gives the link of the
-tarball of the CLI for each platform. `KAIROS_CLI_DOWNLOAD_URL` on the server
-sets these links; the default is the GitHub releases.
+tarball of the CLI for each platform, and the link of its `.sha256`. The
+server image holds the tarballs of its version. The server serves them at
+`/cli/<file>`, so the CLI needs no access to github.com. A link that is a path
+goes to the deployment.
 
 The CLI downloads the tarball of its platform,
-`kairos-<version>-<target>.tar.gz`. It checks the tarball against the
-`.sha256` of the published release. The CLI always takes the `.sha256` from
-the GitHub releases, also when the server names a mirror for the tarball. The
-CLI does not use the `.sha256` of the server. A server cannot give a tarball that is
-not a published release. `KAIROS_RELEASES_URL` replaces the GitHub releases,
-for a mirror that you trust.
+`kairos-<version>-<target>.tar.gz`, and its `.sha256`, from the links of the
+server. The CLI trusts the server. The checksum finds a damaged download. It
+does not find a tarball that the server changed. When you set
+`KAIROS_RELEASES_URL`, the CLI takes the `.sha256` from that release source.
+`--version` and `--latest` install from the published release.
 
 The CLI writes the new binary to a new file next to the old one. It keeps
 the old binary as `kairos.bak` and renames the new file over the old path. A

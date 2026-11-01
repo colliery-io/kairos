@@ -262,6 +262,7 @@ impl Deployment {
             webhooks: Default::default(),
             writeback: Default::default(),
             cli_download_url: None,
+            cli_dir: None,
             pages: kairos_server::site_store::PagesSettings {
                 store: Some(kairos_server::site_store::StoreConfig::Disk {
                     dir: pages.path().join("pages"),

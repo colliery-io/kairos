@@ -339,6 +339,53 @@ fn a_newer_server_is_installed() {
     assert_eq!(sandbox.binary(), NEW_BINARY);
 }
 
+/// KAIROS-T-0745 (KAIROS-A-0080): a server with the tarballs in its
+/// image sends paths. With no `KAIROS_RELEASES_URL`, the CLI downloads the
+/// tarball and the checksum from the server, and nothing from a release
+/// source.
+#[test]
+fn the_tarball_and_the_checksum_come_from_the_server() {
+    let stub = Stub::start();
+    let asset = format!("kairos-999.0.0-{}.tar.gz", target());
+    let archive = tarball(NEW_BINARY);
+    stub.route(
+        "/version",
+        200,
+        serde_json::json!({
+            "version": "999.0.0",
+            "cli": [{
+                "target": target(),
+                "url": format!("/cli/{asset}"),
+                "sha256_url": format!("/cli/{asset}.sha256"),
+            }],
+        })
+        .to_string(),
+    );
+    stub.route(&format!("/cli/{asset}"), 200, archive.clone());
+    stub.route(
+        &format!("/cli/{asset}.sha256"),
+        200,
+        sha_line(&archive, &asset),
+    );
+    let sandbox = Sandbox::new();
+
+    let output = sandbox.run(
+        &stub,
+        &["self-update", "--url", &stub.url],
+        &[("KAIROS_RELEASES_URL", "")],
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(sandbox.binary(), NEW_BINARY);
+    assert_eq!(stub.hits(&format!("/cli/{asset}.sha256")), 1);
+    assert!(
+        stub.paths()
+            .iter()
+            .all(|path| !path.starts_with("/releases")),
+        "{:?}",
+        stub.paths()
+    );
+}
+
 #[test]
 fn version_installs_an_older_release_without_allow_downgrade() {
     let stub = Stub::start();

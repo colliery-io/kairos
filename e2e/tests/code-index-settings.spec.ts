@@ -181,6 +181,57 @@ test('code index settings: read, edit one section, and no stale overwrite', asyn
     await expect(builderView(page)).toContainText('Requests at a time:3', { timeout: 10_000 });
   });
 
+  await test.step('the default summarizer: hosted, then embedded again', async () => {
+    const pick = page
+      .locator('select[data-testid="code-index-default-summaries"], [data-testid="code-index-default-summaries"] select')
+      .first();
+    await page.locator('[data-testid="code-index-builder-edit"]').click();
+    await pick.selectOption('hosted');
+    await page.locator('[data-testid="code-index-settings-save"]').click();
+    await confirmSave(page);
+    await expect(builderView(page)).toContainText('Default summarizer of the repositories:hosted', {
+      timeout: 10_000,
+    });
+    await page.locator('[data-testid="code-index-builder-edit"]').click();
+    await pick.selectOption('embedded');
+    await page.locator('[data-testid="code-index-settings-save"]').click();
+    await confirmSave(page);
+    await expect(builderView(page)).toContainText('Default summarizer of the repositories:embedded', {
+      timeout: 10_000,
+    });
+  });
+
+  await test.step('the vectors: a remote provider with a secret, then embedded again', async () => {
+    // The page only stores the provider. The builder calls it, and the e2e
+    // server runs no builder, so the URL names no server.
+    const vectors = page.locator('[data-testid="code-index-vector-settings"]');
+    const view = page.locator('[data-testid="code-index-vector-view"]');
+    const secret = page.locator('[data-testid="vector-secret-status"]');
+    await expect(view).toContainText('Provider:embedded');
+    await expect(secret).toHaveText('Secret: none.');
+    await page.locator('[data-testid="code-index-vector-edit"]').click();
+    await field(vectors, 'Provider').selectOption('remote');
+    await field(vectors, 'Base URL').fill('https://vectors.example.com/v1');
+    await field(vectors, 'Model').fill('nomic-embed-text');
+    await field(vectors, 'Secret').fill(`vector-e2e-${RUN}`);
+    await page.locator('[data-testid="code-index-vector-save"]').click();
+    await expect(dialog(page)).toContainText('Provider: embedded → remote');
+    await confirmSave(page);
+    await expect(view).toContainText('Provider:remote', { timeout: 10_000 });
+    await expect(view).toContainText('Model:nomic-embed-text');
+    await expect(secret).toContainText('Secret: set by');
+    expect(await page.content()).not.toContain(`vector-e2e-${RUN}`);
+
+    await view.getByRole('button', { name: 'Remove the secret' }).click();
+    await confirmSave(page, 'Remove');
+    await expect(secret).toHaveText('Secret: none.', { timeout: 10_000 });
+    await page.locator('[data-testid="code-index-vector-edit"]').click();
+    await field(vectors, 'Provider').selectOption('embedded');
+    await page.locator('[data-testid="code-index-vector-save"]').click();
+    await confirmSave(page);
+    await expect(view).toContainText('Provider:embedded', { timeout: 10_000 });
+  });
+
   await test.step('back to embedded: the stored secret of the old provider goes', async () => {
     // A hosted provider keeps its secret: no remove button while it is set.
     await expect(summaryView(page).getByRole('button', { name: 'Remove the secret' })).toHaveCount(0);

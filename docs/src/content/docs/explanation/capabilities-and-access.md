@@ -43,7 +43,7 @@ A grant is a triple: this user, on this board, may do this. The capability
 vocabulary is small and fixed — managing each family of items, transitioning
 items between columns, configuring a board or templates or metadata, managing a
 board's own membership — and it is
-[enumerated in the decision](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0006.md)
+enumerated in the decision (KAIROS-A-0006)
 that defines it rather than restated here. Glob patterns exist as a
 convenience, so that granting everything on a board, or all the management
 verbs, is one row rather than several. What matters for understanding the model
@@ -410,16 +410,14 @@ mean.
 
 ## Where this comes from
 
-- [Board-scoped capabilities, the whitelist stance, the capability vocabulary and
+- Board-scoped capabilities, the whitelist stance, the capability vocabulary and
   the amendment that added team-implied
-  capabilities](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0006.md)
+  capabilities
   (KAIROS-A-0006).
-- [Backlog filing as a computed, tenant-wide
-  capability](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
+- Backlog filing as a computed, tenant-wide capability
   (KAIROS-A-0019), amended by COLLIERY-A-0023: what a member files is a request,
   and it is support work.
-- [Archiving is not a permission
-  boundary](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0020.md)
+- Archiving is not a permission boundary
   (KAIROS-A-0020).
 - People, not teams, work strategies and initiatives (KAIROS-A-0025,
   KAIROS-T-0410, KAIROS-T-0541): the `member` grant on a strategy or

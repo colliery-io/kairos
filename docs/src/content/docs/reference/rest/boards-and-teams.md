@@ -269,48 +269,6 @@ to 36500. Another value is a 422 `VALIDATION` with `details.field` =
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | NOT_DELIVERY_BOARD, or VALIDATION for an `older_than_days` out of range |
 
-### `PUT /api/boards/{id}/code-sequences/{item_type}`
-
-Set the number of the next code of a type on a board (COLLIERY-T-3104).
-An organization admin, or `manage_structure` on the organization
-(KAIROS-T-0337).
-
-The next create of `item_type` on the board gets the code
-`{code_prefix}-{type letter}-{next_number}`. The Metis import uses this
-route to keep the Metis numbers on a board (`--codes keep`).
-
-A sequence never goes back. `next_number` must be above the last
-number of the sequence of the prefix and the type. It must also be above
-the number of each code of that prefix and type: live, archived or
-retired. The next number of the sequence changes nothing. Thus you can
-send the same request 2 times.
-
-- A code that an item has (live or archived) is a 409 `CODE_IN_USE`.
-- A retired code (COLLIERY-T-3100) is a 409 `CODE_RETIRED`, with
-  `details.current_code` when the item exists.
-- A different number at or below the sequence is a 409
-  `SEQUENCE_IS_PAST`, with `details.next_code`.
-- An `item_type` that the board does not hold is a 422 `VALIDATION` with
-  `details.parameter` = `item_type` and `details.allowed`. A board holds
-  the type of its level and documents.
-- A `next_number` below 1 is a 422 `VALIDATION` with `details.field` =
-  `next_number`. An unknown field is a 422 that names it.
-
-| Parameter | In | Required | Type | Description |
-|---|---|---|---|---|
-| `id` | path | yes | `string` | The slug or the id (UUID) of the board |
-| `item_type` | path | yes | `string` | `strategy|initiative|task|document|adr`: a type that the board holds |
-
-Request body (required): `application/json`, [`SetCodeSequenceRequest`](../schemas/#setcodesequencerequest)
-
-| Response | Body | Meaning |
-|---|---|---|
-| `200` | [`CodeSequence`](../schemas/#codesequence) | The sequence; next_code is the code of the next create |
-| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Not an org admin, and no manage_structure on the organization |
-| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board |
-| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | CODE_IN_USE, CODE_RETIRED, or SEQUENCE_IS_PAST |
-| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | An item_type that the board does not hold, a next_number below 1, or an unknown field |
-
 ### `GET /api/boards/{id}/columns`
 
 List a board's columns in position order (open tenant-wide).
@@ -1151,22 +1109,6 @@ rollup of `/api/teams/{id}/links`. Open tenant-wide.
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | array of [`ForgeRef`](../schemas/#forgeref) | Branches and pull requests with no linked item, newest first |
-| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown team |
-
-### `GET /api/teams/{id}/work-documents`
-
-The documents of the team (KAIROS-T-0084, KAIROS-T-0393). A board of
-the team owns each live document, or the document supports a task of
-the team or an item on its delivery board. Each row gives the reason.
-Open tenant-wide.
-
-| Parameter | In | Required | Type | Description |
-|---|---|---|---|---|
-| `id` | path | yes | `string` | The slug or the id (UUID) of the team |
-
-| Response | Body | Meaning |
-|---|---|---|
-| `200` | array of [`TeamWorkDocument`](../schemas/#teamworkdocument) | The documents of the team, by short code |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown team |
 
 ## team-pages

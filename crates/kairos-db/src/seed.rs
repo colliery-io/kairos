@@ -37,7 +37,7 @@
 //!   teams (content saves over the scaffold, so history has a v2), one
 //!   announcement per team (platform's pinned), a how-to page under
 //!   platform's Documentation, and a runbook document supporting a
-//!   platform task (the work-documents panel's demo-visible row)
+//!   platform task
 //!
 //! # Idempotency contract (recorded in KAIROS-T-0035)
 //!
@@ -904,9 +904,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
         // history chain looks lived-in), one announcement per team (the
         // platform one pinned), a how-to page under platform's
         // Documentation, and a runbook document supporting a platform TASK
-        // so the work-documents panel has a demo-visible row (the PRD
-        // supports the org-level sign-up initiative and correctly does not
-        // appear there).
+        // (the PRD supports the org-level sign-up initiative).
         let charter_of = |conn: &mut PgConnection, team: Uuid| -> Result<TeamPage, SeedError> {
             use crate::schema::team_pages as tp;
             Ok(tp::table

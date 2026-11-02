@@ -60,6 +60,7 @@ use kairos_client::types::{
     CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest, CreateStrategyRequest,
     CreateTaskRequest, ListQuery, Pagination,
 };
+use kairos_client::types_org::BoardItemsQuery;
 use kairos_client::types_search::{
     SearchFilter, SearchRequest, SearchTraverse, SearchTraverseFrom,
 };
@@ -106,7 +107,15 @@ async fn board_codes_marked(
 ) -> Vec<(String, bool)> {
     let id = board.to_string();
     let items = if include_deleted {
-        client.board_items_including_archived(&id).await
+        client
+            .board_items_all(
+                &id,
+                &BoardItemsQuery {
+                    include_deleted: true,
+                    ..BoardItemsQuery::default()
+                },
+            )
+            .await
     } else {
         client.board_items(&id, &Default::default()).await
     }

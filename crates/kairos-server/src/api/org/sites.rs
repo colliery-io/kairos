@@ -7,13 +7,11 @@
 //!   one transaction. The files of the publish it replaced are deleted by a
 //!   job after [`REPLACED_GRACE`].
 //! - `DELETE` unpublishes; its files are deleted by a job now.
-//! - `GET .../site/publishes` is the history, newest first.
 //!
 //! Rights: a publish needs the capability `pages` on the delivery board of
 //! the owner team (an organization admin has each capability), and the site
 //! switch of the repository on. An unpublish needs `pages` or the right to
-//! change the repository. The history is open to each member, like the
-//! repository.
+//! change the repository.
 //!
 //! [`REPLACED_GRACE`]: crate::site_store::REPLACED_GRACE
 
@@ -22,13 +20,12 @@ use std::path::{Path as FsPath, PathBuf};
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Extension, Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{get, put};
+use axum::routing::put;
 use axum::{Json, Router};
 use base64::Engine as _;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use futures_util::{StreamExt as _, TryStreamExt as _};
-use kairos_client::types::{ListEnvelope, Pagination};
 use kairos_client::types_sites as dto;
 use kairos_db::models::enums::ActivityAction;
 use kairos_db::models::repositories::Repository;
@@ -38,11 +35,9 @@ use md5::{Digest as _, Md5};
 use tokio::io::AsyncWriteExt as _;
 use uuid::Uuid;
 
-use super::super::clamp_pagination;
 use super::repositories::{delivery_board_of, map_error, require_manage_for_team};
 use crate::app::AppState;
 use crate::error::ApiError;
-use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 use crate::site_archive::{self, ArchiveError, Limits, Unpacked};
@@ -52,17 +47,12 @@ use crate::site_store::{PublishKey, REPLACED_GRACE, SiteStore, cleanup_job};
 const UPLOAD_CONCURRENCY: usize = 8;
 
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/api/repositories/{slug}/site",
-            put(publish_site)
-                .delete(unpublish_site)
-                .layer(DefaultBodyLimit::disable()),
-        )
-        .route(
-            "/api/repositories/{slug}/site/publishes",
-            get(list_site_publishes),
-        )
+    Router::new().route(
+        "/api/repositories/{slug}/site",
+        put(publish_site)
+            .delete(unpublish_site)
+            .layer(DefaultBodyLimit::disable()),
+    )
 }
 
 /// A site archive in the OpenAPI document: the bytes of a `.tar.gz`.
@@ -475,44 +465,4 @@ pub(crate) async fn unpublish_site(
         })
         .await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// The publishes of the site of a repository, newest first.
-#[utoipa::path(
-    get,
-    path = "/api/repositories/{slug}/site/publishes",
-    tag = "repositories",
-    params(
-        ("slug" = String, Path, description = "Repository slug (or UUID)"),
-        Pagination,
-    ),
-    responses(
-        (status = 200, description = "The publishes, newest first", body = ListEnvelope<dto::SitePublish>),
-        (status = 404, description = "Unknown repository", body = kairos_client::types::ErrorEnvelope),
-    ),
-)]
-pub(crate) async fn list_site_publishes(
-    State(state): State<AppState>,
-    Extension(tenant): Extension<TenantContext>,
-    Path(slug): Path<String>,
-    ApiQuery(pagination): ApiQuery<Pagination>,
-) -> Result<Json<ListEnvelope<dto::SitePublish>>, ApiError> {
-    let (limit, offset) = clamp_pagination(&pagination);
-    let page = state
-        .blocking
-        .run(&tenant.slug, move |conn| {
-            let repo = repositories::resolve(conn, &slug).map_err(map_error)?;
-            let (rows, total) =
-                sites::history(conn, repo.id, limit, offset).map_err(ApiError::internal)?;
-            let ids: Vec<Uuid> = rows.iter().map(|p| p.principal_id).collect();
-            let names = sites::names(conn, &ids).map_err(ApiError::internal)?;
-            Ok(ListEnvelope {
-                items: rows.iter().map(|p| publish_dto_named(p, &names)).collect(),
-                total,
-                limit,
-                offset,
-            })
-        })
-        .await?;
-    Ok(Json(page))
 }

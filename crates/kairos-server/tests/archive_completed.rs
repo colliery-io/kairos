@@ -279,7 +279,7 @@ async fn archive_completed_archives_the_done_columns() {
 
     // --- 3. carol may not archive on the board -------------------------------
     let err = carol
-        .archive_completed(&board)
+        .archive_completed(&board, None)
         .await
         .expect_err("carol has no manage_tasks");
     assert!(
@@ -290,7 +290,10 @@ async fn archive_completed_archives_the_done_columns() {
     assert_eq!(got.archived_at, None, "the refusal changed nothing");
 
     // --- 1 and 2. bob manages the board --------------------------------------
-    let response = bob.archive_completed(&board).await.expect("bob archives");
+    let response = bob
+        .archive_completed(&board, None)
+        .await
+        .expect("bob archives");
     assert_eq!(response.count, 2, "{response:?}");
     assert_eq!(response.short_codes, expected);
     assert_eq!(response.board_id, board);
@@ -399,7 +402,7 @@ async fn archive_completed_archives_the_done_columns() {
     .expect("back-dating");
     for days in [0, -1, 36_501] {
         let err = bob
-            .archive_completed_older_than(&board, Some(days))
+            .archive_completed(&board, Some(days))
             .await
             .expect_err("out of range");
         assert!(
@@ -426,7 +429,7 @@ async fn archive_completed_archives_the_done_columns() {
         "{text}"
     );
     let response = bob
-        .archive_completed_older_than(&board, Some(7))
+        .archive_completed(&board, Some(7))
         .await
         .expect("archive older than 7 days");
     assert_eq!(response.short_codes, vec![old_task.short_code.clone()]);
@@ -440,7 +443,7 @@ async fn archive_completed_archives_the_done_columns() {
         .await;
     assert!(text.contains("archived nothing"), "{text}");
     let response = bob
-        .archive_completed_older_than(&board, None)
+        .archive_completed(&board, None)
         .await
         .expect("archive each");
     assert_eq!(response.short_codes, vec![new_done.short_code.clone()]);
@@ -456,7 +459,7 @@ async fn archive_completed_archives_the_done_columns() {
         .find(|b| b.board_level == "initiative")
         .expect("the tenant has an initiative board");
     let err = admin
-        .archive_completed(&initiatives.id)
+        .archive_completed(&initiatives.id, None)
         .await
         .expect_err("not a delivery board");
     assert!(

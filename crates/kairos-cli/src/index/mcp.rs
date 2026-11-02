@@ -548,8 +548,6 @@ impl CodeTools {
         };
         let summary = match &outcome {
             super::summaries::Outcome::Linked(r) | super::summaries::Outcome::NotMade(r, _) => r,
-            #[cfg(feature = "llama")]
-            super::summaries::Outcome::Made(r, _) => r,
         };
         let linked = summary.symbols.reused + summary.files.reused + summary.modules.reused;
         let left = summary.symbols.left + summary.files.left + summary.modules.left;

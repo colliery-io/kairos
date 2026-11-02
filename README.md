@@ -101,7 +101,7 @@ than in the book:
 | [`e2e/README.md`](e2e/README.md) | the end-to-end smoke |
 | [`docs/gui-conventions.md`](docs/gui-conventions.md) | GUI conventions — design tokens, never raw colours |
 | [`plugin/README.md`](plugin/README.md) | the Claude Code plugin |
-| [`.metis/`](.metis/) | the work record up to 2026-09-26, frozen: vision, initiatives, ADRs, specifications |
+| `.metis/` | the work record up to 2026-09-26, frozen: vision, initiatives, ADRs, specifications |
 
 Work is managed in Kairos itself since 2026-09-26, on the board `kairos`
 (codes `KAIROS-T-n`, ADRs `KAIROS-A-n`, documents `KAIROS-D-n`). The record
@@ -109,17 +109,14 @@ moved to a new database with one board per project on 2026-10-04
 (COLLIERY-I-0025). A code in a commit, a comment or a page from before that
 date (`COLLIERY-x-n`, and the `KAIROS-x-n` numbers of the first copy) is
 historical: it does not match the items on the boards now, and there is no
-lookup from an old code to a new one.
-[`scripts/migrate-metis-to-kairos.py`](scripts/migrate-metis-to-kairos.py) did
-the copies (`--codes keep` keeps the Metis numbers on the boards of a team) and
-`.metis/kairos-migration.json` is the ledger of the first one. `.metis/` stays
+lookup from an old code to a new one. `.metis/` stays
 in the repository because the code, the commits and the book cite it; nothing
 is written there. The map of the code is the code index that the `kairos-code`
 MCP server of the plugin serves (`plugin/README.md`), not a file in `.metis/`.
 
-Architecture decisions up to 2026-09-26 are in [`.metis/adrs/`](.metis/adrs/);
-the ones since are on the Kairos board `kairos-adrs`. The testing and
-verification strategy is [`KAIROS-A-0012`](.metis/adrs/KAIROS-A-0012.md).
+Architecture decisions up to 2026-09-26 are in `.metis/adrs/`, frozen; the
+ones since are on the Kairos board `kairos-adrs`. The testing and verification
+strategy is KAIROS-A-0012.
 
 ## CI
 

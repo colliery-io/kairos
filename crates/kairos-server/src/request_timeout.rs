@@ -132,10 +132,6 @@ mod tests {
         }
         assert!(applies(
             &Method::GET,
-            "/api/repositories/kairos/site/publishes"
-        ));
-        assert!(applies(
-            &Method::GET,
             "/api/repositories/kairos/code-indexes"
         ));
     }

@@ -19,13 +19,10 @@
 //! - initialize reports the server version (REQ-1.7); 401 pre-session
 //!   without a token (with the RFC 9728 WWW-Authenticate challenge) and
 //!   403 for an authenticated non-member — the SAME middleware as /api;
-//! - tools/list is EXACTLY the 23-tool inventory: 14 from S-0006, the two
-//!   repository tools of KAIROS-T-0107, `move_item` (KAIROS-I-0012),
-//!   `restore_item` (KAIROS-A-0020), `related_work` (KAIROS-T-0191),
-//!   `propose_edge` (KAIROS-T-0192), `set_repository` (COLLIERY-T-0220),
-//!   and `add_repository` and `update_repository` (COLLIERY-T-0266);
-//!   the reference page and the how-to give the same count, and the
-//!   reference page has one section for each tool;
+//! - tools/list is EXACTLY the `expected` list, of length
+//!   `TOOL_COUNT`; the reference page and the how-to give the same count,
+//!   and the reference page has one section for each tool. The split of
+//!   the tools into profiles is tested in `mcp/profiles.rs`;
 //! - `set_repository` (COLLIERY-T-0220): set, clear, the board and the team
 //!   do not change, the refusals, and agreement with the REST route;
 //! - `add_repository` and `update_repository` (COLLIERY-T-0266), in a test

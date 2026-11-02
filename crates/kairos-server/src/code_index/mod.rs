@@ -193,6 +193,10 @@ pub struct CodeIndexService {
     min_rebuild_secs: std::sync::atomic::AtomicU64,
     /// The dependency cache of the SCIP runners (KAIROS-T-0474).
     deps: DependencySettings,
+    /// `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB` (KAIROS-T-0747), in bytes: below
+    /// this memory limit of the container, the rust-analyzer SCIP run does
+    /// not start. None: no check.
+    scip_memory_bytes: Option<u64>,
     /// The last disk use of the tools and the caches, and when it was read
     /// (KAIROS-T-0478).
     disk: Mutex<Option<(Instant, kairos_client::types_code_index::CodeIndexDiskUse)>>,
@@ -275,6 +279,7 @@ impl CodeIndexService {
             instance: uuid::Uuid::new_v4(),
             min_rebuild_secs: std::sync::atomic::AtomicU64::new(0),
             deps: DependencySettings::default(),
+            scip_memory_bytes: None,
             disk: Mutex::new(None),
             summary_backoff: Mutex::default(),
         }
@@ -349,6 +354,14 @@ impl CodeIndexService {
     /// The settings of the dependency cache (KAIROS-T-0474).
     pub fn with_dependency_settings(mut self, deps: DependencySettings) -> Self {
         self.deps = deps;
+        self
+    }
+
+    /// The memory that the rust-analyzer SCIP run needs
+    /// (`KAIROS_CODE_INDEX_SCIP_MEMORY_MIB`, KAIROS-T-0747), in MiB. 0: no
+    /// check.
+    pub fn with_scip_memory_mib(mut self, mib: u64) -> Self {
+        self.scip_memory_bytes = (mib > 0).then(|| mib.saturating_mul(1024 * 1024));
         self
     }
 
@@ -472,13 +485,16 @@ impl CodeIndexService {
     /// The SCIP options of a build: the tools, else the pinned files at
     /// their default paths. Never a download.
     pub fn build_options(&self) -> kairos_index::BuildOptions {
-        self.build
+        let mut options = self
+            .build
             .get()
             .cloned()
             .unwrap_or_else(|| kairos_index::BuildOptions {
                 download: false,
                 ..Default::default()
-            })
+            });
+        options.min_memory_bytes = self.scip_memory_bytes;
+        options
     }
 
     /// The options of a build of `repo` of `tenant`: [`Self::build_options`],

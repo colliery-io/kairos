@@ -47,7 +47,6 @@ pub fn router() -> Router<AppState> {
             "/api/teams/{id}/unlinked-refs",
             get(list_team_unlinked_refs),
         )
-        .route("/api/teams/{id}/work-documents", get(list_work_documents))
         .route(
             "/api/teams/{id}",
             get(get_team).patch(update_team).delete(delete_team),
@@ -366,50 +365,6 @@ pub(crate) async fn list_team_unlinked_refs(
             Ok(rows
                 .into_iter()
                 .map(super::repositories::ref_dto)
-                .collect::<Vec<_>>())
-        })
-        .await?;
-    Ok(Json(rows))
-}
-
-/// The documents of the team (KAIROS-T-0084, KAIROS-T-0393). A board of
-/// the team owns each live document, or the document supports a task of
-/// the team or an item on its delivery board. Each row gives the reason.
-/// Open tenant-wide.
-#[utoipa::path(
-    get,
-    path = "/api/teams/{id}/work-documents",
-    tag = "teams",
-    params(("id" = String, Path, description = "The slug or the id (UUID) of the team")),
-    responses(
-        (status = 200, description = "The documents of the team, by short code", body = Vec<kairos_client::types_team_pages::TeamWorkDocument>),
-        (status = 404, description = "Unknown team", body = kairos_client::types::ErrorEnvelope),
-    ),
-)]
-pub(crate) async fn list_work_documents(
-    State(state): State<AppState>,
-    Extension(tenant): Extension<TenantContext>,
-    Path(id): Path<String>,
-) -> Result<Json<Vec<kairos_client::types_team_pages::TeamWorkDocument>>, ApiError> {
-    let rows = state
-        .blocking
-        .run(&tenant.slug, move |conn| {
-            let team_id = team_by_ref(conn, &id)?;
-            load_team(conn, team_id)?;
-            let board = delivery_board_of(conn, team_id)?;
-            let rows = kairos_db::graph::team_work_documents(conn, team_id, board)
-                .map_err(ApiError::internal)?;
-            Ok(rows
-                .into_iter()
-                .map(|row| kairos_client::types_team_pages::TeamWorkDocument {
-                    short_code: row.short_code,
-                    title: row.title,
-                    lifecycle: row.lifecycle,
-                    owned: row.owned,
-                    parent_short_code: row.parent_short_code,
-                    parent_title: row.parent_title,
-                    parent_type: row.parent_type,
-                })
                 .collect::<Vec<_>>())
         })
         .await?;

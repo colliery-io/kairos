@@ -22,9 +22,8 @@
 use chrono::Utc;
 use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
-use kairos_db::api_keys::ApiKey;
 use kairos_db::models::{Organization, User};
-use kairos_db::schema::{api_keys, organizations, users};
+use kairos_db::schema::{organizations, users};
 use kairos_db::tenant::is_valid_tenant_slug;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
@@ -147,50 +146,46 @@ pub async fn authenticate_api_key(
         }
     };
 
-    // Hash lookup inside the tenant's own api_keys table.
+    // Hash lookup inside the tenant's own api_keys table, with the helpers
+    // of kairos-db (KAIROS-T-0743), as the session path does (login.rs).
     let hash = hash_key(token);
-    let mut conn = state.pool.tenant(&slug).await.map_err(ApiError::internal)?;
-    let row: Option<ApiKey> = api_keys::table
-        .filter(api_keys::token_hash.eq(&hash))
-        .select(ApiKey::as_select())
-        .first(&mut *conn)
-        .await
-        .optional()
-        .map_err(ApiError::internal)?;
-    let row = row.ok_or_else(bad_key)?;
-    if !row.is_valid_at(Utc::now()) {
-        return Err(bad_key());
-    }
+    let lookup = hash.clone();
+    let (row, user) = state
+        .blocking
+        .run(&slug, move |conn| {
+            let row = kairos_db::api_keys::find_by_hash(conn, &lookup)
+                .map_err(ApiError::internal)?
+                .ok_or_else(bad_key)?;
+            if !row.is_valid_at(Utc::now()) {
+                return Err(bad_key());
+            }
 
-    // Load the service-account principal (public.users is schema-qualified, so
-    // it resolves on the tenant-pinned connection).
-    let user: Option<User> = users::table
-        .filter(users::id.eq(row.user_id))
-        .select(User::as_select())
-        .first(&mut *conn)
-        .await
-        .optional()
-        .map_err(ApiError::internal)?;
-    let user = user.ok_or_else(bad_key)?;
-    // KAIROS-T-0481: a system actor holds no key. A row that names one is
-    // refused like any bad key.
-    if user.is_system() {
-        return Err(bad_key());
-    }
+            // Load the service-account principal (public.users is
+            // schema-qualified, so it resolves on the tenant-pinned
+            // connection).
+            let user: User = diesel::RunQueryDsl::first(
+                users::table
+                    .filter(users::id.eq(row.user_id))
+                    .select(User::as_select()),
+                conn,
+            )
+            .optional()
+            .map_err(ApiError::internal)?
+            .ok_or_else(bad_key)?;
+            // KAIROS-T-0481: a system actor holds no key. A row that names
+            // one is refused like any bad key.
+            if user.is_system() {
+                return Err(bad_key());
+            }
 
-    // Best-effort last-used stamp: never fail or block the request on it.
-    // KAIROS-T-0610: written only when the last stamp is older than the
-    // window, so a read does not write on every call.
-    let stale = row
-        .last_used_at
-        .is_none_or(|at| at < Utc::now() - LAST_USED_WINDOW);
-    if stale {
-        let _ = diesel::update(api_keys::table.filter(api_keys::id.eq(row.id)))
-            .set(api_keys::last_used_at.eq(diesel::dsl::now))
-            .execute(&mut *conn)
-            .await;
-    }
-    drop(conn);
+            // Best-effort last-used stamp: never fail the request on it.
+            // KAIROS-T-0610: written only when the last stamp is older than
+            // the window, so a read does not write on every call.
+            let _ =
+                kairos_db::api_keys::touch_last_used(conn, row.id, Utc::now() - LAST_USED_WINDOW);
+            Ok((row, user))
+        })
+        .await?;
 
     // KAIROS-T-0359: the key of a person is an agent key; it acts as the
     // person. The key of a service account is not.

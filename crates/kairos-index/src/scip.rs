@@ -47,7 +47,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus};
+use std::sync::Mutex;
 use std::time::Instant;
 
 use kairos_narsil::parser::LanguageParser;
@@ -105,6 +106,15 @@ const RA_LOG: &str =
 /// The panic of rust-analyzer 1.93.0 `scip` on a file in 2 crates.
 const SHARED_FILE_PANIC: &str = "file emitted multiple times";
 
+/// One rust-analyzer SCIP run at a time in a process (KAIROS-T-0747). A run
+/// of a repository of the size of kairos needs about 4.7 GiB at its peak, so
+/// 2 builds at the same time (for example 2 hosted builds) need 2 times
+/// that. A build waits here for the run of the other build.
+static SCIP_RUN: Mutex<()> = Mutex::new(());
+
+/// The lines of output that a failed run gives in its error.
+const FAILURE_LINES: usize = 8;
+
 /// The crate of each module file of the run, from the repository root. A
 /// crate is a target of a workspace member.
 #[derive(Debug, Default)]
@@ -121,6 +131,9 @@ pub fn run(
     options: &crate::BuildOptions,
 ) -> Result<(ScipRun, proto::Index, Crates), IndexError> {
     let started = Instant::now();
+    if let Some(need) = options.min_memory_bytes {
+        check_memory_limit(memory_limit(Path::new(CGROUP_ROOT)), need)?;
+    }
     let root = fs::canonicalize(root).map_err(|source| IndexError::Io {
         path: root.to_path_buf(),
         source,
@@ -212,6 +225,7 @@ pub fn run(
     // panics on a file in 2 crates; then again, with the shared targets left
     // out.
     let mut leave_out = false;
+    let running = SCIP_RUN.lock().unwrap_or_else(|e| e.into_inner());
     let (left_out_targets, crates) = loop {
         let (prepared, left_out_targets, crates) = prepare_metadata(&root, &metadata, leave_out)?;
         fs::write(&metadata_path, prepared.to_string()).map_err(io(&metadata_path))?;
@@ -239,8 +253,15 @@ pub fn run(
             leave_out = true;
             continue;
         }
-        return Err(IndexError::Scip(failure_text(&stderr)));
+        let log = fs::read_to_string(&log_path).unwrap_or_default();
+        return Err(IndexError::Scip(failure_text(
+            "rust-analyzer",
+            output.status,
+            &stderr,
+            &log,
+        )));
     };
+    drop(running);
 
     let log = fs::read_to_string(&log_path).unwrap_or_default();
     let build_script_command = build_script_command(&log);
@@ -389,9 +410,11 @@ fn cargo_metadata(
         output = run(LockfileForm::Config)?;
     }
     if !output.status.success() {
-        return Err(IndexError::Scip(format!(
-            "cargo metadata failed: {}",
-            failure_text(&String::from_utf8_lossy(&output.stderr))
+        return Err(IndexError::Scip(failure_text(
+            "cargo metadata",
+            output.status,
+            &String::from_utf8_lossy(&output.stderr),
+            "",
         )));
     }
     serde_json::from_slice(&output.stdout)
@@ -646,13 +669,99 @@ fn refuses_lockfile_flag(stderr: &str) -> bool {
 }
 
 /// The panic message of rust-analyzer, or the last lines of its output.
-fn failure_text(stderr: &str) -> String {
-    let lines: Vec<&str> = stderr.lines().collect();
+/// Why `program` failed, for the error of the run (KAIROS-T-0747): how it
+/// ended (its exit status, or the signal that stopped it), then the panic
+/// of its output if it has one, else the last lines of its output and of
+/// its log. The first lines ("Loading cargo metadata") tell nothing.
+fn failure_text(program: &str, status: ExitStatus, stderr: &str, log: &str) -> String {
+    let mut text = format!("{program} {}", ended(status));
+    let lines: Vec<&str> = stderr.lines().filter(|l| !l.trim().is_empty()).collect();
     if let Some(i) = lines.iter().position(|l| l.contains("panicked at")) {
-        return lines[i..lines.len().min(i + 2)].join(" ");
+        text.push_str(". Its panic: ");
+        text.push_str(&lines[i..lines.len().min(i + 2)].join(" "));
+        return text;
     }
-    let start = lines.len().saturating_sub(5);
-    lines[start..].join("\n")
+    let last = |lines: &[&str]| lines[lines.len().saturating_sub(FAILURE_LINES)..].join("\n");
+    if !lines.is_empty() {
+        text.push_str(". The last lines of its output:\n");
+        text.push_str(&last(&lines));
+    }
+    let log: Vec<&str> = log.lines().filter(|l| !l.trim().is_empty()).collect();
+    if !log.is_empty() {
+        text.push_str("\nThe last lines of its log:\n");
+        text.push_str(&last(&log));
+    }
+    text
+}
+
+/// How a process ended: "exited with status 101", or "was stopped by
+/// signal 9 (SIGKILL): out of memory?".
+fn ended(status: ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return format!("exited with status {code}");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return match signal {
+                9 => "was stopped by signal 9 (SIGKILL): out of memory? The kernel stops \
+                      the largest process when a container is at its memory limit"
+                    .to_string(),
+                15 => "was stopped by signal 15 (SIGTERM)".to_string(),
+                6 => "was stopped by signal 6 (SIGABRT)".to_string(),
+                11 => "was stopped by signal 11 (SIGSEGV)".to_string(),
+                n => format!("was stopped by signal {n}"),
+            };
+        }
+    }
+    format!("ended with {status}")
+}
+
+/// The root of the cgroup file system.
+const CGROUP_ROOT: &str = "/sys/fs/cgroup";
+
+/// The memory limit of the cgroup of this process, in bytes, under the
+/// cgroup file system at `root`: `memory.max` (cgroup v2) or
+/// `memory/memory.limit_in_bytes` (cgroup v1). None when there is no
+/// limit, or no cgroup file system (macOS).
+fn memory_limit(root: &Path) -> Option<u64> {
+    let parse = |text: &str| -> Option<u64> {
+        let value: u64 = text.trim().parse().ok()?;
+        // cgroup v1 gives a number near 2^63 for "no limit".
+        (value < 1 << 62).then_some(value)
+    };
+    // cgroup v2: the folder of this process ("0::/path" in /proc/self/cgroup),
+    // else the root, which is the folder of the container in a cgroup
+    // namespace.
+    let own = fs::read_to_string("/proc/self/cgroup")
+        .ok()
+        .and_then(|t| {
+            t.lines()
+                .find_map(|l| l.strip_prefix("0::").map(|p| p.trim().to_string()))
+        })
+        .map(|p| root.join(p.trim_start_matches('/')));
+    for dir in own.iter().map(PathBuf::as_path).chain([root]) {
+        if let Ok(text) = fs::read_to_string(dir.join("memory.max")) {
+            return parse(&text);
+        }
+    }
+    fs::read_to_string(root.join("memory/memory.limit_in_bytes"))
+        .ok()
+        .and_then(|t| parse(&t))
+}
+
+/// Refuse the run when the memory limit is below `need` (KAIROS-T-0747).
+/// The kernel would stop rust-analyzer near the end of the run, after
+/// minutes of work, with no message.
+fn check_memory_limit(limit: Option<u64>, need: u64) -> Result<(), IndexError> {
+    match limit {
+        Some(limit) if limit < need => Err(IndexError::ScipMemory {
+            limit_mib: limit / (1024 * 1024),
+            need_mib: need / (1024 * 1024),
+        }),
+        _ => Ok(()),
+    }
 }
 
 #[cfg(unix)]
@@ -906,6 +1015,102 @@ pub fn type_name(descriptors: &[Descriptor]) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0747: the error names how rust-analyzer ended, and gives the
+    /// last lines of its output and its log, not the first.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_run_names_the_signal_and_the_last_lines() {
+        use std::os::unix::process::ExitStatusExt;
+        let stderr: String = (1..=20).map(|i| format!("line {i}\n")).collect();
+        let killed = failure_text(
+            "rust-analyzer",
+            ExitStatus::from_raw(9),
+            &stderr,
+            "WARN a\nWARN b\n",
+        );
+        assert!(
+            killed.starts_with("rust-analyzer was stopped by signal 9 (SIGKILL): out of memory?"),
+            "{killed}"
+        );
+        assert!(killed.contains("line 20"), "{killed}");
+        assert!(killed.contains("line 13"), "{killed}");
+        assert!(!killed.contains("line 12\n"), "{killed}");
+        assert!(killed.ends_with("WARN a\nWARN b"), "{killed}");
+
+        let exited = failure_text("cargo metadata", ExitStatus::from_raw(101 << 8), "", "");
+        assert_eq!(exited, "cargo metadata exited with status 101");
+
+        let panic = failure_text(
+            "rust-analyzer",
+            ExitStatus::from_raw(101 << 8),
+            "Loading\nthread 'main' panicked at src/x.rs:1:1:\nfile emitted multiple times\nmore\n",
+            "",
+        );
+        assert_eq!(
+            panic,
+            "rust-analyzer exited with status 101. Its panic: thread 'main' panicked at \
+             src/x.rs:1:1: file emitted multiple times"
+        );
+    }
+
+    /// KAIROS-T-0747: the memory limit comes from cgroup v2, else v1; "max"
+    /// and the v1 value for no limit are no limit.
+    #[test]
+    fn the_memory_limit_comes_from_the_cgroup() {
+        let v2 = tempfile::tempdir().unwrap();
+        fs::write(v2.path().join("memory.max"), "8589934592\n").unwrap();
+        assert_eq!(memory_limit(v2.path()), Some(8 << 30));
+        fs::write(v2.path().join("memory.max"), "max\n").unwrap();
+        assert_eq!(memory_limit(v2.path()), None);
+
+        let v1 = tempfile::tempdir().unwrap();
+        fs::create_dir(v1.path().join("memory")).unwrap();
+        fs::write(v1.path().join("memory/memory.limit_in_bytes"), "4294967296").unwrap();
+        assert_eq!(memory_limit(v1.path()), Some(4 << 30));
+        fs::write(
+            v1.path().join("memory/memory.limit_in_bytes"),
+            "9223372036854771712",
+        )
+        .unwrap();
+        assert_eq!(memory_limit(v1.path()), None);
+
+        let none = tempfile::tempdir().unwrap();
+        assert_eq!(memory_limit(none.path()), None);
+    }
+
+    /// KAIROS-T-0747: a limit below the need refuses the run with a text
+    /// that names both and the setting; no limit or enough memory runs.
+    #[test]
+    fn a_memory_limit_below_the_need_refuses_the_run() {
+        let need = 6144 << 20;
+        let err = check_memory_limit(Some(4096 << 20), need).unwrap_err();
+        let text = err.to_string();
+        assert!(text.contains("4096 MiB"), "{text}");
+        assert!(text.contains("6144 MiB"), "{text}");
+        assert!(text.contains("KAIROS_CODE_INDEX_SCIP_MEMORY_MIB"), "{text}");
+        assert!(check_memory_limit(Some(8192 << 20), need).is_ok());
+        assert!(check_memory_limit(Some(need), need).is_ok());
+        assert!(check_memory_limit(None, need).is_ok());
+    }
+
+    /// KAIROS-T-0747: the check runs before the tools are read, so a
+    /// refused run needs no rust-analyzer. On a host with no limit (macOS,
+    /// most CI runners) the run goes on and fails on the missing binary.
+    #[test]
+    fn the_memory_check_runs_first() {
+        let options = crate::BuildOptions {
+            rust_analyzer: Some(PathBuf::from("/nonexistent/rust-analyzer")),
+            download: false,
+            min_memory_bytes: Some(u64::MAX),
+            ..Default::default()
+        };
+        let err = run(Path::new("."), &options).unwrap_err();
+        match memory_limit(Path::new(CGROUP_ROOT)) {
+            Some(_) => assert!(matches!(err, IndexError::ScipMemory { .. }), "{err}"),
+            None => assert!(matches!(err, IndexError::RustAnalyzerMissing(_)), "{err}"),
+        }
+    }
 
     #[test]
     fn the_lock_file_copy_has_a_form_for_old_and_new_cargo() {

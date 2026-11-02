@@ -21,9 +21,9 @@
 //!
 //! A rule with the trigger [`TRIGGER_UNBLOCKED`] (KAIROS-T-0427) fires when
 //! an item loses its last open blocker ([`on_dependants_freed`]): the event
-//! [`EVENT_UNBLOCKED`]. The blocker is done or archived
-//! ([`on_blockers_closed`]), or its `blocks` edge is gone: an unlink or a
-//! purge (KAIROS-T-0568). A cancelled blocker stays open (KAIROS-T-0567):
+//! [`EVENT_UNBLOCKED`]. The blocker is done or archived (the caller finds
+//! the items with `dependants_of`), or its `blocks` edge is gone: an
+//! unlink or a purge (KAIROS-T-0568). A cancelled blocker stays open (KAIROS-T-0567):
 //! its cancel fires nothing, and it holds the item until a person removes
 //! the edge, archives it or reopens it. The item can be a strategy, an initiative or a
 //! task. The rule can name a column that the item must be in. An item with
@@ -444,21 +444,6 @@ struct Unblocked {
     id: Uuid,
     #[diesel(sql_type = SqlUuid)]
     column_id: Uuid,
-}
-
-/// The items in `blockers` closed: done or archived. For each live item
-/// that one of them blocks, that is not done, that is not in `blockers`,
-/// and that has no other open blocker now, queue one delivery of
-/// [`EVENT_UNBLOCKED`] for each `unblocked` rule of its board that it
-/// matches (KAIROS-T-0427). Runs in the transaction of the change, after
-/// the blockers changed.
-pub fn on_blockers_closed(
-    conn: &mut PgConnection,
-    blockers: &[Uuid],
-    actor: Uuid,
-) -> Result<Vec<crate::webhooks::Delivery>, DieselError> {
-    let freed = dependants_of(conn, blockers, blockers)?;
-    on_dependants_freed(conn, &freed, actor)
 }
 
 /// Each item of `freed` lost a blocker: the blocker closed, or its edge is

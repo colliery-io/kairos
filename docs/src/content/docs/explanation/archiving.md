@@ -62,7 +62,7 @@ Read as rules rather than as prose, the decision says:
 The numbering is this page's, and it is the numbering the endpoint reference
 cites when it says "rule 2" or "rule 3" — follow one of those citations and
 you land here, on the argument, which is what you wanted. It matches
-[the decision record](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0020.md),
+the decision record (KAIROS-A-0020),
 where the decision was first written down.
 
 "Marked" carries more weight than it looks. Archived rows are marked, never
@@ -489,12 +489,12 @@ entity. So the activity of an item shows the edges that start at the item.
 
 ## Where this comes from
 
-- [KAIROS-A-0020](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0020.md)
+- KAIROS-A-0020
   — the decision, its six rules, and the alternatives.
-- [KAIROS-I-0015](https://github.com/colliery-io/kairos/blob/main/.metis/initiatives/KAIROS-I-0015/initiative.md)
+- KAIROS-I-0015
   — implementing it across every surface, including the column soft delete and
   what the code knew that the survey did not.
-- [KAIROS-I-0012](https://github.com/colliery-io/kairos/blob/main/.metis/initiatives/KAIROS-I-0012/initiative.md)
+- KAIROS-I-0012
   — the live-only guard that archiving a board clear is still how a team is
   wound down.
 

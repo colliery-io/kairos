@@ -37,22 +37,14 @@ pub mod types_work;
 
 pub use client::{
     DEFAULT_CONNECT_TIMEOUT, DEFAULT_TIMEOUT, EntityKind, KairosClient, StaticToken, TIMEOUT_VAR,
-    TokenProvider, parse_timeout, timeout_from_env,
+    TokenProvider, timeout_from_env,
 };
 pub use error::Error;
 pub use ws::EventStream;
 
-/// Placeholder marker kept for early consumers (KAIROS-I-0003).
-pub const CRATE_NAME: &str = "kairos-client";
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn smoke() {
-        assert_eq!(CRATE_NAME, "kairos-client");
-    }
 
     /// The envelopes round-trip through serde with the S-0005 field names.
     #[test]

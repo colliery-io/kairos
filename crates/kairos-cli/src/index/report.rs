@@ -194,8 +194,6 @@ pub(super) fn summaries(outcome: &Outcome) -> Value {
     let (result, r, reason, seconds) = match outcome {
         Outcome::Linked(r) => ("linked", r, None, None::<f64>),
         Outcome::NotMade(r, why) => ("not_made", r, Some(why.as_str()), None),
-        #[cfg(feature = "llama")]
-        Outcome::Made(r, elapsed) => ("made", r, None, Some(elapsed.as_secs_f64())),
     };
     json!({
         "result": result,

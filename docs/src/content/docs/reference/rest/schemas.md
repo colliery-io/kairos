@@ -553,17 +553,6 @@ One tool folder and its disk use.
 | `language` | `string`, nullable | no | The language that uses it: `rust`, `go`, `typescript`, `python`, `typescript, python` (Node.js), or none. |
 | `name` | `string` | yes | The folder: `go-1.27.2`, `node-24.22.0`, `rust-1.93.0`, … or `other`. |
 
-## CodeSequence
-
-The sequence of a prefix and a type (COLLIERY-T-3104).
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `code_prefix` | `string` | yes | The short-code prefix of the board. |
-| `item_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
-| `last_number` | `integer` | yes | The last number that the sequence gave. |
-| `next_code` | `string` | yes | The code that the next create of the type gets. |
-
 ## CreateAdrRequest
 
 Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule: both set (on-board) or both omitted (off-board; creation is then org-admin-only, KAIROS-A-0006 fallback).
@@ -1769,17 +1758,6 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `offset` | `integer` | yes | The applied offset. |
 | `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). The activity feed counts at most past the larger of 1000 and `offset + limit` (KAIROS-T-0627): a `total` above that bound means "more than the bound". |
 
-## ListEnvelope_SitePublish
-
-The S-0005 list envelope: `{items, total, limit, offset}`.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `items` | array of `object` | yes |  |
-| `limit` | `integer` | yes | The applied limit. |
-| `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). The activity feed counts at most past the larger of 1000 and `offset + limit` (KAIROS-T-0627): a `total` above that bound means "more than the bound". |
-
 ## ListEnvelope_Strategy
 
 The S-0005 list envelope: `{items, total, limit, offset}`.
@@ -2720,16 +2698,6 @@ One session, for the audit listing. Never the token or its hash.
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
-## SetCodeSequenceRequest
-
-Body of `PUT /api/boards/{id}/code-sequences/{item_type}` (COLLIERY-T-3104): the number of the next code of the type on the board.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `next_number` | `integer` | yes | The next create of the type on the board gets this number. It must be above the last number of the sequence, and above the number of each code of the prefix and type that exists or is retired. |
-
-The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
-
 ## SetComplexityRequest
 
 Body of `PUT /api/initiatives/{short_code}/complexity`: set the complexity of an initiative. `none` clears it. The field is required, so a body that leaves it out cannot clear the complexity by mistake. Not content: no version bump (the A-0004 contract covers title/content only).
@@ -3199,20 +3167,6 @@ One document or ADR in the tree of a team (KAIROS-T-0437): `GET /api/teams/{id}/
 | `position` | `integer`, nullable | no | Its position among its siblings; null when nobody placed it (it shows at the end of the root). |
 | `short_code` | `string` | yes |  |
 | `status` | `string` | yes | The lifecycle of a document, or the column of an ADR. |
-| `title` | `string` | yes |  |
-
-## TeamWorkDocument
-
-One row of `GET /api/teams/{id}/work-documents` (KAIROS-T-0084, KAIROS-T-0393): a live document of the team. A board of the team owns it (`owned`), or it supports a task of the team or an item on the delivery board of the team (`parent_*`). Each row has one reason or both.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `lifecycle` | `string` | yes | `draft|published|adopted|superseded` (KAIROS-T-0080). |
-| `owned` | `boolean` | yes | A board of the team is the owner board of the document. |
-| `parent_short_code` | `string`, nullable | no | The supports-parent item of the team's work, for attribution; `null` when it supports no item of the team's work. |
-| `parent_title` | `string`, nullable | no |  |
-| `parent_type` | `string`, nullable | no | `strategy|initiative|task`. |
-| `short_code` | `string` | yes | Document short code (links to `/items/{code}`). |
 | `title` | `string` | yes |  |
 
 ## Template

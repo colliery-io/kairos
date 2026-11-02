@@ -384,6 +384,7 @@ fn config(scratch_url: &str) -> AppConfig {
         code_index_min_rebuild_secs: 0,
         code_index_deps_cap_mb: 10240,
         code_index_min_free_mb: 5120,
+        code_index_scip_memory_mib: 0,
         code_index_deps_env: Vec::new(),
         code_index_tool_downloads: false,
         web_client_id: "kairos-web".to_string(),
@@ -491,12 +492,7 @@ impl BaseWorld {
     /// `kairos index update` in the checkout, with the URL and the key of
     /// the scenario and no other Kairos setting of the machine.
     fn update(&mut self) {
-        self.update_with(&[]);
-    }
-
-    /// [`Self::update`] with these environment variables added.
-    fn update_with(&mut self, env: &[(&str, &str)]) {
-        self.update_args(&[], env);
+        self.update_args(&[], &[]);
     }
 
     /// [`Self::update`] with these flags and environment variables added.
@@ -1045,7 +1041,7 @@ fn no_summarizer(_world: &mut CliWorld) {
     assert!(out.status.success(), "{stdout}");
     assert!(
         stdout.contains("This kairos binary has no summarizer."),
-        "this scenario needs a kairos binary with no feature `llama`:\n{stdout}"
+        "{stdout}"
     );
 }
 
@@ -1205,12 +1201,6 @@ fn local_entry(w: &BaseWorld, folder: &str) -> serde_json::Value {
         .find(|item| item["folder"] == folder)
         .unwrap_or_else(|| panic!("no {folder} in {list}"))
         .clone()
-}
-
-#[when(expr = "I run {string} with KAIROS_INDEX_SUMMARIZE=1")]
-fn run_update_with_summarize(world: &mut CliWorld, command: String) {
-    assert_eq!(command, "kairos index update");
-    base(world).update_with(&[("KAIROS_INDEX_SUMMARIZE", "1")]);
 }
 
 #[then("the CLI says that this repository makes its summaries on Kairos")]

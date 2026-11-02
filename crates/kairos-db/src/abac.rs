@@ -390,18 +390,6 @@ pub fn holds_structure(
     Ok(held)
 }
 
-/// The grants of `manage_structure` of one principal: the grant at the
-/// organization first, then the grants on boards (live boards only).
-pub fn structure_grants_of(
-    conn: &mut PgConnection,
-    user_id: Uuid,
-) -> Result<Vec<StructureGrant>, AbacError> {
-    Ok(list_structure_grants(conn)?
-        .into_iter()
-        .filter(|grant| grant.user_id == user_id)
-        .collect())
-}
-
 /// Each grant of `manage_structure` of the tenant, on live boards and at
 /// the organization: the grants at the organization first, then by board,
 /// then by the time of the grant.
@@ -688,38 +676,6 @@ pub fn resolve_authorization_board(
         .select(documents::board_id)
         .first::<Uuid>(conn)
         .optional()?)
-}
-
-/// Who created a workflow item or document, if it exists (KAIROS-T-0111).
-/// From COLLIERY-T-0228 to KAIROS-T-0625 it was the first fact of the edit
-/// rule; the edit rule now reads [`creator_and_board`], one query on the
-/// table of the type that the caller knows. This function probes the five
-/// entity tables, which span one UUID space, for a caller that has an id
-/// and no type.
-///
-/// Archived items answer too (KAIROS-A-0020): who made a thing is a fact
-/// about the row, not about whether it is still on a board. The edit rule
-/// needs that: the creator of an item can restore it.
-pub fn item_created_by(conn: &mut PgConnection, item_id: Uuid) -> Result<Option<Uuid>, AbacError> {
-    use crate::schema::{adrs, documents, initiatives, strategies, tasks};
-    macro_rules! try_table {
-        ($table:ident) => {
-            if let Some(creator) = $table::table
-                .filter($table::id.eq(item_id))
-                .select($table::created_by)
-                .first::<Uuid>(conn)
-                .optional()?
-            {
-                return Ok(Some(creator));
-            }
-        };
-    }
-    try_table!(strategies);
-    try_table!(initiatives);
-    try_table!(tasks);
-    try_table!(documents);
-    try_table!(adrs);
-    Ok(None)
 }
 
 /// The creator and the authorization board of one item, in ONE query on

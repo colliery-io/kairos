@@ -158,7 +158,7 @@ Feature: Start from the base index
     Given Kairos has a summarized index of commit A of main
     And the repository is on the hosted provider of the organization
     And a checkout of a branch from A with 3 changed files and no local index
-    When I run "kairos index update" with KAIROS_INDEX_SUMMARIZE=1
+    When I run "kairos index update"
     Then the CLI downloads the index of A
     And the CLI says that this repository makes its summaries on Kairos
     And the symbols of A keep their summaries, and the changed symbols have none

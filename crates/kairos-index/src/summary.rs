@@ -66,7 +66,8 @@ pub const SUMMARIZED_KINDS: &[&str] = &[
 ];
 
 /// The system prompt of the model comparison (`~/code-index-eval`).
-pub const SYSTEM_PROMPT: &str = "You write short summaries of source code for a code search index.";
+pub(crate) const SYSTEM_PROMPT: &str =
+    "You write short summaries of source code for a code search index.";
 
 /// The file name of the summary model, as bartowski publishes it on Hugging
 /// Face (`bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF`).
@@ -1292,7 +1293,7 @@ impl<'a> FileTexts<'a> {
 ///   lines (KAIROS-T-0470).
 ///
 /// At most [`MAX_DECLARATION_LINES`] lines are kept.
-pub fn declaration_lines(text: &str, language: &str) -> Option<String> {
+pub(crate) fn declaration_lines(text: &str, language: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().collect();
     let (doc, declarations) = match language {
         "rust" => rust_declarations(&lines),

@@ -25,7 +25,7 @@
 
 use std::collections::HashSet;
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 
 use crate::{IndexError, SUMMARIZED_KINDS};
 
@@ -49,18 +49,6 @@ const STOP_WORDS: &[&str] = &[
     "it", "its", "of", "on", "or", "that", "the", "this", "to", "what", "when", "where", "which",
     "who", "with",
 ];
-
-/// True when the index on `conn` has the table.
-pub(crate) fn exists(conn: &Connection) -> Result<bool, IndexError> {
-    Ok(conn
-        .query_row(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'symbol_text'",
-            [],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
-}
 
 /// Write the table again from `symbols` and `summaries`. Make it first if
 /// the index has none. Call it in the transaction of the write.

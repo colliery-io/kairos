@@ -35,11 +35,8 @@ edit.
 
 The background update runs no model (COLLIERY-T-2529): `--link-only` links
 the summaries that are in the pool (from Kairos or from an earlier update)
-and makes no new ones, so a `kairos` built with `llama` does not summarize
-for minutes with about 4 GB of memory at each session start. Summaries come
-from the server, or from a `kairos index update` that a person runs. With
-KAIROS_INDEX_SUMMARIZE=1 in the environment of the session, the background
-update runs `kairos index update` with the model, as before.
+and makes no new ones. The summaries come from the pool of the Kairos
+server.
 
 The update itself finds each changed file by its content hash (a check of
 about 0.1 s on Kairos), so the list does not make it faster today. The list
@@ -95,10 +92,7 @@ MAX_BOARD_CHECKOUTS = 40
 
 
 def update_command():
-    """The command of the background update: link-only, unless
-    KAIROS_INDEX_SUMMARIZE is 1."""
-    if os.environ.get("KAIROS_INDEX_SUMMARIZE", "").strip() == "1":
-        return ["kairos", "index", "update"]
+    """The command of the background update: link-only."""
     return ["kairos", "index", "update", "--link-only"]
 
 
@@ -349,9 +343,8 @@ def session_text(project, log):
         "`kairos index update --link-only` runs in the background now, so the "
         "index can be some seconds old at the start of the session. It runs no "
         "model: it links the summaries that are in the pool, and a changed "
-        "symbol can have no summary until Kairos or a person makes one "
-        "(`kairos index update`). KAIROS_INDEX_SUMMARIZE=1 in the environment "
-        f"makes the background update run the model. Its log: {log}.",
+        "symbol can have no summary until the Kairos server makes one. "
+        f"Its log: {log}.",
         after_edit_text(),
     ]
     if not has_index(project):

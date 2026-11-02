@@ -175,16 +175,6 @@ pub fn parse_sections(content: &str) -> Vec<Section> {
         .collect()
 }
 
-/// Each section of the content whose heading is `heading` (exact text, after
-/// the trim of [`parse_sections`]). None: the section is missing. More than
-/// one: the heading is repeated.
-pub fn sections_named(content: &str, heading: &str) -> Vec<Section> {
-    parse_sections(content)
-        .into_iter()
-        .filter(|section| section.heading == heading)
-        .collect()
-}
-
 /// The level and text of an ATX heading line (`#` to `######`, then a space
 /// or the end of the line; up to 3 spaces of indent), or `None`.
 fn heading(line: &str) -> Option<(u8, String)> {
@@ -341,6 +331,14 @@ fn as_section_violations(body: &str, found: Vec<kairos_plain::Violation>) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each section whose heading is `heading` (exact text).
+    fn named(content: &str, heading: &str) -> Vec<Section> {
+        parse_sections(content)
+            .into_iter()
+            .filter(|section| section.heading == heading)
+            .collect()
+    }
 
     const TASK: &str = "Intro text.\n\
         \n\
@@ -545,19 +543,19 @@ mod tests {
 
     #[test]
     fn a_missing_section_gives_none() {
-        assert!(sections_named(TASK, "Risks").is_empty());
-        assert!(sections_named("", "Goal").is_empty());
-        assert!(sections_named("No headings at all.", "Goal").is_empty());
+        assert!(named(TASK, "Risks").is_empty());
+        assert!(named("", "Goal").is_empty());
+        assert!(named("No headings at all.", "Goal").is_empty());
         // The match is on the exact text.
-        assert!(sections_named(TASK, "goal").is_empty());
+        assert!(named(TASK, "goal").is_empty());
     }
 
     #[test]
     fn an_empty_section_is_found_and_is_empty() {
-        let notes = sections_named(TASK, "Notes");
+        let notes = named(TASK, "Notes");
         assert_eq!(notes.len(), 1);
         assert!(notes[0].is_empty());
-        let blank = sections_named("## Goal\n\n   \n## Next\ntext", "Goal");
+        let blank = named("## Goal\n\n   \n## Next\ntext", "Goal");
         assert_eq!(blank.len(), 1);
         assert!(blank[0].is_empty());
         // A heading with no text is a section with an empty heading.
@@ -567,7 +565,7 @@ mod tests {
     #[test]
     fn a_repeated_heading_gives_each_section() {
         let content = "## Goal\nfirst\n## Other\nx\n### Goal\nsecond\n";
-        let goals = sections_named(content, "Goal");
+        let goals = named(content, "Goal");
         assert_eq!(goals.len(), 2);
         assert_eq!(goals[0].body.trim(), "first");
         assert_eq!(goals[1].body.trim(), "second");
@@ -576,15 +574,15 @@ mod tests {
 
     #[test]
     fn a_nested_heading_is_in_the_body_of_its_parent() {
-        let criteria = sections_named(TASK, "Acceptance criteria");
+        let criteria = named(TASK, "Acceptance criteria");
         assert_eq!(criteria.len(), 1);
         assert_eq!(criteria[0].body, "- One.\n### Edge cases\n- Two.\n");
         // The nested section is also a section of its own.
-        let edge = sections_named(TASK, "Edge cases");
+        let edge = named(TASK, "Edge cases");
         assert_eq!(edge[0].body, "- Two.\n");
         // A heading of a higher level ends the section.
         let content = "### Deep\nd\n# Top\nt\n";
-        assert_eq!(sections_named(content, "Deep")[0].body, "d");
+        assert_eq!(named(content, "Deep")[0].body, "d");
     }
 
     #[test]
@@ -595,11 +593,7 @@ mod tests {
             .map(|s| s.heading)
             .collect();
         assert_eq!(names, vec!["Goal", "End"]);
-        assert!(
-            sections_named(content, "Goal")[0]
-                .body
-                .contains("## Not a heading")
-        );
+        assert!(named(content, "Goal")[0].body.contains("## Not a heading"));
     }
 
     #[test]

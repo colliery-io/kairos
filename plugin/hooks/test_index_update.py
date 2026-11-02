@@ -258,7 +258,7 @@ class SessionStart(Harness):
         result = self.run_hook("start", {"session_id": "s1", "source": "startup"})
         text = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("kairos index update --link-only", text)
-        self.assertIn("KAIROS_INDEX_SUMMARIZE=1", text)
+        self.assertNotIn("KAIROS_INDEX_SUMMARIZE", text)
 
     def test_the_text_says_when_the_update_runs_after_an_edit(self):
         # KAIROS-T-0524: the update runs again after the edits.
@@ -404,18 +404,9 @@ class ChangedFiles(Harness):
             log = handle.read()
         self.assertIn("Command: kairos index update --link-only", log)
 
-    def test_kairos_index_summarize_runs_the_model_in_the_background(self):
-        result = self.run_hook(
-            "worker", env=self.env(KAIROS_INDEX_SUMMARIZE="1"), args=(self.project,)
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("args: index update", self.calls_text().splitlines())
-        self.assertNotIn("--link-only", self.calls_text())
-        with open(os.path.join(self.state_dir(), "update.log")) as handle:
-            self.assertIn("Command: kairos index update\n", handle.read())
-
-    def test_other_values_of_kairos_index_summarize_run_no_model(self):
-        for value in ("", "0", "no"):
+    def test_kairos_index_summarize_is_not_read(self):
+        # KAIROS-T-0743: the CLI has no summarizer; each value runs no model.
+        for value in ("", "0", "1"):
             self.run_hook(
                 "worker", env=self.env(KAIROS_INDEX_SUMMARIZE=value), args=(self.project,)
             )
@@ -445,15 +436,17 @@ class ChangedFiles(Harness):
         self.assertEqual(calls, ["args: index update --link-only"])
         self.assertEqual(self.changed(), ["src/lib.rs"])
 
-    def test_a_usage_error_without_link_only_is_not_retried(self):
+    def test_a_usage_error_of_the_retry_without_link_only_is_not_retried(self):
+        # KAIROS-T-0743: the update is always --link-only; an old kairos with
+        # no --link-only gets one retry without it, and that one is the last.
         self.edit("Edit", os.path.join(self.project, "src", "lib.rs"))
         self.run_hook(
             "worker",
-            env=self.env(FAKE_KAIROS_EXIT="64", KAIROS_INDEX_SUMMARIZE="1"),
+            env=self.env(FAKE_KAIROS_EXIT="64"),
             args=(self.project,),
         )
         calls = [c for c in self.calls_text().splitlines() if c.startswith("args:")]
-        self.assertEqual(calls, ["args: index update"])
+        self.assertEqual(calls, ["args: index update --link-only", "args: index update"])
         self.assertEqual(self.changed(), ["src/lib.rs"])
 
     def test_a_failed_update_keeps_the_list(self):

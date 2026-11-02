@@ -90,8 +90,8 @@ site cannot use `localStorage`. A search or a theme switch that uses
 kairos pages unpublish --repo payments --confirm
 ```
 
-Kairos deletes the files of the site. The list of the publishes stays. To stop
-the serving and keep the files, turn the site off:
+Kairos deletes the files of the site. To stop the serving and keep the files,
+turn the site off:
 
 ```sh
 kairos pages off --repo payments

@@ -478,7 +478,7 @@ impl BoardsCommand {
                     )));
                 }
                 let client = client(&common)?;
-                let response = client.archive_completed(&board).await?;
+                let response = client.archive_completed(&board, None).await?;
                 if common.json {
                     return print_json(&response);
                 }

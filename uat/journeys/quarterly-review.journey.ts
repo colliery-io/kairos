@@ -287,21 +287,17 @@ journey(
       }
       expect(members.length, 'a stream carries more than one team').toBeGreaterThan(1);
       const observed: string[] = [];
-      let documents = 0;
       for (const team of members) {
-        const docs = await api.get(`/api/teams/${team.id}/work-documents`);
-        documents += (docs ?? []).length;
         await openTeam(page, team.slug);
         await expect(panel(page, 'Charter').locator('.kairos-markdown')).toBeVisible();
         // A stream review asks "what is open where" — the team page is
-        // where that lives: the delivery board, the documents hanging off
-        // its work, and the branches and PRs in flight.
+        // where that lives: the delivery board and the branches and PRs in
+        // flight.
         await expect(panel(page, 'Delivery streams')).toContainText(streamName);
         await expect(panel(page, 'In flight')).toBeVisible();
         const links = await api.get(`/api/teams/${team.id}/links`);
-        observed.push(`${team.slug}: ${(links ?? []).length} in flight, ${(docs ?? []).length} docs`);
+        observed.push(`${team.slug}: ${(links ?? []).length} in flight`);
       }
-      expect(documents, 'the stream has documents attached to its work').toBeGreaterThan(0);
       return { stream: streamName, teams: members.map((t: any) => t.slug).join(' + '), per_team: observed.join('; ') };
     });
   },

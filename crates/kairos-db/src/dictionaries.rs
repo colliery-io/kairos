@@ -76,21 +76,6 @@ impl OrganizationDictionary {
     }
 }
 
-/// Whether the template `template_id` is the dictionary template.
-pub fn is_dictionary_template(
-    conn: &mut PgConnection,
-    template_id: Uuid,
-) -> Result<bool, DieselError> {
-    use crate::schema::templates::dsl;
-    let found: Option<Uuid> = dsl::templates
-        .filter(dsl::id.eq(template_id))
-        .filter(dsl::slug.eq(DICTIONARY_TEMPLATE_SLUG))
-        .select(dsl::id)
-        .first(conn)
-        .optional()?;
-    Ok(found.is_some())
-}
-
 /// Whether the document `document_id` (live or archived) is a dictionary.
 pub fn is_dictionary_document(
     conn: &mut PgConnection,

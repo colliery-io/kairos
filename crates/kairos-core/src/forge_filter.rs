@@ -211,11 +211,6 @@ pub struct ForgeFilter {
 }
 
 impl ForgeFilter {
-    /// The filter that admits everything (no rule stored).
-    pub fn admit_all() -> Self {
-        Self::default()
-    }
-
     /// Compile the stored rules. A field with no rule takes the default.
     pub fn new(
         rules: impl IntoIterator<Item = (FilterField, FilterRule)>,
@@ -299,7 +294,7 @@ mod tests {
 
     #[test]
     fn defaults_admit_everything() {
-        let filter = ForgeFilter::admit_all();
+        let filter = ForgeFilter::default();
         assert!(filter.admits(&event(LinkKind::Branch, "x", "x", "robin")));
         assert!(filter.admits(&event(LinkKind::PullRequest, "", "", "")));
         assert!(filter.admits_issue("Crash on start", "sam"));

@@ -33,10 +33,11 @@ use sha2::{Digest, Sha256};
 use crate::IndexError;
 use crate::rust_analyzer;
 
-/// The Rust release of the toolchain: the release of this repository
-/// (`rust-toolchain.toml`). The SCIP run reads `cargo metadata` and the
-/// sysroot of it, and builds nothing.
-pub const TOOLCHAIN_VERSION: &str = "1.93.0";
+/// The Rust release of the toolchain. The SCIP run reads `cargo metadata`
+/// and the sysroot of it, and builds nothing. It is the release of the
+/// pinned std source ([`rust_analyzer::RUST_SRC_VERSION`]): rustc, cargo,
+/// rust-std and rust-src of one release (KAIROS-T-0747). A test checks it.
+pub const TOOLCHAIN_VERSION: &str = "1.99.0";
 
 /// The summary model: Qwen3-4B-Instruct-2507, GGUF Q4_K_M from bartowski, at
 /// a fixed revision.
@@ -63,27 +64,27 @@ pub struct ToolchainPin {
 pub const TOOLCHAIN_PINS: &[ToolchainPin] = &[
     ToolchainPin {
         target: "aarch64-unknown-linux-gnu",
-        rustc: "f8609d27c42de42ab655c7072c894cebe1091eb481c0aaaccbad7dccfa8b06fd",
-        cargo: "21c823462acf538d9e35bc36a39f1690e1a809cf07048506bf7bb8dfd7be6df8",
-        rust_std: "e10aaf81c552ffe09f21e01492daa4d0b15217b31b4b7c1d4195cf98a3184380",
+        rustc: "6780ebb1b8ae66cc5d37ebfdc70b18fe775b1083c997f4e2c963d45a7eec59bc",
+        cargo: "f8b85e84b0514b69e17e3bad1c2dec7526f4a40cec565d233bbdcb66484dd9e0",
+        rust_std: "cdffa7100206633ccfd2514ea7781b4211813bf04c831a509240e1cda5308512",
     },
     ToolchainPin {
         target: "x86_64-unknown-linux-gnu",
-        rustc: "9e35d0d8251db1fff243fe36e417263f7dd48c9ec7c61f8c13560f7e21a37f46",
-        cargo: "c4ad6f857c3b72f1a515adc7d02fc1edd376a1313bb4edfdaffc1835cc920e37",
-        rust_std: "8e276f68c7793bbc18a2856a501dd6b296af2296d6482407762e3ce79a2221ff",
+        rustc: "238e72b8617f79bc96f27a5bfeb1a208b5755fe1a48f8bc190fe403ef6d54ab8",
+        cargo: "c2b8ba1f59e7a230aa5522684f3f7aa620b98e5ad37683a5e5cf9b41f534fa1e",
+        rust_std: "1dcaa01beb6bc78fdb13815b4f15214719167c58e3d79fbdf214591f8c195ee1",
     },
     ToolchainPin {
         target: "aarch64-apple-darwin",
-        rustc: "4b5cf30c0d552ac8a292854e7d96ee65e0f1c6fdce22e30ee6295558bccbd16b",
-        cargo: "904b6638bb2dcc274b03aaae322ce5a98704f8333f5343f351cfbd7cf12df869",
-        rust_std: "154c3f22a7d4ce6a47f02e2d7817115f11b1f8c0e191b55b59099324d402eed2",
+        rustc: "2f6b9c9cdc9c2e87ab2e27335e8bb0c4dbe4daea486e39030b66980058f74353",
+        cargo: "318b85c276b43134102fb49bbb54bfd0757e5cce47a772461149aeab5adea2ab",
+        rust_std: "3589b3a6c6470d590aa5aa7fa1a4af0101103847761a5372a7300b0aa85699c6",
     },
     ToolchainPin {
         target: "x86_64-apple-darwin",
-        rustc: "99b91f9c93686cb2591a4e23d233e719dd05f428da3c4ab579cf60a6dba69f5d",
-        cargo: "2d3ff96858dd1d7200fd1d19a48f5832643aab81dea06b9da8a542d7379f2240",
-        rust_std: "ef43d48f140291ad8889f06d89ec17288f5c02854ca92bc76c6bc1775946815e",
+        rustc: "4b909ba0153d4a67eb83a31ef11157b7c54e5c04a323d80e46436b778c18df52",
+        cargo: "ec5bd1c782e5b9d58cfcafbc4131d19fd7ca2ec6b1a197f2fd1a1f953802a26a",
+        rust_std: "7321ff86554726b8ab7b0a5c0d9ba0a3e763824f5d09b0c997e36bd72b80fa06",
     },
 ];
 
@@ -582,6 +583,32 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0747: rustc, cargo, rust-std and rust-src of the tools
+    /// folder are of one Rust release. The live worker had rust-1.93.0 with
+    /// rust-src-1.99.0.
+    #[test]
+    fn the_toolchain_and_the_std_source_are_of_one_release() {
+        assert_eq!(TOOLCHAIN_VERSION, rust_analyzer::RUST_SRC_VERSION);
+        let set = ToolSet::pinned().expect("this platform has pins");
+        let named = |file: &str| {
+            file.contains(&format!("-{TOOLCHAIN_VERSION}-"))
+                || file.ends_with(&format!("-{TOOLCHAIN_VERSION}.tar.gz"))
+        };
+        assert_eq!(set.toolchain.len(), 3);
+        for d in set.toolchain.iter().chain([&set.rust_src]) {
+            assert!(
+                named(&d.file),
+                "{} is not of Rust {TOOLCHAIN_VERSION}",
+                d.file
+            );
+            assert!(d.url.ends_with(&d.file), "{}", d.url);
+        }
+        for (d, component) in set.toolchain.iter().zip(["rustc", "cargo", "rust-std"]) {
+            assert!(d.file.starts_with(&format!("{component}-")), "{}", d.file);
+        }
+        assert_eq!(set.toolchain_dir, format!("rust-{TOOLCHAIN_VERSION}"));
+    }
 
     #[test]
     fn each_platform_of_rust_analyzer_has_a_toolchain_pin() {

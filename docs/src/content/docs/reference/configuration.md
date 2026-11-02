@@ -414,6 +414,32 @@ requests are 2 GiB and 1 CPU. These values come from GitHub issue #34. There,
 a full build of about 1,200 files used about 6.3 GiB at its peak, and 4
 cores. The build used the embedded summary model.
 
+#### The memory of a build
+
+The rust-analyzer SCIP run of a Rust repository uses the most memory of a
+build. It reads the full workspace and its dependencies. The memory is at
+its peak at the end of the run, when rust-analyzer writes the index.
+
+| Repository | Rust files | Peak memory of the SCIP run |
+|---|---|---|
+| kairos 0.19.0 | 673 | 4.7 GiB |
+
+Thus:
+
+- Give the worker 6 GiB or more for a repository of this size, plus the
+  memory of the embedded summary model (about 3 GiB) if you use it.
+- One server does one SCIP run of rust-analyzer at a time. Another build
+  waits for the run, then does its run. Thus 2 builds at the same time do
+  not use 2 times the memory.
+- `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB` (default 6144) is the memory that the
+  builder asks for. With a lower container limit, the run does not start,
+  and the warning of the build gives the limit. For a small repository on
+  a small worker, set a lower value.
+- When the kernel stops rust-analyzer (out of memory), the warning of the
+  build says "stopped by signal 9 (SIGKILL): out of memory?" and gives the
+  last lines of the output of rust-analyzer. Then increase the memory limit
+  of the worker.
+
 A worker applies the migrations at its start, as an API server does. The
 migrations run under a lock in the database. Thus a worker and an API server
 can start at the same time.
@@ -449,6 +475,7 @@ the index after each push to the default branch.
 | `KAIROS_CODE_INDEX_DIR` | directory path | unset | The folder for a bare clone of each repository, the tools of the builder and the work folders of the builder. Put it on a volume. When it is not set, the server cannot find the nearest indexed commit, does not build and downloads nothing. Uploads and downloads of indexes still work. A server with `KAIROS_ROLE=worker` does not start without it. A server with `KAIROS_ROLE=api` takes a rebuild request without it: the build goes to a worker. |
 | `KAIROS_CODE_INDEX_POLL_SECS` | whole number | `300` | How often the sweep fetches each indexed repository and adds the build jobs. The sweep is a periodic job: one server runs it at each interval. `0` turns the builder off on that server. |
 | `KAIROS_CODE_INDEX_THREADS` | whole number, 1 or more | `4` | The number of CPU threads that the summary model of the builder uses. More threads make the summaries faster, but they take CPU from the other services on the host. `0` or a value that is not a number stops the start of the server. |
+| `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB` | whole number | `6144` | The memory in MiB that the rust-analyzer SCIP run of a build needs. Before the run, the builder reads the memory limit of its container (cgroup `memory.max`). When the limit is less than this value, the run does not start: Rust gets its edges by name, and the build records a warning that gives the limit and the value. `0` turns the check off. See [The memory of a build](#the-memory-of-a-build). A value that is not a number stops the start of the server. |
 | `KAIROS_CODE_INDEX_MIN_REBUILD_SECS` | whole number | `0` | The least time in seconds between 2 updates of one repository. `0` turns the limit off. On a slow host, a repository with many pushes then waits, and the other stale repositories get their updates. A value that is not a number stops the start of the server. |
 | `KAIROS_CODE_INDEX_DEPS_CAP_MB` | whole number | `10240` | The largest total size in MB of the dependency caches of the SCIP runners of Go, TypeScript and Python. After a run, the builder removes the caches of other repositories, oldest first, until the total is below this value. See [The tools of Go, TypeScript and Python](#the-tools-of-go-typescript-and-python). |
 | `KAIROS_CODE_INDEX_MIN_FREE_MB` | whole number | `5120` | The least free disk space in MB before a dependency install. When the free space is less, the builder removes the dependency caches first, oldest first. If the space is still less, the language gets its edges by name, and the run records a warning. |
@@ -748,11 +775,12 @@ Then, at each start, the server checks the tools in
 | `Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | `https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/ae44f08e1392f39c0e474af10c3ff8355c8b6688/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | `2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e` |
 | `rust-analyzer-<target>.gz` | `https://github.com/rust-lang/rust-analyzer/releases/download/2026-09-28/rust-analyzer-<target>.gz` | in `crates/kairos-index/src/rust_analyzer.rs` |
 | `rust-src-1.99.0.tar.gz` | `https://static.rust-lang.org/dist/2026-10-01/rust-src-1.99.0.tar.gz` | `82b978093b33c71bcbe69005b92181bfb76d3d0e434ef303e637812e21badcd7` |
-| `rustc-1.93.0-<target>.tar.gz`, `cargo-1.93.0-<target>.tar.gz`, `rust-std-1.93.0-<target>.tar.gz` | `https://static.rust-lang.org/dist/<file>` | in `crates/kairos-index/src/tools.rs` |
+| `rustc-1.99.0-<target>.tar.gz`, `cargo-1.99.0-<target>.tar.gz`, `rust-std-1.99.0-<target>.tar.gz` | `https://static.rust-lang.org/dist/<file>` | in `crates/kairos-index/src/tools.rs` |
 
 `<target>` is `aarch64-unknown-linux-gnu` or `x86_64-unknown-linux-gnu` for
 the image. The server unpacks rust-analyzer to `tools/rust-analyzer` and the
-3 Rust archives to `tools/rust-1.93.0/`.
+3 Rust archives to `tools/rust-1.99.0/`. The Rust archives and `rust-src`
+are of one Rust release. A test checks this.
 
 **With no network:** download the files on a computer with network access.
 Keep their names. Put them in `KAIROS_CODE_INDEX_DIR/tools/` before the
@@ -1314,8 +1342,8 @@ A worktree has the `[[project]]` of its clone, because the entry matches the
 
 A repository can opt in to the hosted provider of its organization
 (`code_index_summaries = hosted`). On such a repository, the update makes
-no summary, whatever `KAIROS_INDEX_SUMMARIZE` says. It links the summaries
-of the pool, and its last line says so. The structure of the checkout is
+no summary. It links the summaries of the pool, and its last line says so.
+The structure of the checkout is
 still built for the changed files. So search and the call graph are right
 on a branch before its push.
 

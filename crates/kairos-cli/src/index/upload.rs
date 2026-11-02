@@ -2,8 +2,8 @@
 //! Kairos as the index of its HEAD commit
 //! (`PUT /api/repositories/{slug}/code-indexes/{commit}`).
 //!
-//! A deployment with no builder of the code index gets its base indexes
-//! this way, for example from a CI job after `kairos index build`. The
+//! The CLI does not build an index (KAIROS-T-0746): an upload sends an
+//! index that `kairos index update` made from a base of the server. The
 //! index describes the tree of the checkout. So the CLI refuses a tree
 //! with changes that are not committed: Kairos would keep the index for a
 //! commit that it does not describe.

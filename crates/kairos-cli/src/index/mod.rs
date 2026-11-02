@@ -1,15 +1,18 @@
 //! `kairos index`: the code index of a checkout (COLLIERY-I-0264,
 //! COLLIERY-T-1852).
 //!
-//! - `kairos index build` builds the structure (files, symbols, call edges)
-//!   with a SCIP run for the Rust edges, then the summaries.
+//! The CLI updates an index but never builds one (KAIROS-T-0746): the
+//! Kairos server builds the index of each repository, and the CLI takes it
+//! as the base of its update. With no index and no base from Kairos, the
+//! CLI says so and builds nothing.
+//!
 //! - `kairos index update` builds the structure again from the tree and
-//!   summarizes only what changed. It keeps the Rust edges of the index for
-//!   each function whose code did not change, and runs no SCIP unless
-//!   `--rust-edges` (or `--scip`) is given. A SCIP run covers each language
-//!   whose indexer is on the computer: rust-analyzer, scip-go,
-//!   scip-typescript and scip-python (KAIROS-T-0473). A language whose
-//!   indexer is missing or fails gets its edges by name, with a warning. With `--link-only`, it runs no model: it links
+//!   summarizes only what changed. It keeps the SCIP edges of the index for
+//!   each function whose code did not change. It runs no SCIP indexer
+//!   (rust-analyzer and the others): a SCIP run indexes the whole
+//!   workspace, so it is a build, and only the server builds
+//!   (KAIROS-T-0746). The edges of changed code are by name until the next
+//!   index of the server. With `--link-only`, it runs no model: it links
 //!   the summaries of the pool and makes no new ones (COLLIERY-T-2529, the
 //!   background update of the plugin). It starts from the nearest base index in
 //!   Kairos when the checkout has no index, or when the base is nearer to
@@ -18,11 +21,11 @@
 //!   summaries than the local index links, the CLI takes the pool of the
 //!   base first (KAIROS-T-0355, [`take_base_summaries`]). If more
 //!   files than the limit changed since the base, it builds nothing and
-//!   tells the developer to rebase, or to run `kairos index --full`. The
-//!   default limit applies only when a model runs ([`limit_of`],
-//!   KAIROS-T-0515).
-//! - `kairos index --full` builds the index again with no base: the same as
-//!   `kairos index build`.
+//!   tells the developer to rebase. The default limit applies only when a
+//!   model runs ([`limit_of`], KAIROS-T-0515). A local index of an older
+//!   schema version is moved aside, not opened ([`set_aside_old`]): the
+//!   update then starts from the base. A local index of a newer version is
+//!   refused before any work.
 //! - `kairos index status` gives the counts.
 //! - `kairos index duplicates` finds repeated code: exact copies, near copies
 //!   and the same idea in other code (COLLIERY-T-1857). It gives the text of the
@@ -37,9 +40,9 @@
 //! writes no file into the checkout. An old `.kairos/index.db` of a CLI
 //! before 0.18 stays where it is (KAIROS-T-0742): the CLI does not read it.
 //!
-//! The CLI has no summarizer. A build or an update makes the structure and
-//! the edges, links the summaries of the pool of the Kairos server, and says
-//! why it made no others.
+//! The CLI has no summarizer. An update makes the structure and the edges,
+//! links the summaries of the pool of the Kairos server, and says why it
+//! made no others.
 
 mod arguments;
 mod base;
@@ -54,9 +57,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use clap::Subcommand;
-use kairos_index::{
-    BuildOptions, BuildReport, DuplicateKind, DuplicateOptions, Index, UpdateOptions,
-};
+use kairos_index::{BuildReport, DuplicateKind, DuplicateOptions, Index, UpdateOptions};
 
 pub use error::IndexCommandError;
 
@@ -79,18 +80,11 @@ pub(super) fn limit_of(max_changed: Option<usize>, model_runs: bool) -> Option<u
     max_changed.or(model_runs.then_some(DEFAULT_MAX_CHANGED))
 }
 
-/// `kairos index`: a subcommand, or `--full`.
+/// `kairos index`: a subcommand. The CLI has no command that builds an
+/// index (KAIROS-T-0746): the Kairos server builds it.
 #[derive(clap::Args)]
-#[command(args_conflicts_with_subcommands = true, arg_required_else_help = true)]
+#[command(arg_required_else_help = true)]
 pub struct IndexArgs {
-    /// Build the whole index of the checkout again, with no base index: the same as `kairos index build`
-    #[arg(long)]
-    full: bool,
-    #[command(flatten)]
-    root: RootArg,
-    /// Print one JSON object with the result of the build, in place of the text
-    #[arg(long)]
-    json: bool,
     #[command(subcommand)]
     command: Option<IndexCommand>,
 }
@@ -105,10 +99,8 @@ impl IndexArgs {
     pub async fn run(self) -> Result<(), CliError> {
         match self.command {
             Some(command) => command.run().await,
-            None if self.full => build(&checkout_root(self.root)?, self.json),
             None => Err(CliError::Failure(
-                "Give a subcommand of `kairos index`, or `--full`. See `kairos index --help`."
-                    .into(),
+                "Give a subcommand of `kairos index`. See `kairos index --help`.".into(),
             )),
         }
     }
@@ -116,21 +108,10 @@ impl IndexArgs {
 
 #[derive(Subcommand)]
 pub enum IndexCommand {
-    /// Build the index of the checkout: the structure, the call edges and the summaries
-    Build {
-        #[command(flatten)]
-        root: RootArg,
-        /// Print one JSON object with the result, in place of the text
-        #[arg(long)]
-        json: bool,
-    },
-    /// Update the index for the changes in the checkout, also those not committed. With no index, start from the nearest base index in Kairos
+    /// Update the index for the changes in the checkout, also those not committed. With no index, or an index of an older version, start from the nearest index that the Kairos server built. The CLI does not build an index
     Update {
         #[command(flatten)]
         root: RootArg,
-        /// Run the SCIP indexers again (rust-analyzer, scip-go, scip-typescript, scip-python) for the precise edges of the changed code
-        #[arg(long, visible_alias = "scip")]
-        rust_edges: bool,
         /// Run no model: link the summaries of the pool and make no new ones
         #[arg(long)]
         link_only: bool,
@@ -234,10 +215,8 @@ pub struct RootArg {
 impl IndexCommand {
     pub async fn run(self) -> Result<(), CliError> {
         match self {
-            IndexCommand::Build { root, json } => build(&checkout_root(root)?, json),
             IndexCommand::Update {
                 root,
-                rust_edges,
                 link_only,
                 max_changed,
                 remote,
@@ -245,7 +224,7 @@ impl IndexCommand {
             } => {
                 let root = checkout_root(root)?;
                 let mut run = report::Run::new("update", json);
-                update(&root, rust_edges, link_only, max_changed, &remote, &mut run).await?;
+                update(&root, link_only, max_changed, &remote, &mut run).await?;
                 run.finish()
             }
             IndexCommand::Status { root, json } => status(&checkout_root(root)?, json),
@@ -327,7 +306,7 @@ fn resolve_root(arg: RootArg) -> Result<PathBuf, IndexCommandError> {
         .unwrap_or(root))
 }
 
-/// The root for `build`, `update`, `status` and `--full` (KAIROS-T-0713):
+/// The root for `update` and `status` (KAIROS-T-0713):
 /// [`resolve_root`], but a folder that is not in a git checkout is refused
 /// when no `--root` names it. A `--root` that is not in a checkout is
 /// refused when it holds checkouts: a board folder of clones is not one
@@ -504,19 +483,31 @@ pub(super) fn lock_index(db: &Path) -> Result<std::fs::File, IndexCommandError> 
     Ok(file)
 }
 
-/// `kairos index build` and `kairos index --full`: the text as the build
-/// goes, or one JSON object at its end (KAIROS-T-0654).
-fn build(root: &Path, json: bool) -> Result<(), CliError> {
-    let mut run = report::Run::new("build", json);
-    let db = prepare_quiet(root)?;
-    let _lock = lock_index(&db)?;
-    run.index(&db);
-    let started = Instant::now();
-    let report = kairos_index::build_structure_with(root, &db, &BuildOptions::default())
-        .map_err(IndexCommandError::from)?;
-    run.structure(&report, started.elapsed());
-    run.summaries(summaries::run(root, &db, None)?);
-    run.finish()
+/// Move the local index at `db` aside when it has an older schema version
+/// (KAIROS-T-0746): the CLI does not open it, and the update starts from
+/// the base in Kairos as with no index. The file goes to
+/// `index.db.schema<N>.bak` next to it. A newer version (from a newer CLI)
+/// is refused, before any work. The line to show, when a file moved. It
+/// prints nothing: the MCP server must not print (KAIROS-T-0348).
+pub(super) fn set_aside_old(db: &Path) -> Result<Option<String>, IndexCommandError> {
+    let reads = kairos_index::SCHEMA_VERSION;
+    let found = match kairos_index::store::file_version(db) {
+        Some(found) if found != reads && found != 0 => found,
+        _ => return Ok(None),
+    };
+    if found > reads {
+        return Err(kairos_index::IndexError::SchemaVersion { found }.into());
+    }
+    let aside = db.with_extension(format!("db.schema{found}.bak"));
+    std::fs::rename(db, &aside).map_err(|source| IndexCommandError::Write {
+        path: aside.clone(),
+        source,
+    })?;
+    Ok(Some(format!(
+        "The local index has schema version {found}, and this CLI reads version {reads}. \
+         The CLI moved it to {} and does not read it.",
+        aside.display()
+    )))
 }
 
 /// The local index of the checkout, before an update.
@@ -530,7 +521,6 @@ enum Local {
 
 async fn update(
     root: &Path,
-    rust_edges: bool,
     link_only: bool,
     max_changed: Option<usize>,
     remote: &base::RemoteArgs,
@@ -538,6 +528,9 @@ async fn update(
 ) -> Result<(), IndexCommandError> {
     let db = prepare_quiet(root)?;
     let _lock = lock_index(&db)?;
+    if let Some(line) = set_aside_old(&db)? {
+        run.say(&line);
+    }
     let local = if !db.is_file() {
         Local::Missing
     } else {
@@ -564,7 +557,7 @@ async fn update(
             if let Some(limit) = limit
                 && *n > limit
             {
-                return Err(too_far(root, &b, *n, limit, true, error::Caller::Cli));
+                return Err(too_far(&b, *n, limit, true, error::Caller::Cli));
             }
             run.say(&format!(
                 "Kairos: the local index is nearer to the tree than the index of {} \
@@ -588,14 +581,7 @@ async fn update(
             if let Some(limit) = limit
                 && b.changed > limit
             {
-                return Err(too_far(
-                    root,
-                    &b,
-                    b.changed,
-                    limit,
-                    false,
-                    error::Caller::Cli,
-                ));
+                return Err(too_far(&b, b.changed, limit, false, error::Caller::Cli));
             }
             download = Some(b);
         }
@@ -646,11 +632,8 @@ async fn update(
     }
     run.index(&db);
     let started = Instant::now();
-    let options = UpdateOptions {
-        rust_edges,
-        ..UpdateOptions::default()
-    };
-    let report = kairos_index::update_structure(root, &db, &options)?;
+    // KAIROS-T-0746: no SCIP run. It indexes the whole workspace: a build.
+    let report = kairos_index::update_structure(root, &db, &UpdateOptions::default())?;
     run.structure(&report, started.elapsed());
     let no_model = if hosted {
         Some(summaries::HOSTED)
@@ -738,7 +721,6 @@ pub(super) fn reason(found: &base::Found) -> String {
 /// (KAIROS-T-0517): pull when the checkout is only behind, else rebase or
 /// build again; and the limit to give.
 pub(super) fn too_far(
-    root: &Path,
     b: &base::Base,
     changed: usize,
     limit: usize,
@@ -770,7 +752,6 @@ pub(super) fn too_far(
         },
         None => error::Advice::Rebase {
             branch: b.branch.clone(),
-            estimate: base::full_build_estimate(base::file_count(root)),
             raise,
         },
     };
@@ -840,8 +821,8 @@ fn print_structure(report: &BuildReport, elapsed: Duration) {
             scip.elapsed.as_secs_f64()
         ),
         None if e.kept_scip > 0 || e.pending > 0 => println!(
-            "Rust edges: {} kept from the index. {} edges are by name until the next SCIP run \
-             (`kairos index update --rust-edges`).",
+            "Rust edges: {} kept from the index. {} edges are by name until the next index \
+             that the Kairos server builds.",
             e.kept_scip, e.pending
         ),
         None => {}
@@ -1085,10 +1066,20 @@ mod tests {
         })
     }
 
+    /// KAIROS-T-0746: the CLI never builds an index: no `build`, no
+    /// `--full`.
     #[test]
-    fn full_is_a_flag_of_index_and_not_of_a_subcommand() {
-        let args = parse(&["kairos", "index", "--full"]).expect("--full");
-        assert!(args.full && args.command.is_none());
+    fn the_index_command_has_no_build() {
+        assert!(parse(&["kairos", "index", "build"]).is_err());
+        assert!(parse(&["kairos", "index", "--full"]).is_err());
+        assert!(parse(&["kairos", "index", "update", "--full"]).is_err());
+        // A SCIP run indexes the whole workspace: a build.
+        assert!(parse(&["kairos", "index", "update", "--rust-edges"]).is_err());
+        assert!(parse(&["kairos", "index", "update", "--scip"]).is_err());
+    }
+
+    #[test]
+    fn update_takes_a_limit_and_a_repository() {
         let args = parse(&[
             "kairos",
             "index",
@@ -1118,19 +1109,14 @@ mod tests {
                 ..
             })
         ));
-        assert!(parse(&["kairos", "index", "--full", "update"]).is_err());
-        assert!(parse(&["kairos", "index", "update", "--full"]).is_err());
         assert!(parse(&["kairos", "index", "update", "--depth", "3"]).is_err());
     }
 
     /// KAIROS-T-0654: each command that prints a result takes `--json`.
     #[test]
     fn json_is_a_flag_of_each_command_with_a_result() {
-        let args = parse(&["kairos", "index", "--full", "--json"]).expect("--full --json");
-        assert!(args.full && args.json);
         for command in [
-            &["build"][..],
-            &["update"],
+            &["update"][..],
             &["status"],
             &["duplicates"],
             &["references", "Queue"],
@@ -1140,8 +1126,7 @@ mod tests {
             argv.push("--json");
             let args = parse(&argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
             let json = match args.command {
-                Some(IndexCommand::Build { json, .. })
-                | Some(IndexCommand::Update { json, .. })
+                Some(IndexCommand::Update { json, .. })
                 | Some(IndexCommand::Status { json, .. })
                 | Some(IndexCommand::Duplicates { json, .. })
                 | Some(IndexCommand::References { json, .. }) => json,
@@ -1180,7 +1165,7 @@ mod tests {
                 ..
             })
         ));
-        assert!(parse(&["kairos", "index", "build", "--link-only"]).is_err());
+        assert!(parse(&["kairos", "index", "status", "--link-only"]).is_err());
         assert!(parse(&["kairos", "index", "--link-only"]).is_err());
     }
 
@@ -1209,9 +1194,52 @@ mod tests {
         }
     }
 
-    /// KAIROS-T-0357: 8 processes build the index of one checkout at the
-    /// same time, as agents that open one shared clone do. Each build waits
-    /// for the lock of the index, and each succeeds.
+    /// The index of the checkout at `root`, made with the library under the
+    /// lock of the index, as a test fixture. The CLI has no build
+    /// (KAIROS-T-0746).
+    fn build_for_test(root: &Path) -> Result<(), IndexCommandError> {
+        let db = prepare_quiet(root)?;
+        let _lock = lock_index(&db)?;
+        kairos_index::build_structure(root, &db)?;
+        Ok(())
+    }
+
+    /// KAIROS-T-0746: an index of an older version moves aside, a newer one
+    /// is refused, and an index of this version stays.
+    #[test]
+    fn an_index_of_another_version_moves_aside_or_is_refused() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let db = dir.path().join("index.db");
+        assert_eq!(set_aside_old(&db).expect("no file"), None);
+        let with_version = |version: i64| {
+            let conn = rusqlite::Connection::open(&db).expect("open");
+            conn.pragma_update(None, "user_version", version)
+                .expect("version");
+        };
+        with_version(kairos_index::SCHEMA_VERSION);
+        assert_eq!(set_aside_old(&db).expect("this version"), None);
+        assert!(db.is_file());
+
+        with_version(6);
+        let line = set_aside_old(&db).expect("moved").expect("a line");
+        let aside = dir.path().join("index.db.schema6.bak");
+        assert!(!db.exists() && aside.is_file(), "{line}");
+        assert!(line.contains("schema version 6"), "{line}");
+        assert!(line.contains(&aside.display().to_string()), "{line}");
+
+        with_version(99);
+        let refused = set_aside_old(&db).expect_err("newer").to_string();
+        assert!(refused.contains("schema version 99"), "{refused}");
+        assert!(
+            refused.contains(&format!("reads version {}", kairos_index::SCHEMA_VERSION)),
+            "{refused}"
+        );
+        assert!(db.is_file(), "a newer index stays where it is");
+    }
+
+    /// KAIROS-T-0357: 8 processes write the index of one checkout at the
+    /// same time, as agents that open one shared clone do. Each waits for
+    /// the lock of the index, and each succeeds.
     #[test]
     fn builds_of_one_checkout_at_the_same_time_all_succeed() {
         let dir = tempfile::tempdir().expect("a folder");
@@ -1235,7 +1263,7 @@ mod tests {
         let builds: Vec<_> = (0..8)
             .map(|_| {
                 let root = root.clone();
-                std::thread::spawn(move || build(&root, false).map_err(|e| e.to_string()))
+                std::thread::spawn(move || build_for_test(&root).map_err(|e| e.to_string()))
             })
             .collect();
         for b in builds {
@@ -1296,8 +1324,8 @@ mod tests {
             &main,
             &["worktree", "add", "-q", worktree.to_str().expect("utf-8")],
         );
-        build(&main, true).expect("the build of the checkout");
-        build(&worktree, true).expect("the build of the worktree");
+        build_for_test(&main).expect("the index of the checkout");
+        build_for_test(&worktree).expect("the index of the worktree");
         let (one, two) = (db_path(&main), db_path(&worktree));
         assert_ne!(one, two);
         assert!(one.is_file() && two.is_file());

@@ -26,7 +26,7 @@ fn subcommands(command: &Command) -> impl Iterator<Item = &Command> {
 }
 
 /// Each command path that runs: a command with no subcommands, and a group
-/// with options of its own (`kairos index --full`).
+/// with options of its own.
 fn runnable_paths(command: &Command, prefix: &str, out: &mut Vec<String>) {
     let has_subcommands = subcommands(command).next().is_some();
     let own_options = command

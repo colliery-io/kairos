@@ -192,10 +192,34 @@ pub fn structure_version(prefix: &[u8]) -> Option<i64> {
             Ok(n) => read += n,
         }
     }
-    if read < 64 || &header[..16] != b"SQLite format 3\0" {
+    header_version(&header[..read])
+}
+
+/// The schema version in the first bytes of a SQLite file: the
+/// `user_version` at byte 60 of its header. `None` when the bytes are not
+/// such a header.
+fn header_version(header: &[u8]) -> Option<i64> {
+    if header.len() < 64 || &header[..16] != b"SQLite format 3\0" {
         return None;
     }
     Some(u32::from_be_bytes([header[60], header[61], header[62], header[63]]) as i64)
+}
+
+/// The schema version of the index file at `db`, from its header, with no
+/// SQLite connection (KAIROS-T-0746): the CLI moves an index of another
+/// version aside before it opens it. `None` when the file is not there or
+/// is not a SQLite file.
+pub fn file_version(db: &Path) -> Option<i64> {
+    let mut header = [0u8; 100];
+    let mut file = std::fs::File::open(db).ok()?;
+    let mut read = 0;
+    while read < header.len() {
+        match file.read(&mut header[read..]) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => read += n,
+        }
+    }
+    header_version(&header[..read])
 }
 
 /// Copy the summary pool of the index file `from` into the index file `to`
@@ -334,6 +358,22 @@ mod tests {
         // Not a structure at all.
         assert_eq!(structure_version(b"not gzip"), None);
         assert_eq!(structure_version(&[]), None);
+    }
+
+    /// KAIROS-T-0746: the version of an index file, from its header only.
+    #[test]
+    fn the_version_of_an_index_file_comes_from_its_header() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("index.db");
+        assert_eq!(file_version(&db), None, "no file");
+        index_with_pool(&db);
+        assert_eq!(file_version(&db), Some(SCHEMA_VERSION));
+        let conn = Connection::open(&db).unwrap();
+        conn.pragma_update(None, "user_version", 6).unwrap();
+        drop(conn);
+        assert_eq!(file_version(&db), Some(6));
+        std::fs::write(&db, b"not an index").unwrap();
+        assert_eq!(file_version(&db), None);
     }
 
     fn index_with_pool(path: &Path) {

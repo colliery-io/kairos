@@ -1716,6 +1716,55 @@ async fn record_failure_once(
     }
 }
 
+/// The schema version of the stored index of `commit` of `repository_id`,
+/// from the first bytes of its structure (KAIROS-T-0347). `None` when the
+/// commit has no index, or the bytes are not a structure.
+pub(crate) fn stored_schema(
+    conn: &mut diesel::pg::PgConnection,
+    repository_id: uuid::Uuid,
+    commit: &str,
+) -> diesel::QueryResult<Option<i64>> {
+    let prefix = kairos_db::code_indexes::structure_prefix(
+        conn,
+        repository_id,
+        commit,
+        kairos_index::store::VERSION_PREFIX_BYTES as i32,
+    )?;
+    Ok(prefix
+        .as_deref()
+        .and_then(kairos_index::store::structure_version))
+}
+
+/// True when an index of schema version `found` can be served and updated
+/// by this server (KAIROS-T-0746). An index of another version counts as
+/// missing: no read gives it, so no read fails with a 500.
+pub(crate) fn current_schema(found: Option<i64>) -> bool {
+    found == Some(kairos_index::SCHEMA_VERSION)
+}
+
+/// Delete the stored indexes of `repository_id` of an older schema version
+/// (KAIROS-T-0746). The server reads none of them, so after a build or an
+/// upload of a current index, they only take space. The version is read
+/// from the first bytes of each structure, so no column and no migration
+/// is needed. Returns the count.
+pub(crate) fn delete_old_schema_indexes(
+    conn: &mut diesel::pg::PgConnection,
+    repository_id: uuid::Uuid,
+) -> diesel::QueryResult<usize> {
+    let mut old = Vec::new();
+    for index in kairos_db::code_indexes::list(conn, repository_id)? {
+        if stored_schema(conn, repository_id, &index.commit_sha)?
+            .is_some_and(|found| found < kairos_index::SCHEMA_VERSION)
+        {
+            old.push(index.commit_sha);
+        }
+    }
+    if old.is_empty() {
+        return Ok(0);
+    }
+    kairos_db::code_indexes::delete_indexes(conn, repository_id, &old)
+}
+
 /// The ADRs that the code of an index cites (KAIROS-T-0703), as the store
 /// keeps them.
 pub(crate) fn cited_codes(
@@ -1752,9 +1801,13 @@ async fn store_built(
     };
     let pool = used_rows(split.pool, &split.keys);
     let keys = split.keys;
+    let repository_id = repo.id;
     blocking
         .run(tenant, move |conn| {
-            kairos_db::code_indexes::put(conn, &index, &pool, &keys).map_err(ApiError::internal)
+            kairos_db::code_indexes::put(conn, &index, &pool, &keys).map_err(ApiError::internal)?;
+            // KAIROS-T-0746: a current index is stored, so the indexes of an
+            // older schema version go.
+            delete_old_schema_indexes(conn, repository_id).map_err(ApiError::internal)
         })
         .await
         .map(|_| ())

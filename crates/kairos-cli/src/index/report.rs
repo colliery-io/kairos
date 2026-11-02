@@ -1,7 +1,7 @@
 //! The `--json` result of `kairos index` (KAIROS-T-0654): one JSON object on
 //! stdout for each run.
 //!
-//! - `build`, `--full` and `update` give what the run did: the index file,
+//! - `update` gives what the run did: the index file,
 //!   where the update started (the base index or the local index), the
 //!   counts of the structure and of the summaries, and the warnings.
 //! - `status` gives the counts of the index.
@@ -13,8 +13,8 @@
 //! A refusal is not in this object: with `--json`, `main` prints the error
 //! envelope on stderr, with its code and its text (KAIROS-T-0588).
 //!
-//! Without `--json`, [`Run`] prints each line of a build or an update when it
-//! comes, as before.
+//! Without `--json`, [`Run`] prints each line of an update when it comes, as
+//! before.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -32,7 +32,7 @@ use crate::context::print_json;
 use crate::error::CliError;
 use crate::listing::ListJson;
 
-/// What a build or an update did. With `json` false, each part is printed
+/// What an update did. With `json` false, each part is printed
 /// as text when it comes. With `json` true, the parts are kept, and
 /// [`Run::finish`] prints them as one object.
 pub(super) struct Run {
@@ -40,14 +40,14 @@ pub(super) struct Run {
     report: RunJson,
 }
 
-/// The `--json` object of `build`, `--full` and `update`.
+/// The `--json` object of `update`. The CLI has no build (KAIROS-T-0746).
 #[derive(Debug, Default, Serialize)]
 struct RunJson {
-    /// `build` or `update`.
+    /// `update`.
     command: &'static str,
     /// The index file.
     index: Option<PathBuf>,
-    /// Where the update started; null for a build.
+    /// Where the update started.
     start: Option<Start>,
     structure: Option<Value>,
     summaries: Option<Value>,

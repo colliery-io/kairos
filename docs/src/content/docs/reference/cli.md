@@ -3010,8 +3010,14 @@ Drops the tenant's organization and schema. Destructive and unrecoverable.
 
 ## The code index of a checkout
 
-`kairos index` builds the code index of a git checkout, and serves its code
-tools to an agent. The index is in the user cache, not in the checkout
+`kairos index` updates the code index of a git checkout, and serves its code
+tools to an agent.
+
+The CLI does not build an index. The Kairos server builds the index of each
+repository. The CLI takes that index as the base of its update. The CLI has
+no `kairos index build` and no `kairos index --full`.
+
+The index is in the user cache, not in the checkout
 (KAIROS-A-0072). Each checkout and each worktree has its own folder. See
 [The place of the code index](../configuration/#the-place-of-the-code-index).
 The CLI writes no file into the checkout. It does not read or move a
@@ -3026,8 +3032,7 @@ Each `index` command takes `--root`. Only `index update` takes `--url` and
 | `--root <ROOT>` | path | the root of the git repository of the current folder | The root of the checkout. |
 | `--json` | flag | off | Print one JSON object with the result, in place of the text. |
 
-`index build`, `index update`, `index status` and `index --full` need a
-checkout. The CLI refuses a folder that is not in a git checkout, for example
+`index update` and `index status` need a checkout. The CLI refuses a folder that is not in a git checkout, for example
 a board folder that holds clones. It does not index the clones as one tree.
 
 The refusal `NOT_A_CHECKOUT` (exit 1) lists the checkouts below the folder.
@@ -3037,35 +3042,16 @@ board folder opens no checkout and names the checkouts.
 
 ### `kairos index`
 
-```
-kairos index --full [--root <ROOT>] [--json]
-```
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `--full` | flag | off | Build the whole index again, with no base index. It is the same as `kairos index build`. |
-
-With no subcommand and no `--full`, the command prints its help.
-
-### `kairos index build`
-
-```
-kairos index build [--root <ROOT>] [--json]
-```
-
-Builds the index of the checkout: the structure and the call edges. The CLI
-has no summarizer. It links the summaries of the pool of the Kairos server,
-and says why it made no others.
+With no subcommand, the command prints its help.
 
 ### `kairos index update`
 
 ```
-kairos index update [--root <ROOT>] [--rust-edges] [--link-only] [--max-changed <MAX_CHANGED>] [--repo <REPOSITORY>] [--url <URL>] [--tenant <TENANT>] [--json]
+kairos index update [--root <ROOT>] [--link-only] [--max-changed <MAX_CHANGED>] [--repo <REPOSITORY>] [--url <URL>] [--tenant <TENANT>] [--json]
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--rust-edges` (alias `--scip`) | flag | off | Run the SCIP indexers again for the precise edges of the changed code: rust-analyzer, scip-go, scip-typescript and scip-python. |
 | `--link-only` | flag | off | Run no model. Link the summaries of the pool, and make no new summaries. |
 | `--max-changed <MAX_CHANGED>` | integer | 200 when a model runs, else no limit | The most files that can change since the base index. Above it, the CLI builds nothing. With `--link-only` or on a hosted repository, no model runs. |
 | `--repo <REPOSITORY>` | slug or UUID | `repository` of the binding of the checkout (`kairos config show`), else the repository of the `origin` remote | The repository in Kairos. The old name `--repository` still works. |
@@ -3073,12 +3059,30 @@ kairos index update [--root <ROOT>] [--rust-edges] [--link-only] [--max-changed 
 | `--tenant <TENANT>` | string | `tenant` of the binding of the checkout (`kairos config show`), else the tenant of the login | The tenant, for a token from `kairos login`. A key carries its tenant. |
 
 Updates the index for the changes in the checkout, also the changes that are
-not committed.
+not committed. The update runs no SCIP indexer (rust-analyzer, scip-go,
+scip-typescript or scip-python). A SCIP run indexes the whole workspace, so
+only the server runs it. The changed code has its calls by name until the
+next index that the server builds. The CLI has no `--rust-edges` and no
+`--scip`.
 
 A worktree has the `[[project]]` of its clone (the entry
 matches the `origin` remote). With no index, the command starts from the nearest base index
 in Kairos. See
 [`kairos index update` and the base index](../configuration/#kairos-index-update-and-the-base-index).
+
+The local index can have a different schema version from the CLI:
+
+- An older version: the CLI does not open the file. It moves the file to
+  `index.db.schema<N>.bak` in the same folder, and says so. Then it starts
+  from the base index in Kairos, as with no index.
+- A newer version (from a newer CLI): the CLI refuses before it does work.
+  The error gives the 2 versions. Run `kairos self-update`.
+
+With no index and no base index in Kairos, the CLI builds nothing. The error
+`NO_START` gives the reason. For example, the CLI could not reach Kairos, or
+Kairos has no index yet. Make sure that the repository is in Kairos and
+that the CLI can reach Kairos. When the server has an index of the
+repository, run `kairos index update` again.
 
 ### `kairos index status`
 
@@ -3140,12 +3144,11 @@ kairos index upload [--root <ROOT>] [--url <URL>] [--tenant <TENANT>] [--repo <R
 | `--url`, `--tenant` | | as `kairos index update` | The deployment and the tenant. |
 
 Sends the index of the checkout to Kairos as the index of its HEAD commit:
-`PUT /api/repositories/{slug}/code-indexes/{commit}`. Use it when the
-deployment has no builder of the code index, for example in a CI job. Build
-or update the index first:
+`PUT /api/repositories/{slug}/code-indexes/{commit}`. A CI job can use it.
+Update the index first:
 
 ```sh
-kairos index build
+kairos index update
 kairos index upload --repo payments-api --ref main
 ```
 
@@ -3181,7 +3184,7 @@ With `--json`, an `index` command prints one JSON object on stdout, and no
 text. A refusal is the error envelope on stderr (see
 [Errors with `--json`](#errors-with---json)). Stdout then stays empty.
 
-`index build`, `index --full` and `index update` print what the run did:
+`index update` prints what the run did:
 
 ```json
 {
@@ -3202,9 +3205,9 @@ text. A refusal is the error envelope on stderr (see
 
 | Key | Description |
 |---|---|
-| `command` | `build` or `update`. `index --full` gives `build`. |
+| `command` | `update`. |
 | `index` | The path of the index file. |
-| `start` | Where the update started. It is `null` for a build. |
+| `start` | Where the update started. |
 | `start.from` | `base`: the update downloaded the base index of Kairos. `local`: the update changed the local index. |
 | `start.base` | The base index that Kairos gave: the repository, the branch, the commit, the changed files and the count of its summaries. The update can keep the local index and not use it. |
 | `start.local_changed` | The files of the tree that differ from the local index. It is `null` when the checkout has no local index. |
@@ -3235,10 +3238,10 @@ A refusal of `index` has one of these codes in the error envelope:
 | Code | Description |
 |---|---|
 | `NO_INDEX` | The checkout has no index. The details give the `path`. |
-| `NO_START` | The update has no index to start from. The details give the `path` and the reason. |
+| `NO_START` | The update has no index to start from: no local index, and no base index in Kairos. The CLI builds nothing. The details give the `path` and the reason. |
 | `TOO_FAR` | More files than the limit changed since the base index. The details give `changed`, `limit`, `commit`, `branch` and `behind`. `local` is `true` when the count is that of the local index. |
 | `NO_ROOT` | The folder of `--root` is not there. |
-| `NOT_A_CHECKOUT` | `index build`, `index update`, `index status` or `index --full` in a folder that is not in a git checkout. The details give the `path` and the `checkouts` below it. |
+| `NOT_A_CHECKOUT` | `index update` or `index status` in a folder that is not in a git checkout. The details give the `path` and the `checkouts` below it. |
 | `NOT_FOUND`, `AMBIGUOUS` | `index references` found no symbol, or more than one. The details of `AMBIGUOUS` give the `candidates`. |
 | `CLI_ERROR` | Any other failure. |
 

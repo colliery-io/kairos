@@ -219,6 +219,10 @@ class SessionStart(Harness):
         result = self.run_hook("start", {"session_id": "s1", "source": "startup"})
         text = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("This checkout has no local index yet.", text)
+        # KAIROS-T-0746: the CLI does not build an index.
+        self.assertIn("the Kairos server builds it", text)
+        self.assertNotIn("kairos index --full", text)
+        self.assertNotIn("kairos index build", text)
         cache = os.path.join(self.tmp.name, "index-home")
         env = self.env(KAIROS_INDEX_DIR=cache)
         with unittest.mock.patch.dict(os.environ, {"KAIROS_INDEX_DIR": cache}):

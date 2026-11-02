@@ -437,8 +437,13 @@ impl CodeTools {
                 .await
                 .map_err(|e| IndexCommandError::Server(e.to_string()))??
         };
-        let had_index = db.is_file();
         let mut lines = Vec::new();
+        // KAIROS-T-0746: a local index of an older version moves aside, and
+        // the fetch starts as with no index.
+        if let Some(line) = super::set_aside_old(&db)? {
+            lines.push(line);
+        }
+        let had_index = db.is_file();
         let mut hosted = false;
         // The count of the files of the tree that differ from the local
         // index, when the CLI can read it.
@@ -464,15 +469,9 @@ impl CodeTools {
                 if let Some(limit) = limit
                     && n > limit
                 {
-                    return Err(super::too_far(
-                        &root,
-                        &b,
-                        n,
-                        limit,
-                        true,
-                        super::error::Caller::Tool,
-                    )
-                    .into());
+                    return Err(
+                        super::too_far(&b, n, limit, true, super::error::Caller::Tool).into(),
+                    );
                 }
                 lines.push(format!(
                     "Repository {}: the local index is nearer to the tree than the index of \
@@ -492,7 +491,6 @@ impl CodeTools {
                     && b.changed > limit
                 {
                     return Err(super::too_far(
-                        &root,
                         &b,
                         b.changed,
                         limit,
@@ -881,13 +879,13 @@ pub(super) fn references_text(
     match found.coverage {
         Coverage::Full => {}
         Coverage::Pending(n) if s.language == "rust" => out.push_str(&format!(
-            " {} after the last SCIP run: in them, the result has the calls only. Run \
-             `kairos index update --rust-edges` to get all the uses.",
+            " {} after the last SCIP run: in them, the result has the calls only. The next \
+             index that the Kairos server builds has all the uses.",
             plural(n, "Rust file changed", "Rust files changed")
         )),
         Coverage::Pending(n) => out.push_str(&format!(
-            " {} after the last SCIP run: in them, the result has the calls only. Run \
-             `kairos index update --scip` to get all the uses.",
+            " {} after the last SCIP run: in them, the result has the calls only. The next \
+             index that the Kairos server builds has all the uses.",
             plural(
                 n,
                 &format!("{} file changed", s.language),

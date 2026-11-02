@@ -312,7 +312,7 @@ impl Drop for Agent {
 struct CliWorld {
     /// The copy of the fixture.
     copy: Option<TempDir>,
-    /// The output of `kairos index build`.
+    /// The output of the first command of a step (`kairos index update`).
     build_out: String,
     /// The output of `kairos index status`.
     status_out: String,
@@ -356,20 +356,27 @@ impl CliWorld {
     }
 }
 
+/// The structure of the index of the checkout at `root`, made with the
+/// library: the CLI builds no index (KAIROS-T-0746).
+fn build_structure_at(root: &Path) -> PathBuf {
+    let db = index_db(root);
+    fs::create_dir_all(db.parent().expect("a folder")).expect("make the index folder");
+    let options = BuildOptions {
+        rust_analyzer: None,
+        std_source: None,
+        sysroot: None,
+        download: false,
+        ..Default::default()
+    };
+    build_structure_with(root, &db, &options).unwrap_or_else(|e| panic!("{e}"));
+    db
+}
+
 /// Build and summarize the index of the checkout at `root` with the library.
 fn build_index_at(root: &Path) {
     {
         let root = root.to_path_buf();
-        let db = index_db(&root);
-        fs::create_dir_all(db.parent().expect("a folder")).expect("make the index folder");
-        let options = BuildOptions {
-            rust_analyzer: None,
-            std_source: None,
-            sysroot: None,
-            download: false,
-            ..Default::default()
-        };
-        build_structure_with(&root, &db, &options).unwrap_or_else(|e| panic!("{e}"));
+        let db = build_structure_at(&root);
         summarize(
             &root,
             &db,
@@ -485,10 +492,12 @@ fn numbered(text: &str) -> Vec<&str> {
 
 // --- Given --------------------------------------------------------------------
 
-#[given("the polyglot fixture with no index")]
-fn fixture_with_no_index(world: &mut CliWorld) {
+/// KAIROS-T-0746: the structure only, so that the update of the CLI has
+/// summaries to make, and says why it made none.
+#[given("an index of the polyglot fixture with no summaries")]
+fn an_index_with_no_summaries(world: &mut CliWorld) {
     world.copy_fixture();
-    assert!(!world.db().exists());
+    build_structure_at(world.root());
 }
 
 #[given("an index of the polyglot fixture")]
@@ -680,8 +689,8 @@ fn refused_unknown_checkout(world: &mut CliWorld) {
 fn run_build_and_status(world: &mut CliWorld, first: String, second: String) {
     assert!(
         [
-            ("kairos index build", "kairos index status"),
-            ("kairos index build --json", "kairos index status --json"),
+            ("kairos index update", "kairos index status"),
+            ("kairos index update --json", "kairos index status --json"),
             ("kairos index update --link-only", "kairos index status"),
             (
                 "kairos index duplicates --json",
@@ -726,8 +735,8 @@ fn json_counts(world: &mut CliWorld) {
     let edges = index.edges().expect("edges").len();
     let build = one_object(&world.build_out);
     let out = &world.build_out;
-    assert_eq!(build["command"], "build", "{out}");
-    assert_eq!(build["start"], Value::Null, "{out}");
+    assert_eq!(build["command"], "update", "{out}");
+    assert_eq!(build["start"]["from"], "local", "{out}");
     assert!(
         build["index"]
             .as_str()
@@ -1048,7 +1057,7 @@ fn status_counts(world: &mut CliWorld) {
     assert_eq!(count_after(out, "Edges:"), edges.len(), "{out}");
     assert_eq!(count_after(out, "Summaries:"), summaries, "{out}");
     assert!(!symbols.is_empty() && !edges.is_empty(), "{out}");
-    // This binary has no summarizer: the build says so and why.
+    // This binary has no summarizer: the update says so and why.
     assert!(
         world
             .build_out

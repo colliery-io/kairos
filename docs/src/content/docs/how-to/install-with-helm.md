@@ -214,7 +214,7 @@ Three changes of 0.13 show after the upgrade. They apply to Compose too.
 - The code index has a new schema. Every repository gets a full build after
   the upgrade, one at a time. Until the build of a repository ends,
   `kairos index update` on that repository fails with a schema-version error:
-  run `kairos index --full`, or wait.
+  wait for the build.
 - Every repository follows the default branch of its forge now. The next
   fetch replaces a branch that a person set by hand in 0.12. Set it again
   with `kairos repos update <slug> --default-branch <branch>`.
@@ -587,7 +587,7 @@ Changes that people and agents see:
   person.
 - `.claude/kairos.local.md` is no longer read. Run `kairos config migrate`
   once in each checkout that has the file. Then remove the file.
-- A `.kairos/index.db` is no longer moved. Run `kairos index build` once
+- A `.kairos/index.db` is no longer moved. Run `kairos index update` once
   and delete the old file. The `moved_from` field of `kairos index status
   --json` is gone.
 - The image holds the CLI tarballs of its version (about 60 MB). The server
@@ -617,6 +617,30 @@ Other changes of 0.19.1:
 - The `kairos` CLI has no feature `llama`, and the plugin does not read
   `KAIROS_INDEX_SUMMARIZE`. The summaries of the code index come from the
   pool of the Kairos server (KAIROS-T-0743).
+- The code index (KAIROS-T-0746) has no migration and no new setting. The
+  server reads only the code indexes of its schema version (8). A
+  stored index of an older version (7, from a 0.18 worker) counts as
+  missing. `fetch_index` and `kairos index update` no longer get an error
+  500 for it.
+- When a repository has only indexes of an older version, the nearest-index
+  lookup answers "no index yet" and adds a build of the repository. The
+  sweep also builds such a repository at once. When the server stores the
+  new index, it deletes the indexes of the older version. You do not delete
+  them by hand.
+- The CLI does not build an index. The CLI has no `kairos index build` and
+  no `kairos index --full` now. The server builds the index of each
+  repository, and `kairos index update` takes it as its base.
+- `kairos index update` has no `--rust-edges` (or `--scip`) now. It runs no
+  SCIP indexer, because a SCIP run indexes the whole workspace. The changed
+  code has its calls by name until the next index that the server builds.
+- A deployment with no builder of the code index (no
+  `KAIROS_CODE_INDEX_DIR`) cannot make the first index of a repository now.
+  Set `KAIROS_CODE_INDEX_DIR` to turn on the builder.
+- `kairos index update` and `fetch_index` move a local index of an older
+  version aside. They rename it to `index.db.schema<N>.bak` in the same
+  folder, and take a new base index from Kairos. You can delete the `.bak` file.
+- With no local index and no index in Kairos, `kairos index update` builds
+  nothing. It says why, and what to do.
 
 Changes to the tools of the builder:
 

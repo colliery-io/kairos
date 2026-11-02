@@ -406,6 +406,7 @@ mod tests {
             code_index_min_rebuild_secs: 0,
             code_index_deps_cap_mb: 10240,
             code_index_min_free_mb: 5120,
+            code_index_scip_memory_mib: 0,
             code_index_deps_env: Vec::new(),
             code_index_tool_downloads: false,
             dev_ui: false,

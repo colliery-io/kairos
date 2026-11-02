@@ -87,9 +87,9 @@ repos builds <slug>`, or the panel of the repository.
 
 ## The CLI on a repository on the provider
 
-`kairos index update` in a checkout of such a repository makes no summary,
-whatever `KAIROS_INDEX_SUMMARIZE` says. It links the summaries of the pool
-of Kairos, and it says so. The CLI never has the key of the organization.
+`kairos index update` in a checkout of such a repository makes no summary.
+It links the summaries of the pool of Kairos, and it says so. The CLI never
+has the key of the organization.
 
 ## The search of the code tools
 

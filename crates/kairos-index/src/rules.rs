@@ -483,7 +483,7 @@ mod tests {
             ("e2e/tests/theme.spec.ts", Test),
             ("uat/fixtures/team.ts", Source),
             ("e2e/helpers/auth.ts", Source),
-            ("scripts/metis_import/test_remap.py", Test),
+            ("scripts/test_check_mcp_tools.py", Test),
             ("plugin/hooks/test_session_start.py", Test),
             ("go/greet/greet_test.go", Test),
             ("docs/theme/mermaid.min.js", Vendored),

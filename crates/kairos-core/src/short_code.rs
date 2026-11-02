@@ -191,9 +191,10 @@ pub fn numbered_prefix(prefix: &str, n: u32) -> String {
     out
 }
 
-/// The start of the provenance footer that the Metis importer writes
-/// (`scripts/metis_import/remap.py`, `FOOTER_RULE + FOOTER_LEAD`). The footer
-/// names the Metis code of the item, and a rename does not change it.
+/// The start of the provenance footer of an item that an import from Metis
+/// made (the importer is gone since KAIROS-T-0743; the items keep the
+/// footer). The footer names the Metis code of the item, and a rename does
+/// not change it.
 const IMPORT_FOOTER: &str = "\n\n---\n\nThis item came from the Metis record of the repository ";
 
 /// The characters that end a token around a code: white space and the
@@ -225,7 +226,7 @@ fn is_word(c: char) -> bool {
 /// - A file name (`{code}.md`: a `.` and then a letter or a digit) does not
 ///   change.
 /// - The import footer does not change: it records the Metis code of the
-///   item, the same as `rewrite_content` of the Metis importer.
+///   item.
 pub fn rewrite_code_references(text: &str, old: &str, new: &str) -> Option<String> {
     if old.is_empty() || !text.contains(old) {
         return None;

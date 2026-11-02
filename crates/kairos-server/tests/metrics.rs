@@ -90,7 +90,7 @@ async fn raw_request(
 }
 
 /// Parse Prometheus text into `key -> value`, where `key` is the full
-/// `name{labels}` token (same shape the soak scraper keys on). Comments and
+/// `name{labels}` token. Comments and
 /// unparseable lines are ignored.
 fn parse_prometheus(body: &str) -> BTreeMap<String, f64> {
     let mut out = BTreeMap::new();
@@ -253,7 +253,7 @@ async fn metrics_and_readyz_against_live_stack() {
     assert_eq!(count1, FIRST_BATCH as f64, "3 successful whoami calls");
 
     // Connection-pool gauges: both the async bb8 pool and the blocking r2d2
-    // bridge (the soak scraper's `is_pool_metric` keys on name substrings).
+    // bridge.
     for gauge in [
         "kairos_db_pool_connections{pool=\"async\",state=\"total\"}",
         "kairos_db_pool_connections{pool=\"async\",state=\"idle\"}",

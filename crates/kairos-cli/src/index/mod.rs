@@ -37,9 +37,9 @@
 //! writes no file into the checkout. An old `.kairos/index.db` of a CLI
 //! before 0.18 stays where it is (KAIROS-T-0742): the CLI does not read it.
 //!
-//! Summaries need the feature `llama` (llama.cpp and the local vector
-//! model) and the model file. Without them, a build or an update makes the
-//! structure and the edges, and says that it made no summaries and why.
+//! The CLI has no summarizer. A build or an update makes the structure and
+//! the edges, links the summaries of the pool of the Kairos server, and says
+//! why it made no others.
 
 mod arguments;
 mod base;
@@ -555,9 +555,8 @@ async fn update(
     let mut download = None;
     let found = base::find(root, remote).await;
     // KAIROS-T-0343: a repository on a hosted provider makes its summaries
-    // on Kairos. The CLI then links the pool and runs no model, whatever
-    // KAIROS_INDEX_SUMMARIZE says. With no answer from Kairos, the CLI
-    // cannot know, and it runs as before.
+    // on Kairos. The CLI then links the pool and says so. With no answer
+    // from Kairos, the CLI cannot know, and it runs as before.
     let hosted = matches!(&found, base::Found::Base(b) if b.hosted);
     let limit = limit_of(max_changed, !(link_only || hosted));
     match (found, &local) {
@@ -771,7 +770,7 @@ pub(super) fn too_far(
         },
         None => error::Advice::Rebase {
             branch: b.branch.clone(),
-            estimate: base::full_build_estimate(base::file_count(root), b.summaries),
+            estimate: base::full_build_estimate(base::file_count(root)),
             raise,
         },
     };
@@ -882,26 +881,6 @@ fn print_summaries(outcome: summaries::Outcome) {
             mcp::plural(r.files.left, "file", "files"),
             mcp::plural(r.modules.left, "module", "modules"),
         ),
-        #[cfg(feature = "llama")]
-        summaries::Outcome::Made(r, elapsed) => {
-            println!(
-                "Summaries: {} symbols, {} files and {} modules made, {} reused, in {:.1} s.",
-                r.symbols.summarized,
-                r.files.summarized,
-                r.modules.summarized,
-                r.symbols.reused + r.files.reused + r.modules.reused,
-                elapsed.as_secs_f64()
-            );
-            // KAIROS-T-0495: a failed summary does not stop the build.
-            if let Some(failure) = &r.failure {
-                println!(
-                    "Missing summaries: {}. The next build makes them. First error: {}: {}",
-                    r.missing(),
-                    failure.name,
-                    failure.message
-                );
-            }
-        }
     }
 }
 
@@ -1031,8 +1010,6 @@ mod summaries {
         Linked(SummaryReport),
         /// The link pass, and why no model made the summaries that it left.
         NotMade(SummaryReport, String),
-        #[cfg(feature = "llama")]
-        Made(SummaryReport, std::time::Duration),
     }
 
     /// Why `--link-only` made no summaries.
@@ -1043,10 +1020,10 @@ mod summaries {
     pub const HOSTED: &str = "This repository makes its summaries on Kairos, with the hosted \
                               provider of the organization. The next push updates them.";
 
-    /// Link each key that the pool has, with no model (COLLIERY-T-1854). The
-    /// summarizer runs only if a key is not in the pool, and not when
-    /// `no_model` gives the reason that no model runs: `--link-only`
-    /// (COLLIERY-T-2529) or a hosted repository (KAIROS-T-0343).
+    /// Link each key that the pool has, with no model (COLLIERY-T-1854). A
+    /// key that is not in the pool stays with no summary, for the reason that
+    /// `no_model` gives (`--link-only`, COLLIERY-T-2529, or a hosted
+    /// repository, KAIROS-T-0343), else [`NO_SUMMARIZER`].
     pub fn run(
         root: &Path,
         db: &Path,
@@ -1056,23 +1033,14 @@ mod summaries {
         if linked.symbols.left + linked.files.left + linked.modules.left == 0 {
             return Ok(Outcome::Linked(linked));
         }
-        if let Some(why) = no_model {
-            return Ok(Outcome::NotMade(linked, why.into()));
-        }
-        summarize(root, db, linked)
+        let why = no_model.unwrap_or(NO_SUMMARIZER);
+        Ok(Outcome::NotMade(linked, why.into()))
     }
 
-    #[cfg(not(feature = "llama"))]
-    fn summarize(
-        _root: &Path,
-        _db: &Path,
-        linked: SummaryReport,
-    ) -> Result<Outcome, IndexCommandError> {
-        Ok(Outcome::NotMade(
-            linked,
-            "This kairos binary has no summarizer. Build it with the feature `llama`.".into(),
-        ))
-    }
+    /// Why the CLI made no summaries for the keys that the pool does not
+    /// have (KAIROS-T-0743).
+    pub const NO_SUMMARIZER: &str = "This kairos binary has no summarizer. The summaries come \
+                                     from the pool of the Kairos server.";
 
     /// The local vector model: `KAIROS_EMBED_CACHE`, else
     /// `~/.cache/kairos-index/embed`. The first run downloads it there.
@@ -1092,39 +1060,6 @@ mod summaries {
             allow_download: true,
         })
         .map_err(|e| format!("The vector model did not start: {e}."))
-    }
-
-    #[cfg(feature = "llama")]
-    fn summarize(
-        root: &Path,
-        db: &Path,
-        linked: SummaryReport,
-    ) -> Result<Outcome, IndexCommandError> {
-        use kairos_index::{LlamaModelFile, MODEL_FILE_NAME, model_path};
-        let Some(model) = model_path().filter(|p| p.is_file()) else {
-            return Ok(Outcome::NotMade(
-                linked,
-                format!(
-                    "The model file is not on disk. Put {MODEL_FILE_NAME} in \
-                     ~/.cache/kairos-index/models/, or set KAIROS_INDEX_MODEL."
-                ),
-            ));
-        };
-        let embedder = match local_embedder() {
-            Ok(embedder) => embedder,
-            Err(why) => return Ok(Outcome::NotMade(linked, why)),
-        };
-        let started = std::time::Instant::now();
-        let model = LlamaModelFile::load(&model)?;
-        let mut summarizer = model.summarizer()?;
-        let report = kairos_index::summarize(
-            root,
-            db,
-            &mut summarizer,
-            &embedder,
-            &SummarizeOptions::default(),
-        )?;
-        Ok(Outcome::Made(report, started.elapsed()))
     }
 }
 

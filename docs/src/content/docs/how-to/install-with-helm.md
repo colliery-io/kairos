@@ -602,6 +602,22 @@ Changes that people and agents see:
 
 These changes of 0.19.1 show after the upgrade. They apply to Compose too.
 
+0.19.1 does not have these routes (KAIROS-T-0743):
+
+- `PUT /api/boards/{id}/code-sequences/{item_type}`. Only the Metis
+  importer used it. The importer is gone too.
+- `GET /api/teams/{id}/work-documents`. The web app stopped reading it
+  when the documents of a team became part of the team tree
+  (`GET /api/teams/{id}/tree-items`).
+- `GET /api/repositories/{slug}/site/publishes`. The repository still
+  shows its live publish (`site.published` of `GET /api/repositories/{slug}`).
+
+Other changes of 0.19.1:
+
+- The `kairos` CLI has no feature `llama`, and the plugin does not read
+  `KAIROS_INDEX_SUMMARIZE`. The summaries of the code index come from the
+  pool of the Kairos server (KAIROS-T-0743).
+
 Changes to the tools of the builder:
 
 - The Rust toolchain of the builder changes from 1.93.0 to 1.99.0, the
@@ -646,6 +662,10 @@ Changes that people and agents see:
 - The REST lists of team members and board members give `user_name`. The
   claim gives `user_name`, and each note gives `author_user_name`. An older
   client ignores these fields.
+- `kairos config migrate` also moves the file of a folder with no origin
+  remote, such as a board folder. It writes a `[[project]]` with `path`,
+  as `kairos config project` does. `--path` names the folder by its path
+  also when it has an origin remote. 0.19.0 refused these folders.
 
 ## Trying it out without a database
 

@@ -11,8 +11,8 @@
 //!
 //! `kairos-core` is pure by KAIROS-A-0009 — no I/O — and loading an ONNX model
 //! or calling an HTTP endpoint is I/O. The providers could have gone in
-//! `kairos-server`, which already does both, but then the CLI and the soak
-//! driver would link an ML runtime to get at a trait. Here, with `local` and
+//! `kairos-server`, which already does both, but then the CLI would link an
+//! ML runtime to get at a trait. Here, with `local` and
 //! `remote` behind features, they do not.
 //!
 //! # The three providers

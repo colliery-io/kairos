@@ -294,11 +294,10 @@ the [MCP tools reference](../../reference/mcp-tools/) and the
 
 ## Where this comes from
 
-- [The team lifecycle: the live-only guard, and moving tasks between delivery
-  boards](https://github.com/colliery-io/kairos/blob/main/.metis/initiatives/KAIROS-I-0012/initiative.md)
+- The team lifecycle: the live-only guard, and moving tasks between delivery
+  boards
   (KAIROS-I-0012).
-- [Teams, team types and board ownership in the data
-  model](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0001.md)
+- Teams, team types and board ownership in the data model
   (KAIROS-A-0001).
 - A task in Active has a claim (KAIROS-T-0359, KAIROS-A-0024: a person is
   always responsible, and a service account takes no claim).
@@ -308,8 +307,7 @@ the [MCP tools reference](../../reference/mcp-tools/) and the
   product owner on 2026-09-27).
 - A board owns a document (COLLIERY-T-0269, a decision of the product owner
   on 2026-09-29).
-- [One owning team per
-  repository](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
+- One owning team per repository
   (KAIROS-A-0019), amended by COLLIERY-A-0023: the team decides the board, and
   a repository is a link.
 

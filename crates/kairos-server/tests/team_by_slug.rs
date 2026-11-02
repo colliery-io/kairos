@@ -6,8 +6,8 @@
 //! `/api/teams/by-slug/{slug}` before each of its team commands.
 //!
 //! - `GET /api/teams/{id}`, `/members`, `/pages`, `/tree-items`,
-//!   `/archived-pages`, `/announcements`, `/work-documents`, `/links` and
-//!   `/unlinked-refs` give the same answer for the slug and for the id,
+//!   `/archived-pages`, `/announcements`, `/links` and `/unlinked-refs`
+//!   give the same answer for the slug and for the id,
 //! - the writes take the slug too: a member, a page, an announcement and
 //!   the team itself,
 //! - an unknown slug and an unknown id are a 404 `NOT_FOUND`,
@@ -198,7 +198,6 @@ async fn the_routes_of_a_team_take_a_slug_against_live_stack() {
         "/tree-items",
         "/archived-pages",
         "/announcements",
-        "/work-documents",
         "/links",
         "/unlinked-refs",
     ] {
@@ -276,7 +275,7 @@ async fn the_routes_of_a_team_take_a_slug_against_live_stack() {
 
     // --- an unknown slug and an unknown id are a 404 -----------------------
     for reference in ["nobody", &Uuid::nil().to_string()] {
-        for tail in ["", "/members", "/pages", "/work-documents"] {
+        for tail in ["", "/members", "/pages", "/announcements"] {
             let (status, answer) = stack
                 .send(Method::GET, &format!("/api/teams/{reference}{tail}"), None)
                 .await;

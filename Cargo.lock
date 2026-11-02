@@ -2835,20 +2835,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kairos-soak"
-version = "0.19.0"
-dependencies = [
- "chrono",
- "clap",
- "kairos-client",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
- "toml 0.9.12+spec-1.1.0",
-]
-
-[[package]]
 name = "kairos-web"
 version = "0.19.0"
 dependencies = [

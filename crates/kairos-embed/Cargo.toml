@@ -13,7 +13,7 @@ sha2 = { workspace = true }
 
 # The local provider (KAIROS-T-0189): ONNX inference in-process, CPU only, no
 # GPU, statically linked onnxruntime — so A-0013's single binary survives.
-# Optional so the CLI, soak driver and anything else that links this crate for
+# Optional so the CLI and anything else that links this crate for
 # the trait alone does not drag in an ML runtime.
 fastembed = { workspace = true, optional = true }
 

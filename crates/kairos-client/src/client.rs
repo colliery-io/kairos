@@ -57,7 +57,7 @@ use crate::types_org::{
 use crate::types_search::{SearchRequest, SearchResponse};
 use crate::types_team_pages::{
     CreateTeamAnnouncementRequest, CreateTeamPageRequest, TeamAnnouncement, TeamPage,
-    TeamWorkDocument, UpdateTeamPageRequest,
+    UpdateTeamPageRequest,
 };
 
 /// Supplies the bearer token for each request. The CLI implements this
@@ -2627,16 +2627,6 @@ impl KairosClient {
             },
         )
         .await
-    }
-
-    /// `GET /api/teams/{id}/work-documents` — live documents supporting
-    /// the team's tasks or items on its delivery board (KAIROS-T-0084).
-    pub async fn list_team_work_documents(
-        &self,
-        team_id: &str,
-    ) -> Result<Vec<TeamWorkDocument>, Error> {
-        self.get(&format!("/api/teams/{team_id}/work-documents"))
-            .await
     }
 
     /// `GET /api/org/dictionary` — the dictionary of the organization

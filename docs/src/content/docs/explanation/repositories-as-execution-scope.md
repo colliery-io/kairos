@@ -424,17 +424,16 @@ path dimension at all.
 
 ## Where this comes from
 
-- [Repositories as first-class execution scope: the cardinality choices, the
+- Repositories as first-class execution scope: the cardinality choices, the
   first cross-team filing rule and the vision
-  amendment](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
+  amendment
   (KAIROS-A-0019).
 - COLLIERY-A-0023, approved on 2026-09-27, which amends the record above: the
   team decides the board, and a repository is a link. It has no file to link
   to: see [ADR](../../reference/glossary/#adr) in the glossary.
 - COLLIERY-T-0269, from a decision of the product owner on 2026-09-29: a board
   owns a document, and a document impacts a repository.
-- [The whitelist stance that requests
-  widen](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0006.md)
+- The whitelist stance that requests widen
   (KAIROS-A-0006).
-- [The vision](https://github.com/colliery-io/kairos/blob/main/.metis/vision.md)
+- The vision
   (KAIROS-V-0001).

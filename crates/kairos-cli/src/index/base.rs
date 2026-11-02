@@ -495,41 +495,14 @@ pub fn file_count(root: &Path) -> usize {
 /// files of Kairos in 95 s, with the SCIP run).
 const SECONDS_PER_FILE: f64 = 0.1;
 
-/// The seconds of one summary with llama.cpp on Metal (`COLLIERY-T-1853`:
-/// 3,145 summaries of Kairos in 5,614 s on an M1 Max).
-#[cfg(feature = "llama")]
-const SECONDS_PER_SUMMARY_METAL: f64 = 1.8;
-
-/// The seconds of one summary with llama.cpp on a CPU (the benchmark of
-/// 2026-09-30: about 12 h for 3,288 model calls, with 4 threads).
-#[cfg(feature = "llama")]
-const SECONDS_PER_SUMMARY_CPU: f64 = 13.0;
-
 /// The estimated time of a full build on this machine, and what it counts.
-pub fn full_build_estimate(files: usize, summaries: usize) -> String {
+pub fn full_build_estimate(files: usize) -> String {
     let structure = files as f64 * SECONDS_PER_FILE;
-    #[cfg(feature = "llama")]
-    {
-        let per_summary = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-            SECONDS_PER_SUMMARY_METAL
-        } else {
-            SECONDS_PER_SUMMARY_CPU
-        };
-        let total = structure + summaries as f64 * per_summary;
-        format!(
-            "about {} on this machine: {files} files and about {summaries} summaries",
-            duration(total)
-        )
-    }
-    #[cfg(not(feature = "llama"))]
-    {
-        let _ = summaries;
-        format!(
-            "about {} on this machine: {files} files. This kairos binary has no summarizer, \
-             so it makes no summaries",
-            duration(structure)
-        )
-    }
+    format!(
+        "about {} on this machine: {files} files. This kairos binary has no summarizer, \
+         so it makes no summaries",
+        duration(structure)
+    )
 }
 
 fn duration(seconds: f64) -> String {

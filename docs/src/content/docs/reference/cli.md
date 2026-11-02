@@ -2701,7 +2701,7 @@ kairos pages unpublish --repo <REPOSITORY> --confirm [OPTIONS]
 |---|---|---|---|
 | `--confirm` | flag | off | Required for the unpublish to happen. Without it, the command exits 1. |
 
-Kairos deletes the files of the site. The list of the publishes stays.
+Kairos deletes the files of the site.
 
 ## Machine access
 
@@ -3053,9 +3053,9 @@ With no subcommand and no `--full`, the command prints its help.
 kairos index build [--root <ROOT>] [--json]
 ```
 
-Builds the index of the checkout: the structure, the call edges and the
-summaries. A CLI with no summarizer makes the structure and the edges, and
-says why it made no summaries.
+Builds the index of the checkout: the structure and the call edges. The CLI
+has no summarizer. It links the summaries of the pool of the Kairos server,
+and says why it made no others.
 
 ### `kairos index update`
 
@@ -3251,7 +3251,7 @@ kairos config show [FOLDER] [--json]
 kairos config project [FOLDER] [--remote <REMOTE> | --path] [--deployment <URL>] [--tenant <TENANT>]
     [--repository <SLUG>] [--team-board <SLUG>] [--initiative-board <SLUG>]
     [--adr-board <SLUG>] [--delivery-stream <SLUG>] [--json]
-kairos config migrate [FOLDER] [--remote <REMOTE>] [--json]
+kairos config migrate [FOLDER] [--remote <REMOTE> | --path] [--json]
 kairos config path
 ```
 
@@ -3281,12 +3281,16 @@ are a board folder that holds clones, and a checkout with no remote. In a
 checkout, the path is the top of the checkout. With `--path`, a folder that
 has a remote also gets a `path` entry.
 
-`config migrate` moves the values of the retired `.claude/kairos.local.md`
-to a `[[project]]`. The entry is for the `origin` remote of the folder, or
-for `--remote`. In a worktree, it reads the file of the main clone. With no
+`config migrate` moves the values of the retired `.claude/kairos.local.md` to
+a `[[project]]`. The entry has the key that `config project` gives. It is
+`--remote`, else the `origin` remote of the folder, else the path of the
+folder. A board folder and a checkout with no remote get a `path` entry. With
+`--path`, a checkout that has a remote also gets a `path` entry.
+
+In a worktree, `config migrate` reads the file of the main clone. With no
 file, or a file with no value, the command says that there is nothing to
-migrate. Then it changes nothing. When `config.toml` has an entry for the
-remote with other values, the command refuses, as `config project` does.
+migrate. Then it changes nothing. When `config.toml` has an entry for this key
+with other values, the command refuses, as `config project` does.
 
 The command does not remove the file: check the result with `config show`,
 then remove the file. No other command and no hook reads the file.

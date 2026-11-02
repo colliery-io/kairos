@@ -183,7 +183,6 @@ use crate::app::AppState;
         crate::api::org::dispatch::delete_dispatch_rule,
         crate::api::org::dispatch::list_webhook_deliveries,
         crate::api::org::boards::archive_completed,
-        crate::api::org::boards::set_code_sequence,
         crate::api::org::boards::list_columns,
         crate::api::org::boards::add_column,
         crate::api::org::boards::update_column,
@@ -214,7 +213,6 @@ use crate::app::AppState;
         // The base code index of a repository (COLLIERY-T-1853).
         crate::api::org::sites::publish_site,
         crate::api::org::sites::unpublish_site,
-        crate::api::org::sites::list_site_publishes,
         crate::api::org::code_indexes::list_code_indexes,
         crate::api::org::code_indexes::code_indexes_page,
         crate::api::org::code_indexes::upload_code_index,
@@ -246,7 +244,6 @@ use crate::app::AppState;
         crate::api::org::teams::list_teams,
         crate::api::org::teams::get_team,
         crate::api::org::teams::get_team_by_slug,
-        crate::api::org::teams::list_work_documents,
         crate::api::org::teams::list_team_links,
         crate::api::org::teams::list_team_unlinked_refs,
         crate::api::org::team_pages::list_pages,

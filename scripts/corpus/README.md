@@ -1,6 +1,6 @@
 # Corpus measurement (KAIROS-I-0017)
 
-The retrieval design in [KAIROS-A-0021](../../.metis/adrs/KAIROS-A-0021.md) rests
+The retrieval design in KAIROS-A-0021 rests
 on measurements of real Metis documents rather than on assumptions about them.
 This directory is how those measurements were taken, so they can be retaken when
 the model, the chunker or the primary-vector composition changes.
@@ -9,7 +9,7 @@ The sample is nineteen Metis corpora — 4,927 documents — because Kairos's ow
 238 documents are too few to tell a real distribution from a sampling artefact,
 and because a design that only works on one project's writing habits is not a
 design. The full numbers live in
-[KAIROS-T-0190](../../.metis/initiatives/KAIROS-I-0017/tasks/KAIROS-T-0190.md).
+KAIROS-T-0190.
 
 ## Extract and measure structure
 

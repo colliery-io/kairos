@@ -425,21 +425,6 @@ store; the history stays.
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No capability pages, and no right to change the repository |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown repository, or no published site |
 
-### `GET /api/repositories/{slug}/site/publishes`
-
-The publishes of the site of a repository, newest first.
-
-| Parameter | In | Required | Type | Description |
-|---|---|---|---|---|
-| `slug` | path | yes | `string` | Repository slug (or UUID) |
-| `limit` | query | no | `integer` | Page size (default 50, max 200). |
-| `offset` | query | no | `integer` | Rows to skip (default 0). |
-
-| Response | Body | Meaning |
-|---|---|---|
-| `200` | [`ListEnvelope_SitePublish`](../schemas/#listenvelope_sitepublish) | The publishes, newest first |
-| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown repository |
-
 ### `GET /api/repositories/{slug}/write-token`
 
 The status of the GitHub write-back of a repository. It never has the

@@ -213,7 +213,6 @@ use crate::app::AppState;
         // The base code index of a repository (COLLIERY-T-1853).
         crate::api::org::sites::publish_site,
         crate::api::org::sites::unpublish_site,
-        crate::api::org::sites::list_site_publishes,
         crate::api::org::code_indexes::list_code_indexes,
         crate::api::org::code_indexes::code_indexes_page,
         crate::api::org::code_indexes::upload_code_index,
@@ -245,7 +244,6 @@ use crate::app::AppState;
         crate::api::org::teams::list_teams,
         crate::api::org::teams::get_team,
         crate::api::org::teams::get_team_by_slug,
-        crate::api::org::teams::list_work_documents,
         crate::api::org::teams::list_team_links,
         crate::api::org::teams::list_team_unlinked_refs,
         crate::api::org::team_pages::list_pages,

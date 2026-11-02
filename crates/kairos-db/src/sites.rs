@@ -171,30 +171,6 @@ pub fn live(
     Ok(rows.into_iter().map(|p| (p.repository_id, p)).collect())
 }
 
-/// The publishes of a repository, newest first.
-pub fn history(
-    conn: &mut PgConnection,
-    repository_id: Uuid,
-    limit: i64,
-    offset: i64,
-) -> Result<(Vec<SitePublish>, i64), DieselError> {
-    let total: i64 = site_publishes::table
-        .filter(site_publishes::repository_id.eq(repository_id))
-        .count()
-        .get_result(conn)?;
-    let rows = site_publishes::table
-        .filter(site_publishes::repository_id.eq(repository_id))
-        .order((
-            site_publishes::published_at.desc(),
-            site_publishes::id.desc(),
-        ))
-        .limit(limit)
-        .offset(offset)
-        .select(SitePublish::as_select())
-        .load(conn)?;
-    Ok((rows, total))
-}
-
 /// The live publish served at `base_path`: the live publish of a repository
 /// with its site on, built for that base path (KAIROS-T-0407).
 pub fn live_at(

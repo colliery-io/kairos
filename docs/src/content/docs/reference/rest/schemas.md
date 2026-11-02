@@ -1758,17 +1758,6 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `offset` | `integer` | yes | The applied offset. |
 | `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). The activity feed counts at most past the larger of 1000 and `offset + limit` (KAIROS-T-0627): a `total` above that bound means "more than the bound". |
 
-## ListEnvelope_SitePublish
-
-The S-0005 list envelope: `{items, total, limit, offset}`.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `items` | array of `object` | yes |  |
-| `limit` | `integer` | yes | The applied limit. |
-| `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). The activity feed counts at most past the larger of 1000 and `offset + limit` (KAIROS-T-0627): a `total` above that bound means "more than the bound". |
-
 ## ListEnvelope_Strategy
 
 The S-0005 list envelope: `{items, total, limit, offset}`.
@@ -3178,20 +3167,6 @@ One document or ADR in the tree of a team (KAIROS-T-0437): `GET /api/teams/{id}/
 | `position` | `integer`, nullable | no | Its position among its siblings; null when nobody placed it (it shows at the end of the root). |
 | `short_code` | `string` | yes |  |
 | `status` | `string` | yes | The lifecycle of a document, or the column of an ADR. |
-| `title` | `string` | yes |  |
-
-## TeamWorkDocument
-
-One row of `GET /api/teams/{id}/work-documents` (KAIROS-T-0084, KAIROS-T-0393): a live document of the team. A board of the team owns it (`owned`), or it supports a task of the team or an item on the delivery board of the team (`parent_*`). Each row has one reason or both.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `lifecycle` | `string` | yes | `draft|published|adopted|superseded` (KAIROS-T-0080). |
-| `owned` | `boolean` | yes | A board of the team is the owner board of the document. |
-| `parent_short_code` | `string`, nullable | no | The supports-parent item of the team's work, for attribution; `null` when it supports no item of the team's work. |
-| `parent_title` | `string`, nullable | no |  |
-| `parent_type` | `string`, nullable | no | `strategy|initiative|task`. |
-| `short_code` | `string` | yes | Document short code (links to `/items/{code}`). |
 | `title` | `string` | yes |  |
 
 ## Template

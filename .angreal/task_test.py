@@ -7,7 +7,6 @@ share a single entry point:
   tier 1  unit         -> `angreal test unit`
   tier 2+3 integration -> `angreal test integration`
   tier 4  e2e smoke    -> `angreal test e2e`   (golden path + MCP + GUI Playwright)
-  tier 5  soak         -> `angreal test soak`  (workforce driver, KAIROS-T-0046)
   tier 6  uat          -> `angreal test uat`   (persona journeys, KAIROS-I-0011)
 
 plus the static gate that precedes them (CI gates 1+2, KAIROS-T-0114):
@@ -72,23 +71,9 @@ def _index_model_features():
         return ["--features", "kairos-index/llama"]
     return []
 
-# Soak stack wiring (KAIROS-T-0046): a dedicated port so neither a dev
-# server (41080) nor the e2e stack (41188) collides. The soak DRIVER
-# (crates/kairos-soak) always targets an already-running deployment via
-# --url; this task is the boot-and-seed choreography around it, mirroring
-# the e2e pattern: compose up -> build -> seed-demo --force -> serve ->
-# drive -> stop the server. Unlike e2e it does NOT tear down the compose
-# services afterwards (soak is nightly-scale; the dev stack stays up).
-SOAK_PORT = int(os.environ.get("KAIROS_SOAK_PORT", "41189"))
-SOAK_BASE_URL = f"http://127.0.0.1:{SOAK_PORT}"
-SOAK_BIN = TARGET_DIR / "debug" / "kairos-soak"
-SOAK_REPORT = os.environ.get(
-    "KAIROS_SOAK_REPORT", str(TARGET_DIR / "soak-report.json")
-)
 # alice's OIDC sub (kairos-db/src/seed.rs DEMO_USERS): made a deployment
-# admin so the driver can provision the bystander tenant used by the
-# tenant-isolation invariant.
-SOAK_DEPLOYMENT_ADMIN = "CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWxvY2Fs"
+# admin of the UAT server.
+UAT_DEPLOYMENT_ADMIN = "CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWxvY2Fs"
 
 # E2E stack wiring (KAIROS-T-0035): dedicated port so a dev server on the
 # default 8080 never collides; everything else matches the compose stack
@@ -884,188 +869,6 @@ def e2e(down=False, shard=None):
             print("Services kept running (shared stack). Use --down to tear down.")
 
 
-@test()
-@angreal.command(
-    name="soak",
-    about="run the KAIROS-A-0012 tier-5 workforce soak (boots server, drives kairos-soak)",
-    tool=angreal.ToolDescription(
-        """
-        KAIROS-A-0012 tier 5 workforce soak (implemented in KAIROS-T-0046):
-
-        1. compose up (Postgres + Dex, --wait; idempotent if already up)
-        2. build kairos-server + the kairos-soak driver
-        3. `kairos-server seed-demo --force` on DATABASE_URL
-        4. boot `kairos-server serve` on 127.0.0.1:8189 (override with
-           KAIROS_SOAK_PORT) with KAIROS_DEPLOYMENT_ADMINS set to alice's
-           sub, so the driver can provision the bystander tenant
-        5. run `kairos-soak --url ... --duration ... [--config ...]`:
-           alice/bob/carol + svc agent workers execute the tier-5 mix
-           (creates, edits with deliberate 409 collisions, transitions,
-           searches/traversals, MCP sessions, WS subscribers) at a
-           sustained rate, with continuous assertions (error rate, p95
-           vs the 50ms budget, /metrics pool stability when the endpoint
-           exists, item_history boundedness, bystander-tenant isolation)
-        6. stop the server; the compose services are LEFT RUNNING
-           (soak is nightly-scale; `angreal services down -v` to stop)
-
-        Exit codes: 0 = all assertions held; 1 = breaches (attributed in
-        the report); 2 = fatal tenant-isolation breach (run stopped
-        early); anything else = a boot/setup phase failed. The JSON run
-        report lands at target/soak-report.json (KAIROS_SOAK_REPORT to
-        override); a summary is printed on stdout.
-
-        Profiles (KAIROS-T-0046): pre-release smoke = `--duration 10m`;
-        nightly = the 4h default (hours-scale). KAIROS_SOAK_RATE tunes
-        the sustained ops/second (default 8).
-
-        DESTRUCTIVE for the dev database's `demo` tenant (seed --force);
-        also creates/reuses a `soak-bystander` tenant.
-
-        ## When to use
-        - Nightly and pre-release only - NEVER part of the per-task
-          completion gate (KAIROS-A-0012)
-
-        ## Examples
-        ```
-        angreal test soak --duration 10m                 # smoke profile
-        angreal test soak                                # default 4h nightly
-        angreal test soak --duration 8h --config soak.toml
-        ```
-        """,
-        risk_level="destructive",
-    ),
-)
-@angreal.argument(
-    name="duration",
-    long="duration",
-    help="how long to run the soak (e.g. 30m, 4h); default 4h",
-    takes_value=True,
-    required=False,
-)
-@angreal.argument(
-    name="config",
-    long="config",
-    help="path to a kairos-soak TOML profile (optional)",
-    takes_value=True,
-    required=False,
-)
-def soak(duration=None, config=None):
-    """Boot compose + server + seed, then drive the kairos-soak workforce."""
-    _no_incremental()
-    duration = duration or "4h"
-
-    def phase(name, exit_code):
-        if exit_code != 0:
-            print(f"SOAK FAILED at phase: {name} (exit {exit_code})", file=sys.stderr)
-        return exit_code
-
-    print(f"Soak run: duration={duration}, config={config or '<defaults>'}", flush=True)
-    print("Starting docker services for the soak stack...", flush=True)
-    exit_code = phase("compose up", docker_up())
-    if exit_code != 0:
-        return exit_code
-
-    server = None
-    try:
-        print("Building kairos-server and the kairos-soak driver...", flush=True)
-        exit_code = phase(
-            "cargo build",
-            subprocess.run(
-                [
-                    "cargo", "build", "--quiet",
-                    "-p", "kairos-server", "--bin", "kairos-server",
-                    "-p", "kairos-soak", "--bin", "kairos-soak",
-                ],
-                cwd=str(PROJECT_ROOT),
-            ).returncode,
-        )
-        if exit_code != 0:
-            return exit_code
-
-        env = os.environ.copy()
-        env.setdefault("DATABASE_URL", E2E_DATABASE_URL)
-
-        print("Seeding the demo tenant (kairos-server seed-demo --force)...", flush=True)
-        exit_code = phase(
-            "seed-demo",
-            subprocess.run(
-                [str(SERVER_BIN), "seed-demo", "--force"],
-                cwd=str(PROJECT_ROOT),
-                env=env,
-            ).returncode,
-        )
-        if exit_code != 0:
-            return exit_code
-
-        print(f"Booting kairos-server serve on {SOAK_BASE_URL}...", flush=True)
-        server_env = env.copy()
-        server_env.update({
-            "KAIROS_BIND_ADDR": f"127.0.0.1:{SOAK_PORT}",
-            "OIDC_ISSUER_URL": E2E_ISSUER,
-            "OIDC_AUDIENCE": "kairos-cli",
-            "KAIROS_BASE_DOMAIN": "kairos.test",
-            "KAIROS_DEPLOYMENT_ADMINS": SOAK_DEPLOYMENT_ADMIN,
-        })
-        # Hours-scale runs at INFO would stream one JSON span per request;
-        # keep the soak server quiet unless the caller says otherwise.
-        server_env.setdefault("KAIROS_LOG_LEVEL", "warn")
-        server = subprocess.Popen(
-            [str(SERVER_BIN), "serve"],
-            cwd=str(PROJECT_ROOT),
-            env=server_env,
-        )
-        deadline = time.monotonic() + 30
-        healthy = False
-        while time.monotonic() < deadline:
-            try:
-                with urllib.request.urlopen(f"{SOAK_BASE_URL}/healthz", timeout=2) as resp:
-                    if resp.status == 200:
-                        healthy = True
-                        break
-            except OSError:
-                pass
-            time.sleep(0.5)
-        if not healthy:
-            return phase(
-                f"server boot (healthz never answered; process state: {server.poll()})",
-                1,
-            )
-
-        print(f"Running the workforce driver for {duration}...", flush=True)
-        driver_cmd = [
-            str(SOAK_BIN),
-            "--url", SOAK_BASE_URL,
-            "--issuer", E2E_ISSUER,
-            "--duration", duration,
-            "--report", SOAK_REPORT,
-        ]
-        if os.environ.get("KAIROS_SOAK_RATE"):
-            driver_cmd += ["--rate", os.environ["KAIROS_SOAK_RATE"]]
-        if config:
-            driver_cmd += ["--config", config]
-        exit_code = phase(
-            "kairos-soak driver",
-            subprocess.run(driver_cmd, cwd=str(PROJECT_ROOT), env=env).returncode,
-        )
-        if exit_code == 0:
-            print("SOAK PASSED (all continuous assertions held).", flush=True)
-        return exit_code
-    finally:
-        if server is not None:
-            print("Stopping kairos-server...", flush=True)
-            server.terminate()
-            try:
-                server.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                server.kill()
-                server.wait()
-        print(
-            "Compose services left running (soak is nightly-scale; "
-            "use 'angreal services down -v' to stop them).",
-            flush=True,
-        )
-
-
 def _run_uat_suite(server_url, mode, journeys, headed, report_dir):
     """Run the uat/ Playwright journeys against `server_url`. Returns the
     Playwright exit code; the report path is printed by the reporter."""
@@ -1212,7 +1015,7 @@ def uat(server=None, journey=None, keep_running=False, headed=False, report_dir=
             return exit_code
 
         gui_server, exit_code = _boot_gui_server(
-            _gui_server_env(env, {"KAIROS_DEPLOYMENT_ADMINS": SOAK_DEPLOYMENT_ADMIN}),
+            _gui_server_env(env, {"KAIROS_DEPLOYMENT_ADMINS": UAT_DEPLOYMENT_ADMIN}),
             log_path=(TARGET_DIR / "uat-server.log") if keep_running else None,
         )
         if exit_code != 0:
@@ -1245,8 +1048,7 @@ def uat(server=None, journey=None, keep_running=False, headed=False, report_dir=
         """
         Run `test lint`, then `test unit`, then `test integration` in
         sequence, stopping at the first failure. Does NOT include the e2e
-        tier (release/milestone gate - run `angreal test e2e` explicitly)
-        or the soak tier (nightly/pre-release only).
+        tier (release/milestone gate - run `angreal test e2e` explicitly).
 
         ## When to use
         - Full pre-completion validation in one command

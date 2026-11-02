@@ -85,7 +85,7 @@ An issuer that omits the claim, or sends any other value, gets a second user row
 instead. That row has no membership. That is the behaviour of earlier versions.
 
 The trust boundary is deliberate, and
-[KAIROS-A-0010](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0010.md)
+KAIROS-A-0010
 records it. Kairos believes one claim and only when a single issuer asserts it. The
 reason is the two costs. The cost of being too lax is one person binding to another's
 identity. The cost of being too strict is a duplicate row.

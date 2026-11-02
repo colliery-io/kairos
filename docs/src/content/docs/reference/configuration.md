@@ -1326,8 +1326,8 @@ A worktree has the `[[project]]` of its clone, because the entry matches the
 
 A repository can opt in to the hosted provider of its organization
 (`code_index_summaries = hosted`). On such a repository, the update makes
-no summary, whatever `KAIROS_INDEX_SUMMARIZE` says. It links the summaries
-of the pool, and its last line says so. The structure of the checkout is
+no summary. It links the summaries of the pool, and its last line says so.
+The structure of the checkout is
 still built for the changed files. So search and the call graph are right
 on a branch before its push.
 

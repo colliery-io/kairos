@@ -612,6 +612,12 @@ These changes of 0.19.1 show after the upgrade. They apply to Compose too.
 - `GET /api/repositories/{slug}/site/publishes`. The repository still
   shows its live publish (`site.published` of `GET /api/repositories/{slug}`).
 
+Other changes of 0.19.1:
+
+- The `kairos` CLI has no feature `llama`, and the plugin does not read
+  `KAIROS_INDEX_SUMMARIZE`. The summaries of the code index come from the
+  pool of the Kairos server (KAIROS-T-0743).
+
 Changes to the tools of the builder:
 
 - The Rust toolchain of the builder changes from 1.93.0 to 1.99.0, the

@@ -9,9 +9,8 @@
 //! "counters advance across requests" assertion (KAIROS-T-0049 AC) would be
 //! non-deterministic. Instead every [`crate::app::AppState`] owns an
 //! `Arc<Metrics>` registry, so metrics are isolated per router and tests are
-//! deterministic. The exposition format is plain Prometheus text, which is
-//! all the soak scraper (`kairos-soak/src/prom.rs`) parses, and it costs
-//! zero new workspace dependencies.
+//! deterministic. The exposition format is plain Prometheus text, and it
+//! costs zero new workspace dependencies.
 //!
 //! # Exposed families
 //!

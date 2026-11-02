@@ -43,6 +43,9 @@ pub struct TeamMember {
     pub user_id: String,
     pub email: String,
     pub display_name: String,
+    /// The user name (KAIROS-T-0665). An older server does not send it.
+    #[serde(default)]
+    pub user_name: String,
 }
 
 /// mirror of: `kairos_client::types_org::DeliveryStream` (partial).

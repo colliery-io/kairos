@@ -104,8 +104,9 @@ test('team lens: bob → my teams → roster/board/stream → directory → acti
     const members = page.locator('.cl-panel', {
       has: page.locator('.cl-panel__title', { hasText: 'Members' }),
     });
-    await expect(members.getByText('alice', { exact: true })).toBeVisible();
-    await expect(members.getByText('bob', { exact: true })).toBeVisible();
+    // KAIROS-T-0665: each member shows with the user name.
+    await expect(members.getByText(/^alice @\S+$/)).toBeVisible();
+    await expect(members.getByText(/^bob @\S+$/)).toBeVisible();
     await expect(
       page.getByRole('link', { name: 'Platform Delivery', exact: true }),
     ).toBeVisible();

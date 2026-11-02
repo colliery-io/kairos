@@ -797,6 +797,7 @@ mod members_tests {
             user_id: "u-1".into(),
             email: "robin@example.com".into(),
             display_name: "Robin".into(),
+            user_name: "robin".into(),
             capabilities: vec!["manage_tasks".into(), "transition_items".into()],
         };
         let text = members_text(&[member]);

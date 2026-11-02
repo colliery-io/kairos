@@ -476,6 +476,45 @@
   scroll-margin-top: var(--space-md);
 }
 
+/* KAIROS-T-0665: the @ picker under the note box and the content editor. */
+.kairos-mention {
+  position: relative;
+}
+
+.kairos-mention__list {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  margin: 0;
+  padding: var(--space-xs) 0;
+  list-style: none;
+  min-width: 16rem;
+  background: var(--panel);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+}
+
+.kairos-mention__list:empty {
+  display: none;
+}
+
+.kairos-mention__option {
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.kairos-mention__option--on {
+  background: var(--inset);
+  color: var(--fg-bright);
+}
+
+.kairos-mention__handle {
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
 .kairos-note--target {
   background: var(--inset);
   outline: 1px solid var(--ice);

@@ -70,6 +70,7 @@ use leptos_router::hooks::use_params_map;
 use super::boards;
 use super::copy_link;
 use super::editor::ServerCopy;
+use super::mention;
 use super::repositories;
 use crate::auth::use_auth;
 use api::{Family, ItemDetail, RelationshipGroup};
@@ -524,6 +525,27 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
         }
     });
     let terms = Signal::derive(move || dictionary.get().unwrap_or_default());
+    // KAIROS-T-0665: the people of the board for the `@` picker of the
+    // note box and the editor. The page reads them at the first `@`.
+    let mention_people = RwSignal::new(None::<Vec<mention::Person>>);
+    let mention_asked = StoredValue::new(false);
+    provide_context(mention::MentionSource {
+        people: mention_people.into(),
+        want: Callback::new(move |_| {
+            let Some(Ok(Some(board))) = board.get_untracked() else {
+                return;
+            };
+            if mention_asked.get_value() {
+                return;
+            }
+            mention_asked.set_value(true);
+            leptos::task::spawn_local(async move {
+                let people =
+                    mention::load_board_people(auth, &board.slug, board.team_id.as_deref()).await;
+                let _ = mention_people.try_set(Some(people));
+            });
+        }),
+    });
     let can_restore = restore_power(family, board, created_by.clone());
     // KAIROS-T-0581, KAIROS-A-0032: the archive takes the rule of the
     // restore (no claim); Archive shows only to a person who passes it,

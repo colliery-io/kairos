@@ -347,6 +347,7 @@ A board member and their capability grants (`GET /api/boards/{id}/members` eleme
 | `display_name` | `string` | yes |  |
 | `email` | `string` | yes |  |
 | `user_id` | `string` | yes | `public.users.id` (UUID). |
+| `user_name` | `string` | no | The user name: write `@<user name>` to mention the person (KAIROS-T-0665). An older server does not send it. |
 
 ## BoardTransition
 
@@ -1497,6 +1498,7 @@ One note of an item (KAIROS-T-0630): a row of its own, not part of the content o
 |---|---|---|---|
 | `author` | `string` | yes | The name of the author: the display name of the user, or the name of an old note as written. |
 | `author_id` | `string`, nullable | no | The user that wrote the note (UUID). Absent for an old note whose name is no user of the organization. |
+| `author_user_name` | `string`, nullable | no | The user name of the author (KAIROS-T-0665). Absent when the note has no user. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `id` | `string` | yes | The id of the note in its item: `n-3`. Cite it as `note n-3 on ACME-T-0012`. |
 | `promoted_to` | `string`, nullable | no | The short code of the draft ADR or document that a promote made from the note. Absent until then. A note is promoted once. |
@@ -3032,6 +3034,7 @@ The claim of a task (KAIROS-T-0359, KAIROS-A-0024): the person who has the task 
 | `claimed_at` | `string` | yes | RFC 3339. |
 | `display_name` | `string` | yes | The display name of the person. |
 | `user_id` | `string` | yes | The person (UUID). |
+| `user_name` | `string` | no | The user name of the person: write `@<user name>` to mention the person (KAIROS-T-0665). An older server does not send it. |
 
 ## TaskState
 
@@ -3104,6 +3107,7 @@ A team member (`GET /api/teams/{id}/members` element).
 | `email` | `string` | yes |  |
 | `joined_at` | `string` | yes | RFC 3339. |
 | `user_id` | `string` | yes | `public.users.id` (UUID). |
+| `user_name` | `string` | no | The user name: write `@<user name>` to mention the person (KAIROS-T-0665). An older server does not send it. |
 
 ## TeamPage
 

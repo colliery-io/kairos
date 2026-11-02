@@ -30,6 +30,7 @@ use super::markdown;
 use super::owner::owner_board_targets;
 use crate::auth::use_auth;
 use crate::pages::boards;
+use crate::pages::mention::{MentionBox, with_handle};
 
 /// The kinds that a note can become, as `(value, label)`.
 const KINDS: [(&str, &str); 2] = [("adr", "ADR"), ("document", "Document")];
@@ -131,11 +132,14 @@ pub(super) fn takes_notes(shown: Option<&[Note]>, read: Option<&[Note]>) -> bool
     }
 }
 
-/// The line next to the id of a note: `2026-10-17 · Robin`. Pure,
-/// host-tested.
-pub(super) fn note_byline(created_at: &str, author: &str) -> String {
+/// The line next to the id of a note: `2026-10-17 · Robin @robin`. A
+/// note with no user has no `@` (KAIROS-T-0665). Pure, host-tested.
+pub(super) fn note_byline(created_at: &str, author: &str, user_name: Option<&str>) -> String {
     let date = created_at.get(..10).unwrap_or(created_at);
-    format!("{date} · {author}")
+    format!(
+        "{date} · {}",
+        with_handle(author, user_name.unwrap_or_default())
+    )
 }
 
 /// Is the refusal a CONFLICT (409)?
@@ -196,7 +200,11 @@ pub(super) fn NotesPanel(
         let is_target = move || target.with(|t| id.with_value(|id| t.as_ref() == Some(id)));
         let form_open =
             move || promoting.with(|open| id.with_value(|id| open.as_ref() == Some(id)));
-        let byline = note_byline(&note.created_at, &note.author);
+        let byline = note_byline(
+            &note.created_at,
+            &note.author,
+            note.author_user_name.as_deref(),
+        );
         let text = note.text.clone();
         let html = move || terms.with(|terms| markdown::to_html_with_terms(&text, terms));
         let href = format!("#{}", note.id);
@@ -299,15 +307,18 @@ fn AddNote(family: Family, #[prop(into)] code: String, on_changed: Callback<()>)
     };
     view! {
         <Stack gap="xs">
-            <Textarea
-                label="New note"
-                id="kairos-note-text"
-                placeholder="Write the note in markdown."
-                value=draft
-                rows=3
-            />
+            <MentionBox value=draft>
+                <Textarea
+                    label="New note"
+                    id="kairos-note-text"
+                    placeholder="Write the note in markdown."
+                    value=draft
+                    rows=3
+                />
+            </MentionBox>
             <Text size="xs" dimmed=true>
-                "A note does not change the content or its version."
+                "A note does not change the content or its version. Write @ and a name to \
+                 mention a person."
             </Text>
             {move || error.get().map(|message| view! {
                 <Alert title="Kairos did not add the note" color=token::BAD>
@@ -469,6 +480,7 @@ mod tests {
         Note {
             id: id.to_string(),
             author: "Robin".to_string(),
+            author_user_name: None,
             created_at: "2026-10-17T09:30:00+00:00".to_string(),
             text: "One.".to_string(),
             promoted_to: promoted_to.map(str::to_string),
@@ -547,10 +559,14 @@ mod tests {
     #[test]
     fn a_note_names_its_date_and_its_author() {
         assert_eq!(
-            note_byline("2026-10-17T09:30:00+00:00", "Robin"),
+            note_byline("2026-10-17T09:30:00+00:00", "Robin", None),
             "2026-10-17 · Robin"
         );
-        assert_eq!(note_byline("", "Sam"), " · Sam");
+        assert_eq!(
+            note_byline("2026-10-17T09:30:00+00:00", "Robin", Some("robin")),
+            "2026-10-17 · Robin @robin"
+        );
+        assert_eq!(note_byline("", "Sam", Some("")), " · Sam");
     }
 
     /// An ADR goes to an ADR board with `manage_adrs`; a document goes to

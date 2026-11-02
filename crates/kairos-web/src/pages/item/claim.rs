@@ -38,10 +38,12 @@ struct Member {
 
 /// The text of the claim: who has it, and since when. Pure, host-tested.
 pub(crate) fn claim_text(claim: &Claim) -> String {
+    // KAIROS-T-0665: the user name to write after `@`.
+    let name = crate::pages::mention::with_handle(&claim.display_name, &claim.user_name);
     let who = if claim.agent {
-        format!("{} (agent)", claim.display_name)
+        format!("{name} (agent)")
     } else {
-        claim.display_name.clone()
+        name
     };
     let since = claim.claimed_at.get(..10).unwrap_or(&claim.claimed_at);
     if since.is_empty() {
@@ -342,6 +344,7 @@ mod tests {
         Claim {
             user_id: "u1".to_string(),
             display_name: "Alice".to_string(),
+            user_name: String::new(),
             agent,
             claimed_at: "2026-10-09T10:00:00Z".to_string(),
         }
@@ -356,6 +359,14 @@ mod tests {
         assert_eq!(
             claim_text(&claim(true)),
             "Alice (agent) has the claim since 2026-10-09."
+        );
+        let named = Claim {
+            user_name: "alice".to_string(),
+            ..claim(true)
+        };
+        assert_eq!(
+            claim_text(&named),
+            "Alice @alice (agent) has the claim since 2026-10-09."
         );
     }
 

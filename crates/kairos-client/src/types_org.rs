@@ -628,6 +628,10 @@ pub struct BoardMember {
     pub user_id: String,
     pub email: String,
     pub display_name: String,
+    /// The user name: write `@<user name>` to mention the person
+    /// (KAIROS-T-0665). An older server does not send it.
+    #[serde(default)]
+    pub user_name: String,
     /// The user's capability grants on this board (sorted).
     pub capabilities: Vec<String>,
 }
@@ -811,6 +815,10 @@ pub struct TeamMember {
     pub user_id: String,
     pub email: String,
     pub display_name: String,
+    /// The user name: write `@<user name>` to mention the person
+    /// (KAIROS-T-0665). An older server does not send it.
+    #[serde(default)]
+    pub user_name: String,
     /// RFC 3339.
     pub joined_at: String,
 }

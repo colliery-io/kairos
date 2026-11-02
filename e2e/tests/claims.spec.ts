@@ -67,7 +67,7 @@ test('a task is claimed, handed off, released, cancelled and deleted', async ({
     await move.locator('select').first().selectOption({ label: 'Active' });
     await move.getByRole('button', { name: 'Move', exact: true }).click();
     await expect(page.locator('.cl-toast', { hasText: 'Moved to Active.' })).toBeVisible();
-    await expect(claim).toContainText('alice has the claim since');
+    await expect(claim).toContainText(/alice @\S+ has the claim since/);
     expect((await readTask(GUI, token, code)).claim?.display_name).toBe('alice');
   });
 
@@ -83,7 +83,7 @@ test('a task is claimed, handed off, released, cancelled and deleted', async ({
     await expect(dialog).toContainText('Kairos gives the claim to bob (bob@kairos.test).');
     await dialog.getByRole('button', { name: 'Hand off', exact: true }).click();
     await expect(page.locator('.cl-toast', { hasText: 'Kairos gave the claim to bob.' })).toBeVisible();
-    await expect(claim).toContainText('bob has the claim since');
+    await expect(claim).toContainText(/bob @\S+ has the claim since/);
     expect((await readTask(GUI, token, code)).claim?.display_name).toBe('bob');
   });
 
@@ -124,7 +124,7 @@ test('a task is claimed, handed off, released, cancelled and deleted', async ({
   });
 
   await test.step('Release ends the claim', async () => {
-    await expect(claim).toContainText('alice has the claim since');
+    await expect(claim).toContainText(/alice @\S+ has the claim since/);
     await claim.getByRole('button', { name: 'Release', exact: true }).click();
     await expect(page.locator('.cl-toast', { hasText: 'Kairos released the claim.' })).toBeVisible();
     await expect(claim).toContainText('No claim.');
@@ -138,7 +138,7 @@ test('a task is claimed, handed off, released, cancelled and deleted', async ({
   await test.step('Claim gives alice the free task again', async () => {
     await claim.getByRole('button', { name: 'Claim', exact: true }).click();
     await expect(page.locator('.cl-toast', { hasText: 'You have the claim.' })).toBeVisible();
-    await expect(claim).toContainText('alice has the claim since');
+    await expect(claim).toContainText(/alice @\S+ has the claim since/);
     expect((await readTask(GUI, token, code)).claim?.display_name).toBe('alice');
   });
 

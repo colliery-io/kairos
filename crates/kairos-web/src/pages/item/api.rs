@@ -246,6 +246,10 @@ pub struct Note {
     pub id: String,
     #[serde(default)]
     pub author: String,
+    /// The user name of the author (KAIROS-T-0665). `None` for a note with
+    /// no user, or from an older server.
+    #[serde(default)]
+    pub author_user_name: Option<String>,
     /// RFC 3339.
     #[serde(default)]
     pub created_at: String,
@@ -300,6 +304,9 @@ pub struct OwnerResponse {
 pub struct Claim {
     pub user_id: String,
     pub display_name: String,
+    /// The user name (KAIROS-T-0665). An older server does not send it.
+    #[serde(default)]
+    pub user_name: String,
     /// True when the agent of the person made the claim.
     #[serde(default)]
     pub agent: bool,

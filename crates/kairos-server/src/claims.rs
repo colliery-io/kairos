@@ -404,13 +404,19 @@ pub fn add_header(headers: &mut axum::http::HeaderMap, warnings: &[Warning]) {
 }
 
 /// The claim DTO of a claim.
-pub(crate) fn claim_dto(claim: &TaskClaim, names: &HashMap<Uuid, String>) -> dto::TaskClaim {
+/// `user_names` gives the user name of the person (KAIROS-T-0665).
+pub(crate) fn claim_dto(
+    claim: &TaskClaim,
+    names: &HashMap<Uuid, String>,
+    user_names: &HashMap<Uuid, String>,
+) -> dto::TaskClaim {
     dto::TaskClaim {
         user_id: claim.user_id.to_string(),
         display_name: names
             .get(&claim.user_id)
             .cloned()
             .unwrap_or_else(|| claim.user_id.to_string()),
+        user_name: user_names.get(&claim.user_id).cloned().unwrap_or_default(),
         agent: claim.agent_key_id.is_some(),
         claimed_at: claim.claimed_at.to_rfc3339(),
     }
@@ -431,11 +437,16 @@ pub fn attach_claims<T: crate::api::convert::TaskDto>(
     }
     let users: Vec<Uuid> = claims.values().map(|c| c.user_id).collect();
     let names = task_claims::display_names(conn, &users)?;
+    let user_names = task_claims::user_names(conn, &users)?;
     for task in tasks {
         let Ok(id) = task.task_id().parse::<Uuid>() else {
             continue;
         };
-        task.set_claim(claims.get(&id).map(|claim| claim_dto(claim, &names)));
+        task.set_claim(
+            claims
+                .get(&id)
+                .map(|claim| claim_dto(claim, &names, &user_names)),
+        );
     }
     Ok(())
 }

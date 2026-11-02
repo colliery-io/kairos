@@ -294,6 +294,9 @@ pub use search::{RelationshipsPage, SearchPage, ShellSearchBox};
 // `admin::api` re-exports from.
 pub(crate) mod editor;
 
+// The `@` picker of the note box and the content editor (KAIROS-T-0665).
+pub(crate) mod mention;
+
 pub(crate) mod teams;
 pub use teams::doc::TeamDocPage;
 pub use teams::{TeamPage, TeamsPage};

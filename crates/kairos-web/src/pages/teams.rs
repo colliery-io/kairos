@@ -370,7 +370,9 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
                         <Stack gap="xs">
                             {members.into_iter().map(|member| view! {
                                 <Group justify="between">
-                                    <Text bright=true size="sm">{member.display_name}</Text>
+                                    <Text bright=true size="sm">
+                                        {crate::pages::mention::with_handle(&member.display_name, &member.user_name)}
+                                    </Text>
                                     <Text mono=true dimmed=true size="xs">{member.email}</Text>
                                 </Group>
                             }).collect_view()}

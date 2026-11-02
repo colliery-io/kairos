@@ -55,6 +55,11 @@ pub struct ItemNote {
     /// The name that the answers show (module docs).
     #[diesel(sql_type = Text)]
     pub author: String,
+    /// The user name of the author (KAIROS-T-0665). `None` for a note
+    /// with no user.
+    #[diesel(sql_type = Nullable<Text>)]
+    #[serde(default)]
+    pub author_user_name: Option<String>,
     #[diesel(sql_type = Timestamptz)]
     pub created_at: DateTime<Utc>,
     /// The markdown text. It can have headings.
@@ -128,7 +133,7 @@ pub fn content_with_notes(content: &str, notes: &[ItemNote]) -> String {
 /// The columns of an [`ItemNote`], from `item_notes n` and `public.users u`.
 pub const NOTE_SELECT: &str = "SELECT n.id, n.item_id, n.seq, n.author_id, \
      coalesce(nullif(btrim(u.display_name), ''), n.author_name, n.author_id::text) AS author, \
-     n.created_at, n.text, n.promoted_to \
+     u.user_name AS author_user_name, n.created_at, n.text, n.promoted_to \
      FROM item_notes n LEFT JOIN public.users u ON u.id = n.author_id";
 
 /// The notes of the item `$1` as one JSON array, in the order of their
@@ -138,7 +143,7 @@ pub const NOTE_SELECT: &str = "SELECT n.id, n.item_id, n.seq, n.author_id, \
 pub const NOTES_JSON_OF_ITEM: &str = "(SELECT coalesce(json_agg(json_build_object( \
      'id', n.id, 'item_id', n.item_id, 'seq', n.seq, 'author_id', n.author_id, \
      'author', coalesce(nullif(btrim(u.display_name), ''), n.author_name, n.author_id::text), \
-     'created_at', n.created_at, 'text', n.text, 'promoted_to', n.promoted_to) \
+     'author_user_name', u.user_name, 'created_at', n.created_at, 'text', n.text, 'promoted_to', n.promoted_to) \
      ORDER BY n.seq), '[]'::json)::text \
      FROM item_notes n LEFT JOIN public.users u ON u.id = n.author_id WHERE n.item_id = $1)";
 

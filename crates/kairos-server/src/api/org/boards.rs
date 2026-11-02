@@ -2106,6 +2106,7 @@ fn board_member_view(
         user_id: user.id.to_string(),
         email: user.email,
         display_name: user.display_name,
+        user_name: user.user_name,
         capabilities: capabilities_of(conn, board_id, user_id)?,
     })
 }
@@ -2163,14 +2164,15 @@ pub(crate) async fn list_board_members(
                     .filter(|(u, _)| *u == user_id)
                     .map(|(_, c)| c.clone())
                     .collect();
-                let (email, display_name) = identity_of
+                let (email, display_name, user_name) = identity_of
                     .get(&user_id)
-                    .map(|u| (u.email.clone(), u.display_name.clone()))
+                    .map(|u| (u.email.clone(), u.display_name.clone(), u.user_name.clone()))
                     .unwrap_or_default();
                 members.push(dto::BoardMember {
                     user_id: user_id.to_string(),
                     email,
                     display_name,
+                    user_name,
                     capabilities,
                 });
             }

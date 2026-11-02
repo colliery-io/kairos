@@ -313,6 +313,10 @@ pub struct TaskClaim {
     pub user_id: String,
     /// The display name of the person.
     pub display_name: String,
+    /// The user name of the person: write `@<user name>` to mention the
+    /// person (KAIROS-T-0665). An older server does not send it.
+    #[serde(default)]
+    pub user_name: String,
     /// True when the person's agent made the claim with the agent key of
     /// the person.
     #[serde(default)]
@@ -1062,6 +1066,10 @@ pub struct ItemNote {
     /// The name of the author: the display name of the user, or the name
     /// of an old note as written.
     pub author: String,
+    /// The user name of the author (KAIROS-T-0665). Absent when the note
+    /// has no user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_user_name: Option<String>,
     /// RFC 3339.
     pub created_at: String,
     /// The markdown text. It can have headings.

@@ -162,6 +162,24 @@ pub fn display_names(
         .collect())
 }
 
+/// The user names of `user_ids`, by id (KAIROS-T-0665): the name to
+/// write after `@` for a mention. One query.
+pub fn user_names(
+    conn: &mut PgConnection,
+    user_ids: &[Uuid],
+) -> Result<HashMap<Uuid, String>, DieselError> {
+    use crate::schema::users;
+    if user_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    Ok(users::table
+        .filter(users::id.eq_any(user_ids))
+        .select((users::id, users::user_name))
+        .load::<(Uuid, String)>(conn)?
+        .into_iter()
+        .collect())
+}
+
 /// Whether `user_id` is a person (`users.kind = 'human'`). An unknown id
 /// is not a person.
 pub fn is_person(conn: &mut PgConnection, user_id: Uuid) -> Result<bool, DieselError> {

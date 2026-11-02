@@ -71,12 +71,18 @@ fn to_wire(conn: &mut diesel::pg::PgConnection, work: my_work::MyWork) -> Result
     })
 }
 
-/// The display names of the people of the claims and the owners of
-/// `items`. One query.
+/// The display names and the user names (KAIROS-T-0665) of the people
+/// of the claims and the owners of `items`.
+struct Names {
+    display: std::collections::HashMap<Uuid, String>,
+    user: std::collections::HashMap<Uuid, String>,
+}
+
+/// The [`Names`] of the people of `items`. Two queries.
 fn names_of<'a>(
     conn: &mut diesel::pg::PgConnection,
     items: impl Iterator<Item = &'a my_work::WorkItem>,
-) -> Result<std::collections::HashMap<Uuid, String>, ApiError> {
+) -> Result<Names, ApiError> {
     let people: Vec<Uuid> = items
         .flat_map(|item| {
             item.claim
@@ -85,14 +91,15 @@ fn names_of<'a>(
                 .chain(item.owner.iter().map(|o| o.user_id))
         })
         .collect();
-    kairos_db::task_claims::display_names(conn, &people).map_err(ApiError::internal)
+    Ok(Names {
+        display: kairos_db::task_claims::display_names(conn, &people)
+            .map_err(ApiError::internal)?,
+        user: kairos_db::task_claims::user_names(conn, &people).map_err(ApiError::internal)?,
+    })
 }
 
 /// One item of the work as the wire type, with the names of [`names_of`].
-fn item_to_wire(
-    item: my_work::WorkItem,
-    names: &std::collections::HashMap<Uuid, String>,
-) -> WorkItem {
+fn item_to_wire(item: my_work::WorkItem, names: &Names) -> WorkItem {
     WorkItem {
         id: item.id.to_string(),
         short_code: item.short_code,
@@ -114,11 +121,11 @@ fn item_to_wire(
         claim: item
             .claim
             .as_ref()
-            .map(|c| crate::claims::claim_dto(c, names)),
+            .map(|c| crate::claims::claim_dto(c, &names.display, &names.user)),
         owner: item
             .owner
             .as_ref()
-            .map(|o| crate::owners::owner_dto(o, names)),
+            .map(|o| crate::owners::owner_dto(o, &names.display)),
         blockers: item
             .blockers
             .into_iter()

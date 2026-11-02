@@ -864,6 +864,7 @@ pub(crate) async fn list_members(
                         user_id: user_id.to_string(),
                         email: identity.map(|u| u.email.clone()).unwrap_or_default(),
                         display_name: identity.map(|u| u.display_name.clone()).unwrap_or_default(),
+                        user_name: identity.map(|u| u.user_name.clone()).unwrap_or_default(),
                         joined_at: joined_at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
                     }
                 })
@@ -962,6 +963,7 @@ pub(crate) fn add_member_as(
         user_id: target.to_string(),
         email: identity.email,
         display_name: identity.display_name,
+        user_name: identity.user_name,
         joined_at: joined_at.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
     })
 }

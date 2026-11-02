@@ -133,6 +133,7 @@ mod tests {
         active.claim = Some(TaskClaim {
             user_id: "x".into(),
             display_name: "Robin".into(),
+            user_name: "robin".into(),
             agent: true,
             claimed_at: "2026-10-15T00:00:00Z".into(),
         });

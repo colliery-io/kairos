@@ -563,6 +563,7 @@ pub fn note(row: kairos_db::item_notes::ItemNote) -> dto::ItemNote {
         id: row.note_id(),
         author_id: row.author_id.map(|id| id.to_string()),
         author: row.author,
+        author_user_name: row.author_user_name,
         created_at: timestamp(row.created_at),
         text: row.text,
         promoted_to: row.promoted_to,

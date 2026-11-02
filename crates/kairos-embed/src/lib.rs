@@ -32,9 +32,9 @@
 //! Changing provider or model changes the vector space, and vectors from two
 //! spaces cannot be compared — the numbers still subtract, which is exactly what
 //! makes it dangerous. So every provider reports a [`ModelId`], the store records
-//! it per row (KAIROS-T-0187's `provider`/`model`/`dimension` columns), and
-//! [`ModelId::mismatch`] says what disagrees. Detecting it is this crate's job;
-//! re-embedding in response is KAIROS-T-0190's.
+//! it per row (KAIROS-T-0187's `provider`/`model`/`dimension` columns).
+//! kairos-db compares the stored model with the configured one; re-embedding
+//! in response is KAIROS-T-0190's.
 
 use std::fmt;
 
@@ -79,92 +79,11 @@ impl ModelId {
             dimension,
         }
     }
-
-    /// How `stored` differs from `self`, or `None` if they agree.
-    ///
-    /// Ordered by how much it matters: a different width cannot be compared at
-    /// all, a different model is a different space, a different provider serving
-    /// the same model at the same width probably *is* comparable — Ollama and
-    /// OpenAI both serving the same weights — but it is still worth saying,
-    /// because "probably" is not a thing to bet a duplicate-detection claim on.
-    pub fn mismatch(&self, stored: &ModelId) -> Option<Mismatch> {
-        if self.dimension != stored.dimension {
-            return Some(Mismatch::Dimension {
-                configured: self.dimension,
-                stored: stored.dimension,
-            });
-        }
-        if self.model != stored.model {
-            return Some(Mismatch::Model {
-                configured: self.model.clone(),
-                stored: stored.model.clone(),
-            });
-        }
-        if self.provider != stored.provider {
-            return Some(Mismatch::Provider {
-                configured: self.provider.clone(),
-                stored: stored.provider.clone(),
-            });
-        }
-        None
-    }
 }
 
 impl fmt::Display for ModelId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{} ({}d)", self.provider, self.model, self.dimension)
-    }
-}
-
-/// A disagreement between the configured model and a stored vector's model.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum Mismatch {
-    /// Widths differ: not comparable at all.
-    #[error(
-        "stored vectors are {stored}-dimensional but the configured model produces \
-         {configured}: they cannot be compared. Re-embed, or point at the model \
-         that wrote them."
-    )]
-    Dimension {
-        /// What the configured model produces.
-        configured: usize,
-        /// What the stored rows say they are.
-        stored: usize,
-    },
-    /// Same width, different model: a different vector space, and the numbers
-    /// will still subtract, which is the trap.
-    #[error(
-        "stored vectors came from model {stored:?} but the configured model is \
-         {configured:?}. Same width is not the same space; distances between them \
-         are meaningless. Re-embed."
-    )]
-    Model {
-        /// The configured model name.
-        configured: String,
-        /// The model name recorded on the stored rows.
-        stored: String,
-    },
-    /// Same model and width, different provider. Probably comparable; said
-    /// anyway.
-    #[error(
-        "stored vectors were produced through provider {stored:?} and the \
-         configured provider is {configured:?}, for the same model and width. \
-         Likely comparable, but unverified."
-    )]
-    Provider {
-        /// The configured provider.
-        configured: String,
-        /// The provider recorded on the stored rows.
-        stored: String,
-    },
-}
-
-impl Mismatch {
-    /// Whether this mismatch makes stored vectors unusable rather than merely
-    /// suspicious. A caller that must decide between degrading to lexical and
-    /// carrying on asks this.
-    pub fn is_fatal(&self) -> bool {
-        matches!(self, Mismatch::Dimension { .. } | Mismatch::Model { .. })
     }
 }
 
@@ -284,47 +203,6 @@ mod tests {
 
     fn id(provider: &str, model: &str, dim: usize) -> ModelId {
         ModelId::new(provider, model, dim)
-    }
-
-    #[test]
-    fn matching_identities_do_not_mismatch() {
-        let a = id("local", "bge-small-en-v1.5-q", 384);
-        assert_eq!(a.mismatch(&a.clone()), None);
-    }
-
-    /// Width first, because it is the one that cannot be compared at all.
-    #[test]
-    fn a_width_difference_outranks_a_model_difference() {
-        let configured = id("local", "new-model", 768);
-        let stored = id("local", "old-model", 384);
-        assert_eq!(
-            configured.mismatch(&stored),
-            Some(Mismatch::Dimension {
-                configured: 768,
-                stored: 384
-            })
-        );
-    }
-
-    /// The trap this exists to catch: same width, different space. Nothing at
-    /// runtime would object — the dot product works fine and means nothing.
-    #[test]
-    fn same_width_different_model_is_fatal() {
-        let m = id("local", "bge-small-en-v1.5-q", 384)
-            .mismatch(&id("local", "all-minilm-l6-v2", 384))
-            .expect("a different model is a mismatch");
-        assert!(m.is_fatal(), "a different vector space is not usable: {m}");
-        assert!(m.to_string().contains("not the same space"), "{m}");
-    }
-
-    /// Same model and width through a different provider is reported but not
-    /// fatal — Ollama and OpenAI can serve the same weights.
-    #[test]
-    fn same_model_different_provider_is_reported_but_not_fatal() {
-        let m = id("local", "bge-small-en-v1.5-q", 384)
-            .mismatch(&id("remote", "bge-small-en-v1.5-q", 384))
-            .expect("a different provider is worth saying");
-        assert!(!m.is_fatal(), "likely comparable: {m}");
     }
 
     #[test]

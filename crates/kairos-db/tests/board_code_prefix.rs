@@ -34,7 +34,6 @@ use diesel::sql_query;
 use diesel::sql_types::{BigInt, Text, Uuid as SqlUuid};
 use uuid::Uuid;
 
-use kairos_core::short_code::ItemType;
 use kairos_db::items::{self, CreateDocument, CreateInitiative, CreateTask};
 use kairos_db::models::enums::{BoardLevel, TaskType, WorkClass};
 use kairos_db::models::teams::NewTeam;
@@ -278,23 +277,6 @@ fn a_new_task_on_a_board_gets_the_prefix_of_the_board() {
     assert_eq!(task(&mut conn, skadi.id, user), "SKADI-T-0001");
     assert_eq!(task(&mut conn, colliery.id, user), "COLLIERY-T-0001");
     assert_eq!(task(&mut conn, skadi.id, user), "SKADI-T-0002");
-
-    // Given a board "skadi" whose highest task number is 669 (a re-key wrote
-    // the code, COLLIERY-T-3103).
-    sql_query("UPDATE tasks SET short_code = 'SKADI-T-0669' WHERE short_code = 'SKADI-T-0002'")
-        .execute(&mut conn)
-        .expect("writing a code directly");
-    assert_eq!(
-        items::sync_code_sequence(&mut conn, "SKADI", ItemType::Task).expect("sync"),
-        669
-    );
-    // When I create a task on "skadi", then its code is "SKADI-T-0670".
-    assert_eq!(task(&mut conn, skadi.id, user), "SKADI-T-0670");
-    // The sync does not move a sequence back.
-    assert_eq!(
-        items::sync_code_sequence(&mut conn, "SKADI", ItemType::Task).expect("sync"),
-        670
-    );
 
     // The other types: a document takes the prefix of its owner board
     // (each document has one, COLLIERY-T-3109). Boards that share a prefix

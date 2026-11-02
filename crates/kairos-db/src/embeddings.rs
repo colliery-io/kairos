@@ -662,14 +662,15 @@ pub fn sync_chunks(
     Ok(())
 }
 
-/// Forget everything stored for an item.
+/// Forget everything stored for an item: its chunks, its vectors and its
+/// mark for the sweep (`embedding_dirty`).
 ///
-/// Called when an item is hard-deleted. Soft-deleted items keep their vectors on
+/// The purge of a task calls it (`crate::purge::purge_task`, KAIROS-T-0743). Soft-deleted items keep their vectors on
 /// purpose: KAIROS-A-0020 made put-away work searchable, and prior art in
 /// completed work is one of the three claims the retrieval surface exists to
 /// make — dropping their vectors would make the most valuable answer the one
 /// thing that cannot be found.
-pub fn forget_item(conn: &mut PgConnection, item_id: Uuid) -> Result<(), EmbeddingError> {
+pub fn forget_item(conn: &mut PgConnection, item_id: Uuid) -> Result<(), diesel::result::Error> {
     conn.transaction(|conn| {
         sql_query("DELETE FROM item_chunks WHERE item_id = $1")
             .bind::<SqlUuid, _>(item_id)
@@ -680,9 +681,8 @@ pub fn forget_item(conn: &mut PgConnection, item_id: Uuid) -> Result<(), Embeddi
         sql_query("DELETE FROM embedding_dirty WHERE item_id = $1")
             .bind::<SqlUuid, _>(item_id)
             .execute(conn)?;
-        Ok::<_, diesel::result::Error>(())
-    })?;
-    Ok(())
+        Ok(())
+    })
 }
 
 /// How far behind the vectors are, for the configured model.

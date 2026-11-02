@@ -328,31 +328,6 @@ pub fn ensure_code_sequence(
     Ok(())
 }
 
-/// Move the row (prefix, type) of `short_code_sequences` past the highest
-/// number of the existing codes of the pair, and return its last number.
-/// The row does not move back. For a change that writes codes directly,
-/// for example a re-key (COLLIERY-T-3103), so that the next create does not
-/// give a code that an item has.
-pub fn sync_code_sequence(
-    conn: &mut PgConnection,
-    prefix: &str,
-    item_type: ItemType,
-) -> Result<i64, DieselError> {
-    conn.transaction(|conn| {
-        ensure_code_sequence(conn, prefix, item_type)?;
-        let highest = highest_code_number(conn, prefix, item_type)?;
-        let seq: SeqValue = sql_query(
-            "UPDATE short_code_sequences SET last_number = GREATEST(last_number, $3) \
-              WHERE code_prefix = $1 AND item_type = $2 RETURNING last_number AS value",
-        )
-        .bind::<Text, _>(prefix)
-        .bind::<Text, _>(item_type.letter().to_string())
-        .bind::<BigInt, _>(highest)
-        .get_result(conn)?;
-        Ok(seq.value)
-    })
-}
-
 /// A refusal of [`set_next_code_number`] (COLLIERY-T-3104).
 #[derive(Debug, thiserror::Error)]
 pub enum CodeSequenceError {

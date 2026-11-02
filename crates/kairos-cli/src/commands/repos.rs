@@ -1058,7 +1058,15 @@ impl ReposCommand {
                 common,
             } => {
                 let client = client(&common)?;
-                let list = client.list_code_index_builds(&repository, limit).await?;
+                let list = client
+                    .list_code_index_builds(
+                        &repository,
+                        &kairos_client::types_code_index::CodeIndexBuildListQuery {
+                            limit,
+                            offset: None,
+                        },
+                    )
+                    .await?;
                 if common.json {
                     return print_json(&list);
                 }

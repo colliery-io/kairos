@@ -116,23 +116,6 @@ pub struct NewInitiative {
     pub updated_by: Uuid,
 }
 
-/// Partial update for [`Initiative`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = initiatives)]
-pub struct InitiativeChangeset {
-    pub title: Option<String>,
-    pub content: Option<String>,
-    pub board_id: Option<Uuid>,
-    pub column_id: Option<Uuid>,
-    pub complexity: Option<Option<Complexity>>,
-    pub is_bucket: Option<bool>,
-    pub bucket_type: Option<Option<BucketType>>,
-    pub version: Option<i32>,
-    pub updated_by: Option<Uuid>,
-    pub deleted_at: Option<Option<DateTime<Utc>>>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
 // ---------------------------------------------------------------------------
 // tasks
 // ---------------------------------------------------------------------------
@@ -183,23 +166,6 @@ pub struct NewTask {
     pub updated_by: Uuid,
 }
 
-/// Partial update for [`Task`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = tasks)]
-pub struct TaskChangeset {
-    pub title: Option<String>,
-    pub content: Option<String>,
-    pub board_id: Option<Uuid>,
-    pub column_id: Option<Uuid>,
-    pub task_type: Option<TaskType>,
-    pub work_class: Option<WorkClass>,
-    pub team_id: Option<Option<Uuid>>,
-    pub version: Option<i32>,
-    pub updated_by: Option<Uuid>,
-    pub deleted_at: Option<Option<DateTime<Utc>>>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
 // ---------------------------------------------------------------------------
 // documents
 // ---------------------------------------------------------------------------
@@ -248,19 +214,6 @@ pub struct NewDocument {
     pub updated_by: Uuid,
 }
 
-/// Partial update for [`Document`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = documents)]
-pub struct DocumentChangeset {
-    pub title: Option<String>,
-    pub content: Option<String>,
-    pub template_id: Option<Option<Uuid>>,
-    pub version: Option<i32>,
-    pub updated_by: Option<Uuid>,
-    pub deleted_at: Option<Option<DateTime<Utc>>>,
-    pub updated_at: Option<DateTime<Utc>>,
-}
-
 // ---------------------------------------------------------------------------
 // adrs
 // ---------------------------------------------------------------------------
@@ -302,20 +255,4 @@ pub struct NewAdr {
     pub decision_date: Option<NaiveDate>,
     pub created_by: Uuid,
     pub updated_by: Uuid,
-}
-
-/// Partial update for [`Adr`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = adrs)]
-pub struct AdrChangeset {
-    pub title: Option<String>,
-    pub content: Option<String>,
-    pub board_id: Option<Option<Uuid>>,
-    pub column_id: Option<Option<Uuid>>,
-    pub decision_maker: Option<Option<String>>,
-    pub decision_date: Option<Option<NaiveDate>>,
-    pub version: Option<i32>,
-    pub updated_by: Option<Uuid>,
-    pub deleted_at: Option<Option<DateTime<Utc>>>,
-    pub updated_at: Option<DateTime<Utc>>,
 }

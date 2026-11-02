@@ -114,33 +114,13 @@ pub struct MetadataDefinitionScope {
 // metadata_enum_options
 // ---------------------------------------------------------------------------
 
-/// An enum option for a metadata definition (`metadata_enum_options`).
-#[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Identifiable, Associations)]
-#[diesel(table_name = metadata_enum_options)]
-#[diesel(belongs_to(MetadataDefinition, foreign_key = metadata_definition_id))]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct MetadataEnumOption {
-    pub id: Uuid,
-    pub metadata_definition_id: Uuid,
-    pub value: String,
-    pub position: i32,
-}
-
-/// Insert for [`MetadataEnumOption`].
+/// Insert for `metadata_enum_options`.
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = metadata_enum_options)]
 pub struct NewMetadataEnumOption {
     pub metadata_definition_id: Uuid,
     pub value: String,
     pub position: i32,
-}
-
-/// Partial update for [`MetadataEnumOption`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = metadata_enum_options)]
-pub struct MetadataEnumOptionChangeset {
-    pub value: Option<String>,
-    pub position: Option<i32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -169,15 +149,6 @@ pub struct NewTemplateMetadata {
     pub metadata_definition_id: Uuid,
     pub default_value: Option<String>,
     pub required: bool,
-}
-
-/// Partial update for [`TemplateMetadata`]. `default_value` is
-/// double-`Option`: `None` = unchanged, `Some(None)` = SET NULL.
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = template_metadata)]
-pub struct TemplateMetadataChangeset {
-    pub default_value: Option<Option<String>>,
-    pub required: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -233,11 +204,4 @@ pub struct NewItemMetadata {
     pub item_id: Uuid,
     pub metadata_definition_id: Uuid,
     pub value: String,
-}
-
-/// Partial update for [`ItemMetadata`].
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = item_metadata)]
-pub struct ItemMetadataChangeset {
-    pub value: Option<String>,
 }

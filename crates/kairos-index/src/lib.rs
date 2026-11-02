@@ -66,7 +66,6 @@ use sha2::{Digest, Sha256};
 pub use citations::{CitedAdr, codes_in, is_adr_code};
 pub use duplicates::{
     DEFAULT_MIN_LINES, DuplicateGroup, DuplicateKind, DuplicateOptions, Duplicates,
-    MIN_NEAR_TOKENS, NEAR_THRESHOLD, SAME_IDEA_THRESHOLD,
 };
 #[cfg(feature = "llama")]
 pub use llama::{LlamaModelFile, LlamaSummarizer, MAX_NEW_TOKENS};
@@ -84,9 +83,8 @@ pub use rust_analyzer::BuildOptions;
 pub use schema::SCHEMA_VERSION;
 pub use summary::{
     DECLARATIONS_KIND, FakeSummarizer, Level, LevelCount, MODEL_FILE_NAME, SUMMARIZED_KINDS,
-    SYSTEM_PROMPT, SummarizeOptions, Summarizer, SummaryCall, SummaryFailure, SummaryReport,
-    SummaryRequest, declaration_lines, link, model_path, summarize, summarize_or_rebuild,
-    vector_model_name,
+    SummarizeOptions, Summarizer, SummaryCall, SummaryFailure, SummaryReport, SummaryRequest, link,
+    model_path, summarize, summarize_or_rebuild, vector_model_name,
 };
 
 /// A file larger than this is read only in part: enough for the header and

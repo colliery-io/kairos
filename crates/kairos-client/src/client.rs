@@ -160,7 +160,7 @@ pub fn timeout_from_env() -> Result<Option<Duration>, Error> {
 }
 
 /// [`timeout_from_env`] over a value that is already read.
-pub fn parse_timeout(value: Option<&str>) -> Result<Option<Duration>, Error> {
+pub(crate) fn parse_timeout(value: Option<&str>) -> Result<Option<Duration>, Error> {
     let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
@@ -236,22 +236,9 @@ impl KairosClient {
         self
     }
 
-    /// Wait `connect_timeout` for a connection (KAIROS-T-0607).
-    #[must_use]
-    pub fn with_connect_timeout(mut self, connect_timeout: Duration) -> Self {
-        self.connect_timeout = connect_timeout;
-        self.http = build_http(self.connect_timeout, self.timeout);
-        self
-    }
-
     /// The request timeout.
     pub fn timeout(&self) -> Duration {
         self.timeout
-    }
-
-    /// The connection timeout.
-    pub fn connect_timeout(&self) -> Duration {
-        self.connect_timeout
     }
 
     /// A client with a fixed bearer token (integration tests).
@@ -776,20 +763,10 @@ impl KairosClient {
 
     /// `POST /api/boards/{id}/archive-completed` — archive each task in the
     /// done columns of a board (KAIROS-T-0363). `board` is a slug or a
-    /// UUID. The caller holds `manage_tasks` on the board.
+    /// UUID. The caller holds `manage_tasks` on the board. With
+    /// `older_than_days`, only the tasks that entered their column at
+    /// least that many days ago (KAIROS-T-0649).
     pub async fn archive_completed(
-        &self,
-        board: &str,
-    ) -> Result<crate::types::ArchiveCompletedResponse, Error> {
-        self.post_empty(&format!("/api/boards/{board}/archive-completed"))
-            .await
-    }
-
-    /// `POST /api/boards/{id}/archive-completed?older_than_days=N`: archive
-    /// each task of the done columns that entered its column at least N
-    /// days ago (KAIROS-T-0649). `None` archives each done task, as
-    /// [`Client::archive_completed`].
-    pub async fn archive_completed_older_than(
         &self,
         board: &str,
         older_than_days: Option<i64>,
@@ -801,7 +778,10 @@ impl KairosClient {
                 ))
                 .await
             }
-            None => self.archive_completed(board).await,
+            None => {
+                self.post_empty(&format!("/api/boards/{board}/archive-completed"))
+                    .await
+            }
         }
     }
 
@@ -820,25 +800,6 @@ impl KairosClient {
             &format!("/api/tasks/{short_code}/repository"),
             &crate::types_repositories::SetTaskRepositoryRequest {
                 repository: repository.map(str::to_string),
-            },
-        )
-        .await
-    }
-
-    /// `GET /api/boards/{id}/items?repository=` — the board narrowed to
-    /// tasks bound to one repository (slug or UUID, KAIROS-T-0104); other
-    /// entity types are unaffected. Each item, page after page
-    /// (COLLIERY-T-0261).
-    pub async fn board_items_for_repository(
-        &self,
-        board_id: &str,
-        repository: &str,
-    ) -> Result<BoardItemsResponse, Error> {
-        self.board_items_all(
-            board_id,
-            &BoardItemsQuery {
-                repository: Some(repository.to_string()),
-                ..BoardItemsQuery::default()
             },
         )
         .await
@@ -1102,26 +1063,6 @@ impl KairosClient {
         Ok(all)
     }
 
-    /// `GET /api/boards/{id}/items?include_deleted=true` — the board as it
-    /// was, archived cards included and each marked with `archived_at`
-    /// (KAIROS-A-0020 rule 2). Not a board view: the put-away cards still
-    /// carry the column they were put away in, so this answers "what was
-    /// in Done last quarter?", not "what is on the board now?". Each
-    /// item, page after page (COLLIERY-T-0261).
-    pub async fn board_items_including_archived(
-        &self,
-        board_id: &str,
-    ) -> Result<BoardItemsResponse, Error> {
-        self.board_items_all(
-            board_id,
-            &BoardItemsQuery {
-                include_deleted: true,
-                ..BoardItemsQuery::default()
-            },
-        )
-        .await
-    }
-
     /// `GET /api/boards/{id}/columns`. `board_id` is the slug or the id.
     pub async fn list_columns(&self, board_id: &str) -> Result<Vec<BoardColumn>, Error> {
         self.get(&format!("/api/boards/{board_id}/columns")).await
@@ -1158,13 +1099,6 @@ impl KairosClient {
         column_id: &str,
     ) -> Result<OrgDeleteResponse, Error> {
         self.delete(&format!("/api/boards/{board_id}/columns/{column_id}"))
-            .await
-    }
-
-    /// `GET /api/boards/{id}/transitions`. `board_id` is the slug or the
-    /// id.
-    pub async fn list_transitions(&self, board_id: &str) -> Result<Vec<BoardTransition>, Error> {
-        self.get(&format!("/api/boards/{board_id}/transitions"))
             .await
     }
 
@@ -2250,27 +2184,11 @@ impl KairosClient {
         .await
     }
 
-    /// `GET /api/repositories/{slug}/code-indexes/builds` — the runs of
-    /// the code index builder for a repository, newest first
-    /// (KAIROS-T-0331). `limit`: 20 when None, 100 at most.
+    /// `GET /api/repositories/{slug}/code-indexes/builds` — one page of
+    /// the runs of the code index builder for a repository, newest first
+    /// (KAIROS-T-0331). `limit`: 20 when None, 100 at most; `offset`: 0
+    /// when None (KAIROS-T-0584).
     pub async fn list_code_index_builds(
-        &self,
-        reference: &str,
-        limit: Option<i64>,
-    ) -> Result<crate::types_code_index::CodeIndexBuildList, Error> {
-        let query = match limit {
-            Some(limit) => format!("?limit={limit}"),
-            None => String::new(),
-        };
-        self.get(&format!(
-            "/api/repositories/{reference}/code-indexes/builds{query}"
-        ))
-        .await
-    }
-
-    /// `GET /api/repositories/{slug}/code-indexes/builds` with `limit` and
-    /// `offset` (KAIROS-T-0584): one page of the runs, newest first.
-    pub async fn code_index_builds_page(
         &self,
         reference: &str,
         query: &crate::types_code_index::CodeIndexBuildListQuery,
@@ -3111,22 +3029,16 @@ mod tests {
         }
     }
 
-    /// KAIROS-T-0607: a new client has the default timeouts; the builders
-    /// change one and keep the other.
+    /// KAIROS-T-0607: a new client has the default timeout; the builder
+    /// changes it.
     #[test]
     fn a_client_has_the_default_timeouts() {
         let client = KairosClient::anonymous("http://kairos.test/");
         assert_eq!(client.timeout(), Duration::from_secs(60));
-        assert_eq!(client.connect_timeout(), Duration::from_secs(5));
         assert_eq!(client.base_url(), "http://kairos.test");
 
         let client = client.with_timeout(Duration::from_secs(120));
         assert_eq!(client.timeout(), Duration::from_secs(120));
-        assert_eq!(client.connect_timeout(), Duration::from_secs(5));
-
-        let client = client.with_connect_timeout(Duration::from_secs(1));
-        assert_eq!(client.timeout(), Duration::from_secs(120));
-        assert_eq!(client.connect_timeout(), Duration::from_secs(1));
     }
 
     /// KAIROS-T-0607: every request asks for a compressed answer.

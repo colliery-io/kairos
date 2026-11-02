@@ -9,11 +9,12 @@
 //! - [`items`] — tenant entity tables (strategies … adrs)
 //! - [`graph`] — relationship graph, item history, activity log
 //!
-//! Every table gets a `Queryable`/`Selectable` row struct and an
-//! `Insertable` `New*` struct. Tables with updatable non-key columns also
-//! get an `AsChangeset` `*Changeset` struct; the append-only tables
-//! (`item_history`, `activity_log`) and the pure join table
-//! (`team_delivery_streams`) deliberately have none.
+//! A table has a `Queryable`/`Selectable` row struct when code reads it,
+//! an `Insertable` `New*` struct when code inserts into it, and an
+//! `AsChangeset` `*Changeset` struct when code updates it with one. Most
+//! updates use `.set(column.eq(..))`, and the system tables of `public`
+//! use raw SQL (`crate::tenant`), so most tables have no `*Changeset`
+//! (KAIROS-T-0743).
 
 pub mod boards;
 pub mod claims;

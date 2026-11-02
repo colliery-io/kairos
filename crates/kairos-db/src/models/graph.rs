@@ -36,14 +36,6 @@ pub struct NewItemRelationship {
     pub relationship: RelationshipType,
 }
 
-/// Partial update for [`ItemRelationship`] (edges are usually
-/// insert/delete; retyping an edge is the supported update).
-#[derive(Debug, Clone, Default, AsChangeset)]
-#[diesel(table_name = item_relationships)]
-pub struct ItemRelationshipChangeset {
-    pub relationship: Option<RelationshipType>,
-}
-
 // ---------------------------------------------------------------------------
 // item_history
 // ---------------------------------------------------------------------------

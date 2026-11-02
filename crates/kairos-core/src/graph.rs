@@ -1,6 +1,7 @@
 //! Pure relationship-graph rules (KAIROS-A-0001, KAIROS-T-0013): the
-//! type-rule matrix for the six edge types and cycle detection over
-//! already-loaded edges.
+//! type-rule matrix for the six edge types, and which types must stay
+//! acyclic. The cycle check itself runs in the database
+//! (`kairos_db::graph::check_acyclic`, KAIROS-T-0634).
 //!
 //! Per KAIROS-A-0009 everything here is a function over in-memory data — no
 //! diesel, no I/O. `kairos-db::graph` resolves UUIDs to entity types (via
@@ -38,8 +39,6 @@
 //! `amends` (KAIROS-A-0069, KAIROS-T-0700): the source ADR changes a part
 //! of the target ADR, and the rest of the target stays in force.
 //! `supersedes` replaces all of it. `amends` must not make a cycle.
-
-use uuid::Uuid;
 
 use crate::short_code::ItemType;
 
@@ -223,40 +222,6 @@ fn is_allowed(relationship: Relationship, source_type: ItemType, target_type: It
     }
 }
 
-/// A directed edge of ONE relationship type from `item_relationships`
-/// (source → target).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Edge {
-    /// `item_relationships.source_id`.
-    pub source_id: Uuid,
-    /// `item_relationships.target_id`.
-    pub target_id: Uuid,
-}
-
-/// Whether adding `source → target` to `edges` (all existing edges of the
-/// SAME relationship type) would create a directed cycle: true iff
-/// `source` is already reachable from `target` (or `source == target`).
-/// Pure BFS over the loaded edges; tolerant of pre-existing cycles in a
-/// malformed graph (visited-set bounded).
-pub fn would_create_cycle(edges: &[Edge], source: Uuid, target: Uuid) -> bool {
-    if source == target {
-        return true;
-    }
-    let mut seen = std::collections::HashSet::from([target]);
-    let mut frontier = vec![target];
-    while let Some(node) = frontier.pop() {
-        for edge in edges.iter().filter(|e| e.source_id == node) {
-            if edge.target_id == source {
-                return true;
-            }
-            if seen.insert(edge.target_id) {
-                frontier.push(edge.target_id);
-            }
-        }
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,72 +402,5 @@ mod tests {
                 Relationship::Blocks
             ]
         );
-    }
-
-    fn edge(source_id: Uuid, target_id: Uuid) -> Edge {
-        Edge {
-            source_id,
-            target_id,
-        }
-    }
-
-    #[test]
-    fn direct_cycle_detected() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        // a -> b exists; b -> a closes the 2-cycle.
-        let edges = [edge(a, b)];
-        assert!(would_create_cycle(&edges, b, a));
-        // The same edge again is not a cycle (it is a duplicate, handled by
-        // the UNIQUE constraint, not by this check).
-        assert!(!would_create_cycle(&edges, a, b));
-        // Self-links are always cycles.
-        assert!(would_create_cycle(&[], a, a));
-    }
-
-    #[test]
-    fn transitive_cycle_detected() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        let c = Uuid::new_v4();
-        // a -> b -> c exists; c -> a closes the 3-cycle.
-        let edges = [edge(a, b), edge(b, c)];
-        assert!(would_create_cycle(&edges, c, a));
-        // ... but extending the chain is fine.
-        assert!(!would_create_cycle(&edges, c, Uuid::new_v4()));
-        assert!(!would_create_cycle(&edges, Uuid::new_v4(), a));
-    }
-
-    #[test]
-    fn diamond_is_not_a_cycle() {
-        let top = Uuid::new_v4();
-        let left = Uuid::new_v4();
-        let right = Uuid::new_v4();
-        let bottom = Uuid::new_v4();
-        // top -> left -> bottom and top -> right; right -> bottom closes a
-        // DIAMOND (two paths to bottom), which is allowed — no directed
-        // cycle exists.
-        let edges = [edge(top, left), edge(top, right), edge(left, bottom)];
-        assert!(!would_create_cycle(&edges, right, bottom));
-        // With the diamond complete, a back-edge bottom -> top WOULD close
-        // a directed cycle (top -> left -> bottom -> top) and is rejected.
-        let with_diamond = [
-            edge(top, left),
-            edge(top, right),
-            edge(left, bottom),
-            edge(right, bottom),
-        ];
-        assert!(would_create_cycle(&with_diamond, bottom, top));
-    }
-
-    #[test]
-    fn cycle_check_tolerates_malformed_existing_cycles() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        let c = Uuid::new_v4();
-        // A pre-existing (malformed) cycle a <-> b must not hang the BFS.
-        let edges = [edge(a, b), edge(b, a)];
-        assert!(!would_create_cycle(&edges, c, Uuid::new_v4()));
-        assert!(would_create_cycle(&edges, b, a));
     }
 }

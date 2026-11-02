@@ -150,26 +150,20 @@ fn the_pool_records_which_rows_an_index_used() {
     let config = RetentionConfig::default();
     assert_eq!(config.code_index_pool_days, 30);
     let soon = Utc::now() + Duration::days(29);
-    assert_eq!(
-        kairos_db::retention::delete_unused_summaries(&mut conn, &config, soon).unwrap(),
-        0
-    );
+    assert_eq!(unused_summaries_deleted(&mut conn, &config, soon), 0);
     let later = Utc::now() + Duration::days(31);
     let off = RetentionConfig {
         code_index_pool_days: 0,
         ..RetentionConfig::default()
     };
     assert_eq!(
-        kairos_db::retention::delete_unused_summaries(&mut conn, &off, later).unwrap(),
+        unused_summaries_deleted(&mut conn, &off, later),
         0,
         "0 keeps them"
     );
     // KAIROS-T-0638: "old" goes too. Its last use is older than the only
     // stored index, and that index does not use it.
-    assert_eq!(
-        kairos_db::retention::delete_unused_summaries(&mut conn, &config, later).unwrap(),
-        2
-    );
+    assert_eq!(unused_summaries_deleted(&mut conn, &config, later), 2);
     conn.batch_execute("SET search_path TO org_acme, public")
         .unwrap();
     let keys: Vec<String> = code_indexes::whole_pool(&mut conn, repo)
@@ -201,4 +195,21 @@ fn the_pool_records_which_rows_an_index_used() {
     sql_query(format!("DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)"))
         .execute(&mut admin_conn)
         .expect("dropping scratch db");
+}
+
+/// The unused summaries that one retention pass deletes at `now`. The pass
+/// sweeps no history and keeps each code index.
+fn unused_summaries_deleted(
+    conn: &mut PgConnection,
+    config: &RetentionConfig,
+    now: chrono::DateTime<Utc>,
+) -> u64 {
+    let config = RetentionConfig {
+        mode: kairos_core::retention::RetentionMode::Off,
+        code_index_keep: 0,
+        ..config.clone()
+    };
+    kairos_db::retention::run_retention_pass(conn, &config, now, &mut || {})
+        .expect("pass")
+        .unused_summaries_deleted
 }

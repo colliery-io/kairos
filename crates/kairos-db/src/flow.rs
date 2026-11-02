@@ -776,18 +776,6 @@ pub fn load_moves(
     Ok(moves)
 }
 
-/// Read the input of [`compute`] for the board `board_id` and a range that
-/// starts at `since`: [`load_board`] and [`load_moves`].
-pub fn load_input(
-    conn: &mut PgConnection,
-    board_id: Uuid,
-    since: DateTime<Utc>,
-) -> Result<FlowInput, DieselError> {
-    let board = load_board(conn, board_id, since)?;
-    let moves = load_moves(conn, board_id, &board, since)?;
-    Ok(FlowInput::new(board, moves))
-}
-
 impl FlowInput {
     /// The input of a board and its moves.
     pub fn new(board: FlowBoard, moves: Vec<FlowMove>) -> Self {

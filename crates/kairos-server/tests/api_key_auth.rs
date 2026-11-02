@@ -145,6 +145,23 @@ async fn api_key_authentication_end_to_end() {
     let (status, body) = whoami(&router, &good_key, &[]).await;
     assert_eq!(status, StatusCode::OK, "key pins its own tenant: {body}");
     assert_eq!(body["user"]["email"], "svc-ci@svc.acme.kairos");
+    // KAIROS-T-0610, KAIROS-T-0743: the auth path stamps the key through
+    // `api_keys::touch_last_used`; a second call inside the window does
+    // not write the stamp again.
+    let stamped = |conn: &mut PgConnection| {
+        api_keys::find_by_hash(conn, &hash_key(&good_key))
+            .expect("q")
+            .expect("row")
+            .last_used_at
+    };
+    let first = stamped(&mut conn).expect("the auth path stamps the key");
+    let (status, _) = whoami(&router, &good_key, &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        stamped(&mut conn),
+        Some(first),
+        "no write inside the window"
+    );
 
     // 2. The key wins over a mismatched X-Tenant header (still acme).
     let (status, body) = whoami(&router, &good_key, &[("x-tenant", "globex")]).await;

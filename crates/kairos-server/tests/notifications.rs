@@ -570,17 +570,24 @@ async fn the_five_events_reach_the_right_person() {
         ..RetentionConfig::default()
     };
     assert_eq!(
-        kairos_db::retention::delete_read_notifications(&mut conn, &keep, Utc::now())
-            .expect("pass"),
+        read_notifications_deleted(&mut conn, &keep),
         0,
         "0 keeps read notifications"
     );
-    let deleted = kairos_db::retention::delete_read_notifications(
-        &mut conn,
-        &RetentionConfig::default(),
-        Utc::now(),
-    )
-    .expect("pass");
+    let deleted = read_notifications_deleted(&mut conn, &RetentionConfig::default());
     assert_eq!(deleted, 1);
     assert_eq!(all(&mut conn).len(), total - 1);
+}
+
+/// The read notifications that one retention pass deletes now. The pass
+/// sweeps no history and keeps each code index.
+fn read_notifications_deleted(conn: &mut PgConnection, config: &RetentionConfig) -> u64 {
+    let config = RetentionConfig {
+        mode: kairos_core::retention::RetentionMode::Off,
+        code_index_keep: 0,
+        ..config.clone()
+    };
+    kairos_db::retention::run_retention_pass(conn, &config, Utc::now(), &mut || {})
+        .expect("pass")
+        .read_notifications_deleted
 }

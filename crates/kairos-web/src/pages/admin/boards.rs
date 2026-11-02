@@ -943,7 +943,9 @@ fn MembersPanel(
                             <Stack gap="xs">
                                 <Group justify="between" wrap=true>
                                     <Group gap="sm">
-                                        <Text bright=true>{member.display_name.clone()}</Text>
+                                        <Text bright=true>
+                                            {crate::pages::mention::with_handle(&member.display_name, &member.user_name)}
+                                        </Text>
                                         <Text dimmed=true size="sm">{email.clone()}</Text>
                                         <CapabilityPills capabilities=member.capabilities.clone()/>
                                     </Group>

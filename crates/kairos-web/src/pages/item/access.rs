@@ -153,6 +153,7 @@ mod tests {
         Claim {
             user_id: user_id.to_string(),
             display_name: "Robin".to_string(),
+            user_name: String::new(),
             agent,
             claimed_at: String::new(),
         }

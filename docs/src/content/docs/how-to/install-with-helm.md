@@ -637,6 +637,15 @@ Changes that people and agents see:
   the last lines of the output and the log of rust-analyzer.
 - One server does one SCIP run of rust-analyzer at a time. Other builds
   wait for it.
+- The web app shows the user name (`@name`) of each person. It shows it
+  in the lists of members, in the claim and next to the author of a note.
+- In the note box and the content editor of an item, type `@` and some
+  letters. A list shows the people of the board of the item. Use the arrow
+  keys and Enter, or a click, to put `@<user name>` in the text. Escape
+  closes the list.
+- The REST lists of team members and board members give `user_name`. The
+  claim gives `user_name`, and each note gives `author_user_name`. An older
+  client ignores these fields.
 
 ## Trying it out without a database
 

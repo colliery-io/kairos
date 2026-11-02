@@ -361,7 +361,9 @@ fn TeamMembersPanel(
                     view! {
                         <Group justify="between" wrap=true>
                             <Group gap="sm">
-                                <Text>{member.display_name.clone()}</Text>
+                                <Text>
+                                    {crate::pages::mention::with_handle(&member.display_name, &member.user_name)}
+                                </Text>
                                 <Text dimmed=true size="sm">{member.email.clone()}</Text>
                             </Group>
                             <Button variant="default" size="xs" bad=true

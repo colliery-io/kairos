@@ -47,7 +47,7 @@ use leptos_router::hooks::use_location;
 pub(crate) mod gating;
 
 mod agent_keys;
-mod api;
+pub(crate) mod api;
 mod board_policy;
 mod boards;
 mod capabilities;

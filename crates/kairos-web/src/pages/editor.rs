@@ -49,6 +49,7 @@ use serde::{Deserialize, Serialize};
 use super::activity::{DiffLines, diff_lines};
 use super::item::api::{CurrentVersion, SaveError};
 use super::item::markdown;
+use super::mention::MentionBox;
 
 /// One save attempt: `(title, content, based-on version)` → the new
 /// version, or the typed failure the merge UI understands.
@@ -674,13 +675,15 @@ pub fn MarkdownEditor(
                                 }).collect_view()}
                             </Group>
                         </Group>
-                        <textarea
-                            class="kairos-editor__textarea"
-                            id="kairos-editor-content"
-                            node_ref=textarea_ref
-                            prop:value=move || content.get()
-                            on:input=move |e| content.set(event_target_value(&e))
-                        ></textarea>
+                        <MentionBox value=content>
+                            <textarea
+                                class="kairos-editor__textarea"
+                                id="kairos-editor-content"
+                                node_ref=textarea_ref
+                                prop:value=move || content.get()
+                                on:input=move |e| content.set(event_target_value(&e))
+                            ></textarea>
+                        </MentionBox>
                     }.into_any()
                 }}
 

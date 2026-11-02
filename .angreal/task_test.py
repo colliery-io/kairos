@@ -229,9 +229,7 @@ def unit():
     """Run unit tests for all workspace crates, then the plugin hooks'
     stdlib unit tests (KAIROS-T-0108, the Ralph loop COLLIERY-T-1861, the active
     work after a compaction COLLIERY-T-1862, the skill set COLLIERY-T-1866, the code
-    index in each session COLLIERY-T-1855), then
-    the stdlib unit tests of the
-    Metis import script (scripts/metis_import, COLLIERY-I-0019), then the
+    index in each session COLLIERY-T-1855), then the
     check that the Compose file passes each setting of the book
     (scripts/check_compose_settings.py, KAIROS-T-0496), then the check that
     the MCP tools page names each tool of the code
@@ -268,17 +266,6 @@ def unit():
         return 1
     code = subprocess.run(
         [sys.executable, "-B", "-m", "unittest", *hook_tests],
-        cwd=PROJECT_ROOT,
-        check=False,
-    ).returncode
-    if code:
-        return code
-    scripts = os.path.join(PROJECT_ROOT, "scripts")
-    code = subprocess.run(
-        [
-            sys.executable, "-B", "-m", "unittest", "discover",
-            "-s", os.path.join(scripts, "metis_import"), "-t", scripts,
-        ],
         cwd=PROJECT_ROOT,
         check=False,
     ).returncode

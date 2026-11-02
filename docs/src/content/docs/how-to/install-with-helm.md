@@ -602,6 +602,11 @@ Changes that people and agents see:
 
 These changes of 0.19.1 show after the upgrade. They apply to Compose too.
 
+0.19.1 does not have these routes (KAIROS-T-0743):
+
+- `PUT /api/boards/{id}/code-sequences/{item_type}`. Only the Metis
+  importer used it. The importer is gone too.
+
 Changes to the tools of the builder:
 
 - The Rust toolchain of the builder changes from 1.93.0 to 1.99.0, the

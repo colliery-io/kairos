@@ -183,7 +183,6 @@ use crate::app::AppState;
         crate::api::org::dispatch::delete_dispatch_rule,
         crate::api::org::dispatch::list_webhook_deliveries,
         crate::api::org::boards::archive_completed,
-        crate::api::org::boards::set_code_sequence,
         crate::api::org::boards::list_columns,
         crate::api::org::boards::add_column,
         crate::api::org::boards::update_column,

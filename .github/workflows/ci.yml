@@ -264,7 +264,7 @@ jobs:
           fi
 
   # The Python tests alone, for a change that touches no Rust (the plugin
-  # hooks and the Metis import script). With Rust, `angreal test unit` in
+  # hooks and the check scripts). With Rust, `angreal test unit` in
   # the unit job runs them.
   python:
     name: python
@@ -279,10 +279,9 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Plugin hooks and the Metis import script
+      - name: Plugin hooks and the check scripts
         run: |
           python -B -m unittest discover -s plugin/hooks -p 'test_*.py'
-          python -B -m unittest discover -s scripts/metis_import -t scripts
           python -B -m unittest scripts/test_check_compose_settings.py
           python -B -m unittest scripts/test_check_mcp_tools.py
           python -B -m unittest scripts/test_check_migrations.py

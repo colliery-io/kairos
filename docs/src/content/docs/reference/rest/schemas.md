@@ -553,17 +553,6 @@ One tool folder and its disk use.
 | `language` | `string`, nullable | no | The language that uses it: `rust`, `go`, `typescript`, `python`, `typescript, python` (Node.js), or none. |
 | `name` | `string` | yes | The folder: `go-1.27.2`, `node-24.22.0`, `rust-1.93.0`, … or `other`. |
 
-## CodeSequence
-
-The sequence of a prefix and a type (COLLIERY-T-3104).
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `code_prefix` | `string` | yes | The short-code prefix of the board. |
-| `item_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
-| `last_number` | `integer` | yes | The last number that the sequence gave. |
-| `next_code` | `string` | yes | The code that the next create of the type gets. |
-
 ## CreateAdrRequest
 
 Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule: both set (on-board) or both omitted (off-board; creation is then org-admin-only, KAIROS-A-0006 fallback).
@@ -2717,16 +2706,6 @@ One session, for the audit listing. Never the token or its hash.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `agents_decide` | `boolean` | yes |  |
-
-The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
-
-## SetCodeSequenceRequest
-
-Body of `PUT /api/boards/{id}/code-sequences/{item_type}` (COLLIERY-T-3104): the number of the next code of the type on the board.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `next_number` | `integer` | yes | The next create of the type on the board gets this number. It must be above the last number of the sequence, and above the number of each code of the prefix and type that exists or is retired. |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 

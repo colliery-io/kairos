@@ -881,13 +881,13 @@ pub(super) fn references_text(
     match found.coverage {
         Coverage::Full => {}
         Coverage::Pending(n) if s.language == "rust" => out.push_str(&format!(
-            " {} after the last SCIP run: in them, the result has the calls only. Run \
-             `kairos index update --rust-edges` to get all the uses.",
+            " {} after the last SCIP run: in them, the result has the calls only. The next \
+             index that the Kairos server builds has all the uses.",
             plural(n, "Rust file changed", "Rust files changed")
         )),
         Coverage::Pending(n) => out.push_str(&format!(
-            " {} after the last SCIP run: in them, the result has the calls only. Run \
-             `kairos index update --scip` to get all the uses.",
+            " {} after the last SCIP run: in them, the result has the calls only. The next \
+             index that the Kairos server builds has all the uses.",
             plural(
                 n,
                 &format!("{} file changed", s.language),

@@ -1178,7 +1178,7 @@ impl Index {
 /// How an update or a merge builds the index.
 #[derive(Debug, Clone, Default)]
 pub struct UpdateOptions {
-    /// Run `rust-analyzer scip` for the Rust edges (`--rust-edges`). Without
+    /// Run `rust-analyzer scip` for the Rust edges (the builder of the server). Without
     /// it, a Rust function whose code did not change keeps the SCIP edges of
     /// the base, also in a changed file, and the edges of a changed Rust
     /// function are name classes that wait for the next run.

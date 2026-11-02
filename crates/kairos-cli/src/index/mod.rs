@@ -7,12 +7,12 @@
 //! CLI says so and builds nothing.
 //!
 //! - `kairos index update` builds the structure again from the tree and
-//!   summarizes only what changed. It keeps the Rust edges of the index for
-//!   each function whose code did not change, and runs no SCIP unless
-//!   `--rust-edges` (or `--scip`) is given. A SCIP run covers each language
-//!   whose indexer is on the computer: rust-analyzer, scip-go,
-//!   scip-typescript and scip-python (KAIROS-T-0473). A language whose
-//!   indexer is missing or fails gets its edges by name, with a warning. With `--link-only`, it runs no model: it links
+//!   summarizes only what changed. It keeps the SCIP edges of the index for
+//!   each function whose code did not change. It runs no SCIP indexer
+//!   (rust-analyzer and the others): a SCIP run indexes the whole
+//!   workspace, so it is a build, and only the server builds
+//!   (KAIROS-T-0746). The edges of changed code are by name until the next
+//!   index of the server. With `--link-only`, it runs no model: it links
 //!   the summaries of the pool and makes no new ones (COLLIERY-T-2529, the
 //!   background update of the plugin). It starts from the nearest base index in
 //!   Kairos when the checkout has no index, or when the base is nearer to
@@ -112,9 +112,6 @@ pub enum IndexCommand {
     Update {
         #[command(flatten)]
         root: RootArg,
-        /// Run the SCIP indexers again (rust-analyzer, scip-go, scip-typescript, scip-python) for the precise edges of the changed code
-        #[arg(long, visible_alias = "scip")]
-        rust_edges: bool,
         /// Run no model: link the summaries of the pool and make no new ones
         #[arg(long)]
         link_only: bool,
@@ -220,7 +217,6 @@ impl IndexCommand {
         match self {
             IndexCommand::Update {
                 root,
-                rust_edges,
                 link_only,
                 max_changed,
                 remote,
@@ -228,7 +224,7 @@ impl IndexCommand {
             } => {
                 let root = checkout_root(root)?;
                 let mut run = report::Run::new("update", json);
-                update(&root, rust_edges, link_only, max_changed, &remote, &mut run).await?;
+                update(&root, link_only, max_changed, &remote, &mut run).await?;
                 run.finish()
             }
             IndexCommand::Status { root, json } => status(&checkout_root(root)?, json),
@@ -525,7 +521,6 @@ enum Local {
 
 async fn update(
     root: &Path,
-    rust_edges: bool,
     link_only: bool,
     max_changed: Option<usize>,
     remote: &base::RemoteArgs,
@@ -638,11 +633,8 @@ async fn update(
     }
     run.index(&db);
     let started = Instant::now();
-    let options = UpdateOptions {
-        rust_edges,
-        ..UpdateOptions::default()
-    };
-    let report = kairos_index::update_structure(root, &db, &options)?;
+    // KAIROS-T-0746: no SCIP run. It indexes the whole workspace: a build.
+    let report = kairos_index::update_structure(root, &db, &UpdateOptions::default())?;
     run.structure(&report, started.elapsed());
     let no_model = if hosted {
         Some(summaries::HOSTED)
@@ -830,8 +822,8 @@ fn print_structure(report: &BuildReport, elapsed: Duration) {
             scip.elapsed.as_secs_f64()
         ),
         None if e.kept_scip > 0 || e.pending > 0 => println!(
-            "Rust edges: {} kept from the index. {} edges are by name until the next SCIP run \
-             (`kairos index update --rust-edges`).",
+            "Rust edges: {} kept from the index. {} edges are by name until the next index \
+             that the Kairos server builds.",
             e.kept_scip, e.pending
         ),
         None => {}
@@ -1146,6 +1138,9 @@ mod tests {
         assert!(parse(&["kairos", "index", "build"]).is_err());
         assert!(parse(&["kairos", "index", "--full"]).is_err());
         assert!(parse(&["kairos", "index", "update", "--full"]).is_err());
+        // A SCIP run indexes the whole workspace: a build.
+        assert!(parse(&["kairos", "index", "update", "--rust-edges"]).is_err());
+        assert!(parse(&["kairos", "index", "update", "--scip"]).is_err());
     }
 
     #[test]

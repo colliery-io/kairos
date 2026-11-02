@@ -3047,12 +3047,11 @@ With no subcommand, the command prints its help.
 ### `kairos index update`
 
 ```
-kairos index update [--root <ROOT>] [--rust-edges] [--link-only] [--max-changed <MAX_CHANGED>] [--repo <REPOSITORY>] [--url <URL>] [--tenant <TENANT>] [--json]
+kairos index update [--root <ROOT>] [--link-only] [--max-changed <MAX_CHANGED>] [--repo <REPOSITORY>] [--url <URL>] [--tenant <TENANT>] [--json]
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--rust-edges` (alias `--scip`) | flag | off | Run the SCIP indexers again for the precise edges of the changed code: rust-analyzer, scip-go, scip-typescript and scip-python. |
 | `--link-only` | flag | off | Run no model. Link the summaries of the pool, and make no new summaries. |
 | `--max-changed <MAX_CHANGED>` | integer | 200 when a model runs, else no limit | The most files that can change since the base index. Above it, the CLI builds nothing. With `--link-only` or on a hosted repository, no model runs. |
 | `--repo <REPOSITORY>` | slug or UUID | `repository` of the binding of the checkout (`kairos config show`), else the repository of the `origin` remote | The repository in Kairos. The old name `--repository` still works. |
@@ -3060,7 +3059,11 @@ kairos index update [--root <ROOT>] [--rust-edges] [--link-only] [--max-changed 
 | `--tenant <TENANT>` | string | `tenant` of the binding of the checkout (`kairos config show`), else the tenant of the login | The tenant, for a token from `kairos login`. A key carries its tenant. |
 
 Updates the index for the changes in the checkout, also the changes that are
-not committed.
+not committed. The update runs no SCIP indexer (rust-analyzer, scip-go,
+scip-typescript or scip-python). A SCIP run indexes the whole workspace, so
+only the server runs it. The changed code has its calls by name until the
+next index that the server builds. The CLI has no `--rust-edges` and no
+`--scip`.
 
 A worktree has the `[[project]]` of its clone (the entry
 matches the `origin` remote). With no index, the command starts from the nearest base index

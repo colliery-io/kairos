@@ -615,6 +615,12 @@ These changes of 0.19.1 show after the upgrade. They apply to Compose too.
 - The CLI does not build an index. The CLI has no `kairos index build` and
   no `kairos index --full` now. The server builds the index of each
   repository, and `kairos index update` takes it as its base.
+- `kairos index update` has no `--rust-edges` (or `--scip`) now. It runs no
+  SCIP indexer, because a SCIP run indexes the whole workspace. The changed
+  code has its calls by name until the next index that the server builds.
+- A deployment with no builder of the code index (no
+  `KAIROS_CODE_INDEX_DIR`) cannot make the first index of a repository now.
+  Set `KAIROS_CODE_INDEX_DIR` to turn on the builder.
 - `kairos index update` and `fetch_index` move a local index of an older
   version aside. They rename it to `index.db.schema<N>.bak` in the same
   folder, and take a new base index from Kairos. You can delete the `.bak` file.

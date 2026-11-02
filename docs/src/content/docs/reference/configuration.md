@@ -1413,10 +1413,9 @@ symbol as `symbol` does.
   rust-analyzer or std source gives Rust its calls by name. A file with an
   incorrect sha256 or a failed run does the same. The result says so. The
   build shows a warning with the reason.
-- `kairos index update` with no `--rust-edges` (or `--scip`) keeps the uses
-  of each file that did not change. A changed file has its calls only until
-  the next SCIP run. The result gives the count of these files. Run
-  `kairos index update --scip` to get all the uses again.
+- `kairos index update` keeps the uses of each file that did not change.
+  It runs no SCIP indexer. A changed file has its calls only until the next
+  index that the server builds. The result gives the count of these files.
 - The result shows the possible calls only when `possible` is true. A
   possible call is a call by a name that more than one function has.
 - `limit` is the most uses to show, from 1 to 1000. The default is 100.

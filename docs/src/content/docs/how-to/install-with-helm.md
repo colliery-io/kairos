@@ -637,6 +637,10 @@ Changes that people and agents see:
   the last lines of the output and the log of rust-analyzer.
 - One server does one SCIP run of rust-analyzer at a time. Other builds
   wait for it.
+- `kairos config migrate` also moves the file of a folder with no origin
+  remote, such as a board folder. It writes a `[[project]]` with `path`,
+  as `kairos config project` does. `--path` names the folder by its path
+  also when it has an origin remote. 0.19.0 refused these folders.
 
 ## Trying it out without a database
 

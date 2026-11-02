@@ -89,11 +89,15 @@ pub struct ProjectArgs {
 
 #[derive(clap::Args, Debug)]
 pub struct MigrateArgs {
-    /// The checkout of the file (default: the current folder)
+    /// The checkout or the board folder of the file (default: the current
+    /// folder)
     pub folder: Option<PathBuf>,
     /// The remote of the entry, in place of the origin of the folder
-    #[arg(long)]
+    #[arg(long, conflicts_with = "path")]
     pub remote: Option<String>,
+    /// Name the folder by its path, also when it has an origin remote
+    #[arg(long)]
+    pub path: bool,
     /// Print one JSON object
     #[arg(long)]
     pub json: bool,
@@ -262,55 +266,50 @@ fn wiring_values(front: &HashMap<String, String>) -> Values {
     }
 }
 
-/// What `config migrate` did: the file, the remote, and the result of
-/// [`project_config::add_project`]. No file, or a file with no value:
-/// nothing to move.
+/// What `config migrate` did: the file, the key of the entry as the file
+/// has it, and the result of [`project_config::add_project`]. No file, or
+/// a file with no value: nothing to move.
 #[derive(Debug, PartialEq)]
 struct Migrated {
     file: Option<String>,
-    remote: Option<String>,
+    key: Option<Key>,
     added: Option<Added>,
 }
 
 /// Move the values of the wiring file of `folder` into a `[[project]]` of
-/// the config at `config`. Nothing when the folder has no file, or the
-/// file gives no value.
-fn migrate_in(folder: &Path, config: &Path, remote: Option<String>) -> Result<Migrated, CliError> {
+/// the config at `config`. The key is the key of `config project`
+/// ([`entry_key`], KAIROS-T-0717): `--remote`; else the origin remote,
+/// unless `path`; else the path of the folder (a board folder). Nothing
+/// when the folder has no file, or the file gives no value.
+fn migrate_in(
+    folder: &Path,
+    config: &Path,
+    remote: Option<String>,
+    path: bool,
+) -> Result<Migrated, CliError> {
     let nothing = Migrated {
         file: None,
-        remote: None,
+        key: None,
         added: None,
     };
     // A subfolder of a checkout has the file of the top (KAIROS-T-0707).
     let top = project_config::checkout_top(folder);
     let folder = top.as_deref().unwrap_or(folder);
-    let Some(path) = wiring_path(folder) else {
+    let Some(file) = wiring_path(folder) else {
         return Ok(nothing);
     };
-    let text = std::fs::read(&path)
-        .map_err(|e| CliError::Failure(format!("The CLI cannot read {}: {e}.", path.display())))?;
+    let text = std::fs::read(&file)
+        .map_err(|e| CliError::Failure(format!("The CLI cannot read {}: {e}.", file.display())))?;
     let values = wiring_values(&front_matter(&String::from_utf8_lossy(&text)));
     if values == Values::default() {
         return Ok(nothing);
     }
-    let file = path.display().to_string();
-    let remote = remote.or_else(|| project_config::origin_of(folder));
-    let Some(remote) = remote else {
-        return Err(CliError::Failure(format!(
-            "The folder {} has no origin remote. Give --remote, or add a [[project]] with \
-             `path` to {} by hand.",
-            folder.display(),
-            config.display()
-        )));
-    };
-    let added = project_config::add_project(
-        config,
-        &project_config::Key::Remote(remote.clone()),
-        &values,
-    )?;
+    let file = file.display().to_string();
+    let key = entry_key(folder, remote, path)?;
+    let added = project_config::add_project(config, &key, &values)?;
     Ok(Migrated {
         file: Some(file),
-        remote: Some(crate::index::normalized_remote(&remote)),
+        key: Some(key.normalized()),
         added: Some(added),
     })
 }
@@ -318,29 +317,36 @@ fn migrate_in(folder: &Path, config: &Path, remote: Option<String>) -> Result<Mi
 fn migrate(args: MigrateArgs) -> Result<(), CliError> {
     let folder = folder_or_here(args.folder)?;
     let config = project_config::config_path()?;
-    let done = migrate_in(&folder, &config, args.remote)?;
+    let done = migrate_in(&folder, &config, args.remote, args.path)?;
     if args.json {
+        let (remote, path) = match &done.key {
+            Some(Key::Remote(remote)) => (Some(remote.clone()), None),
+            Some(Key::Path(path)) => (None, Some(path.display().to_string())),
+            None => (None, None),
+        };
         return print_json(&json!({
             "config": config.display().to_string(),
             "file": done.file,
-            "remote": done.remote,
+            "remote": remote,
+            "path": path,
             "result": done.added,
         }));
     }
-    let (Some(file), Some(remote), Some(added)) = (done.file, done.remote, done.added) else {
+    let (Some(file), Some(key), Some(added)) = (done.file, done.key, done.added) else {
         println!(
             "Nothing to migrate: {} has no {WIRING_FILE} with a value. Nothing changed.",
             folder.display()
         );
         return Ok(());
     };
+    let label = key.label();
     match added {
         Added::Added => println!(
-            "Added a [[project]] for {remote} to {} with the values of {file}.",
+            "Added a [[project]] for {label} to {} with the values of {file}.",
             config.display()
         ),
         Added::Same => println!(
-            "{} has these values for {remote} already. Nothing changed.",
+            "{} has these values for {label} already. Nothing changed.",
             config.display()
         ),
     }
@@ -473,9 +479,9 @@ mod tests {
         assert_eq!(before.get("tenant"), None, "the file is not read");
         assert!(!before.is_bound());
 
-        let done = migrate_in(&clone, &config, None).expect("migrate");
+        let done = migrate_in(&clone, &config, None, false).expect("migrate");
         assert_eq!(done.added, Some(Added::Added));
-        assert_eq!(done.remote.as_deref(), Some("github.com/acme/app"));
+        assert_eq!(done.key, Some(Key::Remote("github.com/acme/app".into())));
         let text = std::fs::read_to_string(&config).expect("the config");
         assert!(text.contains("remote = \"github.com/acme/app\""), "{text}");
         assert!(
@@ -489,7 +495,9 @@ mod tests {
         assert_eq!(after.get("tenant"), Some("acme"));
         // A second run has the same values: nothing changes.
         assert_eq!(
-            migrate_in(&clone, &config, None).expect("migrate").added,
+            migrate_in(&clone, &config, None, false)
+                .expect("migrate")
+                .added,
             Some(Added::Same)
         );
     }
@@ -503,13 +511,19 @@ mod tests {
         let config = dir.path().join("config.toml");
         let nothing = Migrated {
             file: None,
-            remote: None,
+            key: None,
             added: None,
         };
         std::fs::write(clone.join(WIRING_FILE), "---\nrepository:\n---\n").expect("write");
-        assert_eq!(migrate_in(&clone, &config, None).expect("migrate"), nothing);
+        assert_eq!(
+            migrate_in(&clone, &config, None, false).expect("migrate"),
+            nothing
+        );
         std::fs::remove_file(clone.join(WIRING_FILE)).expect("remove");
-        assert_eq!(migrate_in(&clone, &config, None).expect("migrate"), nothing);
+        assert_eq!(
+            migrate_in(&clone, &config, None, false).expect("migrate"),
+            nothing
+        );
         assert!(!config.exists());
     }
 
@@ -532,9 +546,9 @@ mod tests {
         std::fs::create_dir_all(&plain).expect("make the folder");
         assert_eq!(wiring_path(&plain), None);
         let config = dir.path().join("config.toml");
-        let done = migrate_in(&worktree, &config, None).expect("migrate");
+        let done = migrate_in(&worktree, &config, None, false).expect("migrate");
         assert_eq!(done.added, Some(Added::Added));
-        assert_eq!(done.remote.as_deref(), Some("github.com/acme/app"));
+        assert_eq!(done.key, Some(Key::Remote("github.com/acme/app".into())));
     }
 
     /// The front matter rule of the retired file: an indented line, a
@@ -557,21 +571,68 @@ mod tests {
         assert_eq!(values.tenant.as_deref(), Some("acme"));
     }
 
+    /// KAIROS-T-0717: a board folder (no git) migrates to a `path` entry,
+    /// as `config project` writes for it, and the folder is bound.
     #[test]
-    fn migrate_with_no_remote_is_refused_and_says_what_to_give() {
+    fn migrate_in_a_board_folder_writes_a_path_entry() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let board = dir.path().join("board");
+        std::fs::create_dir_all(board.join(".claude")).expect("make .claude");
+        std::fs::write(
+            board.join(WIRING_FILE),
+            "---\ndeployment_url: https://kairos.example.com\ntenant: acme\nteam_board: app-delivery\n---\n",
+        )
+        .expect("write the wiring");
+        let config = dir.path().join("config/config.toml");
+
+        let done = migrate_in(&board, &config, None, false).expect("migrate");
+        let folder = board.canonicalize().expect("the folder");
+        assert_eq!(done.added, Some(Added::Added));
+        assert_eq!(done.key, Some(Key::Path(folder.clone())));
+        let text = std::fs::read_to_string(&config).expect("the config");
+        assert!(
+            text.contains(&format!("path = \"{}\"", folder.display())),
+            "{text}"
+        );
+        assert!(!text.contains("remote ="), "{text}");
+        let after = project_config::binding_with(&board, &config).expect("a binding");
+        assert!(after.is_bound());
+        assert_eq!(after.get("tenant"), Some("acme"));
+        assert_eq!(
+            migrate_in(&board, &config, None, false)
+                .expect("migrate")
+                .added,
+            Some(Added::Same)
+        );
+    }
+
+    /// KAIROS-T-0717: a checkout with no origin gets a `path` entry;
+    /// `--path` names a checkout with an origin by its path; `--remote`
+    /// names the remote.
+    #[test]
+    fn migrate_takes_the_key_rule_of_config_project() {
         let dir = tempfile::tempdir().expect("a folder");
         let clone = wired_checkout(dir.path());
-        git(&clone, &["remote", "remove", "origin"]);
-        let config = dir.path().join("config.toml");
-        let err = migrate_in(&clone, &config, None).expect_err("no remote");
-        assert!(err.to_string().contains("--remote"), "{err}");
-        assert!(!config.exists());
-        git(
+        let folder = clone.canonicalize().expect("the clone");
+
+        let config = dir.path().join("path.toml");
+        let done = migrate_in(&clone, &config, None, true).expect("migrate --path");
+        assert_eq!(done.key, Some(Key::Path(folder.clone())));
+
+        let config = dir.path().join("remote.toml");
+        let done = migrate_in(
             &clone,
-            &["remote", "add", "origin", "git@github.com:acme/app.git"],
-        );
-        let done = migrate_in(&clone, &config, Some("https://github.com/acme/app".into()))
-            .expect("migrate with --remote");
+            &config,
+            Some("https://github.com/acme/other".into()),
+            false,
+        )
+        .expect("migrate --remote");
+        assert_eq!(done.key, Some(Key::Remote("github.com/acme/other".into())));
+
+        git(&clone, &["remote", "remove", "origin"]);
+        let config = dir.path().join("none.toml");
+        let done = migrate_in(&clone, &config, None, false).expect("no origin");
+        assert_eq!(done.key, Some(Key::Path(folder)));
         assert_eq!(done.added, Some(Added::Added));
     }
 

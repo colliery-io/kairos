@@ -135,3 +135,51 @@ test('the stand-up goes around the team and ends with the unclaimed tasks', asyn
     await expect(page.locator('[data-testid="standup-unclaimed"]')).toBeVisible();
   });
 });
+
+// KAIROS-T-0744: a new team with alice and no task. Her stop says that she
+// has no work in the team, and the Unclaimed stop says that no task waits.
+test('the stand-up of a team with no work shows the empty stops', async ({ page }) => {
+  const alice = await mintToken();
+  const run = Date.now().toString(36);
+  const team = await call(alice, 'POST', '/api/teams', {
+    name: `Stand-up ${run}`,
+    slug: `standup-${run}`,
+    code_prefix: `SU${run.toUpperCase()}`.slice(0, 10),
+  });
+  try {
+    const me = await call(alice, 'GET', '/api/whoami');
+    await call(alice, 'POST', `/api/teams/${team.id}/members`, { user_id: me.user.id });
+
+    await page.goto(`/teams/${team.slug}/standup`);
+    await page.waitForSelector('#login', { timeout: 30_000 });
+    await page.fill('#login', 'alice@kairos.test');
+    await page.fill('#password', 'alice-password');
+    await page.click('#submit-login');
+    await page.waitForURL((url) => url.pathname.endsWith('/standup'), { timeout: 30_000 });
+
+    const round = page.locator('[data-testid="standup-round"]');
+    await expect(round).toBeVisible({ timeout: 30_000 });
+    await expect(round.locator('[data-testid="standup-stop"]')).toHaveCount(2);
+    await expect(page.locator('[data-testid="standup-person-empty"]')).toContainText(
+      'has no work in this team now.',
+    );
+
+    await page.goto(`/teams/${team.slug}/standup?stop=unclaimed`);
+    await expect(page.locator('[data-testid="standup-unclaimed-empty"]')).toContainText(
+      'Each Todo and Blocked task of this team has a claim.',
+      { timeout: 30_000 },
+    );
+
+    // The activity feed has the new team: an entry that is not about an
+    // item has no link, and says why.
+    await page.goto('/activity');
+    await expect(
+      page.locator('[data-testid="activity-no-link"]', { hasText: 'This entry is not about an item.' }).first(),
+    ).toBeVisible({ timeout: 30_000 });
+  } finally {
+    await fetch(`${GUI}/api/teams/${team.id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${alice}` },
+    });
+  }
+});

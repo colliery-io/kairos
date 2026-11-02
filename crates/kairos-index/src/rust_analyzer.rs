@@ -161,6 +161,12 @@ pub struct BuildOptions {
     pub download: bool,
     /// The SCIP runners of the other languages (KAIROS-T-0473).
     pub scip: crate::runners::ScipOptions,
+    /// The memory that the rust-analyzer SCIP run needs, in bytes
+    /// (KAIROS-T-0747). When the memory limit of the cgroup of the process
+    /// is below it, the run does not start, and Rust gets the edges by name
+    /// with a warning. None: no check (the CLI). The server gives
+    /// `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB`.
+    pub min_memory_bytes: Option<u64>,
 }
 
 impl Default for BuildOptions {
@@ -171,6 +177,7 @@ impl Default for BuildOptions {
             sysroot: None,
             download: true,
             scip: Default::default(),
+            min_memory_bytes: None,
         }
     }
 }

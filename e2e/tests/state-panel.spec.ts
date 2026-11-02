@@ -122,6 +122,15 @@ test('the State panel shows the live state of a task', async ({ page }) => {
       await expect(panel).toBeVisible({ timeout: 30_000 });
       expect(await rows(page)).toEqual(['Next step: Merge after the queue.']);
     });
+
+    await test.step('the card on the board shows the state line', async () => {
+      await page.goto('/boards/platform-delivery');
+      const line = page
+        .locator('.kairos-card', { hasText: code })
+        .locator('[data-testid="card-state"]');
+      await expect(line).toHaveText('Next: Merge after the queue.', { timeout: 30_000 });
+      await expect(line).toHaveAttribute('title', /^State \(not pushed\), updated \d{4}-\d{2}-\d{2} by alice\.$/);
+    });
   } finally {
     await tryArchiveTask(GUI, token, code);
   }

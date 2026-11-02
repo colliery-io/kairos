@@ -162,7 +162,9 @@ worker:
   # -- CPU and memory of a worker pod. The limit of the memory is the knob
   # for big repositories. The defaults come from GitHub #34: a full build
   # with the embedded summary model of a repository of about 1,200 files
-  # used about 6.3 GiB at its peak, and 4 cores.
+  # used about 6.3 GiB at its peak, and 4 cores. The rust-analyzer SCIP run
+  # of kairos (673 Rust files) alone used 4.7 GiB at its peak; below
+  # KAIROS_CODE_INDEX_SCIP_MEMORY_MIB (6144) the run does not start.
   resources:
     requests:
       cpu: "1"

@@ -256,6 +256,12 @@ pub struct AppConfig {
     /// install; if the space is still low, the language gets the edges by
     /// name with a warning. Default 5120 (5 GiB).
     pub code_index_min_free_mb: u64,
+    /// `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB` — the memory that the
+    /// rust-analyzer SCIP run of a build needs (KAIROS-T-0747). When the
+    /// memory limit of the container is below it, the run does not start
+    /// and Rust gets the edges by name with a warning. Default 6144 (6 GiB:
+    /// the run of kairos used 4.7 GiB at its peak); `0` turns the check off.
+    pub code_index_scip_memory_mib: u64,
     /// `KAIROS_CODE_INDEX_DEPS_ENV` — the names of more variables of the
     /// environment that a dependency step gets, separated by commas
     /// (KAIROS-T-0474). The step gets no other variable of the server.
@@ -795,6 +801,7 @@ impl AppConfig {
             code_index_min_rebuild_secs: parse_num(&get, "KAIROS_CODE_INDEX_MIN_REBUILD_SECS", 0)?,
             code_index_deps_cap_mb: parse_num(&get, "KAIROS_CODE_INDEX_DEPS_CAP_MB", 10240)?,
             code_index_min_free_mb: parse_num(&get, "KAIROS_CODE_INDEX_MIN_FREE_MB", 5120)?,
+            code_index_scip_memory_mib: parse_num(&get, "KAIROS_CODE_INDEX_SCIP_MEMORY_MIB", 6144)?,
             code_index_deps_env: get("KAIROS_CODE_INDEX_DEPS_ENV")
                 .map(|v| {
                     v.split(',')
@@ -1291,6 +1298,27 @@ mod tests {
                 "{value}: {err}"
             );
         }
+    }
+
+    // KAIROS-T-0747: the memory check of the rust-analyzer SCIP run.
+    #[test]
+    fn the_scip_memory_setting_has_a_default_and_an_off_value() {
+        let config = AppConfig::from_lookup(lookup(MINIMAL)).expect("valid config");
+        assert_eq!(config.code_index_scip_memory_mib, 6144);
+        for (value, mib) in [("0", 0), ("12288", 12288)] {
+            let mut vars = MINIMAL.to_vec();
+            vars.push(("KAIROS_CODE_INDEX_SCIP_MEMORY_MIB", value));
+            let config = AppConfig::from_lookup(lookup(&vars)).expect("valid config");
+            assert_eq!(config.code_index_scip_memory_mib, mib);
+        }
+        let mut vars = MINIMAL.to_vec();
+        vars.push(("KAIROS_CODE_INDEX_SCIP_MEMORY_MIB", "6g"));
+        let err = AppConfig::from_lookup(lookup(&vars)).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("KAIROS_CODE_INDEX_SCIP_MEMORY_MIB"),
+            "{err}"
+        );
     }
 
     // KAIROS-T-0474: the dependency cache of the SCIP runners.

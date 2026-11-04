@@ -68,4 +68,10 @@ web-sys = { workspace = true, features = [
     "DomRect",
     # The editor asks before the tab closes with a dirty draft (KAIROS-T-0581)
     "BeforeUnloadEvent",
+    # The preview of a short code reads the pointer and the modifier keys
+    "PointerEvent",
+    "MouseEvent",
+    "KeyboardEvent",
+    "EventTarget",
+    "Node",
 ] }

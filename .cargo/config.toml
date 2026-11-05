@@ -20,3 +20,9 @@ rustflags = ["-C", "link-arg=-lstdc++"]
 
 [target.aarch64-unknown-linux-gnu]
 rustflags = ["-C", "link-arg=-lstdc++"]
+
+# The GUI (kairos-web) builds with Leptos type erasure: each view is boxed
+# as AnyView instead of one nested generic type per component. The release
+# bundle is smaller and the build faster.
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", "erase_components"]

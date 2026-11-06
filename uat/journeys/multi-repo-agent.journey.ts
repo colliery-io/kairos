@@ -34,6 +34,12 @@ const INFRA_REPO = process.env.UAT_INFRA_REPO ?? 'platform-infra';
 const WEB_REPO = process.env.UAT_WEB_REPO ?? 'portal-web';
 const ALL_REPOS = [PLATFORM_REPO, INFRA_REPO, WEB_REPO];
 
+/** get_item without its `## Proposals` section: a pending proposal names its
+ * source there, and is not an edge (KAIROS-T-0558). */
+function withoutProposals(item: string): string {
+  return item.replace(/\n## Proposals\n[\s\S]*?(?=\n## |$)/, '\n');
+}
+
 /** Short codes a repository currently holds, sorted so two reads compare. */
 async function repoContents(mcp: { call(t: string, a?: unknown): Promise<string> }, repo: string): Promise<string[]> {
   const text = await mcp.call('search', { filter: { repository: repo }, limit: 100 });
@@ -446,7 +452,8 @@ journey(
       expect(said).toContain('NOT an edge yet');
       // The blocked badge must NOT appear yet — a proposal changes nothing.
       const item = await mcp.call('get_item', { short_code: proposedTarget });
-      expect(item, 'nothing is linked until a person says so').not.toContain(filedCrossRepo);
+      expect(item, 'the proposal waits on the item').toContain(`- pending: ${filedCrossRepo} -[blocks]-> ${proposedTarget}`);
+      expect(withoutProposals(item), 'nothing is linked until a person says so').not.toContain(filedCrossRepo);
       return {
         proposed: `${filedCrossRepo} blocks ${proposedTarget}`,
         is_an_edge_yet: false,
@@ -470,7 +477,7 @@ journey(
       // NOW it is an edge.
       const mcp = await alice.mcp();
       const item = await mcp.call('get_item', { short_code: proposedTarget });
-      expect(item, 'confirming created the real relationship').toContain(filedCrossRepo);
+      expect(withoutProposals(item), 'confirming created the real relationship').toContain(filedCrossRepo);
       return {
         reviewed: proposedTarget,
         reasoning_shown: 'the agent\'s own words',

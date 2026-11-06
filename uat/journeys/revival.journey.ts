@@ -131,13 +131,22 @@ journey(
         name: named('Shelf').slice(0, 40),
         position: board.columns.length,
       });
+      // A task starts in the entry column of its board, so the card goes
+      // there first and then moves to the shelf along a new transition.
       const made = await cli.json([
         'tasks', 'create', '--board', team.fixture.boardId!,
-        '--column', parked.id,
         '--title', named('task: parked on a shelf that gets removed'),
       ]);
       orphan = made.short_code;
       ledger.add({ kind: 'task', label: orphan, delete: async () => { await api.delete(`/api/tasks/${orphan}`); } });
+      await api.post(`/api/boards/${team.fixture.boardId}/transitions`, {
+        from_column_id: made.column_id,
+        to_column_id: parked.id,
+      });
+      const mcp = await alice.mcp();
+      await mcp.call('transition_item', { short_code: orphan, to_column: parked.id });
+      const shelvedTask = await api.get(`/api/tasks/${orphan}`);
+      expect(shelvedTask.column_id, 'the card is on the shelf').toBe(parked.id);
 
       await cli.ok(['tasks', 'delete', orphan, '--confirm']);
       const removed = await api.raw('DELETE', `/api/boards/${team.fixture.boardId}/columns/${parked.id}`);

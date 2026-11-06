@@ -179,8 +179,9 @@ journey(
       for (const row of feed.items) expect(row.entity_short_code).toBe(code);
       const diff = await cli.ok(['tasks', 'diff', code, String(goodVersion)]);
       expect(diff).toContain(`+++ ${code} v${goodVersion} (`);
-      expect(diff).toContain('-Sweep history older than 30 days.');
-      expect(diff).toContain('+Sweep history older than 90 days.');
+      // goodVersion is the version of her edit_item fix: 90 days → 45 days.
+      expect(diff).toContain('-Sweep history older than 90 days.');
+      expect(diff).toContain('+Sweep history older than 45 days.');
       return { activity_rows: feed.items.length, diff_of: `v${goodVersion - 1} -> v${goodVersion}` };
     });
 

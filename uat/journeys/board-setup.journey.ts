@@ -52,7 +52,9 @@ journey(
       const columns = page.locator('.cl-panel', { hasText: 'Columns' }).first();
       await columns.locator('input[placeholder="New column name"]').fill('Review');
       await columns.getByRole('button', { name: 'Add column' }).click();
-      await expect(page.getByText('Review').first()).toBeVisible({ timeout: 10_000 });
+      // The row of the new column, not any text with "review" in it: the
+      // link preview of each page has a hidden option "Preview ...".
+      await expect(columns.locator('[data-testid="column-row"][data-column="Review"]')).toBeVisible({ timeout: 10_000 });
 
       const transitions = page.locator('.cl-panel', { hasText: 'Transitions' }).first();
       // `hasText` is a substring match and several captions mention "To",

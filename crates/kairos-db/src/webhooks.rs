@@ -603,6 +603,22 @@ pub fn record_try(
         let Some(delivery) = get_delivery(conn, delivery_id)? else {
             return Ok(None);
         };
+        // KAIROS-T-0749: the lock on the target comes first, as in
+        // `delete_target`. The row of the try below takes a lock on the
+        // delivery; taken before the lock on the target, it made a deadlock
+        // with a removal of the target (target, then its deliveries). KEY
+        // SHARE: tries that end at the same time do not wait for each other
+        // (KAIROS-T-0637). A target removed in the meantime: the delivery is
+        // gone.
+        let live: Option<Target> = sql_query(format!(
+            "SELECT {TARGET_COLUMNS} FROM webhook_targets t WHERE t.id = $1 FOR KEY SHARE"
+        ))
+        .bind::<SqlUuid, _>(delivery.target_id)
+        .get_result(conn)
+        .optional()?;
+        if live.is_none() {
+            return Ok(None);
+        }
         sql_query(
             "INSERT INTO webhook_delivery_tries (delivery_id, try, ok, response_code, error, \
                  duration_ms) \

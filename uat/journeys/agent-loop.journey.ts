@@ -12,8 +12,11 @@
 // in the GUI and watches the PR arrive; the forge speaks through signed
 // webhooks on a connection alice creates for the repo.
 import { expect } from '@playwright/test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { setupTeamRepoAgent, type TeamFixture } from '../fixtures/team';
-import { named } from '../run/context';
+import { named, runContext } from '../run/context';
 import { journey, step } from '../run/narrate';
 import { createForgeConnection, deliverGithubWebhook, githubPullRequest, type ForgeConnection } from '../surfaces/forge';
 import { card, cardIn, dragCard, openBoard, openItem, panel } from '../surfaces/gui';
@@ -150,6 +153,48 @@ journey(
       return { queue: shortCodes(queue), repository_line: repositoryLine, moved_to: 'Active' };
     });
 
+    await step(agent, 'writes where the work is: the branch over MCP, then the commit from the CLI', async () => {
+      // The live state of the task (KAIROS-A-0029), as the implement skill
+      // writes it: one patch over MCP, one from the terminal.
+      const branch = code.toLowerCase();
+      const mcp = await agent.mcp();
+      const set = await mcp.call('set_state', { short_code: code, branch, next_step: 'Write the cache, then open the PR.' });
+      expect(set).toContain(`State of ${code}:`);
+      expect(set).toContain(branch);
+      const cli = await agent.cli();
+      await cli.ok(['state', code, '--commit', '1a2b3c4', '--pushed']);
+      const item = await mcp.call('get_item', { short_code: code });
+      expect(item, 'the branch of the MCP write is kept').toContain(branch);
+      expect(item, 'the commit of the CLI write is there').toContain('1a2b3c4');
+      return { task: code, branch, commit: '1a2b3c4', pushed: true };
+    });
+
+    await step(agent, 'binds its checkout to the team board, then talks to Kairos through the CLI proxy, as the plugin does', async () => {
+      const ctx = runContext();
+      const checkout = fs.mkdtempSync(path.join(os.tmpdir(), `kairos-uat-${ctx.run}-checkout-`));
+      const cli = await agent.cli();
+      await cli.ok([
+        'config', 'project', checkout, '--path',
+        '--deployment', ctx.server, '--tenant', ctx.tenant,
+        '--repository', team.repoSlug, '--team-board', team.boardSlug,
+      ]);
+      const shown = JSON.stringify(await cli.json(['config', 'show', checkout]));
+      expect(shown, 'the folder names the board').toContain(team.boardSlug);
+      expect(shown, 'and the repository').toContain(team.repoSlug);
+
+      // The plugin starts `kairos mcp-proxy` and speaks MCP on its stdio.
+      const requests = [
+        { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'uat', version: '0' } } },
+        { jsonrpc: '2.0', method: 'notifications/initialized' },
+        { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'whoami', arguments: {} } },
+      ].map((r) => JSON.stringify(r)).join('\n') + '\n';
+      const proxied = await cli.runWithInput(['mcp-proxy'], requests, (out) => out.includes('"id":2'));
+      expect(proxied.stdout, `the proxy answered whoami: ${proxied.stderr}`).toContain('"id":2');
+      expect(proxied.stdout).toContain(team.teamSlug);
+      fs.rmSync(checkout, { recursive: true, force: true });
+      return { checkout: 'bound to ' + team.boardSlug, proxy: 'whoami answered' };
+    });
+
     await step(agent, 'confirms the state from the CLI: the task is Active and the repo shows it as open work', async () => {
       const cli = await agent.cli();
       const task = await cli.json(['tasks', 'get', code]);
@@ -218,6 +263,18 @@ journey(
       await openBoard(page, team.boardSlug);
       await expect(cardIn(page, 'Completed', code)).toBeVisible();
       return { task: code, column: 'Completed', pr_chip: 'merged' };
+    });
+
+    await step(agent, 'reopens the task when the change has to come back: it goes to Backlog (MCP)', async () => {
+      const mcp = await agent.mcp();
+      const reopened = await mcp.call('reopen_item', { short_code: code });
+      expect(reopened).toContain(code);
+      const cli = await agent.cli();
+      const task = await cli.json(['tasks', 'get', code]);
+      const board = await (await alice.api()).get(`/api/boards/${team.boardId}`);
+      const columnName = board.columns.find((c: any) => c.id === task.column_id)?.name;
+      expect(columnName).toBe('Backlog');
+      return { task: code, reopened_to: columnName };
     });
   },
 );

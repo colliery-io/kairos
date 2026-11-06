@@ -5,7 +5,7 @@
 // token already minted — the device grant is interactive and is not what
 // UAT is about. A service-account API key is a bearer token too, so the
 // agent persona gets the same file with the key as its access token.
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -89,6 +89,48 @@ export class Cli {
       }
       throw err;
     }
+  }
+
+  /**
+   * Run `kairos <args>` with `input` on stdin. Stdin closes when `done`
+   * says that stdout is complete (or at once with no `done`); the result
+   * comes when the process ends (`mcp-proxy` ends at the end of its
+   * input). A process that does not end in `timeoutMs` is killed, and the
+   * result has the code -1.
+   */
+  async runWithInput(
+    args: string[],
+    input: string,
+    done?: (stdout: string) => boolean,
+    timeoutMs = 30_000,
+  ): Promise<CliResult> {
+    recordSurface('cli', args[0]);
+    const ctx = runContext();
+    return await new Promise<CliResult>((resolve, reject) => {
+      const child = spawn(ctx.kairosBin, args, { env: cliEnv(this.configDir) });
+      let stdout = '';
+      let stderr = '';
+      let closed = false;
+      const close = () => {
+        if (!closed) {
+          closed = true;
+          child.stdin.end();
+        }
+      };
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+        if (done?.(stdout)) close();
+      });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+      child.on('error', (err) => { clearTimeout(timer); reject(err); });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        resolve({ code: code ?? -1, stdout, stderr });
+      });
+      child.stdin.write(input);
+      if (!done) close();
+    });
   }
 
   /**

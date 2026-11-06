@@ -95,6 +95,14 @@ journey(
       return { short_code: initiative, owner };
     });
 
+    await step(alice, 'sizes the initiative as an M, then reads the size back (MCP)', async () => {
+      const mcp = await alice.mcp();
+      await mcp.call('set_complexity', { short_code: initiative, complexity: 'm' });
+      const after = await mcp.call('get_item', { short_code: initiative });
+      expect(after).toContain('- complexity: m');
+      return { short_code: initiative, complexity: 'm' };
+    });
+
     // KAIROS-T-0321: the team is known before the work is divided.
     await step(alice, 'names the platform team on the initiative over MCP before it has tasks', async () => {
       const mcp = await alice.mcp();
@@ -176,6 +184,16 @@ journey(
       return { blocked: bound, blocker };
     });
 
+    await step(bob, 'watches the initiative and its tasks, so a move of a task tells him (MCP)', async () => {
+      const mcp = await bob.mcp();
+      const watched = await mcp.call('watch_item', { short_code: initiative, with_children: true });
+      expect(firstLine(watched)).toContain(`You watch ${initiative} and its children.`);
+      const listed = await mcp.call('list_watches');
+      const line = listed.split('\n').find((l) => l.startsWith(`- ${initiative} `)) ?? '';
+      expect(line, 'the watch is listed with its children').toContain('with children');
+      return { watches: initiative, with_children: true };
+    });
+
     await step(alice, 'moves the blocking task to Todo from the CLI', async () => {
       const cli = await alice.cli();
       const api = await alice.api();
@@ -190,6 +208,73 @@ journey(
       await expect(cardIn(page, 'Todo', blocker)).toBeVisible({ timeout: 15_000 });
       await expect(cardIn(page, 'Backlog', blocker)).toHaveCount(0);
       return { task: blocker, now_in: 'Todo', reloaded: false };
+    });
+
+    await step(bob, 'gets a watch notification for the move of the task, then stops the watch (MCP)', async () => {
+      const mcp = await bob.mcp();
+      let line: string | undefined;
+      await expect
+        .poll(async () => {
+          const events = await mcp.call('get_events');
+          line = events.split('\n').find((l) => l.includes('· watch ·') && l.includes(blocker));
+          return !!line;
+        }, { message: `a watch notification about ${blocker}`, timeout: 15_000 })
+        .toBe(true);
+      const stopped = await mcp.call('unwatch_item', { short_code: initiative });
+      expect(firstLine(stopped)).toBe(`You do not watch ${initiative} now.`);
+      const listed = await mcp.call('list_watches');
+      expect(listed.split('\n').some((l) => l.startsWith(`- ${initiative} `))).toBe(false);
+      return { notification: line!.replace(/\s+/g, ' ').slice(0, 140), watching_now: false };
+    });
+
+    await step(alice, 'reads her work: the initiative she owns and the task in Todo under it (MCP and CLI)', async () => {
+      const mcp = await alice.mcp();
+      const work = await mcp.call('my_work');
+      expect(work).toContain(initiative);
+      expect(work).toContain(blocker);
+      const cli = await alice.cli();
+      const me = JSON.stringify(await cli.json(['me']));
+      expect(me).toContain(initiative);
+      expect(me).toContain(blocker);
+      return { owns: initiative, todo_under_it: blocker };
+    });
+
+    await step(alice, 'finds bob among the members of the platform board and sends him a notice about the plan (MCP)', async () => {
+      const mcp = await alice.mcp();
+      const members = await mcp.call('list_members', { board: 'platform-delivery' });
+      expect(members, 'bob can work the platform board').toContain(bob.credentials.email);
+      const sent = await mcp.call('send_notice', {
+        to: bob.credentials.email,
+        short_code: initiative,
+        text: 'The export plan is on the board. The schema task is in Todo.',
+      });
+      expect(firstLine(sent)).toMatch(/^Sent the notice \S+ to /);
+      const bobs = await bob.mcp();
+      let line: string | undefined;
+      await expect
+        .poll(async () => {
+          const events = await bobs.call('get_events');
+          line = events.split('\n').find((l) => l.includes('· notice ·') && l.includes('The export plan'));
+          return !!line;
+        }, { message: 'the notice reaches bob', timeout: 15_000 })
+        .toBe(true);
+      return { notice_to: 'bob', about: initiative, received: line!.replace(/\s+/g, ' ').slice(0, 140) };
+    });
+
+    await step(alice, 'puts a stray task under the initiative, then takes it out again (MCP)', async () => {
+      const cli = await alice.cli();
+      const api = await alice.api();
+      const platform = await api.boardBySlug('platform-delivery');
+      const stray = (await cli.json(['tasks', 'create', '--board', platform.id, '--title', named('task: stray export idea')])).short_code;
+      ledger.add({ kind: 'task', label: stray, delete: async () => { await api.delete(`/api/tasks/${stray}`); } });
+      const mcp = await alice.mcp();
+      await mcp.call('set_parent', { short_code: stray, parent: initiative });
+      const under = await mcp.call('get_item', { short_code: initiative });
+      expect(under, 'the stray task is a child now').toContain(stray);
+      await mcp.call('set_parent', { short_code: stray, parent: null });
+      const free = await mcp.call('get_item', { short_code: initiative });
+      expect(free, 'and not a child any more').not.toContain(stray);
+      return { task: stray, parent_set: initiative, parent_removed: true };
     });
 
     await step(alice, 'traverses from the initiative and filters by repository with `kairos search`', async () => {
@@ -221,6 +306,31 @@ journey(
       ]);
       ledger.add({ kind: 'adr', label: adr.short_code, delete: async () => { await api.delete(`/api/adrs/${adr.short_code}`); } });
       return { strategy, initiatives_listed: codes.length, adr: adr.short_code };
+    });
+
+    await step(alice, 'writes a note on the initiative and promotes it to a draft ADR (MCP)', async () => {
+      const mcp = await alice.mcp();
+      const api = await alice.api();
+      const appended = await mcp.call('append_note', {
+        short_code: initiative,
+        text: 'Exports run nightly, not on demand: finance reads them in the morning.',
+      });
+      const noteId = appended.match(/Appended note (n-\d+)/)?.[1] ?? '';
+      expect(noteId, 'the note has an id').toBeTruthy();
+      const promoted = await mcp.call('promote_note', {
+        short_code: initiative,
+        note_id: noteId,
+        kind: 'adr',
+        board: 'adrs',
+        title: named('decision: nightly exports'),
+      });
+      const adrCode = promoted.match(/to the draft adr (\S+)\./i)?.[1] ?? '';
+      expect(adrCode, promoted).toMatch(/-A-\d{4}$/);
+      ledger.add({ kind: 'adr', label: adrCode, delete: async () => { await api.delete(`/api/adrs/${adrCode}`); } });
+      expect(promoted).toContain(`${adrCode} supports ${initiative}`);
+      const source = await mcp.call('get_item', { short_code: initiative });
+      expect(source).toContain(`Promoted to ${adrCode}.`);
+      return { note: noteId, promoted_to: adrCode, supports: initiative };
     });
 
     let note = '';

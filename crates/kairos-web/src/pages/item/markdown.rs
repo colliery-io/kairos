@@ -9,6 +9,8 @@
 
 use std::collections::HashMap;
 
+pub(crate) use kairos_markdown::{TermLink, to_html_with_terms};
+
 /// The path of the item page of `code`. The hover preview
 /// ([`crate::pages::code_peek`]) reads the code back from it.
 pub(crate) const ITEM_PATH: &str = "/items/";

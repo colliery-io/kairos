@@ -22,6 +22,7 @@
 //! trips (KAIROS-T-0399), and the sweep skips the repository until a person
 //! asks for a build.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -37,7 +38,8 @@ use uuid::Uuid;
 use super::{
     ACTIVE_RUN, BREAKER_TRIPPED, BuildCtx, BuildOutcome, CodeIndexService, Fetched, HAS_INDEX,
     MIN_REBUILD, OPTED_OUT, Pass, STOPPED, SummarizerSource, Target, YIELDED, build_repository,
-    fetch_head, full_build_repository, notify_run, record_refs, repositories_of, update_order,
+    fetch_head, full_build_repository, notify_run, outage_note, record_failure_once, record_refs,
+    repositories_of, update_order,
 };
 use crate::blocking::BlockingTenantPool;
 use crate::error::ApiError;
@@ -274,8 +276,10 @@ async fn indexes_of(
 /// an update job when the head of its default branch has no index. The
 /// `run_after` of the job is the time of the newest index of the
 /// repository, so the repository that has been stale longest goes first
-/// (KAIROS-T-0334). A repository whose fetch fails gets a job too: the job
-/// records the failure. A note for each repository that got no job.
+/// (KAIROS-T-0334). A repository whose fetch fails gets no job
+/// (KAIROS-T-0753): the sweep records the failure once, and waits before
+/// it tries the repository again, longer after each failure. A note for
+/// each repository that got no job.
 pub async fn enqueue_updates(
     blocking: &BlockingTenantPool,
     service: &Arc<CodeIndexService>,
@@ -294,12 +298,24 @@ async fn enqueue_updates_with(
 ) -> Vec<BuildOutcome> {
     let max_tries = worker.settings().max_tries;
     let mut notes = Vec::new();
+    // KAIROS-T-0753: the fetches of this pass, by tenant.
+    let mut fetches: HashMap<String, PassFetches> = HashMap::new();
     for (tenant, mut repo, newest) in update_order(blocking).await {
         if let Some(handle) = progress {
             handle.progress();
         }
         if !repo.code_index_build_on() {
             notes.push(note_of(&tenant, &repo, "", OPTED_OUT.into()));
+            continue;
+        }
+        // KAIROS-T-0753: a repository whose fetch failed waits before the
+        // sweep tries it again; no job in the meantime.
+        if let Some(left) = service.fetch_wait(repo.id) {
+            let note = format!("{FETCH_WAITS}: the next try is in {} s", left.as_secs());
+            if service.note_changed(repo.id, FETCH_WAITS) {
+                tracing::info!(tenant = %tenant, repository = %repo.slug, %note, "code index update waits");
+            }
+            notes.push(note_of(&tenant, &repo, "", note));
             continue;
         }
         if let Some(breaker) = tripped(blocking, &tenant, repo.id).await {
@@ -311,12 +327,34 @@ async fn enqueue_updates_with(
             continue;
         }
         let mut commit = String::new();
-        if let Ok(Fetched {
+        fetches.entry(tenant.clone()).or_default().attempted += 1;
+        let fetched = match fetch_head(blocking, service, &tenant, &mut repo, false).await {
+            Ok(fetched) => Some(fetched),
+            // KAIROS-T-0753: no job for a repository that the server cannot
+            // fetch; one run row for each distinct failure; the wait is set
+            // by `fetch_head`. The breaker stays as it is (KAIROS-T-0399).
+            Err(why) => {
+                record_failure_once(blocking, &tenant, &repo, PUSH, None, &why).await;
+                let wait = service.fetch_wait(repo.id).unwrap_or_default();
+                fetches
+                    .entry(tenant.clone())
+                    .or_default()
+                    .failed
+                    .push(FetchFailure {
+                        repo: repo.id,
+                        slug: repo.slug.clone(),
+                        note: format!("{why} The next try is in {} s.", wait.as_secs()),
+                    });
+                notes.push(note_of(&tenant, &repo, "", why));
+                continue;
+            }
+        };
+        if let Some(Fetched {
             head,
             targets,
             present,
             ..
-        }) = fetch_head(blocking, service, &tenant, &mut repo, false).await
+        }) = fetched
         {
             // KAIROS-T-0750: the head of the default branch, then the tags
             // and the pull request heads in the window of the builder. A
@@ -399,9 +437,42 @@ async fn enqueue_updates_with(
             }
         }
     }
+    // KAIROS-T-0753: one warning for an outage of the forge; else one for
+    // each repository whose fetch failed, once per change of the text.
+    for (tenant, PassFetches { attempted, failed }) in &fetches {
+        if let Some(note) = outage_note(failed.len(), *attempted) {
+            let repositories: Vec<&str> = failed.iter().map(|f| f.slug.as_str()).collect();
+            tracing::warn!(tenant = %tenant, repositories = ?repositories, %note, "code index fetch failed");
+            continue;
+        }
+        for failure in failed {
+            if service.note_changed(failure.repo, &failure.note) {
+                tracing::warn!(tenant = %tenant, repository = %failure.slug, note = %failure.note, "code index fetch failed");
+            }
+        }
+    }
     worker.wake();
     notes
 }
+
+/// The fetches of one pass of the sweep in one tenant (KAIROS-T-0753).
+#[derive(Default)]
+struct PassFetches {
+    /// The repositories that the pass fetched (a waiting one is not one).
+    attempted: usize,
+    failed: Vec<FetchFailure>,
+}
+
+/// A repository whose fetch failed in a pass (KAIROS-T-0753).
+struct FetchFailure {
+    repo: Uuid,
+    slug: String,
+    /// The text of the failure and the next try.
+    note: String,
+}
+
+/// The note of a repository that waits after a failed fetch (KAIROS-T-0753).
+pub const FETCH_WAITS: &str = "the fetch of the repository failed and the sweep waits";
 
 /// Add a first-build job for each repository that has no index
 /// (KAIROS-T-0318), with [`enqueue_first_build`]. A note for each
@@ -441,6 +512,14 @@ pub async fn enqueue_first_build(
             tracing::info!(tenant = %tenant, repository = %repo.slug, note = OPTED_OUT, "code index first build not started");
         }
         return Some(note_of(tenant, repo, "", OPTED_OUT.into()));
+    }
+    // KAIROS-T-0753: the fetch of the first build failed; the sweep waits.
+    if let Some(left) = service.fetch_wait(repo.id) {
+        let note = format!("{FETCH_WAITS}: the next try is in {} s", left.as_secs());
+        if service.note_changed(repo.id, FETCH_WAITS) {
+            tracing::info!(tenant = %tenant, repository = %repo.slug, %note, "code index first build waits");
+        }
+        return Some(note_of(tenant, repo, "", note));
     }
     if let Some(breaker) = tripped(blocking, tenant, repo.id).await {
         let note = breaker_note(&breaker);

@@ -76,7 +76,7 @@ Feature: The CLI and the code tools
     When an agent calls symbol for "Checksum" in "src/checksum.rs" with source
     Then the result has the source of the struct, from the checkout
     When the file "src/checksum.rs" changes and the agent calls symbol with source again
-    Then the result says that the source can be different from the symbol
+    Then the result says that the index parsed the changed file, and the source is current
 
   # KAIROS-T-0419: callers missed the uses of a type in a signature and the
   # uses of its fields.

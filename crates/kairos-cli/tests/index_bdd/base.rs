@@ -942,8 +942,8 @@ fn says_no_checkout_is_open(world: &mut CliWorld) {
     let r = world.result.as_ref().expect("no result");
     assert!(
         r.text.contains(
-            "The server has no open checkout, so the other tools refuse until `fetch_index` \
-             succeeds."
+            "The server has no open checkout. A tool opens the checkout that its `checkout` \
+             names."
         ),
         "{}",
         r.text

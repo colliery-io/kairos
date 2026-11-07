@@ -162,9 +162,10 @@ tenant and reads no row of `item_history`, `team_page_history` or
 In each mode, the pass deletes these rows and does not copy them to an
 archive:
 
-- The code indexes that are not among the newest 5 of their repository and
-  ref (`KAIROS_CODE_INDEX_KEEP`). A build or an upload can make an index
-  again.
+- The code indexes that are not among the newest 10 of their repository
+  and branch (`KAIROS_CODE_INDEX_KEEP`). The index of a pull request,
+  `KAIROS_CODE_INDEX_PR_DAYS` days after the pull request merged or closed.
+  A tagged commit stays. A build or an upload can make an index again.
 - The summaries of the code-index pools that no stored index uses, after 30
   days (`KAIROS_CODE_INDEX_POOL_DAYS`).
 - The unread notifications after 180 days

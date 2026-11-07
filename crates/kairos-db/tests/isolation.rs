@@ -681,6 +681,7 @@ fn cross_read_visibility_sweep() {
         notifications_read_days: 30,
         code_index_pool_days: 30,
         code_index_keep: 5,
+        code_index_pr_days: 7,
         notifications_unread_days: 180,
         ..RetentionConfig::default()
     };

@@ -647,8 +647,8 @@ the job.
 #### What the builder indexes
 
 At each pass, the sweep fetches the branches, the tags and the pull request
-heads of each repository (`refs/pull/*/head` on GitHub,
-`refs/merge-requests/*/head` on GitLab). The targets of a repository are:
+heads of each repository. GitHub gives the heads as `refs/pull/*/head`,
+GitLab as `refs/merge-requests/*/head`. The targets of a repository are:
 
 1. The head of the default branch. The forge gives the branch; a branch set
    by hand has priority; when the forge cannot be read, the stored branch
@@ -662,9 +662,9 @@ heads of each repository (`refs/pull/*/head` on GitHub,
 One commit gets one index, whatever the number of refs that point at it. The
 list of the indexes (`kairos repos indexes`, the GUI, the API field `refs`)
 shows each ref of a commit. An update job builds the targets that have no
-index, the head first, then the tags, then the pull requests, newest first,
-at most 4 in one job. The next pass adds a job for the rest. A tag or a pull
-request with no indexed commit below it gets no full build: it waits for an
+index: the head first, then the tags, then the pull requests, newest first.
+One job builds at most 4 targets. The next pass adds a job for the rest. A tag or a pull
+request with no indexed commit below it gets no full build. It waits for an
 index of the branch.
 
 A build with the embedded model is a job of the type `embedded_build`. One
@@ -700,7 +700,8 @@ cache. After the builder stores the index, it removes the file.
 An index keeps only the summaries that its code needs. A summary that no
 index uses stays in the pool for `KAIROS_CODE_INDEX_POOL_DAYS` (see
 [Retention](#retention)). The retention pass keeps the newest
-`KAIROS_CODE_INDEX_KEEP` indexes of each repository and ref. The run shows the number of summaries that it made
+`KAIROS_CODE_INDEX_KEEP` indexes of each repository and branch. It keeps the
+head of each open pull request and each tagged commit. The run shows the number of summaries that it made
 and the number that it reused.
 
 If a first build of a commit fails, the server does not try that commit
@@ -921,11 +922,18 @@ first start of a deployment runs the pass at once. One pass:
 - In each tenant, deletes the unread notifications that are older than
   `KAIROS_NOTIFICATIONS_UNREAD_DAYS` days. This occurs in each mode, also
   `off`, and the pass does not archive them.
-- In each tenant, deletes the code indexes that are not among the newest
-  `KAIROS_CODE_INDEX_KEEP` of their repository and ref. "Newest" is the time
-  of the last write of the index. The indexes with no ref are one group of
-  the repository. This occurs in each mode, also `off`. A build or an upload
-  can make the index again.
+- In each tenant, deletes the old code indexes, by the kind of their ref.
+  The indexes of a branch keep the newest `KAIROS_CODE_INDEX_KEEP`. The
+  default branch, an uploaded branch and the indexes with no ref are each
+  one group of the repository. "Newest" is the time of the last write of
+  the index. The builder sees an open pull request as a target at each
+  pass. The head index of the pull request stays for
+  `KAIROS_CODE_INDEX_PR_DAYS` days after the last pass that saw it. An index
+  written in those days also stays. After that, the pass deletes the index
+  of a merged or closed pull request. The pass does not delete a commit
+  that a tag or a branch points at. `KAIROS_CODE_INDEX_KEEP` of `0` keeps
+  each index, the pull request indexes too. This occurs in each mode, also
+  `off`. A build or an upload can make the index again.
 - In each tenant, deletes the summaries of the code-index pools that no
   stored index uses, after `KAIROS_CODE_INDEX_POOL_DAYS` days. The pass also
   deletes a summary whose last use is older than each stored index of its
@@ -999,6 +1007,7 @@ fallback to the default:
 - `KAIROS_NOTIFICATIONS_UNREAD_DAYS`
 - `KAIROS_CODE_INDEX_POOL_DAYS`
 - `KAIROS_CODE_INDEX_KEEP`
+- `KAIROS_CODE_INDEX_PR_DAYS`
 - `KAIROS_RETENTION_MODE`
 
 `KAIROS_ARCHIVE_TARGET` is the one exception: empty means no target.
@@ -1013,7 +1022,8 @@ fallback to the default:
 | `KAIROS_ARCHIVE_S3_REGION` | region name | unset | The region of the bucket, for an `s3://` target. Unset: the AWS environment decides. |
 | `KAIROS_NOTIFICATIONS_READ_DAYS` | unsigned integer (days) | `30` | The days that a read notification stays. `0` keeps read notifications. |
 | `KAIROS_NOTIFICATIONS_UNREAD_DAYS` | unsigned integer (days) | `180` | The days that an unread notification stays after the server made it. `0` keeps unread notifications. |
-| `KAIROS_CODE_INDEX_KEEP` | unsigned integer | `5` | The code indexes that stay for each repository and ref: the newest by the time of the last write. `0` keeps each index. |
+| `KAIROS_CODE_INDEX_KEEP` | unsigned integer | `10` | The code indexes that stay for each repository and branch: the newest by the time of the last write. A commit that a tag points at stays. `0` keeps each index. |
+| `KAIROS_CODE_INDEX_PR_DAYS` | unsigned integer (days) | `7` | The days that the index of a pull request stays after the builder last saw the pull request as a target, or after the write of the index. The builder sees an open pull request in the window as a target. The head of an open pull request stays. `0` keeps the pull request indexes, and so does `KAIROS_CODE_INDEX_KEEP` of `0`. |
 | `KAIROS_CODE_INDEX_POOL_DAYS` | unsigned integer (days) | `30` | The days that a summary of a code-index pool stays when no stored index uses it. `0` keeps such summaries. A summary that a stored index uses stays. |
 | `KAIROS_RETENTION_MODE` | `archive` \| `discard` \| `off` | `archive` | `archive` offloads before pruning and, with no target configured, reads and prunes nothing and records `skipped: no target`. `discard` prunes without archiving. `off` disables the sweeper entirely. Case-insensitive; any other value fails to parse. |
 
@@ -1755,6 +1765,7 @@ The read-only root filesystem is compatible with a filesystem
 | `config.retention.notificationsUnreadDays` | integer or null | `null` | Sets `KAIROS_NOTIFICATIONS_UNREAD_DAYS`. Emitted only when not null, so `0` is emitted. |
 | `config.retention.codeIndexPoolDays` | integer or null | `null` | Sets `KAIROS_CODE_INDEX_POOL_DAYS`. Emitted only when not null, so `0` is emitted. |
 | `config.retention.codeIndexKeep` | integer or null | `null` | Sets `KAIROS_CODE_INDEX_KEEP`. Emitted only when not null, so `0` is emitted. |
+| `config.retention.codeIndexPrDays` | integer or null | `null` | Sets `KAIROS_CODE_INDEX_PR_DAYS`. Emitted only when not null, so `0` is emitted. |
 | `config.retention.archiveTarget` | string | `""` | Sets `KAIROS_ARCHIVE_TARGET`: a path or an `s3://bucket/prefix` URL. Emitted only when non-empty. |
 | `config.retention.archiveS3Endpoint` | string | `""` | Sets `KAIROS_ARCHIVE_S3_ENDPOINT`. Emitted only when non-empty. |
 | `config.retention.archiveS3Region` | string | `""` | Sets `KAIROS_ARCHIVE_S3_REGION`. Emitted only when non-empty. |

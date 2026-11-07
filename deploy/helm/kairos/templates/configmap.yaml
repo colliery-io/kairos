@@ -125,6 +125,9 @@ data:
   {{- if not (kindIs "invalid" .Values.config.retention.codeIndexKeep) }}
   KAIROS_CODE_INDEX_KEEP: {{ .Values.config.retention.codeIndexKeep | quote }}
   {{- end }}
+  {{- if not (kindIs "invalid" .Values.config.retention.codeIndexPrDays) }}
+  KAIROS_CODE_INDEX_PR_DAYS: {{ .Values.config.retention.codeIndexPrDays | quote }}
+  {{- end }}
   {{- with .Values.config.retention.archiveTarget }}
   KAIROS_ARCHIVE_TARGET: {{ . | quote }}
   {{- end }}

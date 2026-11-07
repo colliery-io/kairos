@@ -36,8 +36,8 @@ use uuid::Uuid;
 
 use super::{
     ACTIVE_RUN, BREAKER_TRIPPED, BuildCtx, BuildOutcome, CodeIndexService, Fetched, HAS_INDEX,
-    MIN_REBUILD, OPTED_OUT, Pass, STOPPED, SummarizerSource, YIELDED, build_repository, fetch_head,
-    full_build_repository, notify_run, repositories_of, update_order,
+    MIN_REBUILD, OPTED_OUT, Pass, STOPPED, SummarizerSource, Target, YIELDED, build_repository,
+    fetch_head, full_build_repository, notify_run, record_refs, repositories_of, update_order,
 };
 use crate::blocking::BlockingTenantPool;
 use crate::error::ApiError;
@@ -237,28 +237,37 @@ enum HeadIndex {
     Missing,
 }
 
-/// The index of the head `head` of `repo`.
-async fn head_index(
+/// The index of each commit of `commits` of `repo` (KAIROS-T-0750: the
+/// targets of one sweep, in one read). A commit that is not in the result
+/// has no index; an error reads as no index for each.
+async fn indexes_of(
     blocking: &BlockingTenantPool,
     tenant: &str,
     repo: Uuid,
-    head: &str,
-) -> HeadIndex {
-    let head = head.to_string();
+    commits: &[String],
+) -> std::collections::HashMap<String, HeadIndex> {
+    let commits = commits.to_vec();
     blocking
         .run(tenant, move |conn| {
             let listed = kairos_db::code_indexes::list(conn, repo).map_err(ApiError::internal)?;
-            if !listed.iter().any(|i| i.commit_sha == head) {
-                return Ok(HeadIndex::Missing);
+            let mut out = std::collections::HashMap::new();
+            for commit in commits {
+                if !listed.iter().any(|i| i.commit_sha == commit) {
+                    out.insert(commit, HeadIndex::Missing);
+                    continue;
+                }
+                let found =
+                    super::stored_schema(conn, repo, &commit).map_err(ApiError::internal)?;
+                let at = match found {
+                    Some(found) if found != kairos_index::SCHEMA_VERSION => HeadIndex::OtherSchema,
+                    _ => HeadIndex::Current,
+                };
+                out.insert(commit, at);
             }
-            let found = super::stored_schema(conn, repo, &head).map_err(ApiError::internal)?;
-            Ok(match found {
-                Some(found) if found != kairos_index::SCHEMA_VERSION => HeadIndex::OtherSchema,
-                _ => HeadIndex::Current,
-            })
+            Ok(out)
         })
         .await
-        .unwrap_or(HeadIndex::Missing)
+        .unwrap_or_default()
 }
 
 /// The new-commits sweep: fetch each repository that has an index, and add
@@ -302,36 +311,54 @@ async fn enqueue_updates_with(
             continue;
         }
         let mut commit = String::new();
-        if let Ok(Fetched { head, .. }) =
-            fetch_head(blocking, service, &tenant, &mut repo, false).await
+        if let Ok(Fetched {
+            head,
+            targets,
+            present,
+            ..
+        }) = fetch_head(blocking, service, &tenant, &mut repo, false).await
         {
-            if service.failed_before(&(repo.id, head.clone())) {
-                notes.push(note_of(
-                    &tenant,
-                    &repo,
-                    &head,
-                    "an earlier build of this commit failed".into(),
-                ));
-                continue;
+            // KAIROS-T-0750: the head of the default branch, then the tags
+            // and the pull request heads in the window of the builder. A
+            // target whose commit has a current index gets its ref
+            // recorded here; the others need a build.
+            let commits: Vec<String> = targets.iter().map(|t| t.commit.clone()).collect();
+            let indexed = indexes_of(blocking, &tenant, repo.id, &commits).await;
+            let mut needs: Vec<(&Target, HeadIndex)> = Vec::new();
+            let mut recorded: Vec<&Target> = Vec::new();
+            let mut head_failed = false;
+            for target in &targets {
+                if service.failed_before(&(repo.id, target.commit.clone())) {
+                    head_failed |= target.commit == head;
+                    continue;
+                }
+                let at = indexed
+                    .get(&target.commit)
+                    .copied()
+                    .unwrap_or(HeadIndex::Missing);
+                if at == HeadIndex::Current {
+                    recorded.push(target);
+                } else {
+                    needs.push((target, at));
+                }
             }
-            let at_head = head_index(blocking, &tenant, repo.id, &head).await;
-            if at_head == HeadIndex::Current {
-                notes.push(note_of(
-                    &tenant,
-                    &repo,
-                    &head,
-                    "the head has an index".into(),
-                ));
+            record_refs(blocking, &tenant, &repo, &recorded, Some(&present)).await;
+            if needs.is_empty() {
+                let note = if head_failed {
+                    "an earlier build of this commit failed"
+                } else {
+                    "the head has an index"
+                };
+                notes.push(note_of(&tenant, &repo, &head, note.into()));
                 continue;
             }
             // The least time between 2 updates of one repository
             // (KAIROS-T-0334): a repository updated a short time ago waits
-            // for a later pass. A head with an index of another schema
+            // for a later pass. A commit with an index of another schema
             // version does not wait (KAIROS-T-0746): after an upgrade, no
             // read of the server can use that index.
-            if let (Some(min), Some(newest), HeadIndex::Missing) =
-                (service.min_rebuild(), newest, at_head)
-            {
+            let all_missing = needs.iter().all(|(_, at)| *at == HeadIndex::Missing);
+            if let (Some(min), Some(newest), true) = (service.min_rebuild(), newest, all_missing) {
                 let age = (Utc::now() - newest).to_std().unwrap_or_default();
                 if age < min {
                     let note = format!(
@@ -345,7 +372,7 @@ async fn enqueue_updates_with(
                     continue;
                 }
             }
-            commit = head;
+            commit = needs[0].0.commit.clone();
         }
         let (slug, added) = {
             let tenant = tenant.clone();
@@ -642,7 +669,10 @@ impl BuildHandler {
             instance,
             run: payload.run,
         };
-        let outcome = match payload.trigger.as_str() {
+        // KAIROS-T-0750: a push job builds each target that needs an index
+        // (the head of the default branch, then the tags and the pull
+        // request heads), one outcome for each.
+        let outcomes = match payload.trigger.as_str() {
             PUSH => {
                 build_repository(
                     &self.blocking,
@@ -663,17 +693,19 @@ impl BuildHandler {
                     handle.allow_yield();
                     FIRST
                 };
-                full_build_repository(
-                    &self.blocking,
-                    &self.service,
-                    &tenant,
-                    repo,
-                    self.summarizers.clone(),
-                    Arc::clone(&self.embedder),
-                    trigger,
-                    &ctx,
-                )
-                .await
+                vec![
+                    full_build_repository(
+                        &self.blocking,
+                        &self.service,
+                        &tenant,
+                        repo,
+                        self.summarizers.clone(),
+                        Arc::clone(&self.embedder),
+                        trigger,
+                        &ctx,
+                    )
+                    .await,
+                ]
             }
             other => {
                 return Err(JobError::fail(format!(
@@ -681,21 +713,37 @@ impl BuildHandler {
                 )));
             }
         };
-        log_outcome(&self.service, &payload.trigger, repo_id, &outcome);
-        let result = match (&outcome.report, outcome.note.as_deref()) {
-            (Some(_), _) => Ok(()),
-            (None, Some(YIELDED)) => Err(JobError::yielded()),
-            (None, Some(STOPPED)) => Err(JobError::retry(STOPPED)),
-            (None, Some(note)) if note.starts_with("failed") => Err(JobError::fail(note)),
-            _ => Ok(()),
-        };
-        if let Some(outcomes) = &self.outcomes {
-            outcomes
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(outcome);
+        // A stop of a target wins over a yield, and a yield over a failure:
+        // a stopped or yielded run goes on when a server takes the job
+        // again, and a failure before it stays recorded on its run.
+        let (mut stopped, mut yielded, mut failed) = (false, false, None);
+        for outcome in outcomes {
+            log_outcome(&self.service, &payload.trigger, repo_id, &outcome);
+            match (&outcome.report, outcome.note.as_deref()) {
+                (Some(_), _) => {}
+                (None, Some(YIELDED)) => yielded = true,
+                (None, Some(STOPPED)) => stopped = true,
+                (None, Some(note)) if note.starts_with("failed") && failed.is_none() => {
+                    failed = Some(note.to_string());
+                }
+                _ => {}
+            }
+            if let Some(outcomes) = &self.outcomes {
+                outcomes
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(outcome);
+            }
         }
-        result
+        if stopped {
+            Err(JobError::retry(STOPPED))
+        } else if yielded {
+            Err(JobError::yielded())
+        } else if let Some(note) = failed {
+            Err(JobError::fail(note))
+        } else {
+            Ok(())
+        }
     }
 
     /// The lease of the job ran out, or the watchdog killed it

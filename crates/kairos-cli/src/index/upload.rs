@@ -138,6 +138,10 @@ mod tests {
             index: kairos_client::types_code_index::CodeIndex {
                 commit: "0123456789abcdef0123456789abcdef01234567".into(),
                 r#ref: Some("main".into()),
+                refs: vec![kairos_client::types_code_index::CodeIndexRef {
+                    name: "main".into(),
+                    kind: "branch".into(),
+                }],
                 source: "upload".into(),
                 structure_bytes: 10,
                 summary_keys: 7,

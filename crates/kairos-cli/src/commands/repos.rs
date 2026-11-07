@@ -628,7 +628,7 @@ fn index_table(indexes: &[CodeIndex]) -> Table {
     for index in indexes {
         table.row(vec![
             index.commit.chars().take(12).collect(),
-            index.r#ref.clone().unwrap_or_else(|| "-".to_string()),
+            refs_text(index),
             index
                 .schema_version
                 .map_or_else(|| "-".to_string(), |v| v.to_string()),
@@ -639,6 +639,20 @@ fn index_table(indexes: &[CodeIndex]) -> Table {
         ]);
     }
     table
+}
+
+/// The refs that point at an indexed commit (KAIROS-T-0750), joined; else
+/// the ref that the index was for; else `-`. Pure.
+fn refs_text(index: &CodeIndex) -> String {
+    if !index.refs.is_empty() {
+        return index
+            .refs
+            .iter()
+            .map(|r| r.text())
+            .collect::<Vec<_>>()
+            .join(", ");
+    }
+    index.r#ref.clone().unwrap_or_else(|| "-".to_string())
 }
 
 /// A size in bytes as B, KiB or MiB. Pure.
@@ -1164,6 +1178,7 @@ mod tests {
         CodeIndex {
             commit: commit.to_string(),
             r#ref: r#ref.map(str::to_string),
+            refs: Vec::new(),
             source: "build".to_string(),
             structure_bytes: bytes,
             summary_keys: 7,
@@ -1178,15 +1193,30 @@ mod tests {
     /// commit, the ref, the schema version, the size and the times.
     #[test]
     fn the_index_table_has_one_line_for_each_commit() {
+        let mut tagged = index(&"c".repeat(40), Some("main"), Some(8), 900);
+        tagged.refs = vec![
+            kairos_client::types_code_index::CodeIndexRef {
+                name: "main".into(),
+                kind: "branch".into(),
+            },
+            kairos_client::types_code_index::CodeIndexRef {
+                name: "v1.0.0".into(),
+                kind: "tag".into(),
+            },
+        ];
         let rows = [
             index(&"a".repeat(40), Some("main"), Some(6), 2_500_000),
             index(&"b".repeat(40), None, None, 900),
+            tagged,
         ];
+        // KAIROS-T-0750: the REF column shows each ref that points at the
+        // commit with its kind, else the ref of the build.
         assert_eq!(
             index_table(&rows).render(),
-            "COMMIT        REF   SCHEMA  SIZE     SUMMARIES  CREATED           UPDATED\n\
-             aaaaaaaaaaaa  main  6       2.4 MiB  7          2026-10-16 21:57  2026-10-18 01:24\n\
-             bbbbbbbbbbbb  -     -       900 B    7          2026-10-16 21:57  2026-10-18 01:24\n"
+            "COMMIT        REF                 SCHEMA  SIZE     SUMMARIES  CREATED           UPDATED\n\
+             aaaaaaaaaaaa  main                6       2.4 MiB  7          2026-10-16 21:57  2026-10-18 01:24\n\
+             bbbbbbbbbbbb  -                   -       900 B    7          2026-10-16 21:57  2026-10-18 01:24\n\
+             cccccccccccc  main, v1.0.0 (tag)  8       900 B    7          2026-10-16 21:57  2026-10-18 01:24\n"
         );
     }
 

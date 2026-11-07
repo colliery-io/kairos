@@ -437,6 +437,7 @@ One indexed commit of a repository.
 | `commit` | `string` | yes | The commit, 40 (or 64) lower-case hex characters. |
 | `created_at` | `string` | yes | When the index was first written, RFC 3339. |
 | `ref` | `string`, nullable | no | The branch, the pull request or the tag that the index is for, if the sender gave it. |
+| `refs` | array of [`CodeIndexRef`](#codeindexref) | no | Each ref that points at the commit now (KAIROS-T-0750): the default branch, a tag, a pull request (`pull/12`). Empty for an index that no ref points at, or a server before 0.20. |
 | `schema_version` | `integer`, nullable | no | The schema version of the index file (KAIROS-T-0518). It is null when the stored structure gives no version. |
 | `source` | `string` | yes | `upload`, or `build` (the server built it after a push). |
 | `structure_bytes` | `integer` | yes | The size of the structure (the index with no summaries), in bytes. |
@@ -512,6 +513,15 @@ The disk use of the builder of this server: its tools and its dependency caches 
 | `caches_cap_bytes` | `integer` | yes | The cap of the dependency caches, in bytes (`KAIROS_CODE_INDEX_DEPS_CAP_MB`). |
 | `free_bytes` | `integer`, nullable | no | The free space of the disk of `KAIROS_CODE_INDEX_DIR`, in bytes. |
 | `tools` | array of [`CodeIndexToolUse`](#codeindextooluse) | yes | Each tool folder of `KAIROS_CODE_INDEX_DIR/tools/`, and the other files there (the archives) as `other`. |
+
+## CodeIndexRef
+
+One ref that points at an indexed commit (KAIROS-T-0750).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `kind` | `string` | yes | `branch`, `tag` or `pull`. |
+| `name` | `string` | yes | The short name: `main`, `v1.0.0`, `pull/12`, `merge-requests/12`. |
 
 ## CodeIndexScipWarning
 

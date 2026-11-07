@@ -174,7 +174,7 @@ provider that takes seconds holds no connection of the pool.
 | Work | Kind | Who adds the job | One open job for each |
 |---|---|---|---|
 | A requested code-index build | `embedded_build` or `hosted_build` | The API, when a person asks | repository |
-| A code-index update | `embedded_build` or `hosted_build` | The sweep, when the head of the default branch has no index | repository |
+| A code-index update | `embedded_build` or `hosted_build` | The sweep, when the head of the default branch, a tag or an open pull request has no index | repository |
 | A first code-index build | `embedded_build` or `hosted_build` | The sweep, for a repository with no index | repository |
 | A batch of the embedding refresh | `embedding_batch` | Each server, for an organization with no row; then the row queues itself again after each run | organization (one row) |
 | A webhook delivery | `webhook_delivery` | The change that fires it, in its transaction | delivery |

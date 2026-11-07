@@ -247,6 +247,10 @@ pub struct AppConfig {
     /// 0: off. On a slow host, a repository that gets many pushes then waits
     /// while the other repositories are stale.
     pub code_index_min_rebuild_secs: u64,
+    /// `KAIROS_CODE_INDEX_REF_DAYS` — the window of the tags and the pull
+    /// request heads that the builder indexes (KAIROS-T-0750): a commit
+    /// older than this many days gets no build. Default 30. 0: no window.
+    pub code_index_ref_days: u64,
     /// `KAIROS_CODE_INDEX_DEPS_CAP_MB` — the cap of the total size of the
     /// dependency caches of the SCIP runners of Go, TypeScript and Python
     /// (KAIROS-T-0474). Default 10240 (10 GiB).
@@ -799,6 +803,11 @@ impl AppConfig {
             code_index_poll_secs: parse_num(&get, "KAIROS_CODE_INDEX_POLL_SECS", 300)?,
             code_index_threads,
             code_index_min_rebuild_secs: parse_num(&get, "KAIROS_CODE_INDEX_MIN_REBUILD_SECS", 0)?,
+            code_index_ref_days: parse_num(
+                &get,
+                "KAIROS_CODE_INDEX_REF_DAYS",
+                crate::code_index::DEFAULT_REF_DAYS,
+            )?,
             code_index_deps_cap_mb: parse_num(&get, "KAIROS_CODE_INDEX_DEPS_CAP_MB", 10240)?,
             code_index_min_free_mb: parse_num(&get, "KAIROS_CODE_INDEX_MIN_FREE_MB", 5120)?,
             code_index_scip_memory_mib: parse_num(&get, "KAIROS_CODE_INDEX_SCIP_MEMORY_MIB", 6144)?,
@@ -1272,6 +1281,28 @@ mod tests {
             let err = AppConfig::from_lookup(lookup(&vars)).expect_err(value);
             assert!(
                 err.to_string().contains("KAIROS_CODE_INDEX_THREADS"),
+                "{value}: {err}"
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // KAIROS-T-0750: the window of the tags and the pull request heads.
+
+    #[test]
+    fn the_ref_window_is_30_days_by_default_and_refuses_text() {
+        let config = AppConfig::from_lookup(lookup(MINIMAL)).expect("valid config");
+        assert_eq!(config.code_index_ref_days, 30);
+        let mut vars = MINIMAL.to_vec();
+        vars.push(("KAIROS_CODE_INDEX_REF_DAYS", "0"));
+        let config = AppConfig::from_lookup(lookup(&vars)).expect("valid config");
+        assert_eq!(config.code_index_ref_days, 0);
+        for value in ["a month", "-1"] {
+            let mut vars = MINIMAL.to_vec();
+            vars.push(("KAIROS_CODE_INDEX_REF_DAYS", value));
+            let err = AppConfig::from_lookup(lookup(&vars)).expect_err(value);
+            assert!(
+                err.to_string().contains("KAIROS_CODE_INDEX_REF_DAYS"),
                 "{value}: {err}"
             );
         }

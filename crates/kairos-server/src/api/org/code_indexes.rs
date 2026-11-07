@@ -147,10 +147,30 @@ fn stored_version(
     Ok(prefix.as_deref().and_then(version_of))
 }
 
-fn dto_of(info: CodeIndexInfo, schema_version: Option<i64>) -> dto::CodeIndex {
+/// The refs that point at `commit` (KAIROS-T-0750), taken out of `refs`.
+fn ref_names(
+    refs: &mut std::collections::HashMap<String, Vec<kairos_db::code_index_refs::IndexRef>>,
+    commit: &str,
+) -> Vec<dto::CodeIndexRef> {
+    refs.remove(commit)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| dto::CodeIndexRef {
+            name: r.ref_name,
+            kind: r.kind,
+        })
+        .collect()
+}
+
+fn dto_of(
+    info: CodeIndexInfo,
+    schema_version: Option<i64>,
+    refs: Vec<dto::CodeIndexRef>,
+) -> dto::CodeIndex {
     dto::CodeIndex {
         commit: info.commit_sha,
         r#ref: info.ref_name,
+        refs,
         source: info.source,
         structure_bytes: info.structure_bytes,
         summary_keys: info.summary_keys,
@@ -479,16 +499,23 @@ pub(crate) async fn list_code_indexes(
     Extension(tenant): Extension<TenantContext>,
     Path(slug): Path<String>,
 ) -> Result<Json<Vec<dto::CodeIndex>>, ApiError> {
-    let list = state
+    let (rows, mut refs) = state
         .blocking
         .run(&tenant.slug, move |conn| {
             let id = repository_id(conn, &slug)?;
-            code_indexes::page(conn, id, None, 0, VERSION_PREFIX).map_err(ApiError::internal)
+            let rows = code_indexes::page(conn, id, None, 0, VERSION_PREFIX)
+                .map_err(ApiError::internal)?;
+            let refs =
+                kairos_db::code_index_refs::by_commit(conn, id).map_err(ApiError::internal)?;
+            Ok((rows, refs))
         })
         .await?;
     Ok(Json(
-        list.into_iter()
-            .map(|(info, prefix)| dto_of(info, version_of(&prefix)))
+        rows.into_iter()
+            .map(|(info, prefix)| {
+                let names = ref_names(&mut refs, &info.commit_sha);
+                dto_of(info, version_of(&prefix), names)
+            })
             .collect(),
     ))
 }
@@ -517,20 +544,25 @@ pub(crate) async fn code_indexes_page(
     ApiQuery(page): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::CodeIndex>>, ApiError> {
     let (limit, offset) = crate::api::clamp_pagination(&page);
-    let (rows, total) = state
+    let (rows, total, mut refs) = state
         .blocking
         .run(&tenant.slug, move |conn| {
             let id = repository_id(conn, &slug)?;
             let rows = code_indexes::page(conn, id, Some(limit), offset, VERSION_PREFIX)
                 .map_err(ApiError::internal)?;
             let total = code_indexes::count(conn, id).map_err(ApiError::internal)?;
-            Ok((rows, total))
+            let refs =
+                kairos_db::code_index_refs::by_commit(conn, id).map_err(ApiError::internal)?;
+            Ok((rows, total, refs))
         })
         .await?;
     Ok(Json(ListEnvelope {
         items: rows
             .into_iter()
-            .map(|(info, prefix)| dto_of(info, version_of(&prefix)))
+            .map(|(info, prefix)| {
+                let names = ref_names(&mut refs, &info.commit_sha);
+                dto_of(info, version_of(&prefix), names)
+            })
             .collect(),
         total,
         limit,
@@ -570,9 +602,24 @@ pub(crate) async fn upload_code_index(
     body: Bytes,
 ) -> Result<Response, ApiError> {
     check_commit(&commit, "commit")?;
-    if let Some(r#ref) = &query.r#ref {
-        check_ref(r#ref)?;
-    }
+    // KAIROS-T-0750: the ref is stored by its short name (`refs/heads/main`
+    // is `main`); the kind comes from the full name when the sender gave it.
+    let given_ref = query.r#ref.clone();
+    let query = dto::UploadCodeIndexQuery {
+        r#ref: match &query.r#ref {
+            Some(r#ref) => {
+                check_ref(r#ref)?;
+                Some(crate::code_index::ref_short_name(r#ref).ok_or_else(|| {
+                    ApiError::validation(format!(
+                        "The ref {ref:?} is not a branch, a pull request or a tag. Send a \
+                         short name such as main, pull/12 or v1.0.0."
+                    ))
+                    .with_details(json!({ "field": "ref" }))
+                })?)
+            }
+            None => None,
+        },
+    };
     let user = auth.user_id;
     let tenant_slug = tenant.slug.clone();
     let repo = state
@@ -638,6 +685,22 @@ pub(crate) async fn upload_code_index(
             let info = code_indexes::info(conn, repo.id, &commit)
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| ApiError::internal("the stored index is not there"))?;
+            // KAIROS-T-0750: the ref of the upload points at the index now.
+            if let (Some(name), Some(given)) = (info.ref_name.as_deref(), given_ref.as_deref()) {
+                kairos_db::code_index_refs::record(
+                    conn,
+                    repo.id,
+                    name,
+                    crate::code_index::ref_kind_of(given),
+                    &commit,
+                )
+                .map_err(ApiError::internal)?;
+            }
+            let refs = ref_names(
+                &mut kairos_db::code_index_refs::by_commit(conn, repo.id)
+                    .map_err(ApiError::internal)?,
+                &commit,
+            );
             // The upload is a run of the index (KAIROS-T-0331), and the
             // readers of the repository hear of it (KAIROS-T-0333).
             code_index_builds::record_finished(
@@ -655,7 +718,7 @@ pub(crate) async fn upload_code_index(
             Ok((
                 outcome.created,
                 dto::UploadedCodeIndex {
-                    index: dto_of(info, schema_version),
+                    index: dto_of(info, schema_version, refs),
                     new_summaries: outcome.new_summaries,
                     pool_size,
                 },
@@ -866,7 +929,12 @@ pub(crate) async fn nearest_code_index(
                 };
                 let version = stored_version(conn, repo_id, &info.commit_sha)?;
                 if crate::code_index::current_schema(version) {
-                    return Ok((Some((distance, info.clone(), version)), false));
+                    let refs = ref_names(
+                        &mut kairos_db::code_index_refs::by_commit(conn, repo_id)
+                            .map_err(ApiError::internal)?,
+                        &info.commit_sha,
+                    );
+                    return Ok((Some((distance, info.clone(), version, refs)), false));
                 }
                 other = true;
             }
@@ -891,7 +959,7 @@ pub(crate) async fn nearest_code_index(
     if queued {
         state.jobs.wake();
     }
-    let Some((distance, info, schema_version)) = nearest else {
+    let Some((distance, info, schema_version, refs)) = nearest else {
         let why = if queued {
             format!(
                 "No code index that this version of Kairos reads is within {MAX_DISTANCE} \
@@ -910,7 +978,7 @@ pub(crate) async fn nearest_code_index(
     };
     Ok(Json(dto::NearestCodeIndex {
         from: commit,
-        index: dto_of(info, schema_version),
+        index: dto_of(info, schema_version, refs),
         distance,
     }))
 }

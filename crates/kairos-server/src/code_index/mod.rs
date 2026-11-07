@@ -161,6 +161,17 @@ use crate::secrets::SecretsKey;
 /// below the given commit.
 pub const MAX_DISTANCE: usize = 1000;
 
+/// The default of `KAIROS_CODE_INDEX_REF_DAYS` (KAIROS-T-0750,
+/// KAIROS-A-0082): a tag or a pull request head whose commit is older than
+/// this gets no build.
+pub const DEFAULT_REF_DAYS: u64 = 30;
+
+/// The most targets (the head of the default branch, tags, pull request
+/// heads) that one build job indexes (KAIROS-T-0750). The next sweep adds a
+/// job for the rest, so one job of a repository does not hold its slot for
+/// hours.
+pub const MAX_TARGETS_PER_JOB: usize = 4;
+
 /// The URL to fetch a repository from.
 pub type RemoteOf = Arc<dyn Fn(&Repository) -> String + Send + Sync>;
 
@@ -191,6 +202,9 @@ pub struct CodeIndexService {
     /// `KAIROS_CODE_INDEX_MIN_REBUILD_SECS` (KAIROS-T-0334): the least time
     /// between 2 updates of one repository. 0: off.
     min_rebuild_secs: std::sync::atomic::AtomicU64,
+    /// `KAIROS_CODE_INDEX_REF_DAYS` (KAIROS-T-0750): a tag or a pull request
+    /// head is built while its commit is younger than this. 0: no window.
+    ref_days: std::sync::atomic::AtomicU64,
     /// The dependency cache of the SCIP runners (KAIROS-T-0474).
     deps: DependencySettings,
     /// `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB` (KAIROS-T-0747), in bytes: below
@@ -278,6 +292,7 @@ impl CodeIndexService {
             notes: Mutex::default(),
             instance: uuid::Uuid::new_v4(),
             min_rebuild_secs: std::sync::atomic::AtomicU64::new(0),
+            ref_days: std::sync::atomic::AtomicU64::new(DEFAULT_REF_DAYS),
             deps: DependencySettings::default(),
             scip_memory_bytes: None,
             disk: Mutex::new(None),
@@ -386,6 +401,27 @@ impl CodeIndexService {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
+    }
+
+    /// The window of the tags and the pull request heads that the builder
+    /// indexes (`KAIROS_CODE_INDEX_REF_DAYS`, KAIROS-T-0750), in days. 0:
+    /// no window, each tag and each open pull request.
+    pub fn with_ref_days(self, days: u64) -> Self {
+        self.set_ref_days(days);
+        self
+    }
+
+    /// Change the window of [`Self::with_ref_days`].
+    pub fn set_ref_days(&self, days: u64) {
+        self.ref_days
+            .store(days, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn ref_window(&self) -> Option<Duration> {
+        match self.ref_days.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => None,
+            days => Some(Duration::from_secs(days * 24 * 3600)),
+        }
     }
 
     /// Change the time of [`Self::with_min_rebuild_secs`].
@@ -1296,12 +1332,184 @@ async fn update_order(
         .collect()
 }
 
+/// One commit that the builder indexes (KAIROS-T-0750): the head of the
+/// default branch, a tag, or the head of a pull request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Target {
+    /// `main`, `v1.0.0`, `pull/12`, `merge-requests/12`: no `refs/` prefix.
+    pub ref_name: String,
+    /// `branch`, `tag` or `pull` ([`kairos_db::code_index_refs`]).
+    pub kind: &'static str,
+    pub commit: String,
+}
+
 /// The clone of a repository, fetched, and the head of its default branch.
 struct Fetched {
     clone: PathBuf,
     head: String,
     /// The commits at and below the head, nearest first, when asked for.
     ancestors: Vec<String>,
+    /// The targets of the builder (KAIROS-T-0750): the head of the default
+    /// branch first, then the tags and the pull request heads in the
+    /// window, newest first.
+    targets: Vec<Target>,
+    /// The short name of each ref of the clone (KAIROS-T-0750): the sweep
+    /// deletes the recorded refs that the remote no longer has.
+    present: Vec<String>,
+}
+
+/// The targets of a clone (KAIROS-T-0750, KAIROS-A-0082): the head of
+/// `branch`, then each tag and each pull request head whose commit is in
+/// `window` (none: no limit), tags first, newest first. A pull request head
+/// that is on the branch (merged) is left out: its index is the branch's.
+/// What is open comes from git, not from the forge API (KAIROS-A-0082).
+fn targets_of(
+    clone: &Path,
+    branch: &str,
+    head: Option<&str>,
+    window: Option<Duration>,
+) -> (Vec<Target>, Vec<String>) {
+    use kairos_db::code_index_refs::{BRANCH, PULL, TAG};
+    let mut out = Vec::new();
+    let Some(head) = head else {
+        return (out, Vec::new());
+    };
+    out.push(Target {
+        ref_name: branch.to_string(),
+        kind: BRANCH,
+        commit: head.to_string(),
+    });
+    let refs = match git::refs(clone) {
+        Ok(refs) => refs,
+        Err(e) => {
+            tracing::warn!(clone = %clone.display(), error = %e, "the refs of the clone were not read");
+            return (out, Vec::new());
+        }
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let oldest = window.map(|w| now.saturating_sub(w.as_secs() as i64));
+    let mut present = Vec::new();
+    let mut tags = Vec::new();
+    let mut pulls = Vec::new();
+    for r in refs {
+        let Some(name) = ref_short_name(&r.name) else {
+            continue;
+        };
+        present.push(name.clone());
+        if oldest.is_some_and(|oldest| r.committed_at < oldest) {
+            continue;
+        }
+        match ref_kind_of(&r.name) {
+            TAG => tags.push((
+                r.committed_at,
+                Target {
+                    ref_name: name,
+                    kind: TAG,
+                    commit: r.commit,
+                },
+            )),
+            PULL if r.commit != head && !git::is_ancestor(clone, &r.commit, head) => pulls.push((
+                r.committed_at,
+                Target {
+                    ref_name: name,
+                    kind: PULL,
+                    commit: r.commit,
+                },
+            )),
+            _ => {}
+        }
+    }
+    tags.sort_by_key(|(at, t)| (std::cmp::Reverse(*at), t.ref_name.clone()));
+    pulls.sort_by_key(|(at, t)| (std::cmp::Reverse(*at), t.ref_name.clone()));
+    out.extend(tags.into_iter().map(|(_, t)| t));
+    out.extend(pulls.into_iter().map(|(_, t)| t));
+    (out, present)
+}
+
+/// The short name of a ref (KAIROS-T-0750): `refs/heads/main` is `main`,
+/// `refs/tags/v1` is `v1`, `refs/pull/12/head` is `pull/12`,
+/// `refs/merge-requests/12/head` is `merge-requests/12`. A name with no
+/// `refs/` prefix is its own short name. `None` for another ref under
+/// `refs/` (a remote, a note).
+pub(crate) fn ref_short_name(full: &str) -> Option<String> {
+    if let Some(name) = full.strip_prefix("refs/heads/") {
+        return Some(name.to_string());
+    }
+    if let Some(name) = full.strip_prefix("refs/tags/") {
+        return Some(name.to_string());
+    }
+    if let Some(name) = full
+        .strip_prefix("refs/")
+        .filter(|n| n.starts_with("pull/") || n.starts_with("merge-requests/"))
+        .and_then(|n| n.strip_suffix("/head"))
+    {
+        return Some(name.to_string());
+    }
+    if full.starts_with("refs/") {
+        return None;
+    }
+    Some(full.to_string())
+}
+
+/// The kind of a ref (KAIROS-T-0750), from its full or short name:
+/// `tag` for `refs/tags/*`, `pull` for a pull request or merge request
+/// head, else `branch`.
+pub(crate) fn ref_kind_of(name: &str) -> &'static str {
+    use kairos_db::code_index_refs::{BRANCH, PULL, TAG};
+    if name.starts_with("refs/tags/") {
+        TAG
+    } else if name.starts_with("refs/pull/")
+        || name.starts_with("refs/merge-requests/")
+        || name.starts_with("pull/")
+        || name.starts_with("merge-requests/")
+    {
+        PULL
+    } else {
+        BRANCH
+    }
+}
+
+/// Record that each target of `recorded` points at an indexed commit
+/// (KAIROS-T-0750), and, with `present`, delete the refs of `repo` that
+/// the remote no longer has. An error is logged; the next sweep writes the
+/// rows again.
+pub(crate) async fn record_refs(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    repo: &Repository,
+    recorded: &[&Target],
+    present: Option<&[String]>,
+) {
+    if recorded.is_empty() && present.is_none() {
+        return;
+    }
+    let rows: Vec<(String, &'static str, String)> = recorded
+        .iter()
+        .map(|t| (t.ref_name.clone(), t.kind, t.commit.clone()))
+        .collect();
+    let present = present.map(<[String]>::to_vec);
+    let repo_id = repo.id;
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            crate::api::org::run_in_transaction(conn, |conn| {
+                for (ref_name, kind, commit) in &rows {
+                    kairos_db::code_index_refs::record(conn, repo_id, ref_name, kind, commit)
+                        .map_err(ApiError::internal)?;
+                }
+                if let Some(present) = &present {
+                    kairos_db::code_index_refs::delete_except(conn, repo_id, present)
+                        .map_err(ApiError::internal)?;
+                }
+                Ok(())
+            })
+        })
+        .await
+    {
+        tracing::warn!(tenant, repository = %repo.slug, error = ?e, "code index refs not recorded");
+    }
 }
 
 /// Read the token of `repo`, read the default branch of its remote, fetch
@@ -1351,6 +1559,7 @@ async fn fetch_head(
         let service = Arc::clone(service);
         let tenant = tenant.to_string();
         let repo = repo.clone();
+        let window = service.ref_window();
         tokio::task::spawn_blocking(move || {
             // A remote that gives no default branch, or a failed read,
             // leaves the stored branch: the fetch then says what is wrong.
@@ -1367,11 +1576,20 @@ async fn fetch_head(
                 Some(head) if with_ancestors => git::ancestors(&path, head, MAX_DISTANCE)?,
                 _ => Vec::new(),
             };
-            Ok::<_, git::GitError>((path, head, ancestors, forge_branch, branch))
+            let (targets, present) = targets_of(&path, &branch, head.as_deref(), window);
+            Ok::<_, git::GitError>((
+                path,
+                head,
+                ancestors,
+                targets,
+                present,
+                forge_branch,
+                branch,
+            ))
         })
         .await
     };
-    let (clone, head, ancestors, forge_branch, branch) = match fetched {
+    let (clone, head, ancestors, targets, present, forge_branch, branch) = match fetched {
         Ok(Ok(fetched)) => fetched,
         Ok(Err(e)) => return Err(format!("failed: {e} The fetch used {source}.")),
         Err(e) => return Err(format!("failed: {e}")),
@@ -1390,6 +1608,8 @@ async fn fetch_head(
         clone,
         head,
         ancestors,
+        targets,
+        present,
     })
 }
 
@@ -1583,10 +1803,11 @@ async fn record_start(
     tenant: &str,
     repo: &Repository,
     trigger: &'static str,
+    ref_name: &str,
     ctx: &BuildCtx,
 ) -> Option<uuid::Uuid> {
     let repo_id = repo.id;
-    let branch = repo.default_branch.clone();
+    let branch = ref_name.to_string();
     let slug = repo.slug.clone();
     let instance = ctx.instance;
     let keep = ctx.run;
@@ -1785,12 +2006,14 @@ async fn store_built(
     tenant: &str,
     repo: &Repository,
     head: String,
+    target: &Target,
     split: kairos_index::store::Split,
 ) -> Result<(), String> {
+    let (ref_name, kind) = (target.ref_name.clone(), target.kind);
     let index = kairos_db::code_indexes::NewCodeIndex {
         repository_id: repo.id,
         commit_sha: head,
-        ref_name: Some(repo.default_branch.clone()),
+        ref_name: Some(ref_name.clone()),
         source: "build",
         structure: split.structure_gz,
         structure_bytes: split.structure_bytes as i64,
@@ -1805,6 +2028,16 @@ async fn store_built(
     blocking
         .run(tenant, move |conn| {
             kairos_db::code_indexes::put(conn, &index, &pool, &keys).map_err(ApiError::internal)?;
+            // KAIROS-T-0750: the ref that the build was for points at the
+            // index now.
+            kairos_db::code_index_refs::record(
+                conn,
+                repository_id,
+                &ref_name,
+                kind,
+                &index.commit_sha,
+            )
+            .map_err(ApiError::internal)?;
             // KAIROS-T-0746: a current index is stored, so the indexes of an
             // older schema version go.
             delete_old_schema_indexes(conn, repository_id).map_err(ApiError::internal)
@@ -1816,7 +2049,10 @@ async fn store_built(
 
 /// The update of the index of one repository after a push, as a job
 /// (KAIROS-T-0374): from the nearest indexed commit below the head of its
-/// default branch.
+/// default branch. KAIROS-T-0750: then each tag and each pull request head
+/// in the window that has no index, at most [`MAX_TARGETS_PER_JOB`] in one
+/// job, one outcome for each target that the job looked at. The head is
+/// first, so its outcome is first.
 pub(crate) async fn build_repository(
     blocking: &BlockingTenantPool,
     service: &Arc<CodeIndexService>,
@@ -1825,9 +2061,9 @@ pub(crate) async fn build_repository(
     summarizers: Option<Arc<dyn SummarizerSource>>,
     embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
     ctx: &BuildCtx,
-) -> BuildOutcome {
+) -> Vec<BuildOutcome> {
     let started = Instant::now();
-    let mut outcome = BuildOutcome {
+    let outcome = BuildOutcome {
         tenant: tenant.to_string(),
         repository: repo.slug.clone(),
         commit: String::new(),
@@ -1843,13 +2079,15 @@ pub(crate) async fn build_repository(
     };
     if !repo.code_index_build_on() {
         record_end(blocking, tenant, ctx.run, Err(OPTED_OUT)).await;
-        return done(outcome, OPTED_OUT.into());
+        return vec![done(outcome, OPTED_OUT.into())];
     }
 
     let Fetched {
         clone,
-        head,
+        head: _,
         ancestors,
+        targets,
+        present: _,
     } = match fetch_head(blocking, service, tenant, &mut repo, true).await {
         Ok(fetched) => fetched,
         Err(note) => {
@@ -1857,12 +2095,135 @@ pub(crate) async fn build_repository(
                 Some(_) => record_end(blocking, tenant, ctx.run, Err(&note)).await,
                 None => record_failure_once(blocking, tenant, &repo, "push", None, &note).await,
             }
-            return done(outcome, note);
+            return vec![done(outcome, note)];
         }
     };
-    outcome.commit = head.clone();
+    let mut outcomes = Vec::new();
+    // The run that the job names is the run of the first target; each
+    // later target gets a run of its own.
+    let mut ctx = ctx.clone();
+    let mut seen = HashSet::new();
+    let mut built = 0;
+    // A tag on the head, or a pull request whose head is a tag: one build,
+    // and the other ref is recorded after it.
+    let mut dupes: Vec<&Target> = Vec::new();
+    for (i, target) in targets.iter().enumerate() {
+        // A tag on the head, or a pull request whose head is a tag: one
+        // build; the sweep records the other ref at its next pass.
+        if !seen.insert(target.commit.clone()) {
+            dupes.push(target);
+            continue;
+        }
+        if built >= MAX_TARGETS_PER_JOB {
+            tracing::info!(
+                tenant = %tenant,
+                repository = %repo.slug,
+                targets = targets.len() - i,
+                "code index build: the job reached its limit of targets; the rest wait for the next sweep"
+            );
+            break;
+        }
+        let is_head = i == 0;
+        let ancestors = if is_head {
+            ancestors.clone()
+        } else {
+            let (clone, commit) = (clone.clone(), target.commit.clone());
+            match tokio::task::spawn_blocking(move || git::ancestors(&clone, &commit, MAX_DISTANCE))
+                .await
+            {
+                Ok(Ok(ancestors)) => ancestors,
+                Ok(Err(e)) => {
+                    tracing::warn!(tenant = %tenant, repository = %repo.slug, target = %target.ref_name, error = %e, "code index build: the ancestors of the target were not read");
+                    service.record_failure((repo.id, target.commit.clone()));
+                    continue;
+                }
+                Err(e) => {
+                    tracing::warn!(tenant = %tenant, repository = %repo.slug, target = %target.ref_name, error = %e, "code index build: the ancestors of the target were not read");
+                    service.record_failure((repo.id, target.commit.clone()));
+                    continue;
+                }
+            }
+        };
+        let result = build_target(
+            blocking,
+            service,
+            tenant,
+            &repo,
+            &clone,
+            target,
+            ancestors,
+            is_head,
+            summarizers.clone(),
+            Arc::clone(&embedder),
+            &ctx,
+            started,
+        )
+        .await;
+        ctx.run = None;
+        if let Some(outcome) = result {
+            let stop = matches!(outcome.note.as_deref(), Some(STOPPED) | Some(YIELDED));
+            if outcome.report.is_some() {
+                built += 1;
+            }
+            outcomes.push(outcome);
+            if stop {
+                break;
+            }
+        }
+    }
+    let built_now: HashSet<&str> = outcomes
+        .iter()
+        .filter(|o| o.report.is_some())
+        .map(|o| o.commit.as_str())
+        .collect();
+    let recorded: Vec<&Target> = dupes
+        .into_iter()
+        .filter(|t| built_now.contains(t.commit.as_str()))
+        .collect();
+    record_refs(blocking, tenant, &repo, &recorded, None).await;
+    outcomes
+}
+
+/// The update of the index of one target of `repo` (KAIROS-T-0750), from
+/// the nearest indexed commit below it. `None`: a target that is not the
+/// head and needs nothing (its commit has an index, or an earlier build of
+/// it failed). The head gets an outcome for each case, as before.
+#[allow(clippy::too_many_arguments)]
+async fn build_target(
+    blocking: &BlockingTenantPool,
+    service: &Arc<CodeIndexService>,
+    tenant: &str,
+    repo: &Repository,
+    clone: &Path,
+    target: &Target,
+    ancestors: Vec<String>,
+    is_head: bool,
+    summarizers: Option<Arc<dyn SummarizerSource>>,
+    embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
+    ctx: &BuildCtx,
+    started: Instant,
+) -> Option<BuildOutcome> {
+    let head = target.commit.clone();
+    let clone = clone.to_path_buf();
+    let mut outcome = BuildOutcome {
+        tenant: tenant.to_string(),
+        repository: repo.slug.clone(),
+        commit: head.clone(),
+        base: None,
+        report: None,
+        note: None,
+        elapsed: Duration::ZERO,
+    };
+    let done = |mut outcome: BuildOutcome, note: String| {
+        outcome.note = Some(note);
+        outcome.elapsed = started.elapsed();
+        outcome
+    };
     let key = (repo.id, head.clone());
     if service.failed_before(&key) {
+        if !is_head {
+            return None;
+        }
         record_end(
             blocking,
             tenant,
@@ -1870,7 +2231,10 @@ pub(crate) async fn build_repository(
             Err("an earlier build of this commit failed"),
         )
         .await;
-        return done(outcome, "an earlier build of this commit failed".into());
+        return Some(done(
+            outcome,
+            "an earlier build of this commit failed".into(),
+        ));
     }
 
     // The nearest indexed commit, and its structure and the pool. An
@@ -1920,10 +2284,18 @@ pub(crate) async fn build_repository(
     let base = match start {
         Ok(Some(Start::Base(base))) => base,
         Ok(Some(Start::HeadIndexed)) => {
+            if !is_head {
+                return None;
+            }
             record_end(blocking, tenant, ctx.run, Err("the head has an index")).await;
-            return done(outcome, "the head has an index".into());
+            return Some(done(outcome, "the head has an index".into()));
         }
         Ok(Some(Start::OldSchema { commit, found })) => {
+            // A tag or a pull request waits: the full build of the head
+            // gives it a base of the current schema.
+            if !is_head {
+                return None;
+            }
             tracing::warn!(
                 tenant = %tenant,
                 repository = %repo.slug,
@@ -1932,23 +2304,38 @@ pub(crate) async fn build_repository(
                 reads = kairos_index::SCHEMA_VERSION,
                 "code index of another schema version: a full build"
             );
-            return Box::pin(full_build_repository(
-                blocking,
-                service,
-                tenant,
-                repo,
-                summarizers,
-                embedder,
-                "push",
-                ctx,
-            ))
-            .await;
+            return Some(
+                Box::pin(full_build_repository(
+                    blocking,
+                    service,
+                    tenant,
+                    repo.clone(),
+                    summarizers,
+                    embedder,
+                    "push",
+                    ctx,
+                ))
+                .await,
+            );
         }
         // No indexed commit is an ancestor of the head within the limit: the
         // history was rewritten, or the index is of a commit that is gone.
         // An update cannot start, so the head gets a full build, in place of
         // a failed update that stays (KAIROS-T-0356).
         Ok(None) => {
+            if !is_head {
+                // KAIROS-T-0750: a tag or a pull request far from each
+                // indexed commit gets no full build of its own. It is not
+                // tried again until a restart.
+                service.record_failure(key);
+                let note = format!(
+                    "no indexed commit is below {} within {MAX_DISTANCE} commits: the tag or \
+                     the pull request waits for an index of its base",
+                    target.ref_name
+                );
+                tracing::info!(tenant = %tenant, repository = %repo.slug, commit = %head, %note, "code index build not done");
+                return Some(done(outcome, note));
+            }
             tracing::warn!(
                 tenant = %tenant,
                 repository = %repo.slug,
@@ -1956,37 +2343,39 @@ pub(crate) async fn build_repository(
                 limit = MAX_DISTANCE,
                 "no indexed commit is below the head: a full build"
             );
-            return Box::pin(full_build_repository(
-                blocking,
-                service,
-                tenant,
-                repo,
-                summarizers,
-                embedder,
-                "push",
-                ctx,
-            ))
-            .await;
+            return Some(
+                Box::pin(full_build_repository(
+                    blocking,
+                    service,
+                    tenant,
+                    repo.clone(),
+                    summarizers,
+                    embedder,
+                    "push",
+                    ctx,
+                ))
+                .await,
+            );
         }
         Err(e) => {
             let note = format!("failed: {e:?}");
             match ctx.run {
                 Some(_) => record_end(blocking, tenant, ctx.run, Err(&note)).await,
                 None => {
-                    record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await
+                    record_failure_once(blocking, tenant, repo, "push", Some(&head), &note).await
                 }
             }
-            return done(outcome, note);
+            return Some(done(outcome, note));
         }
     };
     outcome.base = Some(base.commit.clone());
-    let run = record_start(blocking, tenant, &repo, "push", ctx).await;
+    let run = record_start(blocking, tenant, repo, "push", &target.ref_name, ctx).await;
     record_commit(blocking, tenant, run, &head).await;
-    let models = match models_for(blocking, service, tenant, &repo, &summarizers, &embedder).await {
+    let models = match models_for(blocking, service, tenant, repo, &summarizers, &embedder).await {
         Ok(models) => models,
         Err(note) => {
             record_end(blocking, tenant, run, Err(&note)).await;
-            return done(outcome, note);
+            return Some(done(outcome, note));
         }
     };
     let model_name = models.summarizers.model_name();
@@ -1994,7 +2383,7 @@ pub(crate) async fn build_repository(
     // The update, off the async threads: it runs rust-analyzer and the
     // model for minutes. The limit of its kind of job keeps the other
     // builds of the model off the CPU (KAIROS-T-0374).
-    let db = service.update_db(tenant, &repo);
+    let db = service.update_db(tenant, repo);
     let built = {
         let head = head.clone();
         let service = Arc::clone(service);
@@ -2003,7 +2392,7 @@ pub(crate) async fn build_repository(
         let slug = repo.slug.clone();
         let handle = ctx.handle.clone();
         let sink = PoolSink::new(blocking, &tenant, repo.id);
-        let build = service.build_options_for(&tenant, &repo);
+        let build = service.build_options_for(&tenant, repo);
         tokio::task::spawn_blocking(move || -> Result<_, String> {
             let work = tempfile::Builder::new()
                 .prefix("kairos-code-index-")
@@ -2062,22 +2451,22 @@ pub(crate) async fn build_repository(
         Ok(Ok(built)) => built,
         // The job was killed: its run goes on when a server takes the job
         // again.
-        Ok(Err(_)) if ctx.handle.cancelled() => return done(outcome, STOPPED.into()),
+        Ok(Err(_)) if ctx.handle.cancelled() => return Some(done(outcome, STOPPED.into())),
         Ok(Err(e)) => {
             service.record_failure(key);
             let note = format!("failed: {e}");
             record_end(blocking, tenant, run, Err(&note)).await;
-            return done(outcome, note);
+            return Some(done(outcome, note));
         }
         Err(e) => {
             let note = format!("failed: {e}");
             record_end(blocking, tenant, run, Err(&note)).await;
-            return done(outcome, note);
+            return Some(done(outcome, note));
         }
     };
-    if let Err(note) = store_built(blocking, tenant, &repo, head, split).await {
+    if let Err(note) = store_built(blocking, tenant, repo, head, target, split).await {
         record_end(blocking, tenant, run, Err(&note)).await;
-        return done(outcome, note);
+        return Some(done(outcome, note));
     }
     log_missing(tenant, &repo.slug, &report);
     record_end(
@@ -2094,7 +2483,7 @@ pub(crate) async fn build_repository(
     remove_database(&db);
     outcome.report = Some(report);
     outcome.elapsed = started.elapsed();
-    outcome
+    Some(outcome)
 }
 
 /// Write the work database `db` of an update (KAIROS-T-0335): the
@@ -2230,7 +2619,7 @@ pub(crate) async fn full_build_repository(
         trigger,
         "code index full build started"
     );
-    let run = record_start(blocking, tenant, &repo, trigger, ctx).await;
+    let run = record_start(blocking, tenant, &repo, trigger, &repo.default_branch, ctx).await;
     record_commit(blocking, tenant, run, &head).await;
     let models = match models_for(blocking, service, tenant, &repo, &summarizers, &embedder).await {
         Ok(models) => models,
@@ -2362,7 +2751,12 @@ pub(crate) async fn full_build_repository(
             return done(outcome, note);
         }
     };
-    if let Err(note) = store_built(blocking, tenant, &repo, head, split).await {
+    let target = Target {
+        ref_name: repo.default_branch.clone(),
+        kind: kairos_db::code_index_refs::BRANCH,
+        commit: head.clone(),
+    };
+    if let Err(note) = store_built(blocking, tenant, &repo, head, &target, split).await {
         record_end(blocking, tenant, run, Err(&note)).await;
         return done(outcome, note);
     }
@@ -2473,6 +2867,124 @@ pub(crate) fn used_rows(
 #[cfg(all(test, feature = "llama"))]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0750: the targets of a clone are the head of the branch,
+    /// then the tags, then the pull request heads that are not merged, in
+    /// the window, newest first.
+    #[test]
+    fn targets_of_takes_the_head_the_tags_and_the_open_pull_requests_in_the_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path().join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let git = |args: &[&str], date: Option<&str>| {
+            let mut command = std::process::Command::new("git");
+            command
+                .arg("-C")
+                .arg(&work)
+                .args(args)
+                .env("GIT_AUTHOR_NAME", "Test")
+                .env("GIT_AUTHOR_EMAIL", "test@kairos.test")
+                .env("GIT_COMMITTER_NAME", "Test")
+                .env("GIT_COMMITTER_EMAIL", "test@kairos.test");
+            if let Some(date) = date {
+                command
+                    .env("GIT_AUTHOR_DATE", date)
+                    .env("GIT_COMMITTER_DATE", date);
+            }
+            let output = command.output().unwrap();
+            assert!(output.status.success(), "git {args:?}: {output:?}");
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+        let commit = |name: &str, date: Option<&str>| {
+            std::fs::write(work.join(format!("{name}.txt")), name).unwrap();
+            git(&["add", "-A"], None);
+            git(&["commit", "-q", "-m", name], date);
+            git(&["rev-parse", "HEAD"], None)
+        };
+        git(&["init", "-q", "-b", "main"], None);
+        let a = commit("a", None);
+        git(&["tag", "v1"], None);
+        let m = commit("m", None);
+        // An open pull request off A.
+        git(&["checkout", "-q", "-b", "pr7", &a], None);
+        let p = commit("p", None);
+        git(&["update-ref", "refs/pull/7/head", &p], None);
+        // A merged pull request: its head is on main.
+        git(&["update-ref", "refs/pull/8/head", &a], None);
+        // An old pull request, and an old tag.
+        git(&["checkout", "-q", "-b", "pr9", &a], None);
+        let old = commit("old", Some("2020-01-01T00:00:00Z"));
+        git(&["update-ref", "refs/merge-requests/9/head", &old], None);
+        git(&["tag", "v0", &old], None);
+
+        let (targets, present) = targets_of(
+            &work,
+            "main",
+            Some(&m),
+            Some(Duration::from_secs(30 * 24 * 3600)),
+        );
+        // Each ref of the clone, by its short name, whatever the window.
+        let mut present = present;
+        present.sort();
+        assert_eq!(
+            present,
+            [
+                "main",
+                "merge-requests/9",
+                "pr7",
+                "pr9",
+                "pull/7",
+                "pull/8",
+                "v0",
+                "v1"
+            ]
+        );
+        let names: Vec<(&str, &str, &str)> = targets
+            .iter()
+            .map(|t| (t.ref_name.as_str(), t.kind, t.commit.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                ("main", "branch", m.as_str()),
+                ("v1", "tag", a.as_str()),
+                ("pull/7", "pull", p.as_str()),
+            ]
+        );
+
+        // No window: the old tag and the old merge request are targets too.
+        let (targets, _) = targets_of(&work, "main", Some(&m), None);
+        let names: Vec<&str> = targets.iter().map(|t| t.ref_name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["main", "v1", "v0", "pull/7", "merge-requests/9"]
+        );
+
+        // No head: no target.
+        assert!(targets_of(&work, "main", None, None).0.is_empty());
+
+        // The short names and the kinds of refs.
+        assert_eq!(ref_short_name("refs/heads/main").as_deref(), Some("main"));
+        assert_eq!(
+            ref_short_name("refs/tags/v1.0.0").as_deref(),
+            Some("v1.0.0")
+        );
+        assert_eq!(
+            ref_short_name("refs/pull/12/head").as_deref(),
+            Some("pull/12")
+        );
+        assert_eq!(
+            ref_short_name("refs/merge-requests/3/head").as_deref(),
+            Some("merge-requests/3")
+        );
+        assert_eq!(ref_short_name("pull/12").as_deref(), Some("pull/12"));
+        assert_eq!(ref_short_name("refs/notes/commits"), None);
+        assert_eq!(ref_short_name("refs/pull/12/merge"), None);
+        assert_eq!(ref_kind_of("refs/tags/v1"), "tag");
+        assert_eq!(ref_kind_of("refs/merge-requests/3/head"), "pull");
+        assert_eq!(ref_kind_of("pull/12"), "pull");
+        assert_eq!(ref_kind_of("main"), "branch");
+    }
 
     #[test]
     fn the_builder_summarizes_on_the_threads_of_the_setting() {

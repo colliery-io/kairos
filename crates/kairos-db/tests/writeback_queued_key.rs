@@ -17,6 +17,9 @@
 //!    row of the target; after a failure it sets the count to 0.
 //! 6. `code_indexes::put` gives the vector of the upload to each row that
 //!    has none, and keeps the vector of a row that has one.
+//! 7. KAIROS-T-0749: a try waits for a removal of its target BEFORE it
+//!    writes the row of the try, so the removal and the try do not
+//!    deadlock; the try then finds the delivery gone.
 //!
 //! Runs against the compose Postgres (`angreal services up`); owns the
 //! scratch database `kairos_writeback_queued_key_t0637_test`.
@@ -496,6 +499,66 @@ fn write_back_jobs_dedupe_on_the_queued_key() {
         0,
         "a success after a failure sets the count to 0"
     );
+
+    // --- 7. a try and the removal of its target -------------------------------
+    // A removal locks the target first, then deletes its deliveries. The
+    // try must wait on the target before it locks the delivery (the row of
+    // the try); else each waits for the other.
+    let doomed = webhooks::insert_target(
+        &mut conn,
+        &NewTarget {
+            id: Uuid::new_v4(),
+            board_id: board,
+            name: "doomed".to_string(),
+            url: "https://203.0.113.11/hook".to_string(),
+            secret: SealedSecret {
+                ciphertext: vec![1],
+                nonce: vec![0; 12],
+                key_id: "k1".to_string(),
+            },
+            created_by: robin,
+        },
+    )
+    .expect("target");
+    let ping = webhooks::queue_delivery(
+        &mut conn,
+        doomed.id,
+        "ping",
+        None,
+        None,
+        &serde_json::json!({}),
+    )
+    .expect("queue")
+    .expect("a delivery");
+    let mut remover = tenant_conn(&url);
+    AnsiTransactionManager::begin_transaction(&mut remover).expect("begin removal");
+    remover
+        .batch_execute("SET LOCAL lock_timeout = '5s'")
+        .expect("lock timeout");
+    sql_query("SELECT id FROM webhook_targets WHERE id = $1 FOR UPDATE")
+        .bind::<SqlUuid, _>(doomed.id)
+        .execute(&mut remover)
+        .expect("the removal locks the target");
+    let try_url = url.clone();
+    let failed_try = try_of(1, false);
+    let trier = thread::spawn(move || {
+        let mut b = tenant_conn(&try_url);
+        webhooks::record_try(&mut b, ping.id, &failed_try, 5).map(|r| r.is_none())
+    });
+    let mut watch = tenant_conn(&url);
+    let waited = wait_for_lock_waiter(&mut watch).unwrap_or_default();
+    assert!(
+        waited.contains("FOR KEY SHARE"),
+        "the try waits on the target before it writes the row of the try: {waited:?}"
+    );
+    let removed = webhooks::delete_target(&mut remover, doomed.id).expect("the removal goes on");
+    assert!(removed);
+    AnsiTransactionManager::commit_transaction(&mut remover).expect("commit removal");
+    let gone = trier
+        .join()
+        .expect("try thread")
+        .expect("the try ends with no error");
+    assert!(gone, "the try finds the delivery gone");
 
     // --- 6. the vectors of an upload -----------------------------------------
     let pool_row = |key: &str, vector: Option<Vec<u8>>| PoolRow {

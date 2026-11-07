@@ -161,12 +161,21 @@ async function dragToTarget(
   sourceName: string,
   targetName: string,
 ): Promise<void> {
-  await target.scrollIntoViewIfNeeded();
-  await source.scrollIntoViewIfNeeded();
-  const from = await source.boundingBox();
-  if (!from) throw new Error(`${sourceName} has no bounding box`);
-  const origin = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
-  const near = await visiblePoint(page, target, targetName);
+  // The board can draw the card again after the last move ended (a move to
+  // Active adds the claim of the person to the card). The element is then
+  // replaced, and a scroll of the old one fails with "Element is not
+  // attached to the DOM". Nothing is pressed yet, so do the whole
+  // preparation again until it goes through on one element.
+  let origin = { x: 0, y: 0 };
+  let near = null as { x: number; y: number } | null;
+  await expect(async () => {
+    await target.scrollIntoViewIfNeeded({ timeout: 2_000 });
+    await source.scrollIntoViewIfNeeded({ timeout: 2_000 });
+    const from = await source.boundingBox({ timeout: 2_000 });
+    if (!from) throw new Error(`${sourceName} has no bounding box`);
+    origin = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+    near = await visiblePoint(page, target, targetName);
+  }, `${sourceName} and ${targetName} are on the screen`).toPass({ timeout: 15_000 });
   await page.mouse.move(origin.x, origin.y);
   await page.mouse.down();
   if (near) {

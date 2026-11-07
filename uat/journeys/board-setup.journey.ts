@@ -52,7 +52,9 @@ journey(
       const columns = page.locator('.cl-panel', { hasText: 'Columns' }).first();
       await columns.locator('input[placeholder="New column name"]').fill('Review');
       await columns.getByRole('button', { name: 'Add column' }).click();
-      await expect(page.getByText('Review').first()).toBeVisible({ timeout: 10_000 });
+      // The row of the new column, not any text with "review" in it: the
+      // link preview of each page has a hidden option "Preview ...".
+      await expect(columns.locator('[data-testid="column-row"][data-column="Review"]')).toBeVisible({ timeout: 10_000 });
 
       const transitions = page.locator('.cl-panel', { hasText: 'Transitions' }).first();
       // `hasText` is a substring match and several captions mention "To",
@@ -188,6 +190,7 @@ journey(
     });
 
     let ruleId = '';
+    let targetId = '';
     await step(alice, 'sends each bug that reaches Review to the team\'s review agent: a dispatch rule (MCP)', async () => {
       const mcp = await alice.mcp();
       const api = await alice.api();
@@ -202,7 +205,7 @@ journey(
         target_name: 'Review agent',
       });
       ruleId = made.match(/Made the dispatch rule ([0-9a-f-]{36})/)?.[1] ?? '';
-      const targetId = made.match(/Made the webhook target Review agent \(([0-9a-f-]{36})\)/)?.[1] ?? '';
+      targetId = made.match(/Made the webhook target Review agent \(([0-9a-f-]{36})\)/)?.[1] ?? '';
       expect(ruleId).toBeTruthy();
       expect(targetId).toBeTruthy();
       // The secret is shown once, to the person who made the target.
@@ -244,6 +247,43 @@ journey(
       // The target stays, for the next rule.
       expect(after).toContain('review-runner.example.com');
       return { delivered_for_the_task: 'nothing', removed: ruleId, target: 'kept' };
+    });
+
+    await step(alice, 'pings the kept target, turns it on again, then removes it with its log (MCP)', async () => {
+      const mcp = await alice.mcp();
+      const board = team.fixture.boardSlug!;
+      const pinged = await mcp.call('test_webhook_target', { board, target_id: targetId });
+      expect(pinged).toMatch(/^Queued the test delivery \S+ \(event ping\)/);
+      // The name never answers, so the test delivery fails and counts as a
+      // failed try. Turning the target on sets the count back to 0.
+      const enabled = await mcp.call('enable_webhook_target', { board, target_id: targetId });
+      expect(enabled).toContain(`(${targetId}) is on.`);
+      const removed = await mcp.call('remove_webhook_target', { board, target_id: targetId });
+      expect(removed).toContain(`Removed the webhook target`);
+      expect(removed).toContain(targetId);
+      const after = await mcp.call('list_dispatch_rules', { board });
+      expect(after).not.toContain('review-runner.example.com');
+      return { pinged: true, turned_on: true, removed: targetId };
+    });
+
+    await step(alice, 'makes open blockers stop a card on this board, then reads the policy back (MCP)', async () => {
+      const mcp = await alice.mcp();
+      const board = team.fixture.boardSlug!;
+      const set = await mcp.call('set_board_policy', { board, blockers_gate: true });
+      expect(set).toContain('blockers_gate on');
+      const boards = await mcp.call('my_boards');
+      const section = boards.split('\n').filter((l) => l.includes(board) || l.includes('blockers_gate')).join('\n');
+      expect(section).toContain('blockers_gate on');
+      return { board, blockers_gate: 'on' };
+    });
+
+    await step(alice, 'reads which tool calls her people get refused most, as an org admin (MCP)', async () => {
+      // bob had a list_metadata_definitions call refused earlier in this
+      // journey (VALIDATION): it is in the count of today.
+      const mcp = await alice.mcp();
+      const counts = await mcp.call('refusal_counts', { days: 1 });
+      expect(counts).toContain('list_metadata_definitions');
+      return { days: 1, includes: 'list_metadata_definitions' };
     });
 
     await step(bob, 'retires the card, which clears the board for the team to be wound down', async () => {

@@ -210,7 +210,7 @@ class SessionStart(Harness):
         text = context["additionalContext"]
         for tool in ("module_map", "code_search", "callers", "callees", "references"):
             self.assertIn(f"`{tool}`", text)
-        self.assertIn("before you read a file", text)  # KAIROS-T-0759: the paragraph
+        self.assertIn("before you read files", text)
         self.assertIn("kairos-code", text)
         self.assertIn("update.log", text)
 

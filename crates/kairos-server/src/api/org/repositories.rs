@@ -1291,6 +1291,14 @@ pub(crate) async fn update_repository(
             change(conn, &tenant_slug, user, &slug, body)
         })
         .await?;
+    // KAIROS-T-0753: a change of the repository (its URL, its branch) can
+    // make the fetch work: no wait.
+    if let (Some(service), Ok(id)) = (
+        &state.code_index,
+        uuid::Uuid::parse_str(&updated.repository.id),
+    ) {
+        service.fetch_ok(id);
+    }
     Ok(Json(updated.repository))
 }
 

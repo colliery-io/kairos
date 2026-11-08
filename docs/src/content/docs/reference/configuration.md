@@ -471,6 +471,16 @@ makes the first index of each repository that has no index. Then it updates
 the index after each push to a target ref. [What the builder
 indexes](#what-the-builder-indexes) lists the targets.
 
+When the fetch of a repository fails, the sweep adds no build job for it.
+The forge is down, or the server has no network. The sweep records one run
+with the text of the failure. Then it waits before the next try: 5 minutes,
+then twice as long after each failure, up to one hour. A fetch that works
+ends the wait. A new read token or a change of the repository ends it too.
+
+When the fetch of each repository fails, the log has one warning for the
+outage. A failed fetch does not trip the breaker of the repository. The
+breaker is for a build that stopped a server, and it needs a person.
+
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `KAIROS_CODE_INDEX_DIR` | directory path | unset | The folder for a bare clone of each repository, the tools of the builder and the work folders of the builder. Put it on a volume. When it is not set, the server cannot find the nearest indexed commit, does not build and downloads nothing. Uploads and downloads of indexes still work. A server with `KAIROS_ROLE=worker` does not start without it. A server with `KAIROS_ROLE=api` takes a rebuild request without it: the build goes to a worker. |

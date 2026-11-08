@@ -1,0 +1,512 @@
+#!/usr/bin/env python3
+"""The index usage of the local Claude Code sessions of a week
+(KAIROS-T-0758, COLLIERY-I-0671): the calls of the code tools against
+grep and reads, per main session and per subagent run.
+
+    kairos-index-usage [--days 7] [--projects '<glob>'] [--json]
+
+The README of the plugin ("The index usage of a week") says what it
+counts and how to read the report. In short: the transcripts under
+`~/.claude/projects/<project>/` (`<session>.jsonl` is a main session;
+`<session>/subagents/agent-<id>.jsonl` is a subagent), the events in the
+window by their timestamp, one count per kind of call and per run. The
+kind of a subagent comes from its first prompt. Its `agent_type` comes
+from `tool-calls.log` of the hooks (KAIROS-T-0757: `time session agent_id
+agent_type event tool nudge|quiet`). The script reads only; it sends
+nothing. Python stdlib only. CLAUDE_CONFIG_DIR, else `~/.claude`, is the
+root.
+"""
+
+import argparse
+import datetime
+import glob
+import json
+import os
+import re
+import shlex
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+HOOKS = os.path.join(os.path.dirname(HERE), "hooks")
+if HOOKS not in sys.path:
+    sys.path.insert(0, HOOKS)
+
+import git_guard  # noqa: E402  (words_of, git_subcommand)
+
+INDEX_TOOL_PREFIXES = ("mcp__plugin_kairos_kairos-code__", "mcp__kairos-code__")
+WORK_TOOL_PREFIXES = ("mcp__plugin_kairos_kairos__", "mcp__kairos__")
+SEARCHERS = ("grep", "egrep", "fgrep", "rg", "ag", "ack", "find", "fd")
+READERS = ("cat", "head", "tail", "less", "more", "bat")
+# The options of grep, rg, ag and ack that take a value as the next word.
+OPTIONS_WITH_VALUE = (
+    "-A", "-B", "-C", "-m", "-M", "-t", "-T", "-g", "-j", "-f", "--include", "--exclude",
+    "--exclude-dir", "--type", "--type-not", "--type-add", "--glob", "--iglob",
+    "--max-count", "--max-depth", "--max-columns", "--threads", "--context",
+    "--after-context", "--before-context", "--file",
+)
+EDITORS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+WORKFLOW_PROMPT = "[Workflow harness"
+CHAINS = re.compile(r"\|\||&&|;|\n")
+TOP_PATTERNS = 15
+ERROR_TEXT_CHARS = 200
+
+
+# ------------------------------------------------------------------ files
+
+
+def config_dir():
+    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+
+
+def runs(root, projects):
+    """(kind, path) of each run under `root/projects/<projects>`: the main
+    sessions and their subagents, sorted."""
+    found = []
+    for project in sorted(glob.glob(os.path.join(root, "projects", projects))):
+        if not os.path.isdir(project):
+            continue
+        for path in sorted(glob.glob(os.path.join(project, "*.jsonl"))):
+            found.append(("main", path))
+        for path in sorted(glob.glob(os.path.join(project, "*", "subagents", "*.jsonl"))):
+            found.append(("subagent", path))
+    return found
+
+
+def events(path):
+    """The JSON events of one transcript, in order; a line that is not JSON
+    is skipped."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict):
+                    yield event
+    except OSError:
+        return
+
+
+def parse_time(text):
+    """A timestamp of a transcript as a UTC datetime, or None. A stamp
+    with no zone counts as UTC (the transcripts write `Z`)."""
+    if not isinstance(text, str):
+        return None
+    try:
+        stamp = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=datetime.timezone.utc)
+    return stamp.astimezone(datetime.timezone.utc)
+
+
+# ---------------------------------------------------------- classification
+
+
+def search_pattern(words):
+    """The pattern of a grep-like command: the value of the first `-e`,
+    else the first word that is not an option."""
+    rest = words[1:]
+    while rest:
+        word = rest.pop(0)
+        if word in ("-e", "--regexp"):
+            return rest[0] if rest else None
+        if word in OPTIONS_WITH_VALUE:
+            rest = rest[1:]
+        elif word == "--":
+            return rest[0] if rest else None
+        elif not word.startswith("-"):
+            return word
+    return None
+
+
+def first_stages(command):
+    """The first pipe stage of each chain of a shell line (`;`, `&&`, `||`,
+    a new line), as text. Quotes are read: `grep "a|b"` is one word."""
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return [chain.split("|")[0] for chain in CHAINS.split(command)]
+    stages = [[]]
+    skipping = False
+    for token in tokens:
+        if token in (";", "&&", "||", "\n"):
+            stages.append([])
+            skipping = False
+        elif token == "|" or token.startswith("|") or token.endswith("|"):
+            skipping = True
+        elif not skipping:
+            stages[-1].append(token)
+    return [" ".join(shlex.quote(word) for word in stage) for stage in stages]
+
+
+def reads_with_sed(words):
+    """`sed -n ...`: an option cluster with `n`."""
+    return any(
+        word.startswith("-") and not word.startswith("--") and "n" in word[1:]
+        for word in words[1:]
+    )
+
+
+def bash_kind(command):
+    """("search", pattern), ("read", None) or (None, None) for a Bash
+    command: the first command of the line that searches or reads a file.
+    A grep after a pipe filters output: not a search."""
+    if not isinstance(command, str):
+        return None, None
+    for stage in first_stages(command):
+        words = git_guard.words_of(stage)
+        if not words:
+            continue
+        name = os.path.basename(words[0])
+        if name == "git":
+            subcommand, args = git_guard.git_subcommand(words)
+            if subcommand != "grep":
+                continue
+            words = ["grep", *args]
+            name = "grep"
+        if name in SEARCHERS:
+            pattern = None if name in ("find", "fd") else search_pattern(words)
+            return "search", pattern
+        if name in READERS or (name == "sed" and reads_with_sed(words)):
+            return "read", None
+    return None, None
+
+
+def classify(name, tool_input):
+    """(category, detail) of one tool call: index:<tool>, grep, glob, read,
+    bash_search, bash_read, edit, work, agent, other; the detail is the
+    grep pattern when there is one."""
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    if name.startswith(INDEX_TOOL_PREFIXES):
+        return "index:" + name.rsplit("__", 1)[-1], None
+    if name == "Grep":
+        return "grep", tool_input.get("pattern")
+    if name == "Glob":
+        return "glob", None
+    if name == "Read":
+        return "read", None
+    if name in EDITORS:
+        return "edit", None
+    if name in ("Agent", "Task"):
+        return "agent", None
+    if name.startswith(WORK_TOOL_PREFIXES):
+        return "work", None
+    if name == "Bash":
+        kind, pattern = bash_kind(tool_input.get("command"))
+        if kind == "search":
+            return "bash_search", pattern
+        if kind == "read":
+            return "bash_read", None
+    return "other", None
+
+
+def subagent_kind(first_prompt):
+    """Workflow harness, Agent tool or other, from the first prompt."""
+    if not isinstance(first_prompt, str) or not first_prompt.strip():
+        return "other"
+    if first_prompt.lstrip().startswith(WORKFLOW_PROMPT):
+        return "workflow"
+    return "agent"
+
+
+def text_of(content):
+    """The text of a message content: a string, or the text parts of a list."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return ""
+
+
+def error_text(content):
+    """The text of an error result, one line, at most ERROR_TEXT_CHARS."""
+    text = " ".join(text_of(content).split())
+    return text[:ERROR_TEXT_CHARS]
+
+
+# ------------------------------------------------------------------- runs
+
+
+def new_counts():
+    return {
+        "index": 0,
+        "index_tools": {},
+        "grep": 0,
+        "glob": 0,
+        "read": 0,
+        "bash_search": 0,
+        "bash_read": 0,
+        "edit": 0,
+        "work": 0,
+        "agent": 0,
+        "other": 0,
+        "calls": 0,
+    }
+
+
+def add_counts(total, counts):
+    for key, value in counts.items():
+        if key == "index_tools":
+            for tool, n in value.items():
+                total["index_tools"][tool] = total["index_tools"].get(tool, 0) + n
+        else:
+            total[key] += value
+
+
+def read_run(kind, path, since, until):
+    """The counts of one run, or None when no event of the run is in the
+    window: the counts, the grep patterns, the index errors, the agent id
+    and the kind of a subagent."""
+    counts = new_counts()
+    patterns = []
+    errors = []
+    calls = {}
+    first_prompt = None
+    agent_id = None
+    session_id = None
+    seen = False
+    for event in events(path):
+        event_type = event.get("type")
+        if event_type not in ("user", "assistant"):
+            continue
+        message = event.get("message") if isinstance(event.get("message"), dict) else {}
+        # The kind of a subagent comes from its first prompt, in the window
+        # or before it.
+        if event_type == "user" and first_prompt is None and kind == "subagent":
+            first_prompt = text_of(message.get("content"))
+        stamp = parse_time(event.get("timestamp"))
+        if stamp is not None and (stamp < since or stamp >= until):
+            continue
+        seen = True
+        agent_id = agent_id or event.get("agentId")
+        session_id = session_id or event.get("sessionId")
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if event_type == "assistant" and part.get("type") == "tool_use":
+                name = part.get("name")
+                if not isinstance(name, str):
+                    continue
+                category, detail = classify(name, part.get("input"))
+                counts["calls"] += 1
+                if category.startswith("index:"):
+                    counts["index"] += 1
+                    tool = category[len("index:"):]
+                    counts["index_tools"][tool] = counts["index_tools"].get(tool, 0) + 1
+                    calls[part.get("id")] = tool
+                else:
+                    counts[category] += 1
+                if detail and category in ("grep", "bash_search"):
+                    patterns.append(detail)
+            elif event_type == "user" and part.get("type") == "tool_result":
+                tool = calls.get(part.get("tool_use_id"))
+                if tool and part.get("is_error"):
+                    errors.append({"tool": tool, "error": error_text(part.get("content"))})
+    if not seen:
+        return None
+    return {
+        "kind": kind,
+        "path": path,
+        "session": session_id,
+        "agent_id": agent_id,
+        "subagent_kind": subagent_kind(first_prompt) if kind == "subagent" else None,
+        "agent_type": None,
+        "counts": counts,
+        "patterns": patterns,
+        "errors": errors,
+    }
+
+
+# --------------------------------------------------------------- hook log
+
+
+def agent_types(root):
+    """agent_id -> agent_type from the hook logs of the plugin
+    (KAIROS-T-0757): `<root>/kairos-index/*/tool-calls.log`, the fields
+    `time session agent_id agent_type event tool nudge|quiet`."""
+    types = {}
+    for log in glob.glob(os.path.join(root, "kairos-index", "*", "tool-calls.log")):
+        try:
+            with open(log, encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    fields = line.split()
+                    if len(fields) >= 4 and fields[2] != "-" and fields[3] != "-":
+                        types[fields[2]] = fields[3]
+        except OSError:
+            continue
+    return types
+
+
+# ----------------------------------------------------------------- report
+
+
+def summarize(run_list, since, until):
+    """The report as a dict (pure)."""
+    groups = {"main": [], "subagent": []}
+    for run in run_list:
+        groups[run["kind"]].append(run)
+    totals = {}
+    for kind, members in groups.items():
+        total = new_counts()
+        for run in members:
+            add_counts(total, run["counts"])
+        with_index = sum(1 for run in members if run["counts"]["index"] > 0)
+        totals[kind] = {
+            "runs": len(members),
+            "runs_with_an_index_call": with_index,
+            "share_with_an_index_call": (with_index / len(members)) if members else 0.0,
+            **total,
+        }
+    kinds = {}
+    for run in groups["subagent"]:
+        key = run["subagent_kind"] or "other"
+        entry = kinds.setdefault(key, {"runs": 0, "runs_with_an_index_call": 0, "index": 0})
+        entry["runs"] += 1
+        entry["runs_with_an_index_call"] += 1 if run["counts"]["index"] > 0 else 0
+        entry["index"] += run["counts"]["index"]
+    pattern_counts = {}
+    for run in run_list:
+        for pattern in run["patterns"]:
+            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+    top = sorted(pattern_counts.items(), key=lambda item: (-item[1], item[0]))[:TOP_PATTERNS]
+    errors = []
+    for run in run_list:
+        for error in run["errors"]:
+            errors.append(
+                {
+                    "kind": run["kind"],
+                    "session": run["session"],
+                    "agent_id": run["agent_id"],
+                    "agent_type": run["agent_type"],
+                    **error,
+                }
+            )
+    agent_type_counts = {}
+    for run in groups["subagent"]:
+        if run["agent_type"]:
+            agent_type_counts[run["agent_type"]] = agent_type_counts.get(run["agent_type"], 0) + 1
+    return {
+        "window": {"since": since.isoformat(), "until": until.isoformat()},
+        "totals": totals,
+        "subagent_kinds": kinds,
+        "agent_types": agent_type_counts,
+        "top_patterns": [{"pattern": p, "count": n} for p, n in top],
+        "index_errors": errors,
+    }
+
+
+def table(report):
+    """The report as text."""
+    lines = [
+        f"Index usage from {report['window']['since'][:10]} to {report['window']['until'][:10]} "
+        "(local sessions)",
+        "",
+        f"{'':<26}{'main sessions':>15}{'subagent runs':>15}",
+    ]
+    rows = [
+        ("runs", "runs"),
+        ("with an index call", "runs_with_an_index_call"),
+        ("index calls", "index"),
+        ("Grep tool", "grep"),
+        ("Glob tool", "glob"),
+        ("Read tool", "read"),
+        ("Bash grep/find", "bash_search"),
+        ("Bash cat/sed/head", "bash_read"),
+        ("edits", "edit"),
+        ("Kairos work tools", "work"),
+        ("Agent calls", "agent"),
+        ("tool calls", "calls"),
+    ]
+    main = report["totals"]["main"]
+    sub = report["totals"]["subagent"]
+    for label, key in rows:
+        lines.append(f"{label:<26}{main[key]:>15}{sub[key]:>15}")
+    lines.append(
+        f"{'share with an index call':<26}"
+        f"{main['share_with_an_index_call']:>15.0%}{sub['share_with_an_index_call']:>15.0%}"
+    )
+    tools = {}
+    for kind in ("main", "subagent"):
+        for tool, n in report["totals"][kind]["index_tools"].items():
+            tools[tool] = tools.get(tool, 0) + n
+    if tools:
+        lines.append("")
+        lines.append("Index tools: " + ", ".join(f"{t} {n}" for t, n in sorted(tools.items(), key=lambda i: -i[1])))
+    if report["subagent_kinds"]:
+        lines.append("")
+        lines.append("Subagent runs by kind (runs, with an index call, index calls):")
+        for kind, entry in sorted(report["subagent_kinds"].items()):
+            lines.append(
+                f"  {kind:<10}{entry['runs']:>6}{entry['runs_with_an_index_call']:>8}{entry['index']:>8}"
+            )
+    if report["agent_types"]:
+        lines.append("")
+        lines.append("agent_type from the hook log: " + ", ".join(f"{t} {n}" for t, n in sorted(report["agent_types"].items())))
+    if report["top_patterns"]:
+        lines.append("")
+        lines.append("Top grep patterns:")
+        for item in report["top_patterns"]:
+            lines.append(f"  {item['count']:>4}  {item['pattern']}")
+    lines.append("")
+    if report["index_errors"]:
+        lines.append(f"Index calls with an error ({len(report['index_errors'])}):")
+        for error in report["index_errors"]:
+            who = error["agent_id"] or "main"
+            lines.append(f"  {error['tool']} [{who}]: {error['error']}")
+    else:
+        lines.append("Index calls with an error: none")
+    return "\n".join(lines)
+
+
+def build(root, days, projects, now=None):
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    since = now - datetime.timedelta(days=days)
+    types = agent_types(root)
+    run_list = []
+    for kind, path in runs(root, projects):
+        run = read_run(kind, path, since, now)
+        if run is None:
+            continue
+        if run["agent_id"]:
+            run["agent_type"] = types.get(run["agent_id"])
+        run_list.append(run)
+    return summarize(run_list, since, now)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="kairos-index-usage",
+        description="The index usage of the local Claude Code sessions of the last days.",
+    )
+    parser.add_argument("--days", type=int, default=7, help="the window, in days (default 7)")
+    parser.add_argument(
+        "--projects", default="*", help="a glob on the project folder names under ~/.claude/projects"
+    )
+    parser.add_argument("--json", action="store_true", help="the report as JSON")
+    args = parser.parse_args(argv)
+    if args.days < 1:
+        parser.error("--days takes a number of days from 1")
+    report = build(config_dir(), args.days, args.projects)
+    if args.json:
+        json.dump(report, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+    else:
+        print(table(report))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

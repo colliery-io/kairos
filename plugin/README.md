@@ -191,6 +191,19 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   minute after the last edit (KAIROS-T-0524). `KAIROS_INDEX_DEBOUNCE_SECONDS` sets the
   number of seconds. `off` stops the update after an edit. With no `kairos` on PATH, no job
   starts.
+- **The code tools before grep.** `hooks/index_first.py tool` is a `PreToolUse` hook on `Grep`,
+  `Glob` and `Bash` (KAIROS-T-0757). It finds the folder of the search. For `Grep` and `Glob`
+  that is their `path`. For `Bash` it is the path argument of `grep`, `rg`, `ag`, `ack`, `find`,
+  `fd` or `git grep` in the command. With none, it is the folder of the call. When the checkout
+  of that folder has an index in the user cache, the hook gives one message of two lines. The
+  message names the checkout and the index tools that answer the same question. It says that
+  grep stays right for literal text. The hook allows the call. The message comes on the first
+  search of a session over the checkout, then on each tenth one (`index-first-<session>` in the
+  state folder). A grep after a pipe filters output: no message. `hooks/index_first.py subagent`
+  is a `SubagentStart` hook for each agent type. It gives the index instruction of the session
+  start, with the checkouts that have an index. Each call writes one line to `tool-calls.log` in
+  the state folder: the time, the session, `agent_id`, `agent_type`, the event, the tool, and
+  `nudge` or `quiet`. The measurement of the index use reads it.
 - **The result of the last update.** After each update, the background job writes
   `last-update.json` in the state folder: the exit code, the time, the command and the refusal.
   The refusal is the last `error: ` line of the output of `kairos` (KAIROS-T-0519). The next

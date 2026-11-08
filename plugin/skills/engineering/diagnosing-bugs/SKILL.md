@@ -11,6 +11,8 @@ The diagnosis log lives on the Kairos item tracking the bug (short code from ses
 
 When exploring the codebase, pull that item and its relationships (`get_item`) to get a clear mental model of the relevant modules, and check ADR documents linked in the area you're touching.
 
+Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`.
+
 ## Phase 1 — Build a feedback loop
 
 **This is the skill.** Everything else is mechanical. If you have a **tight** pass/fail signal for the bug — one that goes red on _this_ bug — you will find the cause; bisection, hypothesis-testing, and instrumentation all just consume it. If you don't have one, no amount of staring at code will save you.

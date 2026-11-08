@@ -244,8 +244,9 @@ gives the Kairos rules as `additionalContext`, once: cite each item as a link
 `<deployment_url>/items/<CODE>` (the bare code when no URL is wired), name work by short code
 and Kairos words, ground a plan in the ADRs and documents of the repository and the initiative
 (COLLIERY-I-0627; the routes are `get_repository` and `team_pages`, KAIROS-T-0599), put a decision about the system in Kairos and not in local memory
-(COLLIERY-I-0628), and mark what was not checked as "not checked". The short codes in the
-rules are links too.
+(COLLIERY-I-0628), mark what was not checked as "not checked", and find code with the code
+tools before a read of a file (COLLIERY-I-0671, KAIROS-T-0759). The short codes in the rules are
+links too.
 
 - The marker is `~/.claude/kairos-rules/<session_id>-<RULES_VERSION>` (`KAIROS_RULES_STATE_DIR`
   overrides the folder). A marker means silence. Bump `RULES_VERSION` when the text changes:

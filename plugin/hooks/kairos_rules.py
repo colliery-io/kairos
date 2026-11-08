@@ -16,7 +16,8 @@ session and writes the marker (KAIROS-T-0525), and `active_work.py compact`
 gives them again after a compaction; this hook then covers the sessions
 that start with no wiring.
 The marker carries the version of the rules, so a plugin update with a
-higher RULES_VERSION gives the new text once more. Markers older than 30
+higher RULES_VERSION gives the new text once more (3: the code index line,
+KAIROS-T-0759). Markers older than 30
 days are removed.
 
 The rules cite items. With a `deployment_url` in the wiring (read with
@@ -41,7 +42,7 @@ if HERE not in sys.path:
 import git_guard  # noqa: E402  (simple_commands, words_of)
 import session_start  # noqa: E402  (the wiring)
 
-RULES_VERSION = 2
+RULES_VERSION = 3
 
 KAIROS_TOOL = re.compile(r"^mcp__(?:plugin_kairos_)?kairos[A-Za-z0-9_-]*__")
 SESSION_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
@@ -54,7 +55,8 @@ RULES = """Kairos rules (once per session, from the kairos plugin):
 - Name work by its short code and the words of Kairos: Backlog, Todo, Active, Completed; task, initiative, ADR, document. Not "ticket", "sprint", "epic", "done".
 - Ground before you plan: read the ADRs and the documents of the repository and the documents of the parent initiative, and name what you read (COLLIERY-I-0627). Two routes give them: `get_repository <slug>` (the items that impact the repository, and the ADRs of the owner team) and `team_pages <team>` (the tree of the documents and the ADRs of the team).
 - A decision about the system under work goes to Kairos: an ADR, the spec, or a note on the initiative. Not to local memory (COLLIERY-I-0628).
-- Mark what you did not check as "not checked", in notes and in replies."""
+- Mark what you did not check as "not checked", in notes and in replies.
+- Code index first (COLLIERY-I-0671): find code with `code_search`, `symbol`, `callers`, `references` and `path` of the `kairos-code` server before you read a file. grep is for literal text only. After you change code, run `kairos index update`."""
 
 CITE_WITH_URL = (
     "Cite every item as a link: `{url}/items/<CODE>`, for example {example}. "

@@ -193,6 +193,10 @@ class TheRulesText(KairosRulesCase):
             "`team_pages <team>`",
             "local memory",
             '"not checked"',
+            # KAIROS-T-0759: the code index before a read of a file.
+            "Code index first",
+            "`code_search`",
+            "`kairos index update`",
         ):
             self.assertIn(phrase, text)
         self.assertNotIn("KAIROS_MCP_KEY", text)

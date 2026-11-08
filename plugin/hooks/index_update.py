@@ -137,16 +137,17 @@ def is_checkout(project):
 
 
 # KAIROS-T-0348: a session that starts outside a checkout (a board folder
-# with the clones below it) runs no update. The agent opens the checkout it
-# works on with the tool `fetch_index` of the server.
+# with the clones below it) runs no update. A code tool opens the checkout
+# that its `checkout` names (KAIROS-T-0754); `fetch_index` opens one by hand.
 NOT_A_CHECKOUT_TEXT = (
     "Code index: this folder is not a git checkout, so the local MCP server "
-    "`kairos-code` has no index open. Call its tool `fetch_index` with `root`, "
-    "the path of the checkout you work on (the worktree of the clone of the "
-    "repository of your task; the wiring context lists the clones of this "
-    "folder). It takes the nearest index from Kairos. Then use `module_map`, "
-    "`code_search`, `symbol`, `callers`, `callees`, `references` and `path` "
-    "before you read files."
+    "`kairos-code` has no index open. Give `checkout`, the path of the checkout "
+    "you work on (the worktree of the clone of the repository of your task; "
+    "the wiring context lists the clones of this folder), to any code tool: "
+    "the tool opens it, with the nearest index from Kairos. `fetch_index` with "
+    "`root` opens one by hand, with `repository` when the origin remote is not "
+    "a repository of Kairos. Use `module_map`, `code_search`, `symbol`, "
+    "`callers`, `callees`, `references` and `path` before you read files."
 )
 
 
@@ -360,7 +361,8 @@ def session_text(project, log):
         lines.append(
             "This checkout has no local index yet. The update tries to download "
             "the base index from Kairos. If the log says that no base index is "
-            "available, call `fetch_index` with this folder as `root`. The CLI "
+            "available, call `fetch_index` with this folder as `root`, or give the "
+            "folder as `checkout` to a code tool. The CLI "
             "does not build an index: the Kairos server builds it. If Kairos has "
             "no index of the repository, tell the user to register the "
             "repository in Kairos."
@@ -470,17 +472,18 @@ def board_checkouts(board):
 
 
 def board_text(started):
-    """The start text of a board folder: open a checkout with `fetch_index`,
-    and the checkouts whose update runs now, each with its log and the
-    failure of its last update."""
+    """The start text of a board folder: a code tool opens the checkout that
+    its `checkout` names, and the checkouts whose update runs now, each with
+    its log and the failure of its last update."""
     lines = [NOT_A_CHECKOUT_TEXT]
     if started:
         names = ", ".join(os.path.basename(checkout) for checkout, _ in started)
         lines.append(
             "`kairos index update --link-only` runs in the background now in each "
-            f"checkout of this folder: {names}. So `fetch_index` opens an index "
-            "that is some seconds old or newer. Each log is in the state folder "
-            "of its checkout, under ~/.claude/kairos-index/."
+            f"checkout of this folder: {names}. So a code tool with `checkout`, "
+            "or `fetch_index`, opens an index that is some seconds old or newer. "
+            "Each log is in the state folder of its checkout, under "
+            "~/.claude/kairos-index/."
         )
         for checkout, failure in started:
             if failure:

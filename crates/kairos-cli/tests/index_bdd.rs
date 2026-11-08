@@ -1353,14 +1353,18 @@ fn the_file_changes(world: &mut CliWorld, file: String) {
     );
 }
 
-#[then("the result says that the source can be different from the symbol")]
-fn the_source_can_differ(world: &mut CliWorld) {
+/// KAIROS-T-0754: the server parses the changed file before it answers, so
+/// the source is the current one and no warning says it can differ.
+#[then("the result says that the index parsed the changed file, and the source is current")]
+fn the_source_is_current(world: &mut CliWorld) {
     let text = world.text();
     assert!(
-        text.contains(
-            "Source: lines 6-8, 37 bytes. Warning: the file changed after the last index \
-             update. The source can be different from the symbol. Run `kairos index update`."
-        ),
+        text.starts_with("The index parsed 1 file that changed since its last update.\n"),
+        "{text}"
+    );
+    assert!(text.contains("Source: lines "), "{text}");
+    assert!(
+        !text.contains("The source can be different from the symbol"),
         "{text}"
     );
 }

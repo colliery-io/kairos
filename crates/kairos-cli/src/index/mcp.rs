@@ -3,15 +3,20 @@
 //! reads the index of one checkout.
 //!
 //! Each tool call opens the index again. So a `kairos index update` that
-//! runs while the server runs is seen at the next call. The results are
-//! short texts (ASD-STE100), as the results of the Kairos server are.
+//! runs while the server runs is seen at the next call. Before a tool
+//! answers, the server parses the files that changed since the last update
+//! (KAIROS-T-0754), so the answer is current after an edit, a pull or a
+//! switch of branch. The results are short texts (ASD-STE100), as the
+//! results of the Kairos server are.
 //!
 //! The checkout that the tools read is the one the server started in, when
-//! that is a git checkout. The agent can open another one, or the first one
-//! when the session started outside a checkout, with `fetch_index`: the
-//! server takes the nearest index of the repository from Kairos and updates
-//! it for the files that differ (KAIROS-T-0348).
+//! that is a git checkout. A tool whose `checkout` names a checkout that is
+//! not open opens it (KAIROS-T-0754), as `fetch_index` does: the server
+//! takes the nearest index of the repository from Kairos and updates it for
+//! the files that differ (KAIROS-T-0348). `fetch_index` stays for an
+//! explicit root or repository.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -137,6 +142,10 @@ pub struct CodeTools {
     /// The checkouts below the start folder when it is not a checkout
     /// (#272). The instructions and the error "no open checkout" name them.
     below: Arc<Vec<Found>>,
+    /// KAIROS-T-0754: one lock for each checkout around the parse of its
+    /// changed files, so that a call that comes during a parse waits for
+    /// it and then reads the new index.
+    parse_locks: Arc<Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>>,
     /// The source of the query vectors, one for each checkout and model.
     embedder: Arc<Mutex<Vec<QueryEmbedder>>>,
     tool_router: ToolRouter<Self>,
@@ -188,8 +197,8 @@ pub struct SymbolParams {
     /// Also give the source text of the symbol, from the file in the
     /// checkout, at most 16384 bytes. Default false.
     pub source: Option<bool>,
-    /// The open checkout to read: its folder name, or its path. Default: the
-    /// last checkout that `fetch_index` opened.
+    /// The checkout to read: its folder name, or its path. A checkout that is
+    /// not open is opened. Default: the last checkout opened.
     pub checkout: Option<String>,
 }
 
@@ -209,8 +218,8 @@ pub struct EdgeParams {
     /// Also give the possible calls: calls by a name that more than one
     /// function has. Default false.
     pub possible: Option<bool>,
-    /// The open checkout to read: its folder name, or its path. Default: the
-    /// last checkout that `fetch_index` opened.
+    /// The checkout to read: its folder name, or its path. A checkout that is
+    /// not open is opened. Default: the last checkout opened.
     pub checkout: Option<String>,
 }
 
@@ -233,8 +242,8 @@ pub struct ReferencesParams {
     pub possible: Option<bool>,
     /// The most uses to give, from 1 to 1000. Default 100.
     pub limit: Option<usize>,
-    /// The open checkout to read: its folder name, or its path. Default: the
-    /// last checkout that `fetch_index` opened.
+    /// The checkout to read: its folder name, or its path. A checkout that is
+    /// not open is opened. Default: the last checkout opened.
     pub checkout: Option<String>,
 }
 
@@ -254,8 +263,8 @@ pub struct PathParams {
     pub from_line: Option<u32>,
     /// A line of `to`, when more than one symbol of one file has the name.
     pub to_line: Option<u32>,
-    /// The open checkout to read: its folder name, or its path. Default: the
-    /// last checkout that `fetch_index` opened.
+    /// The checkout to read: its folder name, or its path. A checkout that is
+    /// not open is opened. Default: the last checkout opened.
     pub checkout: Option<String>,
 }
 
@@ -296,8 +305,8 @@ pub struct DuplicatesParams {
     pub under: Option<String>,
     /// The most groups to give, from 1 to 200. Default 20.
     pub limit: Option<usize>,
-    /// The open checkout to read: its folder name, or its path. Default: the
-    /// last checkout that `fetch_index` opened.
+    /// The checkout to read: its folder name, or its path. A checkout that is
+    /// not open is opened. Default: the last checkout opened.
     pub checkout: Option<String>,
 }
 
@@ -307,8 +316,8 @@ pub struct DuplicatesParams {
 pub struct ModuleMapParams {
     /// Only the folders under this path, from the root of the checkout.
     pub under: Option<String>,
-    /// The open checkout to read: its folder name, or its path. Default: the
-    /// last checkout that `fetch_index` opened.
+    /// The checkout to read: its folder name, or its path. A checkout that is
+    /// not open is opened. Default: the last checkout opened.
     pub checkout: Option<String>,
 }
 
@@ -326,6 +335,7 @@ impl CodeTools {
         CodeTools {
             open: Arc::new(Mutex::new(if open { vec![root] } else { Vec::new() })),
             below: Arc::new(below),
+            parse_locks: Arc::new(Mutex::new(HashMap::new())),
             embedder: Arc::new(Mutex::new(Vec::new())),
             tool_router: Self::tool_router(),
         }
@@ -384,11 +394,134 @@ impl CodeTools {
         }
     }
 
-    /// The index of the checkout that a call reads.
-    fn open_index(&self, checkout: Option<&str>) -> Result<(PathBuf, Index), ToolError> {
+    /// The checkout that `given` names when it is not open (KAIROS-T-0754):
+    /// the path of a git checkout, or the folder name of a checkout below
+    /// the start folder. `None`: no such checkout.
+    fn open_target(&self, given: &str) -> Option<PathBuf> {
+        let as_path = Path::new(given).canonicalize().ok().filter(|p| p.is_dir());
+        if let Some(folder) = as_path {
+            // A folder inside a checkout names the checkout, as `fetch_index`
+            // takes it.
+            if let Some(top) = super::git_output(&folder, &["rev-parse", "--show-toplevel"]) {
+                let top = PathBuf::from(top);
+                return Some(top.canonicalize().unwrap_or(top));
+            }
+        }
+        self.below
+            .iter()
+            .find(|f| f.name == given)
+            .map(|f| f.path.clone())
+    }
+
+    /// Open the checkout that `checkout` names when it is not open yet
+    /// (KAIROS-T-0754), as `fetch_index` would. The line that says so, or
+    /// `None` when the call reads an open checkout. With no `checkout` and
+    /// no open checkout, the error names the checkouts below the start
+    /// folder: the agent gives one as `checkout`.
+    async fn ensure_open(&self, checkout: Option<&str>) -> Result<Option<String>, ToolError> {
+        let Some(given) = checkout.map(str::trim).filter(|c| !c.is_empty()) else {
+            return if self.opened().is_empty() {
+                Err(self.no_checkout())
+            } else {
+                Ok(None)
+            };
+        };
+        let not_open = match self.pick(Some(given)) {
+            Ok(_) => return Ok(None),
+            Err(e) => e,
+        };
+        let Some(root) = self.open_target(given) else {
+            // Nothing open: the given value is not a checkout. Something
+            // open: it is not one of them, and not a checkout.
+            return Err(if self.opened().is_empty() {
+                ToolError::NotACheckout(PathBuf::from(given))
+            } else {
+                not_open
+            });
+        };
+        let line = self
+            .fetch(FetchIndexParams {
+                root: display(&root),
+                repository: None,
+                max_changed: None,
+            })
+            .await?;
+        Ok(Some(line))
+    }
+
+    /// The lock of the parse of `root` (KAIROS-T-0754).
+    fn parse_lock(&self, root: &Path) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self
+            .parse_locks
+            .lock()
+            .expect("the lock of the parse locks");
+        Arc::clone(locks.entry(root.to_path_buf()).or_default())
+    }
+
+    /// Parse the files of `root` that changed since the last update of its
+    /// index (KAIROS-T-0754): the symbols and the edges by name, with the
+    /// summaries linked from the pool; no SCIP run. One parse at a time for
+    /// a checkout: a call that comes during one waits for it, then finds
+    /// nothing to parse. The line that says how many files changed, or
+    /// `None`. A parse that fails does not stop the answer: the line says
+    /// why, and the tool reads the index as it is.
+    async fn parse_changed(&self, root: &Path) -> Option<String> {
+        let lock = self.parse_lock(root);
+        let _held = lock.lock().await;
+        let db = match super::prepare_quiet(root) {
+            Ok(db) if db.is_file() => db,
+            Ok(_) => return None,
+            Err(e) => return Some(format!("The changed files were not parsed: {e}")),
+        };
+        let root = root.to_path_buf();
+        let parsed = tokio::task::spawn_blocking(move || -> Result<usize, IndexCommandError> {
+            let _lock = super::lock_index(&db)?;
+            let changed = kairos_index::changed_files(&root, &db)?;
+            if changed.is_empty() {
+                return Ok(0);
+            }
+            let options = UpdateOptions {
+                rust_edges: false,
+                ..UpdateOptions::default()
+            };
+            kairos_index::update_structure(&root, &db, &options)?;
+            super::summaries::run(&root, &db, Some(super::summaries::LINK_ONLY))?;
+            Ok(changed.len())
+        })
+        .await
+        .map_err(|e| IndexCommandError::Server(e.to_string()));
+        match parsed {
+            Ok(Ok(0)) => None,
+            Ok(Ok(changed)) => Some(format!(
+                "The index parsed {} that changed since its last update.",
+                plural(changed, "file", "files")
+            )),
+            Ok(Err(e)) | Err(e) => Some(format!("The changed files were not parsed: {e}")),
+        }
+    }
+
+    /// The index of the checkout that a call reads: the checkout that
+    /// `checkout` names is opened when it is not open (KAIROS-T-0754), and
+    /// the files that changed are parsed. The third part is the lines that
+    /// say so, each with a newline, or an empty text.
+    async fn open_index(
+        &self,
+        checkout: Option<&str>,
+    ) -> Result<(PathBuf, Index, String), ToolError> {
+        let opened = self.ensure_open(checkout).await?;
         let root = self.pick(checkout)?;
+        let parsed = if opened.is_some() {
+            None
+        } else {
+            self.parse_changed(&root).await
+        };
         let index = Self::index_at(&root)?;
-        Ok((root, index))
+        let head: String = [opened, parsed]
+            .into_iter()
+            .flatten()
+            .map(|line| format!("{line}\n"))
+            .collect();
+        Ok((root, index, head))
     }
 
     fn index_at(root: &Path) -> Result<Index, ToolError> {
@@ -1061,7 +1194,7 @@ pub(super) fn plural(count: usize, one: &str, many: &str) -> String {
 #[tool_router]
 impl CodeTools {
     #[tool(
-        description = "Open the index of a checkout. Give `root`, the path of the checkout. The server takes the nearest index of its repository from Kairos, updates it for the files that differ, and the other tools answer for this checkout by default. The checkouts opened before stay open: give `checkout` to a tool to read one of them. Give `repository`, the slug in Kairos, when the origin remote of the checkout is not a repository of Kairos. It runs no model, so it has no limit of changed files. Give `max_changed` for a limit. A call that fails does not change the open checkout. Call it first when the session did not start inside a checkout."
+        description = "Open the index of a checkout. Give `root`, the path of the checkout. The server takes the nearest index of its repository from Kairos, updates it for the files that differ, and the other tools answer for this checkout by default. The checkouts opened before stay open: give `checkout` to a tool to read one of them. Give `repository`, the slug in Kairos, when the origin remote of the checkout is not a repository of Kairos. It runs no model, so it has no limit of changed files. Give `max_changed` for a limit. A call that fails does not change the open checkout. The other tools open the checkout that their `checkout` names. Call `fetch_index` to give a `repository` when the origin remote of the checkout is not in Kairos."
     )]
     async fn fetch_index(
         &self,
@@ -1090,7 +1223,12 @@ impl CodeTools {
         if !(1..=MAX_LIMIT).contains(&limit) {
             return result(Err(ToolError::Limit(MAX_LIMIT)));
         }
-        // One checkout when the call names it; else each open one (#272).
+        // One checkout when the call names it, opened when it is not open
+        // (KAIROS-T-0754); else each open one (#272).
+        let opened = match self.ensure_open(params.checkout.as_deref()).await {
+            Ok(opened) => opened,
+            Err(e) => return result(Err(e)),
+        };
         let roots = match params.checkout.as_deref() {
             Some(checkout) => match self.pick(Some(checkout)) {
                 Ok(root) => vec![root],
@@ -1102,7 +1240,19 @@ impl CodeTools {
             return result(Err(self.no_checkout()));
         }
         let many = roots.len() > 1;
-        let mut hows = Vec::new();
+        let just_opened = opened.is_some();
+        let mut hows: Vec<String> = opened.into_iter().collect();
+        // The files that changed since the last update, before the search.
+        // A checkout that this call opened is current already.
+        if !just_opened {
+            for root in &roots {
+                match self.parse_changed(root).await {
+                    Some(line) if many => hows.push(format!("{}: {line}", checkout_name(root))),
+                    Some(line) => hows.push(line),
+                    None => {}
+                }
+            }
+        }
         let mut hits: Vec<(String, SearchMode, SearchHit)> = Vec::new();
         for root in &roots {
             let name = checkout_name(root);
@@ -1165,39 +1315,42 @@ impl CodeTools {
         &self,
         Parameters(params): Parameters<SymbolParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        result((|| {
-            let (root, index) = self.open_index(params.checkout.as_deref())?;
-            let s = find(
-                &index,
-                &params.symbol,
-                params.file.as_deref(),
-                params.line,
-                SYMBOL,
-            )?;
-            let mut out = format!(
-                "{} ({}, {})\nFile: {}:{}-{}",
-                s.qualified(),
-                s.kind,
-                s.language,
-                s.file,
-                s.start_line,
-                s.end_line
-            );
-            if let Some(signature) = &s.signature {
-                out.push_str(&format!("\nSignature: `{signature}`"));
+        result(
+            async {
+                let (root, index, head) = self.open_index(params.checkout.as_deref()).await?;
+                let s = find(
+                    &index,
+                    &params.symbol,
+                    params.file.as_deref(),
+                    params.line,
+                    SYMBOL,
+                )?;
+                let mut out = format!(
+                    "{} ({}, {})\nFile: {}:{}-{}",
+                    s.qualified(),
+                    s.kind,
+                    s.language,
+                    s.file,
+                    s.start_line,
+                    s.end_line
+                );
+                if let Some(signature) = &s.signature {
+                    out.push_str(&format!("\nSignature: `{signature}`"));
+                }
+                match &s.summary {
+                    Some(summary) => out.push_str(&format!("\nSummary: {summary}")),
+                    None => out.push_str("\nSummary: none."),
+                }
+                if s.is_test {
+                    out.push_str("\nThis is test code.");
+                }
+                if params.source.unwrap_or(false) {
+                    out.push_str(&source_text(&s, index.source(&root, &s, SOURCE_LIMIT)?));
+                }
+                Ok(format!("{head}{out}"))
             }
-            match &s.summary {
-                Some(summary) => out.push_str(&format!("\nSummary: {summary}")),
-                None => out.push_str("\nSummary: none."),
-            }
-            if s.is_test {
-                out.push_str("\nThis is test code.");
-            }
-            if params.source.unwrap_or(false) {
-                out.push_str(&source_text(&s, index.source(&root, &s, SOURCE_LIMIT)?));
-            }
-            Ok(out)
-        })())
+            .await,
+        )
     }
 
     #[tool(
@@ -1207,47 +1360,50 @@ impl CodeTools {
         &self,
         Parameters(params): Parameters<EdgeParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        result((|| {
-            let (_, index) = self.open_index(params.checkout.as_deref())?;
-            let s = find(
-                &index,
-                &params.symbol,
-                params.file.as_deref(),
-                params.line,
-                SYMBOL,
-            )?;
-            let all = index.callers(s.id, true)?;
-            let possible = params.possible.unwrap_or(false);
-            let (shown, hidden): (Vec<&CallEdge>, Vec<&CallEdge>) =
-                all.iter().partition(|e| possible || e.class == "certain");
-            let mut out = format!(
-                "{} of {}:",
-                plural(shown.len(), "caller", "callers"),
-                described(&s)
-            );
-            for e in &shown {
-                // A call in the body of a macro_rules! definition: each
-                // function that the macro makes does the call (KAIROS-T-0353).
-                let made = if e.other.kind == "macro" {
-                    ": each function that the macro makes does this call"
-                } else {
-                    ""
-                };
-                out.push_str(&format!(
-                    "\n- {}, call at line {}, {}{made}",
-                    described(&e.other),
-                    e.line,
-                    marks(e)
-                ));
+        result(
+            async {
+                let (_, index, head) = self.open_index(params.checkout.as_deref()).await?;
+                let s = find(
+                    &index,
+                    &params.symbol,
+                    params.file.as_deref(),
+                    params.line,
+                    SYMBOL,
+                )?;
+                let all = index.callers(s.id, true)?;
+                let possible = params.possible.unwrap_or(false);
+                let (shown, hidden): (Vec<&CallEdge>, Vec<&CallEdge>) =
+                    all.iter().partition(|e| possible || e.class == "certain");
+                let mut out = format!(
+                    "{} of {}:",
+                    plural(shown.len(), "caller", "callers"),
+                    described(&s)
+                );
+                for e in &shown {
+                    // A call in the body of a macro_rules! definition: each
+                    // function that the macro makes does the call (KAIROS-T-0353).
+                    let made = if e.other.kind == "macro" {
+                        ": each function that the macro makes does this call"
+                    } else {
+                        ""
+                    };
+                    out.push_str(&format!(
+                        "\n- {}, call at line {}, {}{made}",
+                        described(&e.other),
+                        e.line,
+                        marks(e)
+                    ));
+                }
+                if !hidden.is_empty() {
+                    out.push_str(&format!(
+                        "\n{} not shown. Set `possible` to true to see them.",
+                        plural(hidden.len(), "possible caller is", "possible callers are")
+                    ));
+                }
+                Ok(format!("{head}{out}"))
             }
-            if !hidden.is_empty() {
-                out.push_str(&format!(
-                    "\n{} not shown. Set `possible` to true to see them.",
-                    plural(hidden.len(), "possible caller is", "possible callers are")
-                ));
-            }
-            Ok(out)
-        })())
+            .await,
+        )
     }
 
     #[tool(
@@ -1257,85 +1413,88 @@ impl CodeTools {
         &self,
         Parameters(params): Parameters<EdgeParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        result((|| {
-            let (_, index) = self.open_index(params.checkout.as_deref())?;
-            let s = find(
-                &index,
-                &params.symbol,
-                params.file.as_deref(),
-                params.line,
-                SYMBOL,
-            )?;
-            let possible = params.possible.unwrap_or(false);
-            let kairos_index::Callees {
-                edges,
-                no_symbol,
-                externals,
-            } = index.callees(s.id, possible)?;
-            let mut out = format!(
-                "{} calls {} in the checkout:",
-                described(&s),
-                plural(edges.len() + no_symbol.len(), "function", "functions")
-            );
-            // One line for each callee, in the order of the calls. A callee
-            // with no symbol (a function that a macro makes) shows the place
-            // of its definition (COLLIERY-T-2531).
-            let mut lines: Vec<(u32, String)> = edges
-                .iter()
-                .map(|e| {
-                    (
-                        e.line,
-                        format!(
-                            "\n- {}, call at line {}, {}",
-                            described(&e.other),
+        result(
+            async {
+                let (_, index, head) = self.open_index(params.checkout.as_deref()).await?;
+                let s = find(
+                    &index,
+                    &params.symbol,
+                    params.file.as_deref(),
+                    params.line,
+                    SYMBOL,
+                )?;
+                let possible = params.possible.unwrap_or(false);
+                let kairos_index::Callees {
+                    edges,
+                    no_symbol,
+                    externals,
+                } = index.callees(s.id, possible)?;
+                let mut out = format!(
+                    "{} calls {} in the checkout:",
+                    described(&s),
+                    plural(edges.len() + no_symbol.len(), "function", "functions")
+                );
+                // One line for each callee, in the order of the calls. A callee
+                // with no symbol (a function that a macro makes) shows the place
+                // of its definition (COLLIERY-T-2531).
+                let mut lines: Vec<(u32, String)> = edges
+                    .iter()
+                    .map(|e| {
+                        (
                             e.line,
-                            marks(e)
+                            format!(
+                                "\n- {}, call at line {}, {}",
+                                described(&e.other),
+                                e.line,
+                                marks(e)
+                            ),
+                        )
+                    })
+                    .collect();
+                lines.extend(no_symbol.iter().map(|c| {
+                    let made = if c.macro_made {
+                        "made by a macro there, with no symbol"
+                    } else {
+                        "defined there, with no symbol"
+                    };
+                    (
+                        c.call_line,
+                        format!(
+                            "\n- {} ({}:{}, {made}), call at line {}, {}",
+                            c.name, c.file, c.line, c.call_line, c.class
                         ),
                     )
-                })
-                .collect();
-            lines.extend(no_symbol.iter().map(|c| {
-                let made = if c.macro_made {
-                    "made by a macro there, with no symbol"
-                } else {
-                    "defined there, with no symbol"
-                };
-                (
-                    c.call_line,
-                    format!(
-                        "\n- {} ({}:{}, {made}), call at line {}, {}",
-                        c.name, c.file, c.line, c.call_line, c.class
-                    ),
-                )
-            }));
-            lines.sort_by_key(|(line, _)| *line);
-            for (_, line) in lines {
-                out.push_str(&line);
-            }
-            if !externals.is_empty() {
-                let mut seen = std::collections::HashSet::new();
-                let names: Vec<&str> = externals
-                    .iter()
-                    .map(|e| e.name.as_str())
-                    .filter(|name| seen.insert(*name))
-                    .collect();
-                out.push_str(&format!("\nOutside the checkout: {}", names.join(", ")));
-            }
-            if !possible {
-                let all = index.callees(s.id, true)?.edges.len();
-                if all > edges.len() {
-                    out.push_str(&format!(
-                        "\n{} not shown. Set `possible` to true to see them.",
-                        plural(
-                            all - edges.len(),
-                            "possible callee is",
-                            "possible callees are"
-                        )
-                    ));
+                }));
+                lines.sort_by_key(|(line, _)| *line);
+                for (_, line) in lines {
+                    out.push_str(&line);
                 }
+                if !externals.is_empty() {
+                    let mut seen = std::collections::HashSet::new();
+                    let names: Vec<&str> = externals
+                        .iter()
+                        .map(|e| e.name.as_str())
+                        .filter(|name| seen.insert(*name))
+                        .collect();
+                    out.push_str(&format!("\nOutside the checkout: {}", names.join(", ")));
+                }
+                if !possible {
+                    let all = index.callees(s.id, true)?.edges.len();
+                    if all > edges.len() {
+                        out.push_str(&format!(
+                            "\n{} not shown. Set `possible` to true to see them.",
+                            plural(
+                                all - edges.len(),
+                                "possible callee is",
+                                "possible callees are"
+                            )
+                        ));
+                    }
+                }
+                Ok(format!("{head}{out}"))
             }
-            Ok(out)
-        })())
+            .await,
+        )
     }
 
     #[tool(
@@ -1345,44 +1504,48 @@ impl CodeTools {
         &self,
         Parameters(params): Parameters<ReferencesParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        result((|| {
-            let limit = params.limit.unwrap_or(DEFAULT_USES);
-            if !(1..=MAX_USES).contains(&limit) {
-                return Err(ToolError::Limit(MAX_USES));
-            }
-            let (_, index) = self.open_index(params.checkout.as_deref())?;
-            // KAIROS-T-0703: an ADR short code gives the places that cite it.
-            if kairos_index::is_adr_code(&params.symbol) {
-                let extra = [
-                    ("file", params.file.is_some()),
-                    ("line", params.line.is_some()),
-                    ("possible", params.possible.is_some()),
-                ]
-                .into_iter()
-                .find(|(_, given)| *given);
-                if let Some((field, _)) = extra {
-                    return Err(ToolError::AdrCodeArgument {
-                        symbol: params.symbol.clone(),
-                        field: field.to_string(),
-                        others: "`file`, `line` or `possible`".to_string(),
-                    });
+        result(
+            async {
+                let limit = params.limit.unwrap_or(DEFAULT_USES);
+                if !(1..=MAX_USES).contains(&limit) {
+                    return Err(ToolError::Limit(MAX_USES));
                 }
-                return Ok(citations_text(&index, &params.symbol, limit)?);
+                let (_, index, head) = self.open_index(params.checkout.as_deref()).await?;
+                // KAIROS-T-0703: an ADR short code gives the places that cite it.
+                if kairos_index::is_adr_code(&params.symbol) {
+                    let extra = [
+                        ("file", params.file.is_some()),
+                        ("line", params.line.is_some()),
+                        ("possible", params.possible.is_some()),
+                    ]
+                    .into_iter()
+                    .find(|(_, given)| *given);
+                    if let Some((field, _)) = extra {
+                        return Err(ToolError::AdrCodeArgument {
+                            symbol: params.symbol.clone(),
+                            field: field.to_string(),
+                            others: "`file`, `line` or `possible`".to_string(),
+                        });
+                    }
+                    return Ok(format!(
+                        "{head}{}",
+                        citations_text(&index, &params.symbol, limit)?
+                    ));
+                }
+                let s = find(
+                    &index,
+                    &params.symbol,
+                    params.file.as_deref(),
+                    params.line,
+                    SYMBOL,
+                )?;
+                Ok(format!(
+                    "{head}{}",
+                    references_text(&index, &s, params.possible.unwrap_or(false), limit)?
+                ))
             }
-            let s = find(
-                &index,
-                &params.symbol,
-                params.file.as_deref(),
-                params.line,
-                SYMBOL,
-            )?;
-            Ok(references_text(
-                &index,
-                &s,
-                params.possible.unwrap_or(false),
-                limit,
-            )?)
-        })())
+            .await,
+        )
     }
 
     #[tool(
@@ -1392,59 +1555,62 @@ impl CodeTools {
         &self,
         Parameters(params): Parameters<PathParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        result((|| {
-            let (_, index) = self.open_index(params.checkout.as_deref())?;
-            let from = find(
-                &index,
-                &params.from,
-                params.from_file.as_deref(),
-                params.from_line,
-                FROM,
-            )?;
-            let to = find(
-                &index,
-                &params.to,
-                params.to_file.as_deref(),
-                params.to_line,
-                TO,
-            )?;
-            let chains = index.paths(from.id, to.id, MAX_CHAINS)?;
-            if chains.is_empty() {
-                return Ok(format!(
-                    "No chain of certain calls goes from {} to {}.",
+        result(
+            async {
+                let (_, index, head) = self.open_index(params.checkout.as_deref()).await?;
+                let from = find(
+                    &index,
+                    &params.from,
+                    params.from_file.as_deref(),
+                    params.from_line,
+                    FROM,
+                )?;
+                let to = find(
+                    &index,
+                    &params.to,
+                    params.to_file.as_deref(),
+                    params.to_line,
+                    TO,
+                )?;
+                let chains = index.paths(from.id, to.id, MAX_CHAINS)?;
+                if chains.is_empty() {
+                    return Ok(format!(
+                        "No chain of certain calls goes from {} to {}.",
+                        described(&from),
+                        described(&to)
+                    ));
+                }
+                let mut out = format!(
+                    "{} of certain calls from {} to {}, shortest first:",
+                    plural(chains.len(), "chain", "chains"),
                     described(&from),
                     described(&to)
-                ));
-            }
-            let mut out = format!(
-                "{} of certain calls from {} to {}, shortest first:",
-                plural(chains.len(), "chain", "chains"),
-                described(&from),
-                described(&to)
-            );
-            for (n, steps) in chains.iter().enumerate() {
-                out.push_str(&format!(
-                    "\n\nChain {}, {}:",
-                    n + 1,
-                    plural(steps.len(), "call", "calls")
-                ));
-                for (i, step) in steps.iter().enumerate() {
+                );
+                for (n, steps) in chains.iter().enumerate() {
                     out.push_str(&format!(
-                        "\n{}. {} calls {} ({}), at {}:{}",
-                        i + 1,
-                        step.caller.qualified(),
-                        step.callee.qualified(),
-                        step.callee.place(),
-                        step.caller.file,
-                        step.line
+                        "\n\nChain {}, {}:",
+                        n + 1,
+                        plural(steps.len(), "call", "calls")
                     ));
-                    if step.scip_pending {
-                        out.push_str(", by name until the next SCIP run");
+                    for (i, step) in steps.iter().enumerate() {
+                        out.push_str(&format!(
+                            "\n{}. {} calls {} ({}), at {}:{}",
+                            i + 1,
+                            step.caller.qualified(),
+                            step.callee.qualified(),
+                            step.callee.place(),
+                            step.caller.file,
+                            step.line
+                        ));
+                        if step.scip_pending {
+                            out.push_str(", by name until the next SCIP run");
+                        }
                     }
                 }
+                Ok(format!("{head}{out}"))
             }
-            Ok(out)
-        })())
+            .await,
+        )
     }
 
     #[tool(
@@ -1454,28 +1620,34 @@ impl CodeTools {
         &self,
         Parameters(params): Parameters<DuplicatesParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        result((|| {
-            let limit = params.limit.unwrap_or(DEFAULT_GROUPS);
-            if !(1..=MAX_GROUPS).contains(&limit) {
-                return Err(ToolError::Limit(MAX_GROUPS));
+        result(
+            async {
+                let limit = params.limit.unwrap_or(DEFAULT_GROUPS);
+                if !(1..=MAX_GROUPS).contains(&limit) {
+                    return Err(ToolError::Limit(MAX_GROUPS));
+                }
+                let min_lines = params.min_lines.unwrap_or(DEFAULT_MIN_LINES);
+                if min_lines == 0 {
+                    return Err(ToolError::MinLines);
+                }
+                let options = DuplicateOptions {
+                    kinds: match params.kind {
+                        Some(kind) => vec![kind.into()],
+                        None => DuplicateKind::ALL.to_vec(),
+                    },
+                    min_lines,
+                    include_tests: params.tests.unwrap_or(false),
+                    under: params.under,
+                    ..DuplicateOptions::default()
+                };
+                let (_, index, head) = self.open_index(params.checkout.as_deref()).await?;
+                Ok(format!(
+                    "{head}{}",
+                    duplicates_text(&index, &options, limit)?
+                ))
             }
-            let min_lines = params.min_lines.unwrap_or(DEFAULT_MIN_LINES);
-            if min_lines == 0 {
-                return Err(ToolError::MinLines);
-            }
-            let options = DuplicateOptions {
-                kinds: match params.kind {
-                    Some(kind) => vec![kind.into()],
-                    None => DuplicateKind::ALL.to_vec(),
-                },
-                min_lines,
-                include_tests: params.tests.unwrap_or(false),
-                under: params.under,
-                ..DuplicateOptions::default()
-            };
-            let (_, index) = self.open_index(params.checkout.as_deref())?;
-            Ok(duplicates_text(&index, &options, limit)?)
-        })())
+            .await,
+        )
     }
 
     #[tool(
@@ -1485,36 +1657,39 @@ impl CodeTools {
         &self,
         Parameters(params): Parameters<ModuleMapParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        result((|| {
-            let (_, index) = self.open_index(params.checkout.as_deref())?;
-            let modules = index.module_map(params.under.as_deref())?;
-            let files: usize = modules.iter().map(|m| m.files.len()).sum();
-            let mut out = format!(
-                "{}, {}.",
-                plural(modules.len(), "module", "modules"),
-                plural(files, "file", "files")
-            );
-            if modules
-                .iter()
-                .all(|m| m.summary.is_none() && m.files.iter().all(|f| f.summary.is_none()))
-            {
-                out.push_str(" The index has no summaries.");
-            }
-            for m in &modules {
-                out.push_str(&format!("\n\n## {}\n", m.path));
-                out.push_str(m.summary.as_deref().unwrap_or("No summary."));
-                // The Terraform view of the folder (KAIROS-T-0472).
-                for line in m.terraform.iter().flat_map(|t| t.lines()) {
-                    out.push('\n');
-                    out.push_str(&line);
+        result(
+            async {
+                let (_, index, head) = self.open_index(params.checkout.as_deref()).await?;
+                let modules = index.module_map(params.under.as_deref())?;
+                let files: usize = modules.iter().map(|m| m.files.len()).sum();
+                let mut out = format!(
+                    "{}, {}.",
+                    plural(modules.len(), "module", "modules"),
+                    plural(files, "file", "files")
+                );
+                if modules
+                    .iter()
+                    .all(|m| m.summary.is_none() && m.files.iter().all(|f| f.summary.is_none()))
+                {
+                    out.push_str(" The index has no summaries.");
                 }
-                for f in &m.files {
-                    out.push_str("\n- ");
-                    out.push_str(&map_file_line(f));
+                for m in &modules {
+                    out.push_str(&format!("\n\n## {}\n", m.path));
+                    out.push_str(m.summary.as_deref().unwrap_or("No summary."));
+                    // The Terraform view of the folder (KAIROS-T-0472).
+                    for line in m.terraform.iter().flat_map(|t| t.lines()) {
+                        out.push('\n');
+                        out.push_str(&line);
+                    }
+                    for f in &m.files {
+                        out.push_str("\n- ");
+                        out.push_str(&map_file_line(f));
+                    }
                 }
+                Ok(format!("{head}{out}"))
             }
-            Ok(out)
-        })())
+            .await,
+        )
     }
 }
 
@@ -1567,11 +1742,12 @@ impl ServerHandler for CodeTools {
                  `references` for each use of a symbol (types, fields, imports and calls) or \
                  each place that cites an ADR, \
                  `path` for how one symbol reaches another, and `duplicates` for repeated \
-                 code. `fetch_index` opens a checkout: it takes the nearest index of the \
-                 repository from Kairos. More than one checkout can be open: each tool \
-                 takes `checkout`, the folder name or the path of an open one, and reads \
-                 the last one opened by default. Run `kairos index update` after you change \
-                 code.",
+                 code. Before a tool answers, the server parses the files that changed. So \
+                 the answer is current after an edit, a pull or a switch of branch. Each \
+                 tool takes `checkout`, the folder name or the path of a checkout, and opens \
+                 it when it is not open. With no `checkout`, a tool reads the last one \
+                 opened. `fetch_index` opens a checkout by an explicit root, or gives a \
+                 `repository` whose origin remote is not in Kairos.",
                 match self.root() {
                     Some(root) => format!("The code index of the checkout {}.", display(&root)),
                     None => no_checkout_instructions(&self.below),
@@ -1584,8 +1760,9 @@ impl ServerHandler for CodeTools {
 /// names the checkouts below its start folder (#272): the agent opens the
 /// one it works on, and does not have to find the paths first.
 fn no_checkout_instructions(below: &[Found]) -> String {
-    let mut out = "The server has no open checkout: call `fetch_index` with the path of the \
-                   checkout you work on."
+    let mut out = "The server has no open checkout. Give `checkout`, the path of the checkout \
+                   you work on, to any tool: the tool opens it. Or call `fetch_index` with \
+                   `root`, the path."
         .to_string();
     if below.is_empty() {
         return out;
@@ -1598,9 +1775,9 @@ fn no_checkout_instructions(below: &[Found]) -> String {
         out.push_str(&format!("\n- {}", found.line()));
     }
     out.push_str(
-        "\n`fetch_index` finds the repository in Kairos from the origin remote. Call it for \
-         each checkout you work on: they stay open, and `code_search` searches each of \
-         them.\n",
+        "\nGive the folder name or the path of one as `checkout`. The server finds the \
+         repository in Kairos from the origin remote. The checkouts you open stay open, and \
+         `code_search` with no `checkout` searches each of them.\n",
     );
     out
 }
@@ -1744,8 +1921,9 @@ mod tests {
         assert!(tools.below.is_empty());
         assert_eq!(
             no_checkout_instructions(&tools.below),
-            "The server has no open checkout: call `fetch_index` with the path of the \
-             checkout you work on."
+            "The server has no open checkout. Give `checkout`, the path of the checkout you \
+             work on, to any tool: the tool opens it. Or call `fetch_index` with `root`, the \
+             path."
         );
         assert!(
             tools
@@ -1755,6 +1933,113 @@ mod tests {
             "{}",
             tools.no_checkout().text()
         );
+    }
+
+    /// KAIROS-T-0754: `checkout` of a tool names a checkout that is not open
+    /// by the path of a git checkout, or by the folder name of a checkout
+    /// below the start folder; a name of nothing opens nothing.
+    #[test]
+    fn a_tool_opens_the_checkout_that_its_argument_names() {
+        let work = tempfile::tempdir().expect("a temporary folder");
+        let work = work.path().canonicalize().expect("the folder");
+        for name in ["service", "engine"] {
+            std::fs::create_dir_all(work.join(name)).expect("a clone");
+            super::super::test_git(&work.join(name), &["init", "-q", "-b", "main"]);
+        }
+        std::fs::create_dir_all(work.join("notes")).expect("a folder of no repository");
+        let tools = CodeTools::new(work.clone());
+        assert_eq!(tools.open_target("engine"), Some(work.join("engine")));
+        assert_eq!(
+            tools.open_target(&display(&work.join("service"))),
+            Some(work.join("service"))
+        );
+        assert_eq!(tools.open_target("notes"), None, "not a checkout");
+        assert_eq!(tools.open_target("nowhere"), None);
+        // A folder inside a checkout names the checkout.
+        let (_dir, root) = indexed_checkout();
+        std::fs::create_dir_all(root.join("pkg")).unwrap();
+        assert_eq!(
+            tools.open_target(&display(&root.join("pkg"))),
+            Some(root.clone())
+        );
+    }
+
+    /// A git repository with one Python file and a local index of it, for
+    /// the tests of the heal (KAIROS-T-0754).
+    fn indexed_checkout() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let root = dir.path().canonicalize().expect("the folder");
+        let git = |args: &[&str]| super::super::test_git(&root, args);
+        git(&["init", "-q", "-b", "main"]);
+        std::fs::write(
+            root.join("stats.py"),
+            "def total(xs):\n    return sum(xs)\n",
+        )
+        .expect("a file");
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "A"]);
+        let db = super::super::prepare_quiet(&root).expect("the index path");
+        let _ = std::fs::remove_file(&db);
+        kairos_index::update(
+            &root,
+            &db,
+            &mut kairos_index::FakeSummarizer::default(),
+            &kairos_embed::DeterministicProvider::default(),
+            &UpdateOptions::default(),
+        )
+        .expect("the index builds");
+        (dir, root)
+    }
+
+    /// KAIROS-T-0754: a tool answers from the current files. A function
+    /// added after the last update, with no hook and no `kairos index
+    /// update`, is found; the answer says that one file was parsed; the
+    /// next call within the debounce parses nothing.
+    #[tokio::test]
+    async fn a_changed_file_is_parsed_before_the_answer() {
+        let (_dir, root) = indexed_checkout();
+        let tools = CodeTools::new(root.clone());
+        assert_eq!(tools.parse_changed(&root).await, None, "nothing changed");
+        std::fs::write(
+            root.join("stats.py"),
+            "def total(xs):\n    return sum(xs)\n\n\ndef mean(xs):\n    return total(xs) / len(xs)\n",
+        )
+        .expect("an edit");
+        let (_, index, head) = tools.open_index(None).await.unwrap();
+        assert_eq!(
+            head,
+            "The index parsed 1 file that changed since its last update.\n"
+        );
+        assert!(
+            find(&index, "mean", None, None, SYMBOL).is_ok(),
+            "the new function is in the index"
+        );
+        // Nothing changed since: no line.
+        let (_, _, head) = tools.open_index(None).await.unwrap();
+        assert_eq!(head, "");
+    }
+
+    /// KAIROS-T-0754: two calls at the same time on one changed checkout
+    /// both answer; the lock of the index serializes the parse, and the
+    /// file is parsed once.
+    #[tokio::test]
+    async fn two_concurrent_calls_parse_a_changed_checkout_once() {
+        let (_dir, root) = indexed_checkout();
+        let tools = CodeTools::new(root.clone());
+        std::fs::write(
+            root.join("stats.py"),
+            "def total(xs):\n    return sum(xs)\n\n\ndef spread(xs):\n    return max(xs) - min(xs)\n",
+        )
+        .expect("an edit");
+        let (a, b) = tokio::join!(tools.parse_changed(&root), tools.parse_changed(&root));
+        let lines: Vec<String> = [a, b].into_iter().flatten().collect();
+        assert_eq!(
+            lines,
+            ["The index parsed 1 file that changed since its last update."],
+            "one call parses; the other waits and finds nothing to parse"
+        );
+        let (_, index, _) = tools.open_index(None).await.unwrap();
+        assert!(find(&index, "spread", None, None, SYMBOL).is_ok());
     }
 
     /// KAIROS-T-0425: a file with no symbol to summarize and no summary.

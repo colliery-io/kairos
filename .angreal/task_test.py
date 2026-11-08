@@ -237,6 +237,7 @@ def unit():
         os.path.join(hooks, "test_memory_reminder.py"),  # decisions go to Kairos, KAIROS-T-0502
         os.path.join(hooks, "test_adr_context.py"),  # the ADRs of a file, KAIROS-T-0702
         os.path.join(hooks, "test_kairos_code.py"),  # the code server of the plugin
+        os.path.join(hooks, "test_index_usage.py"),  # the index usage report, KAIROS-T-0758
         os.path.join(hooks, "test_channel.py"),  # the dispatch channel
         os.path.join(hooks, "test_hook_test_env.py"),  # no live env, KAIROS-T-0712
     ]

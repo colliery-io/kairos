@@ -217,6 +217,31 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   a time for each checkout.
 - Tests: `hooks/test_index_update.py` (also `bin/kairos-code`), part of `angreal test unit`.
 
+## The index usage of a week
+
+`bin/kairos-index-usage [--days 7] [--projects '<glob>'] [--json]` reports how the local sessions
+used the code index (KAIROS-T-0758, COLLIERY-I-0671). It reads the transcripts under
+`~/.claude/projects/` (`CLAUDE_CONFIG_DIR` overrides `~/.claude`). A main session is
+`<session>.jsonl`. Its subagents are `<session>/subagents/agent-<id>.jsonl`. `--projects` is a
+glob on the project folder names. The script counts the events whose own timestamp is in the
+window, per run. It counts the kairos-code tools by name, `Grep`, `Glob` and `Read`. It counts a
+Bash command that searches (`grep`, `rg`, `ag`, `ack`, `find`, `fd`, `git grep`) and one that
+reads a file (`cat`, `head`, `tail`, `sed -n`, `less`, `bat`). It counts the edits and the
+Kairos work tools. A grep after a pipe filters output: it is not a search. A run with an event
+in the window and no tool call is still a run. A subagent is a Workflow harness agent, an Agent
+tool agent, or other, from its first prompt. Its `agent_type` comes from `tool-calls.log` of the
+hooks when the hook logged it (KAIROS-T-0757).
+
+The report gives the totals for the main sessions and the subagent runs. It gives the share of
+runs with at least one index call, the subagent runs by kind, and the top grep patterns. It
+lists each index call that returned an error, with the first 200 characters of the error text.
+`--json` gives the same as JSON. The script reads only and sends nothing. The report holds no
+file content beyond tool names, patterns and error texts. Read it this way. A low share of runs
+with an index call means the agents grep and read in place of the index. The errors say why an
+index call failed. The top patterns show what the agents look for.
+
+- Tests: `hooks/test_index_usage.py`, on a fixture of transcript lines with neutral names.
+
 ## The dispatch channel pushes a delivery into the session
 
 `bin/kairos-channel` is the MCP server `kairos-dispatch` of the manifest (KAIROS-T-0429): a

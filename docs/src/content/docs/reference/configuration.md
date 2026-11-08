@@ -1326,7 +1326,23 @@ a local index of a newer schema version before it does work.
 When the local index is as near to the tree as the base, the CLI keeps the
 local index. The base can have more summaries than the local index links.
 Then the CLI downloads the base and takes its summaries into the local
-index. The output says so. The tool `fetch_index` of the code tools does the same.
+index. The output says so. The tool `fetch_index` of the code tools does the
+same, with one exception. Kairos can have the index of `HEAD` itself: the
+builder indexed the pull request or the tag, or an upload gave it. That index
+has the SCIP edges and the summaries. `fetch_index` downloads it and installs
+it in place of the local structure. The answer says "the index of commit X
+from Kairos, the sha of HEAD". The local index records which index of Kairos
+it came from, so `fetch_index` installs the same index one time.
+
+The CLI tries a failed download again after 1 s, 3 s and 9 s. After the last
+try, the error names the count of the tries and the last failure. With a
+local index, `fetch_index` then uses the local index and says so. The server
+logs a failed download with the repository, the commit and the cause.
+
+The answer of `fetch_index` says what the index has. It gives the files and
+the symbols. It gives the summaries linked from the pool and the symbols with
+none. It gives the call edges from SCIP and by name, and how many wait for a
+SCIP run. It gives when Kairos first wrote the base index and last wrote it.
 
 | Setting | Description |
 |---|---|

@@ -175,14 +175,29 @@ Feature: Start from the base index
     Then the update says that it took the summaries from Kairos
     And each symbol of A has its summary from the base index
 
-  Scenario: fetch_index takes the new summaries of the base index of the same commit
+  # KAIROS-T-0755: Kairos has the index of HEAD itself. fetch_index installs
+  # it in place of the local structure, one time.
+  Scenario: fetch_index installs the index of HEAD from Kairos when Kairos has it
     Given Kairos has a partly summarized index of commit A of main
     And a checkout of A whose local index links the summaries of that index
     And Kairos then gets a summary of each symbol of A
     And a kairos-code server started in a folder that is not a checkout
     When the agent calls fetch_index with the path of the checkout
-    Then the server says that it took the summaries from Kairos
+    Then the server says that it installed the index of A, the sha of HEAD
     And each symbol of A has its summary from the base index
+    When the agent calls fetch_index with the path of the checkout
+    Then the server says that the index of A, the sha of HEAD, is installed
+
+  # KAIROS-T-0355: HEAD is not indexed, and the local index is as near to
+  # the tree as the base. It keeps its structure.
+  Scenario: fetch_index keeps a local index that is as near as the base
+    Given Kairos has an index of commit A of main
+    And a checkout of a branch from A with 3 changed files and no local index
+    And a kairos-code server started in a folder that is not a checkout
+    When the agent calls fetch_index with the path of the checkout
+    Then the server says that the index of A is open, with 3 changed files
+    When the agent calls fetch_index with the path of the checkout
+    Then the server says that the local index is nearer than the index of A
 
   # KAIROS-T-0592: a deployment with no builder of the code index gets its
   # base indexes from `kairos index upload`, for example in a CI job.

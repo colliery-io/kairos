@@ -76,6 +76,12 @@ pub struct Base {
     /// The commits from HEAD to `origin/<default>`, when HEAD is an
     /// ancestor of it and not the same commit (KAIROS-T-0517).
     pub behind: Option<usize>,
+    /// KAIROS-T-0755: the index is the index of HEAD itself.
+    pub exact: bool,
+    /// When Kairos first wrote the index (RFC 3339), and when it last did:
+    /// a rebuilt index of the same commit has a new `updated_at`.
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 impl Base {
@@ -83,8 +89,14 @@ impl Base {
         short(&self.commit)
     }
 
-    /// Download the index file of the base commit.
+    /// Download the index file of the base commit. A failed download is
+    /// tried again after [`RETRY_WAITS`] (KAIROS-T-0755); the error names
+    /// the tries and the last failure.
     pub async fn download(&self) -> Result<Vec<u8>, String> {
+        retry(&RETRY_WAITS, || self.download_once()).await
+    }
+
+    async fn download_once(&self) -> Result<Vec<u8>, String> {
         match tokio::time::timeout(
             DOWNLOAD_TIMEOUT,
             self.client
@@ -100,18 +112,54 @@ impl Base {
             )),
         }
     }
+
+    /// `<commit>@<updated_at>`: the mark of this index as the checkout
+    /// index records it (KAIROS-T-0755).
+    pub fn mark(&self) -> String {
+        format!("{}@{}", self.commit, self.updated_at)
+    }
+}
+
+/// The waits before each try after a failed download (KAIROS-T-0755).
+pub const RETRY_WAITS: [Duration; 3] = [
+    Duration::from_secs(1),
+    Duration::from_secs(3),
+    Duration::from_secs(9),
+];
+
+/// Run `attempt` until it works, with one more try after each wait of
+/// `waits`. The error of the last try, with the count of the tries.
+pub(super) async fn retry<T, F, Fut>(waits: &[Duration], mut attempt: F) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        let why = match attempt().await {
+            Ok(value) => return Ok(value),
+            Err(why) => why,
+        };
+        match waits.get(tries - 1) {
+            Some(wait) => tokio::time::sleep(*wait).await,
+            None => {
+                return Err(format!(
+                    "the download failed {tries} times; the last failure: {why}"
+                ));
+            }
+        }
+    }
 }
 
 /// What Kairos gave for the checkout.
 pub enum Found {
-    Base(Base),
+    /// Boxed: a `Base` holds a client and the texts of the index.
+    Base(Box<Base>),
     /// No deployment is set: no URL and no `kairos login`.
     NotSet,
     /// The CLI could not connect to the deployment at the URL.
-    Unreachable {
-        url: String,
-        why: String,
-    },
+    Unreachable { url: String, why: String },
     /// Kairos answered, but it has no base index for the checkout. The text
     /// says why.
     NoBase(String),
@@ -153,11 +201,6 @@ pub async fn find(root: &Path, args: &RemoteArgs) -> Found {
     let Some(point) = point else {
         return Found::NoBase("the checkout has no git commit".to_string());
     };
-    // KAIROS-T-0516: the nearest index of the branch point, and of the tip
-    // of `origin/<default>`. A clone that is only behind has HEAD as its
-    // branch point, and the nearest index below it can be old. The index of
-    // the tip is a descendant, and the diff works in each direction.
-    let first = nearest_of(&client, &repository.slug, root, &point).await;
     let tip = git_output(
         root,
         &[
@@ -171,6 +214,49 @@ pub async fn find(root: &Path, args: &RemoteArgs) -> Found {
         ],
     );
     let behind = tip.as_deref().and_then(|tip| behind_by(root, tip));
+    let base_of = |nearest: Nearest, exact: bool| {
+        Found::Base(Box::new(Base {
+            repository: repository.slug.clone(),
+            branch: repository.default_branch.clone(),
+            commit: nearest.commit,
+            changed: nearest.changed,
+            summaries: nearest.summaries,
+            from: nearest.from,
+            distance: nearest.distance,
+            behind,
+            exact,
+            created_at: nearest.created_at,
+            updated_at: nearest.updated_at,
+            // KAIROS-T-0358: the value that the server resolved (a
+            // repository can follow the organization). A server from before
+            // it sends no resolved value, so its own `hosted` counts too.
+            hosted: [
+                &repository.code_index_summaries_resolved,
+                &repository.code_index_summaries,
+            ]
+            .contains(&&kairos_client::types_repositories::CodeIndexSummaries::Hosted),
+            client: client.clone(),
+        }))
+    };
+    // KAIROS-T-0755: the index of HEAD itself, when Kairos has it.
+    let head = git_output(root, &["rev-parse", "--verify", "-q", "HEAD^{commit}"]);
+    let at_head = match &head {
+        Some(head) => Some(nearest_of(&client, &repository.slug, root, head).await),
+        None => None,
+    };
+    match at_head {
+        Some(Asked::Unreachable(why)) => return unreachable(why),
+        Some(Asked::Found(n)) if n.distance == 0 => return base_of(n, true),
+        _ => {}
+    }
+    // KAIROS-T-0516: the nearest index of the branch point, and of the tip
+    // of `origin/<default>`. A clone that is only behind has HEAD as its
+    // branch point, and the nearest index below it can be old. The index of
+    // the tip is a descendant, and the diff works in each direction.
+    let first = match at_head {
+        Some(asked) if head.as_deref() == Some(point.as_str()) => asked,
+        _ => nearest_of(&client, &repository.slug, root, &point).await,
+    };
     let second = match (&first, tip) {
         (Asked::Unreachable(_), _) => None,
         (Asked::Found(n), _) if n.changed == 0 => None,
@@ -185,25 +271,7 @@ pub async fn find(root: &Path, args: &RemoteArgs) -> Found {
         (Asked::Unreachable(why), _) => return unreachable(why),
         (Asked::NoBase(why), _) => return Found::NoBase(why),
     };
-    Found::Base(Base {
-        client,
-        repository: repository.slug.clone(),
-        branch: repository.default_branch.clone(),
-        commit: nearest.commit,
-        changed: nearest.changed,
-        summaries: nearest.summaries,
-        from: nearest.from,
-        distance: nearest.distance,
-        behind,
-        // KAIROS-T-0358: the value that the server resolved (a repository
-        // can follow the organization). A server from before it sends no
-        // resolved value, so its own `hosted` counts too.
-        hosted: [
-            &repository.code_index_summaries_resolved,
-            &repository.code_index_summaries,
-        ]
-        .contains(&&kairos_client::types_repositories::CodeIndexSummaries::Hosted),
-    })
+    base_of(nearest, false)
 }
 
 /// The repository of the checkout at `root` in `repositories`: `--repo`,
@@ -274,6 +342,8 @@ struct Nearest {
     summaries: usize,
     from: String,
     distance: usize,
+    created_at: String,
+    updated_at: String,
 }
 
 /// The answer of Kairos to one request of the nearest index.
@@ -324,6 +394,8 @@ async fn nearest_of(client: &KairosClient, slug: &str, root: &Path, from: &str) 
         summaries: usize::try_from(nearest.index.summary_keys).unwrap_or(0),
         from: from.to_string(),
         distance: nearest.distance,
+        created_at: nearest.index.created_at,
+        updated_at: nearest.index.updated_at,
     })
 }
 
@@ -500,6 +572,39 @@ fn changed_since(root: &Path, commit: &str) -> Option<usize> {
 mod tests {
     use super::*;
 
+    /// KAIROS-T-0755: a download that fails is tried once more after each
+    /// wait; the error of the last try names the count of the tries.
+    #[tokio::test]
+    async fn a_download_is_tried_again_after_each_wait() {
+        let waits = [Duration::ZERO, Duration::ZERO];
+        let tries = std::cell::Cell::new(0);
+        let got = retry(&waits, || {
+            tries.set(tries.get() + 1);
+            let n = tries.get();
+            async move {
+                if n < 3 {
+                    Err(format!("try {n} failed"))
+                } else {
+                    Ok(n)
+                }
+            }
+        })
+        .await;
+        assert_eq!(got, Ok(3));
+        tries.set(0);
+        let got: Result<(), String> = retry(&waits, || {
+            tries.set(tries.get() + 1);
+            let n = tries.get();
+            async move { Err(format!("try {n} failed")) }
+        })
+        .await;
+        assert_eq!(
+            got,
+            Err("the download failed 3 times; the last failure: try 3 failed".to_string())
+        );
+        assert_eq!(RETRY_WAITS.map(|w| w.as_secs()), [1, 3, 9]);
+    }
+
     #[test]
     fn remotes_compare_with_no_scheme_user_or_suffix() {
         let https = normalized_remote("https://github.com/colliery-io/kairos");
@@ -528,6 +633,8 @@ mod tests {
             summaries: 0,
             from: commit.into(),
             distance: 0,
+            created_at: String::new(),
+            updated_at: String::new(),
         };
         assert_eq!(choose(of("a", 250), of("b", 1)).commit, "b");
         assert_eq!(choose(of("a", 3), of("b", 40)).commit, "a");

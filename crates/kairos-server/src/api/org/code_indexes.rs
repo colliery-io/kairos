@@ -665,8 +665,8 @@ pub(crate) async fn upload_code_index(
                 &NewCodeIndex {
                     repository_id: repo.id,
                     commit_sha: commit.clone(),
-                    ref_name: query.r#ref,
-                    source: "upload",
+                    ref_name: query.r#ref.clone(),
+                    source: crate::code_index::UPLOAD,
                     structure: split.structure_gz,
                     structure_bytes: split.structure_bytes as i64,
                     summary_keys: keys.len() as i32,
@@ -678,15 +678,20 @@ pub(crate) async fn upload_code_index(
                 &keys,
             )
             .map_err(ApiError::internal)?;
-            // KAIROS-T-0746: the upload is a current index, so the indexes
-            // of an older schema version go.
-            crate::code_index::delete_old_schema_indexes(conn, repo.id)
-                .map_err(ApiError::internal)?;
+            // KAIROS-T-0756: a build of the sha stays; `put` wrote nothing.
+            // The ref of the upload is recorded all the same, and the
+            // answer is the build.
+            if outcome.stored {
+                // KAIROS-T-0746: the upload is a current index, so the
+                // indexes of an older schema version go.
+                crate::code_index::delete_old_schema_indexes(conn, repo.id)
+                    .map_err(ApiError::internal)?;
+            }
             let info = code_indexes::info(conn, repo.id, &commit)
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| ApiError::internal("the stored index is not there"))?;
             // KAIROS-T-0750: the ref of the upload points at the index now.
-            if let (Some(name), Some(given)) = (info.ref_name.as_deref(), given_ref.as_deref()) {
+            if let (Some(name), Some(given)) = (query.r#ref.as_deref(), given_ref.as_deref()) {
                 kairos_db::code_index_refs::record(
                     conn,
                     repo.id,
@@ -702,18 +707,21 @@ pub(crate) async fn upload_code_index(
                 &commit,
             );
             // The upload is a run of the index (KAIROS-T-0331), and the
-            // readers of the repository hear of it (KAIROS-T-0333).
-            code_index_builds::record_finished(
-                conn,
-                repo.id,
-                "upload",
-                &commit,
-                info.ref_name.as_deref(),
-                Some(user),
-                None,
-            )
-            .map_err(ApiError::internal)?;
-            crate::code_index::notify_run(conn, &repo.slug, Some(user))?;
+            // readers of the repository hear of it (KAIROS-T-0333). A kept
+            // build changed nothing: no run.
+            if outcome.stored {
+                code_index_builds::record_finished(
+                    conn,
+                    repo.id,
+                    crate::code_index::UPLOAD,
+                    &commit,
+                    info.ref_name.as_deref(),
+                    Some(user),
+                    None,
+                )
+                .map_err(ApiError::internal)?;
+                crate::code_index::notify_run(conn, &repo.slug, Some(user))?;
+            }
             let pool_size = code_indexes::pool_size(conn, repo.id).map_err(ApiError::internal)?;
             Ok((
                 outcome.created,

@@ -28,7 +28,6 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::{Array, BigInt, Bytea, Nullable, Text, Timestamptz, Uuid as SqlUuid};
-use diesel::upsert::excluded;
 use uuid::Uuid;
 
 use crate::schema::{code_index_summaries, code_indexes};
@@ -119,20 +118,6 @@ pub struct BranchCitations {
     pub adrs: Vec<CitedAdr>,
 }
 
-#[derive(Insertable)]
-#[diesel(table_name = code_indexes)]
-struct InsertCodeIndex<'a> {
-    repository_id: Uuid,
-    commit_sha: &'a str,
-    ref_name: Option<&'a str>,
-    source: &'a str,
-    structure: &'a [u8],
-    structure_bytes: i64,
-    summary_keys: i32,
-    vector_model: Option<&'a str>,
-    created_by: Option<Uuid>,
-}
-
 /// One indexed commit, with no structure.
 #[derive(Debug, Clone, PartialEq, Queryable, Selectable)]
 #[diesel(table_name = code_indexes)]
@@ -148,6 +133,10 @@ pub struct CodeIndexInfo {
     pub updated_at: DateTime<Utc>,
 }
 
+/// The `source` of an index that a client sent (KAIROS-T-0756). The
+/// others are builds of the server.
+pub const UPLOAD: &str = "upload";
+
 /// What [`put`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PutOutcome {
@@ -155,6 +144,9 @@ pub struct PutOutcome {
     pub created: bool,
     /// The pool rows that were new.
     pub new_summaries: usize,
+    /// The structure was written. False when the index is an upload and a
+    /// build of the commit is there (KAIROS-T-0756): the build stays.
+    pub stored: bool,
 }
 
 /// Write the structure of one commit and add the rows of `pool` that the
@@ -220,31 +212,38 @@ pub fn put(
             .first::<String>(conn)
             .optional()?
             .is_some();
-        diesel::insert_into(code_indexes::table)
-            .values(InsertCodeIndex {
-                repository_id: index.repository_id,
-                commit_sha: &index.commit_sha,
-                ref_name: index.ref_name.as_deref(),
-                source: index.source,
-                structure: &index.structure,
-                structure_bytes: index.structure_bytes,
-                summary_keys: index.summary_keys,
-                vector_model: index.vector_model.as_deref(),
-                created_by: index.created_by,
-            })
-            .on_conflict((code_indexes::repository_id, code_indexes::commit_sha))
-            .do_update()
-            .set((
-                code_indexes::ref_name.eq(excluded(code_indexes::ref_name)),
-                code_indexes::source.eq(excluded(code_indexes::source)),
-                code_indexes::structure.eq(excluded(code_indexes::structure)),
-                code_indexes::structure_bytes.eq(excluded(code_indexes::structure_bytes)),
-                code_indexes::summary_keys.eq(excluded(code_indexes::summary_keys)),
-                code_indexes::vector_model.eq(excluded(code_indexes::vector_model)),
-                code_indexes::created_by.eq(excluded(code_indexes::created_by)),
-                code_indexes::updated_at.eq(diesel::dsl::now),
-            ))
-            .execute(conn)?;
+        // KAIROS-T-0756: an upload replaces an upload, never a build. The
+        // condition is in the statement, so a build that lands between a
+        // read and this write stays too.
+        let written = sql_query(
+            "INSERT INTO code_indexes (repository_id, commit_sha, ref_name, source, structure, \
+             structure_bytes, summary_keys, vector_model, created_by) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+             ON CONFLICT (repository_id, commit_sha) DO UPDATE SET \
+                 ref_name = EXCLUDED.ref_name, source = EXCLUDED.source, \
+                 structure = EXCLUDED.structure, structure_bytes = EXCLUDED.structure_bytes, \
+                 summary_keys = EXCLUDED.summary_keys, vector_model = EXCLUDED.vector_model, \
+                 created_by = EXCLUDED.created_by, updated_at = now() \
+             WHERE EXCLUDED.source <> $10 OR code_indexes.source = $10",
+        )
+        .bind::<SqlUuid, _>(index.repository_id)
+        .bind::<Text, _>(&index.commit_sha)
+        .bind::<Nullable<Text>, _>(index.ref_name.as_deref())
+        .bind::<Text, _>(index.source)
+        .bind::<Bytea, _>(&index.structure)
+        .bind::<BigInt, _>(index.structure_bytes)
+        .bind::<diesel::sql_types::Integer, _>(index.summary_keys)
+        .bind::<Nullable<Text>, _>(index.vector_model.as_deref())
+        .bind::<Nullable<SqlUuid>, _>(index.created_by)
+        .bind::<Text, _>(UPLOAD)
+        .execute(conn)?;
+        if written == 0 {
+            return Ok(PutOutcome {
+                created: false,
+                new_summaries,
+                stored: false,
+            });
+        }
         // KAIROS-T-0703: the cited ADRs of the commit, replaced.
         sql_query("DELETE FROM code_index_citations WHERE repository_id = $1 AND commit_sha = $2")
             .bind::<SqlUuid, _>(index.repository_id)
@@ -269,6 +268,7 @@ pub fn put(
         Ok(PutOutcome {
             created: !existed,
             new_summaries,
+            stored: true,
         })
     })
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The code index in each session (COLLIERY-T-1855, COLLIERY-I-0264).
 
-Four modes:
+Five modes:
 
 - `start` (SessionStart): if `kairos` is on PATH and the checkout has the
   Kairos wiring (`kairos config show`), start `worker` as a detached
@@ -21,6 +21,15 @@ Four modes:
 - `debounce` (the background job after edits, KAIROS-T-0524): wait until no
   edit came for N seconds, wait for an update that runs, then run the same
   update as `worker`. One for each checkout at a time (`debounce.lock`).
+- `push` (PostToolUse on Bash, KAIROS-T-0756): when the command has a
+  `git push`, start `worker` for the checkout of the push.
+
+After an update that worked, `worker` can send the index to Kairos with
+`kairos index upload --ref <branch>` (KAIROS-T-0756). It sends when HEAD
+is on its upstream branch, the tree has no change, and the sha has no mark
+(`uploaded-sha`). The server build of the sha replaces the upload later.
+The result goes to the log and to `last-upload.json`. `fetch_index` names
+a failed upload. Nothing goes to the chat.
 
 In a board folder (a folder with the clones below it, KAIROS-T-0348), each
 edit goes to the list of its own clone or worktree, and the update runs
@@ -67,6 +76,7 @@ import json
 import math
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -76,6 +86,8 @@ SOURCE_SUFFIXES = (".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".go")
 SKIPPED_DIRS = (".kairos", ".git", "target", "node_modules")
 LOG_KEEP_BYTES = 256 * 1024
 RESULT_FILE = "last-update.json"
+UPLOAD_RESULT_FILE = "last-upload.json"
+UPLOADED_MARK = "uploaded-sha"
 RESULT_FORMAT = 1
 # A result older than this gives no line: the CLI or the checkout can have
 # changed since (KAIROS-T-0519).
@@ -521,7 +533,7 @@ def rotate(log):
         pass
 
 
-def worker(project):
+def worker(project, reason="the start of a session"):
     project = os.path.realpath(project)
     folder = state_dir(project)
     os.makedirs(folder, exist_ok=True)
@@ -530,7 +542,7 @@ def worker(project):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return  # an update runs already; it or the next one reads the list
-        run_update(project, folder, "the start of a session")
+        run_update(project, folder, reason, then_upload=True)
 
 
 def last_edit(stamp):
@@ -619,7 +631,7 @@ def run_logged(command, project, out, log):
 EXIT_USAGE = 64
 
 
-def run_update(project, folder, reason):
+def run_update(project, folder, reason, then_upload=False):
     changed = os.path.join(folder, "changed-files")
     taken = changed + ".taken"
     # Take the list first. A list left by a stopped worker is taken again.
@@ -668,7 +680,157 @@ def run_update(project, folder, reason):
             append_unique(changed, entries)
             os.remove(taken)
             out.write("The list of changed files is kept for the next update.\n")
-    write_result(folder, code, command, refusal)
+        out.flush()
+        write_result(folder, code, command, refusal)
+        if code == 0 and then_upload:
+            upload(project, folder, out, log)
+
+
+# ---------------------------------------------------------------- upload
+
+
+def git_output(project, *args):
+    """The stripped stdout of a git command in project, or None when git
+    fails or is not there."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", project, *args],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def read_mark(folder):
+    try:
+        with open(os.path.join(folder, UPLOADED_MARK), encoding="utf-8") as handle:
+            return handle.read().strip() or None
+    except OSError:
+        return None
+
+
+def write_mark(folder, sha):
+    path = os.path.join(folder, UPLOADED_MARK)
+    with open(path + ".tmp", "w", encoding="utf-8") as handle:
+        handle.write(sha + "\n")
+    os.replace(path + ".tmp", path)
+
+
+def upload_skip(project, folder, sha):
+    """Why the index is not sent (KAIROS-T-0756), or None when it is."""
+    if sha is None:
+        return "the checkout has no commit"
+    if read_mark(folder) == sha:
+        return f"the index of {sha[:12]} was uploaded before"
+    changes = git_output(project, "status", "--porcelain")
+    if changes is None:
+        return "git status failed"
+    if changes:
+        count = len(changes.splitlines())
+        return (
+            f"the tree has {count} change" + ("" if count == 1 else "s")
+            + " that " + ("is" if count == 1 else "are") + " not committed"
+        )
+    upstream = upstream_of(project)
+    if not upstream:
+        return f"HEAD {sha[:12]} has no upstream branch"
+    if git_output(project, "merge-base", "--is-ancestor", sha, upstream) is None:
+        return f"HEAD {sha[:12]} is not on its upstream branch {upstream}"
+    return None
+
+
+def upstream_of(project):
+    """The upstream branch of HEAD (`origin/feature`), or None."""
+    return git_output(project, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+
+
+def upload_ref(project):
+    """The ref of the upload: the upstream branch of HEAD without its
+    remote (`origin/feature` is `feature`), or None."""
+    upstream = upstream_of(project)
+    if not upstream:
+        return None
+    return upstream.split("/", 1)[1] if "/" in upstream else upstream
+
+
+def upload(project, folder, out, log):
+    """Send the index of the checkout for HEAD after an update that worked
+    (KAIROS-T-0756), when nothing in `upload_skip` stops it. Quiet: the
+    output goes to the log, the result to last-upload.json."""
+    sha = git_output(project, "rev-parse", "--verify", "-q", "HEAD^{commit}")
+    skip = upload_skip(project, folder, sha)
+    if skip:
+        out.write(f"No upload: {skip}.\n")
+        return
+    ref = upload_ref(project)
+    command = ["kairos", "index", "upload"] + (["--ref", ref] if ref else [])
+    out.write(f"Upload: {' '.join(command)}\n")
+    start = out.tell()
+    code = run_logged(command, project, out, log)
+    refusal = None if code == 0 else refusal_text(log, start)
+    out.write(f"=== upload exit code {code}\n")
+    if code == 0:
+        write_mark(folder, sha)
+    write_upload_result(folder, code, command, sha, ref, refusal)
+
+
+def write_upload_result(folder, code, command, sha, ref, refusal):
+    result = result_of(code, command, refusal)
+    result.update({"commit": sha, "ref": ref})
+    write_json(os.path.join(folder, UPLOAD_RESULT_FILE), result)
+
+
+def push_folder(command):
+    """The `-C` folder of the `git push` in command ("" for the folder of
+    the command), or None when command has no push. A `cd` in the line
+    makes the folder unknown: None. The words come from `git_guard`."""
+    import git_guard
+
+    if git_guard.CHANGES_FOLDER.search(command):
+        return None
+    for simple in git_guard.simple_commands(command):
+        words = git_guard.words_of(simple)
+        if not words or words[0] != "git":
+            continue
+        subcommand, _, options = git_guard.git_parts(words)
+        if subcommand != "push":
+            continue
+        folder = ""
+        for option in options:
+            if len(option) == 2 and option[0] == "-C":
+                folder = os.path.join(folder, option[1])
+        return folder
+    return None
+
+
+def push(payload):
+    """PostToolUse on Bash (KAIROS-T-0756): a `git push` in the command
+    starts the worker of the checkout of the push, which uploads the index
+    when HEAD is on the remote."""
+    if payload.get("tool_name") != "Bash":
+        return
+    tool_input = payload.get("tool_input") or {}
+    command = tool_input.get("command")
+    if not isinstance(command, str):
+        return
+    folder = push_folder(command)
+    if folder is None or shutil.which("kairos") is None:
+        return
+    cwd = payload.get("cwd")
+    cwd = cwd if isinstance(cwd, str) and cwd else project_dir()
+    checkout = checkout_top(os.path.join(cwd, folder))
+    if not is_checkout(checkout):
+        return
+    project = project_dir()
+    if not is_wired(checkout) and not (is_below(checkout, project) and is_wired(project)):
+        return
+    os.makedirs(state_dir(checkout), exist_ok=True)
+    spawn(["worker", checkout, "push"], checkout)
 
 
 def refusal_text(log, start):
@@ -688,10 +850,13 @@ def refusal_text(log, start):
 
 
 def write_result(folder, code, command, refusal):
-    """Write last-update.json in folder: a temporary file, then a rename,
-    so that a hook never reads half a file."""
+    """Write last-update.json in folder."""
+    write_json(os.path.join(folder, RESULT_FILE), result_of(code, command, refusal))
+
+
+def result_of(code, command, refusal):
     now = datetime.datetime.now().astimezone()
-    result = {
+    return {
         "format": RESULT_FORMAT,
         "exit_code": code,
         "finished": now.isoformat(timespec="seconds"),
@@ -699,7 +864,11 @@ def write_result(folder, code, command, refusal):
         "command": " ".join(command),
         "refusal": refusal,
     }
-    path = os.path.join(folder, RESULT_FILE)
+
+
+def write_json(path, result):
+    """Write result to path: a temporary file, then a rename, so that a
+    hook never reads half a file."""
     temporary = path + ".tmp"
     with open(temporary, "w", encoding="utf-8") as handle:
         json.dump(result, handle)
@@ -714,7 +883,8 @@ def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     try:
         if mode == "worker" and len(sys.argv) > 2:
-            worker(sys.argv[2])
+            reason = "a git push" if sys.argv[3:4] == ["push"] else "the start of a session"
+            worker(sys.argv[2], reason)
             return
         if mode == "debounce" and len(sys.argv) > 3:
             debounce(sys.argv[2], float(sys.argv[3]))
@@ -727,6 +897,8 @@ def main():
             start(payload)
         elif mode == "record":
             record(payload)
+        elif mode == "push":
+            push(payload)
     except Exception as error:  # never block a session or a tool call (KAIROS-T-0708: the reason goes to the log)
         sys.stderr.write(f"kairos index update: the hook failed: {error}\n")
         return

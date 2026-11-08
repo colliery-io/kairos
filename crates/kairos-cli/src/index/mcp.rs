@@ -570,6 +570,10 @@ impl CodeTools {
         if let Some(line) = behind {
             lines.push(line);
         }
+        // KAIROS-T-0756: a failed upload of the hook of the plugin.
+        if let Some(line) = upload_failure_line(&root) {
+            lines.push(line);
+        }
         Ok(lines.join(" "))
     }
 
@@ -658,6 +662,75 @@ impl CodeTools {
         };
         Ok((found.hits, found.mode, how))
     }
+}
+
+/// The state folder of the hook `index_update.py` of the plugin for the
+/// checkout at `root` (KAIROS-T-0756), as the hook makes it:
+/// `KAIROS_INDEX_STATE_DIR`, else `~/.claude/kairos-index`, then
+/// `<name>-<12 hex digits of the SHA-256 of the path>`.
+fn hook_state_dir(root: &Path) -> Option<PathBuf> {
+    use sha2::Digest;
+    let parent = match std::env::var_os("KAIROS_INDEX_STATE_DIR") {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => PathBuf::from(std::env::var_os("HOME")?)
+            .join(".claude")
+            .join("kairos-index"),
+    };
+    let digest = sha2::Sha256::digest(root.as_os_str().as_encoded_bytes());
+    let digest: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "root".to_string());
+    Some(parent.join(format!("{name}-{}", &digest[..12])))
+}
+
+/// How long a failed upload is named (KAIROS-T-0756).
+const UPLOAD_FAILURE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
+
+/// The line about the last upload of the hook when it failed in the last
+/// 7 days (KAIROS-T-0756): `last-upload.json` of the state folder.
+fn upload_failure_line(root: &Path) -> Option<String> {
+    let folder = hook_state_dir(root)?;
+    let text = std::fs::read_to_string(folder.join("last-upload.json")).ok()?;
+    upload_failure_of(&text, std::time::SystemTime::now(), &folder)
+}
+
+/// The line of a `last-upload.json` text that says a failure, else `None`:
+/// an exit code 0, a result older than 7 days, or a text that does not
+/// parse gives no line. Pure.
+fn upload_failure_of(text: &str, now: std::time::SystemTime, folder: &Path) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    if value.get("exit_code")?.as_i64() == Some(0) {
+        return None;
+    }
+    let finished = value.get("finished_epoch")?.as_f64()?;
+    let age = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs_f64()
+        - finished;
+    if age > UPLOAD_FAILURE_MAX_AGE.as_secs_f64() {
+        return None;
+    }
+    let commit = value.get("commit").and_then(|c| c.as_str()).unwrap_or("?");
+    let short = &commit[..commit.len().min(12)];
+    let r#ref = value
+        .get("ref")
+        .and_then(|r| r.as_str())
+        .map(|r| format!(" for {r}"))
+        .unwrap_or_default();
+    let refusal = value
+        .get("refusal")
+        .and_then(|r| r.as_str())
+        .unwrap_or("no reason in the log")
+        .trim_end_matches('.');
+    Some(format!(
+        "The last upload of the index to Kairos (commit {short}{ref}) failed: {refusal}. The \
+         log is update.log in {}.",
+        display(folder)
+    ))
 }
 
 /// The line of `fetch_index` with more than one open checkout (#272): the
@@ -1614,6 +1687,36 @@ fn display(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// KAIROS-T-0756: the line names the commit, the ref and the refusal;
+    /// a success, an old result or a bad text gives no line.
+    #[test]
+    fn a_failed_upload_of_the_hook_gives_one_line() {
+        let folder = Path::new("/tmp/state/kairos-abc");
+        let now = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2_000_000_000);
+        let fresh = 2_000_000_000.0 - 60.0;
+        let text = format!(
+            r#"{{"format":1,"exit_code":1,"finished_epoch":{fresh},"commit":"0123456789abcdef0123","ref":"feature","refusal":"Kairos refused the upload (403)."}}"#
+        );
+        assert_eq!(
+            upload_failure_of(&text, now, folder).as_deref(),
+            Some(
+                "The last upload of the index to Kairos (commit 0123456789ab for feature) failed: \
+                 Kairos refused the upload (403). The log is update.log in /tmp/state/kairos-abc."
+            )
+        );
+        let ok = format!(r#"{{"exit_code":0,"finished_epoch":{fresh},"commit":"abc"}}"#);
+        assert_eq!(upload_failure_of(&ok, now, folder), None);
+        let old = 2_000_000_000.0 - 8.0 * 24.0 * 3600.0;
+        let stale = format!(r#"{{"exit_code":1,"finished_epoch":{old},"commit":"abc"}}"#);
+        assert_eq!(upload_failure_of(&stale, now, folder), None);
+        assert_eq!(upload_failure_of("not json", now, folder), None);
+        let no_reason = format!(r#"{{"exit_code":null,"finished_epoch":{fresh},"commit":"abc"}}"#);
+        assert!(
+            upload_failure_of(&no_reason, now, folder)
+                .is_some_and(|l| l.contains("commit abc) failed: no reason in the log"))
+        );
+    }
+
     use super::*;
 
     fn sym(file: &str, line: u32) -> SymbolInfo {

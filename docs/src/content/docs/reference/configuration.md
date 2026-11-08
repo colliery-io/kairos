@@ -1363,6 +1363,17 @@ local index. The base can have more summaries than the local index links.
 Then the CLI downloads the base and takes its summaries into the local
 index. The output says so. The tool `fetch_index` of the code tools does the same.
 
+After a `git push`, the Claude Code plugin sends the local index to Kairos
+with `kairos index upload --ref <branch>` (the hook `index_update.py push`).
+It sends when HEAD is on its upstream branch, the tree has no change, and
+the sha was not sent before. Kairos keeps the upload as the index of the sha
+and serves it to `fetch_index`. The builder does not skip the sha because of
+the upload. Its build replaces the upload. The files and the symbols stay the
+same; the build adds the SCIP edges and the summaries. An upload of a sha
+that the builder built already changes nothing. Kairos records the ref and
+answers with the build. A failed upload goes to `update.log` of the hook and
+to the next `fetch_index` answer, not to the chat.
+
 | Setting | Description |
 |---|---|
 | `--url`, then `KAIROS_URL`, then the binding of the checkout (the `[[project]]` of [`config.toml`](#configtoml), `[default]`) | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |

@@ -657,8 +657,9 @@ the job.
 #### What the builder indexes
 
 At each pass, the sweep fetches the branches, the tags and the pull request
-heads of each repository (`refs/pull/*/head` on GitHub,
-`refs/merge-requests/*/head` on GitLab). The targets of a repository are:
+heads of each repository. The pull request heads are `refs/pull/*/head` on
+GitHub and `refs/merge-requests/*/head` on GitLab. The targets of a repository
+are:
 
 1. The head of the default branch. The forge gives the branch; a branch set
    by hand has priority; when the forge cannot be read, the stored branch
@@ -671,11 +672,13 @@ heads of each repository (`refs/pull/*/head` on GitHub,
 
 One commit gets one index, whatever the number of refs that point at it. The
 list of the indexes (`kairos repos indexes`, the GUI, the API field `refs`)
-shows each ref of a commit. An update job builds the targets that have no
-index, the head first, then the tags, then the pull requests, newest first,
-at most 4 in one job. The next pass adds a job for the rest. A tag or a pull
-request with no indexed commit below it gets no full build: it waits for an
-index of the branch.
+shows each ref of a commit.
+
+An update job builds the targets that have no index. The order: the head, then
+the tags, then the pull requests, newest first. One job builds at most 4
+targets. The next pass adds a job for the rest. A tag or a pull request with no
+indexed commit below it gets no full build. It waits for an index of the
+branch.
 
 A build with the embedded model is a job of the type `embedded_build`. One
 server runs one of them at a time (`KAIROS_JOB_LIMIT_EMBEDDED_BUILD`). Thus

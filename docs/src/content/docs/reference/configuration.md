@@ -468,14 +468,15 @@ Kairos keeps the code index of each indexed commit of a repository
 (`/api/repositories/{slug}/code-indexes`). The indexes are in Postgres. These
 variables control the clones of the repositories and the builder. The builder
 makes the first index of each repository that has no index. Then it updates
-the index after each push to the default branch, to an open pull request or to a
-tag (see [What the builder indexes](#what-the-builder-indexes)).
+the index after each push to a target ref. [What the builder
+indexes](#what-the-builder-indexes) lists the targets.
 
 When the fetch of a repository fails, the sweep adds no build job for it.
 The forge is down, or the server has no network. The sweep records one run
 with the text of the failure. Then it waits before the next try: 5 minutes,
 then twice as long after each failure, up to one hour. A fetch that works
 ends the wait. A new read token or a change of the repository ends it too.
+
 When the fetch of each repository fails, the log has one warning for the
 outage. A failed fetch does not trip the breaker of the repository. The
 breaker is for a build that stopped a server, and it needs a person.

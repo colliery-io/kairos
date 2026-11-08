@@ -10,6 +10,8 @@ Everything this skill needs is already in the conversation — stress-testing a 
 
 1. Explore the repo, if you haven't already, until you can name the modules this feature touches and the candidate seams. Use the project's domain glossary vocabulary throughout the PRD, and respect ADRs in the area you're touching — `search` Kairos for both if they aren't already in context.
 
+   Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`.
+
 2. Sketch out the seams at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better — the ideal number is one.
 
    Check with the user that these seams match their expectations. The confirmed seams become the backbone of the PRD's Testing Decisions.

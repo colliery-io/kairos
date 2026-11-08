@@ -1145,7 +1145,7 @@ class Wiring(unittest.TestCase):
         path = os.path.join(ROOT, "plugin", "skills", "workflow", "implement", "SKILL.md")
         with open(path, encoding="utf-8") as handle:
             text = handle.read()
-        self.assertIn("before you read files", text)
+        self.assertIn("before you read a file", text)  # KAIROS-T-0759: the paragraph
         for tool in ("module_map", "code_search", "callers", "callees"):
             self.assertIn(f"`{tool}`", text)
 

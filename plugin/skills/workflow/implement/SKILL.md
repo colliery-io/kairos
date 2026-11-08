@@ -61,7 +61,7 @@ The task item is your **working memory**. Every few significant steps, `append_n
 
 The task also has a **live state**, separate from the notes: one current line that `get_item`, `board_items` and the card show. Write it with `set_state` (`branch`, `commit`, `pushed`, `pr_url`, `next_step`) after each commit, after each push, after a PR opens, and before any stop or hand-off. The write is a patch (KAIROS-A-0029): a field that you do not send keeps its value, and `null` clears it. A note records what happened; the state says where the work is now.
 
-To find code, use the code tools of the `kairos-code` MCP server before you read files: `module_map`, `code_search`, `callers` and `callees` (and `symbol`, `references` and `path`). Then read only the files that they name.
+Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`. `module_map` gives the map of the modules; `callees` gives the calls of one symbol. When you start an Agent subagent, put this paragraph and the path of the worktree in its prompt.
 
 When you split the task, or add a task for work that you find, link the tasks with `blocks` when one must wait for the other. Give no edge to tasks that can go in parallel. Say the order in each task.
 

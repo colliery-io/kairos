@@ -191,6 +191,19 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   minute after the last edit (KAIROS-T-0524). `KAIROS_INDEX_DEBOUNCE_SECONDS` sets the
   number of seconds. `off` stops the update after an edit. With no `kairos` on PATH, no job
   starts.
+- **The code tools before grep.** `hooks/index_first.py tool` is a `PreToolUse` hook on `Grep`,
+  `Glob` and `Bash` (KAIROS-T-0757). It finds the folder of the search. For `Grep` and `Glob`
+  that is their `path`. For `Bash` it is the path argument of `grep`, `rg`, `ag`, `ack`, `find`,
+  `fd` or `git grep` in the command. With none, it is the folder of the call. When the checkout
+  of that folder has an index in the user cache, the hook gives one message of two lines. The
+  message names the checkout and the index tools that answer the same question. It says that
+  grep stays right for literal text. The hook allows the call. The message comes on the first
+  search of a session over the checkout, then on each tenth one (`index-first-<session>` in the
+  state folder). A grep after a pipe filters output: no message. `hooks/index_first.py subagent`
+  is a `SubagentStart` hook for each agent type. It gives the index instruction of the session
+  start, with the checkouts that have an index. Each call writes one line to `tool-calls.log` in
+  the state folder: the time, the session, `agent_id`, `agent_type`, the event, the tool, and
+  `nudge` or `quiet`. The measurement of the index use reads it.
 - **The result of the last update.** After each update, the background job writes
   `last-update.json` in the state folder: the exit code, the time, the command and the refusal.
   The refusal is the last `error: ` line of the output of `kairos` (KAIROS-T-0519). The next
@@ -203,6 +216,31 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   `debounce.lock`. `KAIROS_INDEX_STATE_DIR` overrides the parent folder. Only one update runs at
   a time for each checkout.
 - Tests: `hooks/test_index_update.py` (also `bin/kairos-code`), part of `angreal test unit`.
+
+## The index usage of a week
+
+`bin/kairos-index-usage [--days 7] [--projects '<glob>'] [--json]` reports how the local sessions
+used the code index (KAIROS-T-0758, COLLIERY-I-0671). It reads the transcripts under
+`~/.claude/projects/` (`CLAUDE_CONFIG_DIR` overrides `~/.claude`). A main session is
+`<session>.jsonl`. Its subagents are `<session>/subagents/agent-<id>.jsonl`. `--projects` is a
+glob on the project folder names. The script counts the events whose own timestamp is in the
+window, per run. It counts the kairos-code tools by name, `Grep`, `Glob` and `Read`. It counts a
+Bash command that searches (`grep`, `rg`, `ag`, `ack`, `find`, `fd`, `git grep`) and one that
+reads a file (`cat`, `head`, `tail`, `sed -n`, `less`, `bat`). It counts the edits and the
+Kairos work tools. A grep after a pipe filters output: it is not a search. A run with an event
+in the window and no tool call is still a run. A subagent is a Workflow harness agent, an Agent
+tool agent, or other, from its first prompt. Its `agent_type` comes from `tool-calls.log` of the
+hooks when the hook logged it (KAIROS-T-0757).
+
+The report gives the totals for the main sessions and the subagent runs. It gives the share of
+runs with at least one index call, the subagent runs by kind, and the top grep patterns. It
+lists each index call that returned an error, with the first 200 characters of the error text.
+`--json` gives the same as JSON. The script reads only and sends nothing. The report holds no
+file content beyond tool names, patterns and error texts. Read it this way. A low share of runs
+with an index call means the agents grep and read in place of the index. The errors say why an
+index call failed. The top patterns show what the agents look for.
+
+- Tests: `hooks/test_index_usage.py`, on a fixture of transcript lines with neutral names.
 
 ## The dispatch channel pushes a delivery into the session
 
@@ -244,8 +282,9 @@ gives the Kairos rules as `additionalContext`, once: cite each item as a link
 `<deployment_url>/items/<CODE>` (the bare code when no URL is wired), name work by short code
 and Kairos words, ground a plan in the ADRs and documents of the repository and the initiative
 (COLLIERY-I-0627; the routes are `get_repository` and `team_pages`, KAIROS-T-0599), put a decision about the system in Kairos and not in local memory
-(COLLIERY-I-0628), and mark what was not checked as "not checked". The short codes in the
-rules are links too.
+(COLLIERY-I-0628), mark what was not checked as "not checked", and find code with the code
+tools before a read of a file (COLLIERY-I-0671, KAIROS-T-0759). The short codes in the rules are
+links too.
 
 - The marker is `~/.claude/kairos-rules/<session_id>-<RULES_VERSION>` (`KAIROS_RULES_STATE_DIR`
   overrides the folder). A marker means silence. Bump `RULES_VERSION` when the text changes:

@@ -628,23 +628,64 @@ fn update_says_taken(world: &mut CliWorld) {
     assert!(!stdout.contains("Not made:"), "{out}");
 }
 
-#[then("the server says that it took the summaries from Kairos")]
-fn server_says_taken(world: &mut CliWorld) {
+/// KAIROS-T-0755: the index of HEAD from Kairos replaces the local
+/// structure; the answer names the sha of HEAD, each summary, the edges
+/// by origin and when Kairos wrote the base.
+#[then("the server says that it installed the index of A, the sha of HEAD")]
+fn server_says_installed_head(world: &mut CliWorld) {
     let r = world.result.as_ref().expect("no result");
     assert!(!r.is_error, "{}", r.text);
+    let a = &world.base.kairos().a[..12];
     assert!(
-        r.text
-            .contains("the local index is nearer to the tree than the index of"),
-        "{}",
-        r.text
-    );
-    assert!(
-        r.text
-            .contains("The update took the summaries from Kairos and keeps the local structure."),
+        r.text.contains(&format!(
+            "the index of commit {a} from Kairos, the sha of HEAD; 0 files changed in the \
+             working tree."
+        )),
         "{}",
         r.text
     );
     assert!(r.text.contains(", 0 with none."), "{}", r.text);
+    assert!(r.text.contains("Call edges: "), "{}", r.text);
+    assert!(
+        r.text.contains("The base index in Kairos is from "),
+        "{}",
+        r.text
+    );
+}
+
+/// KAIROS-T-0755: the second call finds the mark of the installed index
+/// and installs nothing.
+#[then("the server says that the index of A, the sha of HEAD, is installed")]
+fn server_says_head_installed_already(world: &mut CliWorld) {
+    let r = world.result.as_ref().expect("no result");
+    assert!(!r.is_error, "{}", r.text);
+    let a = &world.base.kairos().a[..12];
+    assert!(
+        r.text.contains(&format!(
+            "the index of commit {a} from Kairos, the sha of HEAD, is installed; 0 files \
+             changed in the working tree."
+        )),
+        "{}",
+        r.text
+    );
+    assert!(r.text.contains("Call edges: "), "{}", r.text);
+}
+
+/// KAIROS-T-0355: the local index keeps its structure when it is as near
+/// to the tree as the base.
+#[then("the server says that the local index is nearer than the index of A")]
+fn server_says_local_nearer(world: &mut CliWorld) {
+    let r = world.result.as_ref().expect("no result");
+    assert!(!r.is_error, "{}", r.text);
+    let a = &world.base.kairos().a[..12];
+    assert!(
+        r.text.contains(&format!(
+            "the local index is nearer to the tree than the index of commit {a} from Kairos \
+             (0 files changed, against 3). The local index is used."
+        )),
+        "{}",
+        r.text
+    );
 }
 
 /// KAIROS-T-0343: the organization has a hosted provider, and the
@@ -943,8 +984,8 @@ fn says_no_checkout_is_open(world: &mut CliWorld) {
     let r = world.result.as_ref().expect("no result");
     assert!(
         r.text.contains(
-            "The server has no open checkout, so the other tools refuse until `fetch_index` \
-             succeeds."
+            "The server has no open checkout. A tool opens the checkout that its `checkout` \
+             names."
         ),
         "{}",
         r.text

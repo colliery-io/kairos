@@ -231,11 +231,13 @@ def unit():
         os.path.join(hooks, "test_active_work.py"),  # after a compaction, COLLIERY-T-1862
         os.path.join(hooks, "test_skills.py"),  # the skill set in sync, COLLIERY-T-1866
         os.path.join(hooks, "test_index_update.py"),  # the code index, COLLIERY-T-1855
+        os.path.join(hooks, "test_index_first.py"),  # the code tools before grep, KAIROS-T-0757
         os.path.join(hooks, "test_git_guard.py"),  # ask before push, merge, rebase, KAIROS-T-0497
         os.path.join(hooks, "test_kairos_rules.py"),  # the rules once per session, KAIROS-T-0498
         os.path.join(hooks, "test_memory_reminder.py"),  # decisions go to Kairos, KAIROS-T-0502
         os.path.join(hooks, "test_adr_context.py"),  # the ADRs of a file, KAIROS-T-0702
         os.path.join(hooks, "test_kairos_code.py"),  # the code server of the plugin
+        os.path.join(hooks, "test_index_usage.py"),  # the index usage report, KAIROS-T-0758
         os.path.join(hooks, "test_channel.py"),  # the dispatch channel
         os.path.join(hooks, "test_hook_test_env.py"),  # no live env, KAIROS-T-0712
     ]

@@ -21,6 +21,8 @@ First read the record: [GROUND.md](../../meta/kairos/GROUND.md). The ADRs and th
 
 If you have not already explored the codebase, do so to understand the current state of the code. Task titles and descriptions should use the project's domain glossary vocabulary, and respect ADRs in the area you're touching.
 
+Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`.
+
 Check the names. List each symbol, file, crate and dependency that the plan names, and check each one with the code tools (`symbol`, `code_search`, `path`). A name that is not in the code goes into no task: write "Stale: `<name>` is not in the code" on the initiative, and ask the user what the plan meant. A blocker that the plan names: `get_item` it, and check that it is open and that its scope blocks this work. A claim that you make without evidence carries the marker "not checked".
 
 Look for opportunities to prefactor the code to make the implementation easier. "Make the change easy, then make the easy change."

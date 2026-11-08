@@ -910,5 +910,84 @@ class AnAdrWhenAReaderWouldGetItWrong(unittest.TestCase):
                 with self.subTest(skill=name, sentence=sentence[:60]):
                     self.assertLessEqual(len(sentence.split()), 20)
 
+
+class CodeIndexFirst(unittest.TestCase):
+    """KAIROS-T-0759 (COLLIERY-I-0671): each skill that reads code carries
+    the same paragraph: the code tools before a read of a file, grep for
+    literal text only, `kairos index update` after a change."""
+
+    PARAGRAPH = (
+        "Code index first. Find code with the tools of the `kairos-code` MCP server before you "
+        "read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` "
+        "and `references` find its uses; `path` finds how one symbol reaches another. Then read "
+        "only the files that they name. grep is for literal text only: a log line, a config key, "
+        "an error message. After you change code, run `kairos index update`."
+    )
+    # A skill that reads code names the codebase, a read of files, or a
+    # look at the code.
+    READS_CODE = re.compile(
+        r"codebase|read (?:the |a )?files?|code path|explore the (?:repo|code)|against the code"
+        r"|look facts up|the code agrees"
+    )
+    # The skills outside review/ and workflow/ that read code.
+    ALSO = (
+        "engineering/code-review/SKILL.md",
+        "engineering/codebase-design/SKILL.md",
+        "engineering/diagnosing-bugs/SKILL.md",
+        "engineering/domain-modeling/SKILL.md",
+        "engineering/tdd/SKILL.md",
+        "meta/grilling/SKILL.md",
+    )
+
+    def body(self, rel):
+        return read(os.path.join(SKILLS, rel)).split("---", 2)[2]
+
+    def skills_that_read_code(self):
+        found = []
+        for group in ("review", "workflow"):
+            for name in sorted(os.listdir(os.path.join(SKILLS, group))):
+                rel = f"{group}/{name}/SKILL.md"
+                if os.path.isfile(os.path.join(SKILLS, rel)) and self.READS_CODE.search(self.body(rel)):
+                    found.append(rel)
+        return found + list(self.ALSO)
+
+    def test_each_skill_that_reads_code_carries_the_paragraph(self):
+        skills = self.skills_that_read_code()
+        for rel in (
+            "workflow/implement/SKILL.md",
+            "review/architecture-review/SKILL.md",
+            "workflow/triage/SKILL.md",
+            "workflow/decompose/SKILL.md",
+            "workflow/grill-initiative/SKILL.md",
+            "workflow/grill-decomposition/SKILL.md",
+            "workflow/to-initiative/SKILL.md",
+        ):
+            self.assertIn(rel, skills)
+        self.assertNotIn("workflow/ralph/SKILL.md", skills)
+        for rel in skills:
+            with self.subTest(skill=rel):
+                self.assertIn(self.PARAGRAPH, self.body(rel))
+
+    def test_the_paragraph_has_short_sentences_and_no_url(self):
+        self.assertNotIn("http", self.PARAGRAPH)
+        for sentence in sentences(self.PARAGRAPH):
+            with self.subTest(sentence=sentence[:60]):
+                self.assertLessEqual(len(sentence.split()), 20)
+
+    def test_the_agent_prompts_carry_the_paragraph_and_the_path(self):
+        implement = self.body("workflow/implement/SKILL.md")
+        self.assertIn("put this paragraph and the path of the worktree in its prompt", implement)
+        review = self.body("engineering/code-review/SKILL.md")
+        self.assertEqual(
+            review.count('- The "Code index first" paragraph above and the path of the checkout.'), 2
+        )
+
+    def test_the_rules_hook_carries_one_line(self):
+        rules = read(os.path.join(PLUGIN, "hooks", "kairos_rules.py"))
+        self.assertIn("- Code index first (COLLIERY-I-0671)", rules)
+        # The version is read by test_kairos_rules; a bump is the rule.
+        self.assertIn("higher RULES_VERSION gives the new text once more", rules)
+
+
 if __name__ == "__main__":
     unittest.main()

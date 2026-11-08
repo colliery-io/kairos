@@ -15,7 +15,11 @@ disable-model-invocation: true
 
 ## 2. Scan
 
-Run the reference's Section 1 scan pass over both altitudes. Use the Agent tool with `subagent_type=Explore` to walk the codebase and inventory the Section 2 modules and the Section 3 containers, C4 views included. Complete when every module and container is inventoried with a path.
+Run the reference's Section 1 scan pass over both altitudes. Use the Agent tool with `subagent_type=Explore` to walk the codebase and inventory the Section 2 modules and the Section 3 containers, C4 views included.
+
+Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`. Give the paragraph and the path of the checkout to each Explore agent.
+
+Complete when every module and container is inventoried with a path.
 
 ## 3. Classify
 

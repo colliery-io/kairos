@@ -217,6 +217,78 @@ pub struct CodeIndexService {
     /// The waits of a hosted summarizer after a 429 (KAIROS-T-0495): the
     /// default, or the short waits of a test.
     summary_backoff: Mutex<kairos_index::rate::Backoff>,
+    /// KAIROS-T-0753: the repositories whose fetch failed, with the time of
+    /// the next try and the wait that the next failure doubles. A success
+    /// removes the entry; a restart starts with none.
+    fetch_backoff: Mutex<HashMap<uuid::Uuid, FetchBackoff>>,
+    /// The first wait after a failed fetch (KAIROS-T-0753): the default, or
+    /// a short wait of a test.
+    fetch_backoff_first: Mutex<Duration>,
+}
+
+/// The wait of a repository after a failed fetch (KAIROS-T-0753).
+#[derive(Debug, Clone, Copy)]
+struct FetchBackoff {
+    /// When the sweep tries the fetch again.
+    next_try: Instant,
+    /// The wait that this failure set; the next failure doubles it.
+    wait: Duration,
+}
+
+/// The first wait of the sweep after a failed fetch (KAIROS-T-0753): one
+/// poll interval.
+pub(crate) const FETCH_BACKOFF_FIRST: Duration = Duration::from_secs(5 * 60);
+
+/// The longest wait of the sweep after failed fetches (KAIROS-T-0753).
+pub(crate) const FETCH_BACKOFF_CAP: Duration = Duration::from_secs(60 * 60);
+
+/// The wait after a failed fetch, from the wait before it (KAIROS-T-0753):
+/// `first` for the first failure, then double, up to [`FETCH_BACKOFF_CAP`].
+pub(crate) fn next_fetch_wait(before: Option<Duration>, first: Duration) -> Duration {
+    match before {
+        None => first.min(FETCH_BACKOFF_CAP),
+        Some(wait) => wait.saturating_mul(2).min(FETCH_BACKOFF_CAP),
+    }
+}
+
+/// The text of a failed fetch as the run row and the note keep it
+/// (KAIROS-T-0753): with no time (" after 3049 ms", " after 30001
+/// milliseconds", " after 10 seconds").
+pub(crate) fn fetch_failure_text(note: &str) -> String {
+    const UNITS: [&str; 4] = [" milliseconds", " ms", " seconds", " s"];
+    let mut out = String::with_capacity(note.len());
+    let mut rest = note;
+    while let Some(i) = rest.find(" after ") {
+        let (head, tail) = rest.split_at(i);
+        let after = &tail[" after ".len()..];
+        let digits = after.chars().take_while(char::is_ascii_digit).count();
+        let unit = (digits > 0)
+            .then(|| UNITS.iter().find(|u| after[digits..].starts_with(*u)))
+            .flatten();
+        out.push_str(head);
+        match unit {
+            Some(unit) => rest = &after[digits + unit.len()..],
+            None => {
+                out.push_str(" after ");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The note of a sweep that could reach the forge of no repository
+/// (KAIROS-T-0753): one warning for the outage, in place of one for each
+/// repository. `None` when some fetch worked, or one repository alone
+/// failed.
+pub(crate) fn outage_note(failed: usize, attempted: usize) -> Option<String> {
+    (failed >= 2 && failed == attempted).then(|| {
+        format!(
+            "the forge is unreachable: the fetch of each of the {failed} repositories failed; the \
+             sweep waits before it tries each again"
+        )
+    })
 }
 
 /// How long a reading of the disk use is kept: a walk of the tools folder
@@ -297,7 +369,66 @@ impl CodeIndexService {
             scip_memory_bytes: None,
             disk: Mutex::new(None),
             summary_backoff: Mutex::default(),
+            fetch_backoff: Mutex::default(),
+            fetch_backoff_first: Mutex::new(FETCH_BACKOFF_FIRST),
         }
+    }
+
+    /// The time left before the sweep fetches `repo` again after a failed
+    /// fetch (KAIROS-T-0753); `None` when the repository is not waiting.
+    pub fn fetch_wait(&self, repo: uuid::Uuid) -> Option<Duration> {
+        let waits = self.fetch_backoff.lock().unwrap_or_else(|e| e.into_inner());
+        waits
+            .get(&repo)
+            .and_then(|b| b.next_try.checked_duration_since(Instant::now()))
+            .filter(|left| !left.is_zero())
+    }
+
+    /// Record a failed fetch of `repo` (KAIROS-T-0753): the wait before the
+    /// next try, doubled from the wait before, from
+    /// [`Self::set_fetch_backoff_first`] up to [`FETCH_BACKOFF_CAP`].
+    pub fn fetch_failed(&self, repo: uuid::Uuid) -> Duration {
+        let first = *self
+            .fetch_backoff_first
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut waits = self.fetch_backoff.lock().unwrap_or_else(|e| e.into_inner());
+        let wait = next_fetch_wait(waits.get(&repo).map(|b| b.wait), first);
+        waits.insert(
+            repo,
+            FetchBackoff {
+                next_try: Instant::now() + wait,
+                wait,
+            },
+        );
+        wait
+    }
+
+    /// A fetch of `repo` worked (KAIROS-T-0753): the next failure starts
+    /// the waits again.
+    pub fn fetch_ok(&self, repo: uuid::Uuid) {
+        self.fetch_backoff
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&repo);
+    }
+
+    /// Clear the wait of each repository (KAIROS-T-0753): a token of the
+    /// organization changed, so each fetch can work now.
+    pub fn fetch_reset_all(&self) {
+        self.fetch_backoff
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+    }
+
+    /// The first wait after a failed fetch (KAIROS-T-0753). A test gives a
+    /// short wait; the default is [`FETCH_BACKOFF_FIRST`].
+    pub fn set_fetch_backoff_first(&self, first: Duration) {
+        *self
+            .fetch_backoff_first
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = first;
     }
 
     /// The disk use of the tools in `tools/` and of the dependency caches
@@ -1524,6 +1655,28 @@ async fn fetch_head(
     repo: &mut Repository,
     with_ancestors: bool,
 ) -> Result<Fetched, String> {
+    // KAIROS-T-0753: each fetch, from the sweep or from a job, sets or
+    // clears the wait of the repository; a failure has one text for one
+    // outage.
+    match fetch_head_inner(blocking, service, tenant, repo, with_ancestors).await {
+        Ok(fetched) => {
+            service.fetch_ok(repo.id);
+            Ok(fetched)
+        }
+        Err(why) => {
+            service.fetch_failed(repo.id);
+            Err(fetch_failure_text(&why))
+        }
+    }
+}
+
+async fn fetch_head_inner(
+    blocking: &BlockingTenantPool,
+    service: &Arc<CodeIndexService>,
+    tenant: &str,
+    repo: &mut Repository,
+    with_ancestors: bool,
+) -> Result<Fetched, String> {
     // The token of the fetch (KAIROS-T-0431): the read token of the
     // organization for the host, else the token of the repository
     // (COLLIERY-T-3105), else none. The log names the kind, never the value.
@@ -1896,7 +2049,7 @@ async fn record_end(
 /// Record a failure that came before the run had a row: the fetch, or the
 /// choice of the base. A repeat of the newest failure adds no row
 /// ([`runs::record_failure_once`]).
-async fn record_failure_once(
+pub(crate) async fn record_failure_once(
     blocking: &BlockingTenantPool,
     tenant: &str,
     repo: &Repository,
@@ -3011,5 +3164,89 @@ mod tests {
         assert_eq!(tool_language("python-3.13.16"), Some("python"));
         assert_eq!(tool_language("scip-go-0.2.7"), Some("go"));
         assert_eq!(tool_language("other"), None);
+    }
+}
+
+/// The tests of the fetch backoff (KAIROS-T-0753). Not behind the `llama`
+/// feature: they run no model.
+#[cfg(test)]
+mod fetch_tests {
+    use super::*;
+
+    /// The wait after a failed fetch doubles from the first wait to the
+    /// cap.
+    #[test]
+    fn the_fetch_backoff_doubles_to_the_cap() {
+        let m = |n: u64| Duration::from_secs(60 * n);
+        assert_eq!(next_fetch_wait(None, FETCH_BACKOFF_FIRST), m(5));
+        assert_eq!(next_fetch_wait(Some(m(5)), FETCH_BACKOFF_FIRST), m(10));
+        assert_eq!(next_fetch_wait(Some(m(20)), FETCH_BACKOFF_FIRST), m(40));
+        assert_eq!(next_fetch_wait(Some(m(40)), FETCH_BACKOFF_FIRST), m(60));
+        assert_eq!(next_fetch_wait(Some(m(60)), FETCH_BACKOFF_FIRST), m(60));
+        assert_eq!(
+            next_fetch_wait(None, Duration::from_millis(10)),
+            Duration::from_millis(10)
+        );
+    }
+
+    /// The text of a failure loses its time, so one outage is one text.
+    #[test]
+    fn the_failure_text_has_no_time() {
+        assert_eq!(
+            fetch_failure_text(
+                "failed: git fetch failed: fatal: unable to access 'https://example.test/r/': \
+                 Failed to connect to example.test port 443 after 3049 ms: Could not connect to \
+                 server The fetch used no read token."
+            ),
+            "failed: git fetch failed: fatal: unable to access 'https://example.test/r/': \
+             Failed to connect to example.test port 443: Could not connect to server The fetch \
+             used no read token."
+        );
+        assert_eq!(
+            fetch_failure_text("Operation timed out after 30001 milliseconds with 0 bytes"),
+            "Operation timed out with 0 bytes"
+        );
+        assert_eq!(fetch_failure_text("a text after all"), "a text after all");
+        assert_eq!(fetch_failure_text("x after 12 ms y after 3 seconds"), "x y");
+    }
+
+    /// An outage is each fetch of a pass failed, two at least.
+    #[test]
+    fn an_outage_is_each_fetch_of_a_pass_failed() {
+        assert!(outage_note(0, 3).is_none());
+        assert!(
+            outage_note(1, 1).is_none(),
+            "one repository alone is no outage"
+        );
+        assert!(outage_note(2, 3).is_none(), "one fetch worked");
+        assert!(
+            outage_note(2, 2)
+                .unwrap()
+                .contains("each of the 2 repositories")
+        );
+    }
+
+    /// The service keeps the wait of each repository, and a success clears
+    /// it.
+    #[test]
+    fn the_service_waits_after_a_failed_fetch_until_a_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = CodeIndexService::new(
+            dir.path().to_path_buf(),
+            Arc::new(|_: &Repository| String::new()),
+        );
+        service.set_fetch_backoff_first(Duration::from_millis(200));
+        let repo = uuid::Uuid::new_v4();
+        assert_eq!(service.fetch_wait(repo), None);
+        assert_eq!(service.fetch_failed(repo), Duration::from_millis(200));
+        assert!(
+            service
+                .fetch_wait(repo)
+                .is_some_and(|left| left <= Duration::from_millis(200))
+        );
+        assert_eq!(service.fetch_failed(repo), Duration::from_millis(400));
+        service.fetch_ok(repo);
+        assert_eq!(service.fetch_wait(repo), None);
+        assert_eq!(service.fetch_failed(repo), Duration::from_millis(200));
     }
 }

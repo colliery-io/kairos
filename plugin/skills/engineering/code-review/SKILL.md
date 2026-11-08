@@ -10,6 +10,8 @@ Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
 
 Both axes run as **parallel sub-agents** so they don't pollute each other's context; this skill aggregates their findings and posts a review record back to the Kairos item. The sub-agents inherit the MCP tools of the session, the Kairos tools too. Paste the content into their prompts anyway, not short codes alone: then both axes read the same spec. Only this skill writes to the item (`append_note`).
 
+Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`. Each sub-agent prompt carries this paragraph and the path of the checkout.
+
 ## Process
 
 ### 1. Pin the fixed point
@@ -64,12 +66,14 @@ Send a single message with two `Agent` tool calls. Use the `general-purpose` sub
 **Standards sub-agent prompt** — include:
 
 - The full diff command and commit list.
+- The "Code index first" paragraph above and the path of the checkout.
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3 — the twelve smells and their two binding rules — pasted in full**; the sub-agent has no other access to it.
 - The brief: "Report — per file/hunk where relevant — (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls — documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
 
 **Spec sub-agent prompt** — include:
 
 - The diff command and commit list.
+- The "Code index first" paragraph above and the path of the checkout.
 - The item's short code and title, and its acceptance criteria (and objective/requirements) pasted in full from step 2.
 - The brief: "Report: (a) acceptance criteria that are unmet or partially met by the diff; (b) behaviour in the diff the item didn't ask for (scope creep); (c) criteria that look implemented but where the implementation looks wrong. Quote the criterion for each finding. Under 400 words."
 

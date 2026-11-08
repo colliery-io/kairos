@@ -147,10 +147,16 @@ pub(crate) async fn set_credential(
                 &repo.slug,
             )
             .map_err(ApiError::internal)?;
-            status_of(conn, repo.id).map_err(ApiError::internal)
+            status_of(conn, repo.id)
+                .map(|status| (repo.id, status))
+                .map_err(ApiError::internal)
         })
         .await?;
-    Ok(Json(status))
+    // KAIROS-T-0753: a new token can make the fetch work: no wait.
+    if let Some(service) = &state.code_index {
+        service.fetch_ok(status.0);
+    }
+    Ok(Json(status.1))
 }
 
 /// Remove the read token of a repository (an organization admin, or a
@@ -188,10 +194,16 @@ pub(crate) async fn remove_credential(
                 ))
                 .with_details(json!({ "field": "repository" })));
             }
-            status_of(conn, repo.id).map_err(ApiError::internal)
+            status_of(conn, repo.id)
+                .map(|status| (repo.id, status))
+                .map_err(ApiError::internal)
         })
         .await?;
-    Ok(Json(status))
+    // KAIROS-T-0753: the fetch can work with the token of the host: no wait.
+    if let Some(service) = &state.code_index {
+        service.fetch_ok(status.0);
+    }
+    Ok(Json(status.1))
 }
 
 /// Test the read token: `git ls-remote` of the URL of the repository with

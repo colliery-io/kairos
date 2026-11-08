@@ -471,6 +471,16 @@ makes the first index of each repository that has no index. Then it updates
 the index after each push to a target ref. [What the builder
 indexes](#what-the-builder-indexes) lists the targets.
 
+When the fetch of a repository fails, the sweep adds no build job for it.
+The forge is down, or the server has no network. The sweep records one run
+with the text of the failure. Then it waits before the next try: 5 minutes,
+then twice as long after each failure, up to one hour. A fetch that works
+ends the wait. A new read token or a change of the repository ends it too.
+
+When the fetch of each repository fails, the log has one warning for the
+outage. A failed fetch does not trip the breaker of the repository. The
+breaker is for a build that stopped a server, and it needs a person.
+
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `KAIROS_CODE_INDEX_DIR` | directory path | unset | The folder for a bare clone of each repository, the tools of the builder and the work folders of the builder. Put it on a volume. When it is not set, the server cannot find the nearest indexed commit, does not build and downloads nothing. Uploads and downloads of indexes still work. A server with `KAIROS_ROLE=worker` does not start without it. A server with `KAIROS_ROLE=api` takes a rebuild request without it: the build goes to a worker. |
@@ -1365,7 +1375,27 @@ a local index of a newer schema version before it does work.
 When the local index is as near to the tree as the base, the CLI keeps the
 local index. The base can have more summaries than the local index links.
 Then the CLI downloads the base and takes its summaries into the local
-index. The output says so. The tool `fetch_index` of the code tools does the same.
+index. The output says so.
+
+The tool `fetch_index` of the code tools does the same, with one exception.
+Kairos can have the index of `HEAD` itself. The builder indexed the pull
+request or the tag, or an upload gave it. That index
+has the SCIP edges and the summaries. `fetch_index` downloads it and installs
+it in place of the local structure. The answer says "the index of commit X
+from Kairos, the sha of HEAD".
+
+The local index records which index of Kairos it came from, so `fetch_index`
+installs the same index one time.
+
+The CLI tries a failed download again after 1 s, 3 s and 9 s. After the last
+try, the error names the count of the tries and the last failure. With a
+local index, `fetch_index` then uses the local index and says so. The server
+logs a failed download with the repository, the commit and the cause.
+
+The answer of `fetch_index` says what the index has. It gives the files and
+the symbols. It gives the summaries linked from the pool and the symbols with
+none. It gives the call edges from SCIP and by name, and how many wait for a
+SCIP run. It gives when Kairos first wrote the base index and last wrote it.
 
 | Setting | Description |
 |---|---|
@@ -1417,8 +1447,19 @@ you what to do:
   count, to update from this base.
 
 After a refusal of `fetch_index`, the tools still answer for the previous
-checkout, and the error names it. With no previous checkout, the error says
-that the other tools refuse until `fetch_index` succeeds.
+checkout, and the error names it. With no previous checkout, a tool whose
+`checkout` names a checkout opens it, as `fetch_index` does. A tool with no
+`checkout` refuses, and the error names the checkouts below the start
+folder of the server.
+
+Before a tool answers, the server parses the files that changed since the
+last update of the index. It parses the symbols and the
+edges by name, and links the summaries from the pool. So the answer is current
+after an edit, a pull or a checkout, with no hook and no
+`kairos index update`. The answer says how many files it parsed. This step
+runs no SCIP: a changed Rust file keeps its edges by name until the next
+update with SCIP. One parse runs at a time for a checkout; a call that
+comes during one waits for it.
 
 If the CLI cannot reach Kairos, it updates the local index and says so.
 With no local index, it builds nothing.

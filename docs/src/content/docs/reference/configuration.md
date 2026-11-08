@@ -1383,14 +1383,14 @@ checkout, and the error names it. With no previous checkout, a tool whose
 `checkout` refuses, and the error names the checkouts below the start
 folder of the server.
 
-Before a tool answers, the server parses the files of the checkout that
-changed since the last update of its index: the symbols and the edges by
-name, with the summaries linked from the pool. So the answer is current
+Before a tool answers, the server parses the files that changed since the
+last update of the index. It parses the symbols and the
+edges by name, and links the summaries from the pool. So the answer is current
 after an edit, a pull or a checkout, with no hook and no
 `kairos index update`. The answer says how many files it parsed. This step
 runs no SCIP: a changed Rust file keeps its edges by name until the next
 update with SCIP. One parse runs at a time for a checkout; a call that
-comes during one waits for it. A checkout is checked once in 2 seconds.
+comes during one waits for it.
 
 If the CLI cannot reach Kairos, it updates the local index and says so.
 With no local index, it builds nothing.

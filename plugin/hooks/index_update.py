@@ -328,8 +328,11 @@ def has_index(root):
 # ----------------------------------------------------------------- start
 
 
-def session_text(project, log):
-    lines = [
+def tools_text():
+    """The index instruction: the code tools, before any read of a file.
+    The session start gives it; `index_first.py subagent` gives it to each
+    subagent (KAIROS-T-0757)."""
+    return (
         "Code index of this checkout: the local MCP server `kairos-code` "
         "(`kairos index mcp`) gives the tools `module_map`, `code_search`, "
         "`symbol`, `callers`, `callees`, `references` and `path`. Use them "
@@ -339,7 +342,13 @@ def session_text(project, log):
         "one symbol. `callers`, `callees` and `path` give the call graph. "
         "`references` gives each use of a symbol: in Rust, also the uses as a "
         "type, a field or an import. Then read only the files that the tools "
-        "name.",
+        "name."
+    )
+
+
+def session_text(project, log):
+    lines = [
+        tools_text(),
         "`kairos index update --link-only` runs in the background now, so the "
         "index can be some seconds old at the start of the session. It runs no "
         "model: it links the summaries that are in the pool, and a changed "

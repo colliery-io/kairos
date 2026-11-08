@@ -16,6 +16,11 @@ pub struct CodeIndex {
     /// the sender gave it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub r#ref: Option<String>,
+    /// Each ref that points at the commit now (KAIROS-T-0750): the default
+    /// branch, a tag, a pull request (`pull/12`). Empty for an index that
+    /// no ref points at, or a server before 0.20.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refs: Vec<CodeIndexRef>,
     /// `upload`, or `build` (the server built it after a push).
     pub source: String,
     /// The size of the structure (the index with no summaries), in bytes.
@@ -33,6 +38,27 @@ pub struct CodeIndex {
     pub created_at: String,
     /// When the index was last written, RFC 3339.
     pub updated_at: String,
+}
+
+/// One ref that points at an indexed commit (KAIROS-T-0750).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct CodeIndexRef {
+    /// The short name: `main`, `v1.0.0`, `pull/12`, `merge-requests/12`.
+    pub name: String,
+    /// `branch`, `tag` or `pull`.
+    pub kind: String,
+}
+
+impl CodeIndexRef {
+    /// The ref as a reader sees it: the name, with `(tag)` after a tag.
+    /// A pull request names its kind (`pull/12`); a branch is plain.
+    pub fn text(&self) -> String {
+        if self.kind == "tag" {
+            format!("{} (tag)", self.name)
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 /// The answer to `PUT /api/repositories/{slug}/code-indexes/{commit}`.

@@ -158,6 +158,8 @@ services:
       KAIROS_CODE_INDEX_POLL_SECS: ${KAIROS_CODE_INDEX_POLL_SECS:-}
       KAIROS_CODE_INDEX_THREADS: ${KAIROS_CODE_INDEX_THREADS:-}
       KAIROS_CODE_INDEX_MIN_REBUILD_SECS: ${KAIROS_CODE_INDEX_MIN_REBUILD_SECS:-}
+      # 0.20.0: the window in days of the tags and the pull request heads.
+      KAIROS_CODE_INDEX_REF_DAYS: ${KAIROS_CODE_INDEX_REF_DAYS:-}
       # 0.19.1: the memory that the rust-analyzer SCIP run needs (MiB).
       KAIROS_CODE_INDEX_SCIP_MEMORY_MIB: ${KAIROS_CODE_INDEX_SCIP_MEMORY_MIB:-}
       # 0.14: the dependency caches of the Go, TypeScript and Python runners.

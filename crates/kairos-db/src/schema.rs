@@ -152,6 +152,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    code_index_refs (repository_id, ref_name) {
+        repository_id -> Uuid,
+        ref_name -> Text,
+        commit_sha -> Text,
+        kind -> Text,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     code_index_settings (id) {
         id -> Int4,
         summary_provider -> Text,
@@ -902,6 +912,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     boards,
     code_index_breakers,
     code_index_builds,
+    code_index_refs,
     code_index_settings,
     code_index_summaries,
     code_indexes,

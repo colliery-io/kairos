@@ -468,7 +468,8 @@ Kairos keeps the code index of each indexed commit of a repository
 (`/api/repositories/{slug}/code-indexes`). The indexes are in Postgres. These
 variables control the clones of the repositories and the builder. The builder
 makes the first index of each repository that has no index. Then it updates
-the index after each push to the default branch.
+the index after each push to a target ref. [What the builder
+indexes](#what-the-builder-indexes) lists the targets.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -477,6 +478,7 @@ the index after each push to the default branch.
 | `KAIROS_CODE_INDEX_THREADS` | whole number, 1 or more | `4` | The number of CPU threads that the summary model of the builder uses. More threads make the summaries faster, but they take CPU from the other services on the host. `0` or a value that is not a number stops the start of the server. |
 | `KAIROS_CODE_INDEX_SCIP_MEMORY_MIB` | whole number | `6144` | The memory in MiB that the rust-analyzer SCIP run of a build needs. Before the run, the builder reads the memory limit of its container (cgroup `memory.max`). When the limit is less than this value, the run does not start: Rust gets its edges by name, and the build records a warning that gives the limit and the value. `0` turns the check off. See [The memory of a build](#the-memory-of-a-build). A value that is not a number stops the start of the server. |
 | `KAIROS_CODE_INDEX_MIN_REBUILD_SECS` | whole number | `0` | The least time in seconds between 2 updates of one repository. `0` turns the limit off. On a slow host, a repository with many pushes then waits, and the other stale repositories get their updates. A value that is not a number stops the start of the server. |
+| `KAIROS_CODE_INDEX_REF_DAYS` | whole number | `30` | The window of the tags and the pull request heads that the builder indexes. A tag or a pull request head whose commit is older than this many days gets no build. `0` removes the window. A pull request whose head is on the default branch (merged) gets no build: its index is the index of the branch. See [What the builder indexes](#what-the-builder-indexes). |
 | `KAIROS_CODE_INDEX_DEPS_CAP_MB` | whole number | `10240` | The largest total size in MB of the dependency caches of the SCIP runners of Go, TypeScript and Python. After a run, the builder removes the caches of other repositories, oldest first, until the total is below this value. See [The tools of Go, TypeScript and Python](#the-tools-of-go-typescript-and-python). |
 | `KAIROS_CODE_INDEX_MIN_FREE_MB` | whole number | `5120` | The least free disk space in MB before a dependency install. When the free space is less, the builder removes the dependency caches first, oldest first. If the space is still less, the language gets its edges by name, and the run records a warning. |
 | `KAIROS_CODE_INDEX_DEPS_ENV` | comma-separated names | unset | More names of environment variables that a dependency install gets. An install gets only `PATH`, its cache folders and the variables in the list below, so no other secret of the server gets to a package install. |
@@ -641,6 +643,32 @@ stale.
 With `KAIROS_CODE_INDEX_MIN_REBUILD_SECS`, a repository whose newest index
 is younger than that time gets no update job in the pass. A later pass adds
 the job.
+
+#### What the builder indexes
+
+At each pass, the sweep fetches the branches, the tags and the pull request
+heads of each repository. The pull request heads are `refs/pull/*/head` on
+GitHub and `refs/merge-requests/*/head` on GitLab. The targets of a repository
+are:
+
+1. The head of the default branch. The forge gives the branch; a branch set
+   by hand has priority; when the forge cannot be read, the stored branch
+   stays.
+2. Each tag whose commit is younger than `KAIROS_CODE_INDEX_REF_DAYS`.
+3. Each pull request head whose commit is younger than
+   `KAIROS_CODE_INDEX_REF_DAYS` and is not on the default branch. A merged
+   pull request has the index of the branch. A pull request closed with no
+   merge keeps its ref on the forge: the window ends its builds.
+
+One commit gets one index, whatever the number of refs that point at it. The
+list of the indexes (`kairos repos indexes`, the GUI, the API field `refs`)
+shows each ref of a commit.
+
+An update job builds the targets that have no index. The order: the head, then
+the tags, then the pull requests, newest first. One job builds at most 4
+targets. The next pass adds a job for the rest. A tag or a pull request with no
+indexed commit below it gets no full build. It waits for an index of the
+branch.
 
 A build with the embedded model is a job of the type `embedded_build`. One
 server runs one of them at a time (`KAIROS_JOB_LIMIT_EMBEDDED_BUILD`). Thus

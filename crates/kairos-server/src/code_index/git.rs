@@ -224,10 +224,80 @@ pub fn fetch(path: &Path, remote: &str, token: Option<&GitToken>) -> Result<(), 
             remote,
             "+refs/heads/*:refs/heads/*",
             "+refs/tags/*:refs/tags/*",
+            // KAIROS-T-0750: the heads of the pull requests of GitHub and of
+            // the merge requests of GitLab. A remote with none of them
+            // matches nothing, which is no error.
+            "+refs/pull/*/head:refs/pull/*/head",
+            "+refs/merge-requests/*/head:refs/merge-requests/*/head",
         ],
         token,
     )?;
     Ok(())
+}
+
+/// A ref of the clone that the builder can index (KAIROS-T-0750): a tag,
+/// or the head of a pull request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefEntry {
+    /// The full name: `refs/tags/v1.0.0`, `refs/pull/12/head`.
+    pub name: String,
+    /// The commit: a tag object is peeled to its commit.
+    pub commit: String,
+    /// The committer date of the commit, seconds since the epoch.
+    pub committed_at: i64,
+}
+
+/// The branches, the tags and the pull request heads of the clone, with the
+/// commit each points at and its date. A tag that points at no commit (a
+/// tree or a blob) is left out.
+pub fn refs(path: &Path) -> Result<Vec<RefEntry>, GitError> {
+    let output = checked(
+        path,
+        &[
+            "for-each-ref",
+            "--format=%(refname)%09%(objecttype)%09%(objectname)%09%(*objecttype)%09%(*objectname)%09%(committerdate:unix)%09%(*committerdate:unix)",
+            "refs/heads",
+            "refs/tags",
+            "refs/pull",
+            "refs/merge-requests",
+        ],
+    )?;
+    Ok(parse_refs(&String::from_utf8_lossy(&output.stdout)))
+}
+
+/// The entries of the output of [`refs`]: one line for each ref, the
+/// fields tab-separated. An annotated tag has its commit in the peeled
+/// fields.
+fn parse_refs(listing: &str) -> Vec<RefEntry> {
+    listing
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split('\t');
+            let name = fields.next()?.to_string();
+            let object_type = fields.next()?;
+            let object = fields.next()?;
+            let peeled_type = fields.next().unwrap_or("");
+            let peeled = fields.next().unwrap_or("");
+            let date = fields.next().unwrap_or("");
+            let peeled_date = fields.next().unwrap_or("");
+            let (commit, committed_at) = match (object_type, peeled_type) {
+                ("commit", _) => (object, date),
+                (_, "commit") => (peeled, peeled_date),
+                _ => return None,
+            };
+            Some(RefEntry {
+                name,
+                commit: commit.to_string(),
+                committed_at: committed_at.trim().parse().unwrap_or(0),
+            })
+        })
+        .collect()
+}
+
+/// Whether `commit` is `of` or one of its ancestors: `git merge-base
+/// --is-ancestor`. A commit that the clone does not have is no ancestor.
+pub fn is_ancestor(path: &Path, commit: &str, of: &str) -> bool {
+    run(path, &["merge-base", "--is-ancestor", commit, of]).is_ok_and(|o| o.status.success())
 }
 
 /// Run `git ls-remote <flags> <remote> <patterns>` in a temporary folder,
@@ -397,6 +467,97 @@ mod tests {
         // A HEAD that names a branch that does not exist gives no branch.
         git(&bare, &["symbolic-ref", "HEAD", "refs/heads/gone"]);
         assert_eq!(remote_head(&remote, None).unwrap(), None);
+    }
+
+    #[test]
+    fn the_refs_are_parsed_with_annotated_tags_peeled() {
+        let listing = "refs/tags/v1.0.0\tcommit\taaaa\t\t\t1700000000\t\n\
+                       refs/tags/v2.0.0\ttag\tbbbb\tcommit\tcccc\t1700000001\t1700000002\n\
+                       refs/tags/blob\tblob\tdddd\t\t\t\t\n\
+                       refs/pull/12/head\tcommit\teeee\t\t\t1700000003\t\n";
+        let refs = parse_refs(listing);
+        assert_eq!(
+            refs,
+            vec![
+                RefEntry {
+                    name: "refs/tags/v1.0.0".into(),
+                    commit: "aaaa".into(),
+                    committed_at: 1700000000,
+                },
+                RefEntry {
+                    name: "refs/tags/v2.0.0".into(),
+                    commit: "cccc".into(),
+                    committed_at: 1700000002,
+                },
+                RefEntry {
+                    name: "refs/pull/12/head".into(),
+                    commit: "eeee".into(),
+                    committed_at: 1700000003,
+                },
+            ]
+        );
+        assert!(parse_refs("").is_empty());
+    }
+
+    #[test]
+    fn the_refs_and_the_ancestry_of_a_clone_are_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path().join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let git = |dir: &Path, args: &[&str]| {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(dir)
+                .args(args)
+                .env("GIT_AUTHOR_NAME", "Test")
+                .env("GIT_AUTHOR_EMAIL", "test@kairos.test")
+                .env("GIT_COMMITTER_NAME", "Test")
+                .env("GIT_COMMITTER_EMAIL", "test@kairos.test")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "git {args:?}: {output:?}");
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+        git(&work, &["init", "-q", "-b", "main"]);
+        std::fs::write(work.join("a.txt"), "a").unwrap();
+        git(&work, &["add", "-A"]);
+        git(&work, &["commit", "-q", "-m", "A"]);
+        let a = git(&work, &["rev-parse", "HEAD"]);
+        git(&work, &["tag", "v1"]);
+        git(&work, &["tag", "-a", "-m", "release", "v2"]);
+        git(&work, &["checkout", "-q", "-b", "feature"]);
+        std::fs::write(work.join("b.txt"), "b").unwrap();
+        git(&work, &["add", "-A"]);
+        git(&work, &["commit", "-q", "-m", "B"]);
+        let b = git(&work, &["rev-parse", "HEAD"]);
+        git(&work, &["update-ref", "refs/pull/7/head", &b]);
+        let mut found = refs(&work).unwrap();
+        found.sort_by(|x, y| x.name.cmp(&y.name));
+        let names: Vec<&str> = found.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "refs/heads/feature",
+                "refs/heads/main",
+                "refs/pull/7/head",
+                "refs/tags/v1",
+                "refs/tags/v2"
+            ]
+        );
+        assert_eq!(found[0].commit, b);
+        assert_eq!(found[1].commit, a);
+        assert_eq!(found[2].commit, b);
+        assert_eq!(found[3].commit, a);
+        // The annotated tag is peeled to its commit.
+        assert_eq!(found[4].commit, a);
+        assert!(found.iter().all(|r| r.committed_at > 0));
+        assert!(is_ancestor(&work, &a, &b));
+        assert!(!is_ancestor(&work, &b, &a));
+        assert!(!is_ancestor(
+            &work,
+            "0000000000000000000000000000000000000000",
+            &b
+        ));
     }
 
     #[test]

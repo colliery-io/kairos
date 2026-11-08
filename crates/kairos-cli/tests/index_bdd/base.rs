@@ -382,6 +382,7 @@ fn config(scratch_url: &str) -> AppConfig {
         code_index_poll_secs: 0,
         code_index_threads: 4,
         code_index_min_rebuild_secs: 0,
+        code_index_ref_days: 30,
         code_index_deps_cap_mb: 10240,
         code_index_min_free_mb: 5120,
         code_index_scip_memory_mib: 0,

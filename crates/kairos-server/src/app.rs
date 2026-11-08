@@ -222,6 +222,7 @@ fn code_index_service(
             .with_instance(instance)
             .with_secrets_key(config.secrets_key.clone())
             .with_min_rebuild_secs(config.code_index_min_rebuild_secs)
+            .with_ref_days(config.code_index_ref_days)
             .with_scip_memory_mib(config.code_index_scip_memory_mib)
             .with_dependency_settings(crate::code_index::DependencySettings {
                 cap_bytes: config.code_index_deps_cap_mb.saturating_mul(1024 * 1024),

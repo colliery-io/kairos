@@ -4561,3 +4561,191 @@ fn unused_summaries_deleted(
         .expect("pass")
         .unused_summaries_deleted
 }
+
+/// A commit in the git repository at `dir` with the committer date `date`
+/// (KAIROS-T-0750): an old pull request.
+fn commit_dated(dir: &Path, path: &str, text: &str, message: &str, date: &str) -> String {
+    write(dir, path, text);
+    git(dir, &["add", "-A"]);
+    let output = Command::new("git")
+        .args(["commit", "-q", "-m", message])
+        .current_dir(dir)
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@kairos.test")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@kairos.test")
+        .env("GIT_AUTHOR_DATE", date)
+        .env("GIT_COMMITTER_DATE", date)
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git commit: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    git(dir, &["rev-parse", "HEAD"])
+}
+
+// KAIROS-T-0750 (COLLIERY-I-0671): the builder indexes the head of the
+// default branch, each tag and each open pull request head in the window.
+// One commit builds once, whatever the refs on it; a merged pull request and
+// an old one get no build; the second sweep builds nothing.
+#[tokio::test]
+async fn pull_request_heads_and_tags_get_an_index_and_a_sha_builds_once() {
+    let w = World::new("kairos_code_index_t0750_refs").await;
+    let a = w.a.clone();
+    // Only ledger is built in this scenario.
+    set_build(&w, CodeIndexBuild::Off).await;
+
+    // Given a bare repository `ledger` with commit A on main, registered,
+    // with its first build
+    let bare = w.work().join("ledger");
+    let bare_url = bare.display().to_string();
+    git(
+        w.work(),
+        &["clone", "-q", "--bare", "payments-api", "ledger"],
+    );
+    w.bob
+        .create_repository(&repository("ledger"))
+        .await
+        .expect("ledger");
+    let outcomes = w.first_builds().await;
+    assert_eq!(outcome_of(&outcomes, "ledger").commit, a);
+
+    // And the forge gets: a tag v1.0.0 on A; commit M on main; a pull
+    // request 7 with commit P off A; a pull request 8 whose head is A
+    // (merged); a pull request 9 with a commit of 2020 (outside the window)
+    git(&w.git, &["tag", "v1.0.0"]);
+    let m = commit_b(&w.git);
+    git(&w.git, &["push", "-q", &bare_url, "main", "v1.0.0"]);
+    git(&w.git, &["checkout", "-q", "-b", "pr-7", &a]);
+    let p = push_function(&w.git, "pkg");
+    git(&w.git, &["push", "-q", &bare_url, "pr-7:refs/pull/7/head"]);
+    git(
+        &w.git,
+        &["push", "-q", &bare_url, &format!("{a}:refs/pull/8/head")],
+    );
+    git(&w.git, &["checkout", "-q", "-b", "pr-9", &a]);
+    let old = commit_dated(
+        &w.git,
+        "pkg/old.py",
+        "def old(x):\n    return x\n",
+        "old",
+        "2020-01-01T00:00:00Z",
+    );
+    git(&w.git, &["push", "-q", &bare_url, "pr-9:refs/pull/9/head"]);
+    git(&w.git, &["checkout", "-q", "main"]);
+
+    // When the sweep runs
+    let started = std::time::Instant::now();
+    let outcomes = w.sweep().await;
+    let ledger: Vec<_> = outcomes
+        .iter()
+        .filter(|o| o.repository == "ledger")
+        .collect();
+
+    // Then it builds M (the head of main, from A) and P (pull/7, from A),
+    // the head first, and nothing else
+    let built: Vec<(&str, Option<&str>)> = ledger
+        .iter()
+        .filter(|o| o.report.is_some())
+        .map(|o| (o.commit.as_str(), o.base.as_deref()))
+        .collect();
+    assert_eq!(
+        built,
+        vec![
+            (m.as_str(), Some(a.as_str())),
+            (p.as_str(), Some(a.as_str()))
+        ],
+        "{ledger:?}"
+    );
+    eprintln!(
+        "KAIROS-T-0750: the sweep built main and pull/7 of ledger in {:.1} s",
+        started.elapsed().as_secs_f64()
+    );
+
+    // And the list of the indexes shows each ref of each commit: A has the
+    // tag, M has main, P has pull/7; the old pull request has no index
+    let listed = w.alice.list_code_indexes("ledger").await.unwrap();
+    let refs_of = |commit: &str| -> Vec<(String, String)> {
+        listed
+            .iter()
+            .find(|i| i.commit == commit)
+            .unwrap_or_else(|| panic!("no index of {commit}: {listed:?}"))
+            .refs
+            .iter()
+            .map(|r| (r.name.clone(), r.kind.clone()))
+            .collect()
+    };
+    assert_eq!(refs_of(&a), vec![("v1.0.0".to_string(), "tag".to_string())]);
+    assert_eq!(
+        refs_of(&m),
+        vec![("main".to_string(), "branch".to_string())]
+    );
+    assert_eq!(
+        refs_of(&p),
+        vec![("pull/7".to_string(), "pull".to_string())]
+    );
+    let index_p = listed.iter().find(|i| i.commit == p).unwrap();
+    assert_eq!(index_p.r#ref.as_deref(), Some("pull/7"));
+    assert_eq!(index_p.source, "build");
+    assert!(
+        !listed.iter().any(|i| i.commit == old),
+        "the old pull request got an index: {listed:?}"
+    );
+    assert_eq!(listed.len(), 3, "{listed:?}");
+
+    // And the run of pull/7 names its ref
+    let runs = w
+        .alice
+        .list_code_index_builds("ledger", &builds(None))
+        .await
+        .unwrap();
+    let run_p = runs
+        .items
+        .iter()
+        .find(|r| r.commit.as_deref() == Some(p.as_str()))
+        .unwrap_or_else(|| panic!("no run of {p}: {runs:?}"));
+    assert_eq!(run_p.r#ref.as_deref(), Some("pull/7"));
+    assert_eq!(run_p.outcome, "ok");
+
+    // When the sweep runs again
+    let outcomes = w.sweep().await;
+
+    // Then each target has an index, and nothing is built
+    let outcome = outcome_of(&outcomes, "ledger");
+    assert!(outcome.report.is_none(), "{outcome:?}");
+    assert_eq!(outcome.note.as_deref(), Some("the head has an index"));
+    assert_eq!(
+        outcomes.iter().filter(|o| o.repository == "ledger").count(),
+        1,
+        "{outcomes:?}"
+    );
+
+    // When pull request 7 gets a new commit Q
+    git(&w.git, &["checkout", "-q", "pr-7"]);
+    let q = push_function(&w.git, "pkg");
+    git(&w.git, &["push", "-q", &bare_url, "pr-7:refs/pull/7/head"]);
+    git(&w.git, &["checkout", "-q", "main"]);
+    let outcomes = w.sweep().await;
+
+    // Then Q is built from P, and the ref pull/7 moves to Q
+    let built: Vec<(&str, Option<&str>)> = outcomes
+        .iter()
+        .filter(|o| o.repository == "ledger" && o.report.is_some())
+        .map(|o| (o.commit.as_str(), o.base.as_deref()))
+        .collect();
+    assert_eq!(built, vec![(q.as_str(), Some(p.as_str()))], "{outcomes:?}");
+    let listed = w.alice.list_code_indexes("ledger").await.unwrap();
+    let index_q = listed
+        .iter()
+        .find(|i| i.commit == q)
+        .expect("an index of Q");
+    let names: Vec<&str> = index_q.refs.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, vec!["pull/7"]);
+    let index_p = listed
+        .iter()
+        .find(|i| i.commit == p)
+        .expect("the index of P stays");
+    assert!(index_p.refs.is_empty(), "{index_p:?}");
+}

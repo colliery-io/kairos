@@ -53,10 +53,32 @@ pub struct CodeIndex {
     pub commit: String,
     #[serde(default)]
     pub r#ref: Option<String>,
+    /// Each ref that points at the commit now (KAIROS-T-0750).
+    #[serde(default)]
+    pub refs: Vec<CodeIndexRef>,
     /// `upload` or `build`.
     pub source: String,
     pub structure_bytes: i64,
     pub updated_at: String,
+}
+
+/// mirror of: `kairos_client::types_code_index::CodeIndexRef`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct CodeIndexRef {
+    pub name: String,
+    /// `branch`, `tag` or `pull`.
+    pub kind: String,
+}
+
+impl CodeIndexRef {
+    /// The name, with `(tag)` after a tag (KAIROS-T-0750).
+    fn text(&self) -> String {
+        if self.kind == "tag" {
+            format!("{} (tag)", self.name)
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 /// mirror of: `kairos_client::types_code_index::CodeIndexBuild` (partial).
@@ -240,9 +262,19 @@ pub(crate) fn size_text(bytes: i64) -> String {
 /// One line for an indexed commit: the ref, the commit, the size, the
 /// source and when it was written. Pure, host-tested.
 pub(crate) fn index_line(index: &CodeIndex) -> String {
+    let refs = if index.refs.is_empty() {
+        index.r#ref.clone().unwrap_or_else(|| "no ref".to_string())
+    } else {
+        index
+            .refs
+            .iter()
+            .map(CodeIndexRef::text)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     format!(
         "{} · {} · {} · {} · {}",
-        index.r#ref.as_deref().unwrap_or("no ref"),
+        refs,
         short_commit(&index.commit),
         size_text(index.structure_bytes),
         index.source,
@@ -725,6 +757,37 @@ mod tests {
             shell_api::page_range_text(&aurora_dark::data::page_range(10, 5, 12)),
             "The list shows items 11 to 12 of 12."
         );
+    }
+
+    /// KAIROS-T-0750: the line shows each ref of the commit with its kind,
+    /// else the ref of the build, else "no ref".
+    #[test]
+    fn the_index_line_shows_the_refs() {
+        let mut index = CodeIndex {
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            r#ref: Some("main".into()),
+            refs: vec![
+                CodeIndexRef {
+                    name: "main".into(),
+                    kind: "branch".into(),
+                },
+                CodeIndexRef {
+                    name: "v1.0.0".into(),
+                    kind: "tag".into(),
+                },
+            ],
+            source: "build".into(),
+            structure_bytes: 12,
+            updated_at: "2026-11-07T00:00:00Z".into(),
+        };
+        assert_eq!(
+            index_line(&index),
+            "main, v1.0.0 (tag) · 0123456789ab · 12 B · build · 2026-11-07T00:00:00Z"
+        );
+        index.refs.clear();
+        assert!(index_line(&index).starts_with("main · "));
+        index.r#ref = None;
+        assert!(index_line(&index).starts_with("no ref · "));
     }
 
     #[test]

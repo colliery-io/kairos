@@ -241,6 +241,18 @@ pub struct SymbolRef {
     pub start_line: u32,
 }
 
+/// The call edges of an index by their origin (KAIROS-T-0755).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EdgeOrigins {
+    /// Edges from a SCIP run (rust-analyzer, scip-typescript, ...).
+    pub scip: usize,
+    /// Edges by name, with the ones from macro text.
+    pub by_name: usize,
+    /// Edges by name in files of a language with SCIP, changed after the
+    /// last SCIP run.
+    pub pending: usize,
+}
+
 /// One edge of the call graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdgeRecord {
@@ -1054,6 +1066,30 @@ impl Index {
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The call edges of the index by their origin (KAIROS-T-0755): from a
+    /// SCIP run, by name, and the ones by name that wait for a SCIP run.
+    pub fn edge_origins(&self) -> Result<EdgeOrigins, IndexError> {
+        let (scip, by_name, pending) = self.conn.query_row(
+            "SELECT COALESCE(SUM(origin = 'scip'), 0),
+                    COALESCE(SUM(origin != 'scip'), 0),
+                    COALESCE(SUM(scip_pending), 0)
+             FROM edges WHERE edge_kind = 'call'",
+            [],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            },
+        )?;
+        Ok(EdgeOrigins {
+            scip: scip.max(0) as usize,
+            by_name: by_name.max(0) as usize,
+            pending: pending.max(0) as usize,
+        })
     }
 
     /// Each edge, by caller and place, with the candidates of each

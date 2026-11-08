@@ -593,7 +593,50 @@ impl CodeTools {
         } else {
             None
         };
+        // KAIROS-T-0755: the mark of the base that a download installed, so
+        // that the index of HEAD from Kairos is installed one time.
+        let installed = if had_index {
+            kairos_index::store::installed_base(&db).ok().flatten()
+        } else {
+            None
+        };
+        let mut facts_base: Option<(String, String)> = None;
         match found {
+            // KAIROS-T-0755: Kairos has the index of HEAD itself. It
+            // replaces the local structure.
+            super::base::Found::Base(b) if b.exact => {
+                if let Some(limit) = limit
+                    && b.changed > limit
+                {
+                    return Err(super::too_far(
+                        &b,
+                        b.changed,
+                        limit,
+                        false,
+                        super::error::Caller::Tool,
+                    )
+                    .into());
+                }
+                let tree = plural(b.changed, "file", "files");
+                if installed.as_deref() == Some(&b.mark()) {
+                    lines.push(format!(
+                        "Repository {}: the index of commit {} from Kairos, the sha of HEAD, is \
+                         installed; {tree} changed in the working tree.",
+                        b.repository,
+                        b.short()
+                    ));
+                } else {
+                    let line = format!(
+                        "Repository {}: the index of commit {} from Kairos, the sha of HEAD; \
+                         {tree} changed in the working tree.",
+                        b.repository,
+                        b.short()
+                    );
+                    install_base(&db, &b, had_index, line, &mut lines).await?;
+                }
+                facts_base = Some((b.created_at.clone(), b.updated_at.clone()));
+                hosted = b.hosted;
+            }
             // The local index is nearer to the tree than the base: it keeps
             // its structure, and takes the summaries of the base when the
             // base has more (KAIROS-T-0355), as `kairos index update` does.
@@ -617,6 +660,7 @@ impl CodeTools {
                 if let Some(line) = super::take_base_summaries(&db, &b).await {
                     lines.push(line);
                 }
+                facts_base = Some((b.created_at.clone(), b.updated_at.clone()));
                 hosted = b.hosted;
             }
             super::base::Found::Base(b) => {
@@ -632,19 +676,14 @@ impl CodeTools {
                     )
                     .into());
                 }
-                let bytes = b.download().await.map_err(|why| ToolError::Download {
-                    commit: b.short().to_string(),
-                    why,
-                })?;
-                if let Some(warning) = super::install_quiet(&db, &bytes, had_index)? {
-                    lines.push(warning);
-                }
-                lines.push(format!(
+                let line = format!(
                     "Repository {}: the index of commit {} from Kairos, {} changed since it.",
                     b.repository,
                     b.short(),
                     plural(b.changed, "file", "files")
-                ));
+                );
+                install_base(&db, &b, had_index, line, &mut lines).await?;
+                facts_base = Some((b.created_at.clone(), b.updated_at.clone()));
                 hosted = b.hosted;
             }
             found => {
@@ -685,17 +724,23 @@ impl CodeTools {
         let linked = summary.symbols.reused + summary.files.reused + summary.modules.reused;
         let left = summary.symbols.left + summary.files.left + summary.modules.left;
 
+        // KAIROS-T-0755: what the index has: its edges by origin, and when
+        // Kairos wrote the base.
+        let origins = Self::index_at(&root)
+            .and_then(|index| index.edge_origins().map_err(ToolError::from))
+            .unwrap_or_default();
         self.add_open(root.clone());
         lines.insert(
             0,
             format!("The server opened the index of {}.", display(&root)),
         );
         lines.push(format!(
-            "{}, {}, {} linked from the pool, {} with none. The tools answer for this checkout now.",
+            "{}, {}, {} linked from the pool, {} with none. {} The tools answer for this checkout now.",
             plural(report.files, "file", "files"),
             plural(report.symbols, "symbol", "symbols"),
             plural(linked, "summary", "summaries"),
-            left
+            left,
+            edges_line(&origins, facts_base.as_ref())
         ));
         if let Some(line) = open_line(&self.opened()) {
             lines.push(line);
@@ -791,6 +836,69 @@ impl CodeTools {
         };
         Ok((found.hits, found.mode, how))
     }
+}
+
+/// Download the base `b` and install it at `db`, then push `line`. A
+/// download that fails after its tries (KAIROS-T-0755) leaves the local
+/// index in use when `had_index`, with a line that says so; else it is
+/// the error of the tool.
+async fn install_base(
+    db: &Path,
+    b: &super::base::Base,
+    had_index: bool,
+    line: String,
+    lines: &mut Vec<String>,
+) -> Result<(), ToolError> {
+    match b.download().await {
+        Ok(bytes) => {
+            if let Some(warning) = super::install_quiet(db, &bytes, had_index)? {
+                lines.push(warning);
+            }
+            if let Err(e) = kairos_index::store::set_installed_base(db, &b.mark()) {
+                lines.push(format!(
+                    "The mark of the installed index was not written: {e}"
+                ));
+            }
+            lines.push(line);
+            Ok(())
+        }
+        Err(why) if had_index => {
+            lines.push(format!(
+                "Kairos: the download of the index of {} failed ({why}). The local index is \
+                 used.",
+                b.short()
+            ));
+            Ok(())
+        }
+        Err(why) => Err(ToolError::Download {
+            commit: b.short().to_string(),
+            why,
+        }),
+    }
+}
+
+/// The facts of an index in the answer of `fetch_index` (KAIROS-T-0755):
+/// the call edges by origin, and when Kairos wrote the base it came from.
+fn edges_line(origins: &kairos_index::EdgeOrigins, base: Option<&(String, String)>) -> String {
+    let mut out = format!(
+        "Call edges: {} from SCIP, {} by name",
+        origins.scip, origins.by_name
+    );
+    if origins.pending > 0 {
+        out.push_str(&format!(
+            " ({} in changed files wait for a SCIP run)",
+            origins.pending
+        ));
+    }
+    out.push('.');
+    if let Some((created, updated)) = base {
+        out.push_str(&format!(" The base index in Kairos is from {created}"));
+        if updated != created {
+            out.push_str(&format!(", last written {updated}"));
+        }
+        out.push('.');
+    }
+    out
 }
 
 /// The line of `fetch_index` with more than one open checkout (#272): the
@@ -1194,7 +1302,7 @@ pub(super) fn plural(count: usize, one: &str, many: &str) -> String {
 #[tool_router]
 impl CodeTools {
     #[tool(
-        description = "Open the index of a checkout. Give `root`, the path of the checkout. The server takes the nearest index of its repository from Kairos, updates it for the files that differ, and the other tools answer for this checkout by default. The checkouts opened before stay open: give `checkout` to a tool to read one of them. Give `repository`, the slug in Kairos, when the origin remote of the checkout is not a repository of Kairos. It runs no model, so it has no limit of changed files. Give `max_changed` for a limit. A call that fails does not change the open checkout. The other tools open the checkout that their `checkout` names. Call `fetch_index` to give a `repository` when the origin remote of the checkout is not in Kairos."
+        description = "Open the index of a checkout. Give `root`, the path of the checkout. The server takes the index of HEAD from Kairos when Kairos has it. Else it takes the nearest index of its repository. It parses the files that differ, and the other tools answer for this checkout by default. The answer says what the index has: the summaries, the call edges from SCIP or by name, and when Kairos wrote the base. The checkouts opened before stay open: give `checkout` to a tool to read one of them. Give `repository`, the slug in Kairos, when the origin remote of the checkout is not a repository of Kairos. It runs no model, so it has no limit of changed files. Give `max_changed` for a limit. A call that fails does not change the open checkout. The other tools open the checkout that their `checkout` names. Call `fetch_index` to give a `repository` when the origin remote of the checkout is not in Kairos."
     )]
     async fn fetch_index(
         &self,
@@ -2040,6 +2148,43 @@ mod tests {
         );
         let (_, index, _) = tools.open_index(None).await.unwrap();
         assert!(find(&index, "spread", None, None, SYMBOL).is_ok());
+    }
+
+    /// KAIROS-T-0755: the edges of an index by their origin: a Python index
+    /// has edges by name only, none from SCIP and none that wait for it.
+    #[test]
+    fn the_edges_of_an_index_are_counted_by_origin() {
+        let (_dir, root) = indexed_checkout();
+        let index = CodeTools::index_at(&root).unwrap();
+        let origins = index.edge_origins().unwrap();
+        assert_eq!(origins.scip, 0);
+        assert_eq!(origins.pending, 0);
+        assert!(origins.by_name >= 1, "{origins:?}: total calls sum");
+    }
+
+    /// KAIROS-T-0755: the facts line names the edges by origin and the base.
+    #[test]
+    fn the_facts_line_names_the_edges_and_the_base() {
+        let origins = kairos_index::EdgeOrigins {
+            scip: 120,
+            by_name: 7,
+            pending: 2,
+        };
+        let base = (
+            "2026-11-06T00:13:18Z".to_string(),
+            "2026-11-07T10:00:00Z".to_string(),
+        );
+        assert_eq!(
+            edges_line(&origins, Some(&base)),
+            "Call edges: 120 from SCIP, 7 by name (2 in changed files wait for a SCIP run). The \
+             base index in Kairos is from 2026-11-06T00:13:18Z, last written \
+             2026-11-07T10:00:00Z."
+        );
+        let none = kairos_index::EdgeOrigins::default();
+        assert_eq!(
+            edges_line(&none, None),
+            "Call edges: 0 from SCIP, 0 by name."
+        );
     }
 
     /// KAIROS-T-0425: a file with no symbol to summarize and no summary.

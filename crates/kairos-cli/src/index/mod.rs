@@ -617,6 +617,12 @@ async fn update(
         if let Some(warning) = install_quiet(&db, &bytes, local_changed.is_some())? {
             run.warn(warning);
         }
+        // KAIROS-T-0755: `fetch_index` installs the same index one time.
+        if let Err(e) = kairos_index::store::set_installed_base(&db, &b.mark()) {
+            run.warn(format!(
+                "The mark of the installed index was not written: {e}"
+            ));
+        }
         run.say(&format!(
             "Kairos: downloaded the index of {}, {} files changed since it.",
             b.short(),

@@ -13,6 +13,8 @@ Run the `grilling` skill over the open tasks of one initiative, as a set. Read `
 
 This is not a grill of each task. Most questions about one task are facts (which module, which test, which command), and you look facts up. The decisions are at the boundaries between the tasks. Expect a short session.
 
+Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`.
+
 Tasks can come from `/kairos:decompose`, from triage, from a different session or from a person. Review them all the same way.
 
 ## 1. Load the set

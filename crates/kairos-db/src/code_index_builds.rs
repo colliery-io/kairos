@@ -240,7 +240,8 @@ pub fn newest(conn: &mut PgConnection, repository_id: Uuid) -> QueryResult<Optio
 /// Write one `failed` run for a failure that happened before a run had a
 /// row (the fetch, the choice of the base). A failure with the same text as
 /// the newest run of the repository, when that run failed, adds no row:
-/// the builder tries again on each pass, and one row says what is wrong.
+/// the sweep tries again after its wait (KAIROS-T-0753), and one row says
+/// what is wrong.
 /// The row, or None when the failure is a repeat.
 pub fn record_failure_once(
     conn: &mut PgConnection,

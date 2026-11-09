@@ -468,8 +468,18 @@ Kairos keeps the code index of each indexed commit of a repository
 (`/api/repositories/{slug}/code-indexes`). The indexes are in Postgres. These
 variables control the clones of the repositories and the builder. The builder
 makes the first index of each repository that has no index. Then it updates
-the index after each push to the default branch, to an open pull request or to a
-tag (see [What the builder indexes](#what-the-builder-indexes)).
+the index after each push to a target ref. [What the builder
+indexes](#what-the-builder-indexes) lists the targets.
+
+When the fetch of a repository fails, the sweep adds no build job for it.
+The forge is down, or the server has no network. The sweep records one run
+with the text of the failure. Then it waits before the next try: 5 minutes,
+then twice as long after each failure, up to one hour. A fetch that works
+ends the wait. A new read token or a change of the repository ends it too.
+
+When the fetch of each repository fails, the log has one warning for the
+outage. A failed fetch does not trip the breaker of the repository. The
+breaker is for a build that stopped a server, and it needs a person.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -647,8 +657,9 @@ the job.
 #### What the builder indexes
 
 At each pass, the sweep fetches the branches, the tags and the pull request
-heads of each repository. GitHub gives the heads as `refs/pull/*/head`,
-GitLab as `refs/merge-requests/*/head`. The targets of a repository are:
+heads of each repository. The pull request heads are `refs/pull/*/head` on
+GitHub and `refs/merge-requests/*/head` on GitLab. The targets of a repository
+are:
 
 1. The head of the default branch. The forge gives the branch; a branch set
    by hand has priority; when the forge cannot be read, the stored branch
@@ -661,11 +672,13 @@ GitLab as `refs/merge-requests/*/head`. The targets of a repository are:
 
 One commit gets one index, whatever the number of refs that point at it. The
 list of the indexes (`kairos repos indexes`, the GUI, the API field `refs`)
-shows each ref of a commit. An update job builds the targets that have no
-index: the head first, then the tags, then the pull requests, newest first.
-One job builds at most 4 targets. The next pass adds a job for the rest. A tag or a pull
-request with no indexed commit below it gets no full build. It waits for an
-index of the branch.
+shows each ref of a commit.
+
+An update job builds the targets that have no index. The order: the head, then
+the tags, then the pull requests, newest first. One job builds at most 4
+targets. The next pass adds a job for the rest. A tag or a pull request with no
+indexed commit below it gets no full build. It waits for an index of the
+branch.
 
 A build with the embedded model is a job of the type `embedded_build`. One
 server runs one of them at a time (`KAIROS_JOB_LIMIT_EMBEDDED_BUILD`). Thus
@@ -923,16 +936,17 @@ first start of a deployment runs the pass at once. One pass:
   `KAIROS_NOTIFICATIONS_UNREAD_DAYS` days. This occurs in each mode, also
   `off`, and the pass does not archive them.
 - In each tenant, deletes the old code indexes, by the kind of their ref.
-  The indexes of a branch keep the newest `KAIROS_CODE_INDEX_KEEP`. The
-  default branch, an uploaded branch and the indexes with no ref are each
-  one group of the repository. "Newest" is the time of the last write of
-  the index. The builder sees an open pull request as a target at each
-  pass. The head index of the pull request stays for
-  `KAIROS_CODE_INDEX_PR_DAYS` days after the last pass that saw it. An index
-  written in those days also stays. After that, the pass deletes the index
-  of a merged or closed pull request. The pass does not delete a commit
-  that a tag or a branch points at. `KAIROS_CODE_INDEX_KEEP` of `0` keeps
-  each index, the pull request indexes too. This occurs in each mode, also
+  The indexes of a branch keep the newest `KAIROS_CODE_INDEX_KEEP`. Each of
+  the default branch, an uploaded branch and the indexes with no ref is one
+  group of the repository. The last write of an index gives its age. The pass
+  does not delete a commit that a tag or a branch points at.
+  `KAIROS_CODE_INDEX_KEEP` of `0` keeps each index, the pull request indexes
+  too.
+- In each tenant, deletes the indexes of the closed pull requests. The
+  builder sees an open pull request as a target at each pass. The head index
+  of the pull request stays for `KAIROS_CODE_INDEX_PR_DAYS` days after the
+  last pass that saw it. An index written in those days also stays. After
+  that, the pass deletes the index of a merged or closed pull request. This occurs in each mode, also
   `off`. A build or an upload can make the index again.
 - In each tenant, deletes the summaries of the code-index pools that no
   stored index uses, after `KAIROS_CODE_INDEX_POOL_DAYS` days. The pass also
@@ -1361,7 +1375,27 @@ a local index of a newer schema version before it does work.
 When the local index is as near to the tree as the base, the CLI keeps the
 local index. The base can have more summaries than the local index links.
 Then the CLI downloads the base and takes its summaries into the local
-index. The output says so. The tool `fetch_index` of the code tools does the same.
+index. The output says so.
+
+The tool `fetch_index` of the code tools does the same, with one exception.
+Kairos can have the index of `HEAD` itself. The builder indexed the pull
+request or the tag, or an upload gave it. That index
+has the SCIP edges and the summaries. `fetch_index` downloads it and installs
+it in place of the local structure. The answer says "the index of commit X
+from Kairos, the sha of HEAD".
+
+The local index records which index of Kairos it came from, so `fetch_index`
+installs the same index one time.
+
+The CLI tries a failed download again after 1 s, 3 s and 9 s. After the last
+try, the error names the count of the tries and the last failure. With a
+local index, `fetch_index` then uses the local index and says so. The server
+logs a failed download with the repository, the commit and the cause.
+
+The answer of `fetch_index` says what the index has. It gives the files and
+the symbols. It gives the summaries linked from the pool and the symbols with
+none. It gives the call edges from SCIP and by name, and how many wait for a
+SCIP run. It gives when Kairos first wrote the base index and last wrote it.
 
 After a `git push`, the Claude Code plugin sends the local index to Kairos
 with `kairos index upload --ref <branch>` (the hook `index_update.py push`).
@@ -1426,8 +1460,19 @@ you what to do:
   count, to update from this base.
 
 After a refusal of `fetch_index`, the tools still answer for the previous
-checkout, and the error names it. With no previous checkout, the error says
-that the other tools refuse until `fetch_index` succeeds.
+checkout, and the error names it. With no previous checkout, a tool whose
+`checkout` names a checkout opens it, as `fetch_index` does. A tool with no
+`checkout` refuses, and the error names the checkouts below the start
+folder of the server.
+
+Before a tool answers, the server parses the files that changed since the
+last update of the index. It parses the symbols and the
+edges by name, and links the summaries from the pool. So the answer is current
+after an edit, a pull or a checkout, with no hook and no
+`kairos index update`. The answer says how many files it parsed. This step
+runs no SCIP: a changed Rust file keeps its edges by name until the next
+update with SCIP. One parse runs at a time for a checkout; a call that
+comes during one waits for it.
 
 If the CLI cannot reach Kairos, it updates the local index and says so.
 With no local index, it builds nothing.

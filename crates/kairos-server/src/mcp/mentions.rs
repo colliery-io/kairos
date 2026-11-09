@@ -48,7 +48,7 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "`parent` is a value of `relationship` there.",
     ),
     (
-        "plugin/skills/engineering/code-review/SKILL.md:34",
+        "plugin/skills/engineering/code-review/SKILL.md:36",
         "repository",
         "`repository: <slug>` is a line of the answer of get_item.",
     ),

@@ -11,6 +11,8 @@ Before the first question, ground the plan in the record: [GROUND.md](../kairos/
 
 If a *fact* can be found by exploring the codebase, look it up rather than asking me. The *decisions*, though, are mine — put each one to me and wait for my answer.
 
+Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`.
+
 Do not enact the plan until I confirm we have reached a shared understanding.
 
 This loop writes nothing to Kairos. `/kairos:grill-initiative` and `/kairos:grill-decomposition` run it and write each answer into the item. If the user asks to grill a Kairos item and neither skill runs, offer the one that fits.

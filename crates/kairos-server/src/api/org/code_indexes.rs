@@ -761,6 +761,31 @@ pub(crate) async fn download_code_index(
     Extension(tenant): Extension<TenantContext>,
     Path((slug, commit)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
+    // KAIROS-T-0755: a download that fails in the server is logged with the
+    // repository, the commit and the cause; the client sees the status only.
+    let tenant_slug = tenant.slug.clone();
+    let (slug_for_log, commit_for_log) = (slug.clone(), commit.clone());
+    download_code_index_inner(state, tenant, slug, commit)
+        .await
+        .inspect_err(|e| {
+            if e.status.is_server_error() {
+                tracing::error!(
+                    tenant = %tenant_slug,
+                    repository = %slug_for_log,
+                    commit = %commit_for_log,
+                    error = ?e,
+                    "code index download failed"
+                );
+            }
+        })
+}
+
+async fn download_code_index_inner(
+    state: AppState,
+    tenant: TenantContext,
+    slug: String,
+    commit: String,
+) -> Result<Response, ApiError> {
     check_commit(&commit, "commit")?;
     let name = format!("{slug}-{}.db", &commit[..12]);
     let (repo_id, structure) = {

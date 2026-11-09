@@ -54,6 +54,7 @@ use kairos_db::{TenantPool, provision_tenant, run_public_migrations};
 use kairos_embed::{DeterministicProvider, EmbeddingProvider};
 use kairos_index::{FakeSummarizer, Index, Level, UpdateOptions};
 use kairos_server::app;
+use kairos_server::code_index::jobs::FETCH_WAITS;
 use kairos_server::code_index::{
     ACTIVE_RUN, BREAKER_TRIPPED, CodeIndexService, FakeSummarizers, MIN_REBUILD, OPTED_OUT,
     SummarizerSource, end_stale_runs, first_builds, job_key, requested_builds, run_builder, sweep,
@@ -1663,7 +1664,8 @@ async fn a_failed_fetch_records_one_failed_run() {
         .expect("the first index");
     std::fs::remove_dir_all(&w.git).expect("remove the git repository");
 
-    // When the builder runs 2 times
+    // When the builder runs 2 times (the second run waits after the
+    // failure, KAIROS-T-0753)
     let outcomes = w.sweep().await;
     let note = outcomes[0].note.clone().expect("a note");
     assert!(note.starts_with("failed"), "{note}");
@@ -4859,4 +4861,82 @@ async fn pull_request_heads_and_tags_get_an_index_and_a_sha_builds_once() {
         .find(|i| i.commit == p)
         .expect("the index of P stays");
     assert!(index_p.refs.is_empty(), "{index_p:?}");
+}
+
+// KAIROS-T-0753: after a failed fetch the sweep adds no job and writes no
+// second row while it waits; it tries again after the wait, with a longer
+// wait after the next failure; a fetch that works clears the wait.
+#[tokio::test]
+async fn a_failed_fetch_backs_off_and_a_fetch_that_works_clears_the_wait() {
+    let w = World::new("kairos_code_index_t0753_backoff").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    // A short first wait: 1.5 s, then 3 s after the next failure.
+    w.service
+        .set_fetch_backoff_first(std::time::Duration::from_millis(1500));
+
+    // Given a repository that the server cannot fetch
+    std::fs::remove_dir_all(&w.git).expect("remove the git repository");
+
+    // When the sweep runs, then at once again
+    let first = w.sweep().await;
+    let note = first[0].note.clone().expect("a note");
+    assert!(note.starts_with("failed"), "{note}");
+    assert!(
+        w.service.fetch_wait(w.repo_id).is_some(),
+        "the repository waits"
+    );
+    let second = w.sweep().await;
+
+    // Then the second sweep adds no job and no row: it names the wait
+    let note = second[0].note.clone().expect("a note");
+    assert!(note.starts_with(FETCH_WAITS), "{note}");
+    assert!(note.contains("the next try is in"), "{note}");
+    assert_eq!(
+        runs_of(&w).await.len(),
+        2,
+        "the upload and one failure, whatever the number of sweeps"
+    );
+    let key = job_key("acme", w.repo_id);
+    let open: Option<kairos_db::jobs::Job> = w
+        .state
+        .blocking
+        .run_public(move |conn| {
+            kairos_db::jobs::open_by_key(conn, &key)
+                .map_err(kairos_server::error::ApiError::internal)
+        })
+        .await
+        .expect("the queue");
+    assert!(open.is_none(), "no build job waits: {open:?}");
+
+    // When the wait is over and the fetch fails again
+    tokio::time::sleep(std::time::Duration::from_millis(1700)).await;
+    let third = w.sweep().await;
+    let note = third[0].note.clone().expect("a note");
+    assert!(note.starts_with("failed"), "a try after the wait: {note}");
+    assert_eq!(runs_of(&w).await.len(), 2, "the same failure adds no row");
+    // The wait doubled to 3 s: more than the first 1.5 s is left.
+    let left = w
+        .service
+        .fetch_wait(w.repo_id)
+        .expect("the repository waits again");
+    assert!(
+        left > std::time::Duration::from_millis(1500),
+        "the wait doubled: {left:?}"
+    );
+
+    // When the repository is back and the wait is over
+    std::fs::create_dir_all(&w.git).unwrap();
+    let a2 = repository_at_a(&w.git);
+    tokio::time::sleep(std::time::Duration::from_millis(3200)).await;
+    let fourth = w.sweep().await;
+
+    // Then the fetch works, the wait is cleared, and the new head is built
+    assert_eq!(w.service.fetch_wait(w.repo_id), None, "{fourth:?}");
+    let outcome = outcome_of(&fourth, "payments-api");
+    assert_eq!(outcome.commit, a2, "{outcome:?}");
+    assert!(outcome.report.is_some(), "{outcome:?}");
 }

@@ -188,7 +188,7 @@ pub enum StillOpen {
     #[error("The tools still answer for the checkout {0}.")]
     Root(String),
     #[error(
-        "The server has no open checkout, so the other tools refuse until `fetch_index` succeeds."
+        "The server has no open checkout. A tool opens the checkout that its `checkout` names."
     )]
     Nothing,
 }
@@ -299,7 +299,7 @@ pub enum ToolError {
     )]
     NoIndex(PathBuf),
     #[error(
-        "The server has no open checkout. Call `fetch_index` with `root`, the path of a git checkout. Give `repository`, the slug in Kairos, when the `origin` remote of the checkout is not a repository of Kairos.{0}"
+        "The server has no open checkout. Give `checkout`, the path of a git checkout, and the tool opens it. Or call `fetch_index` with `root`, the path. Give `repository`, the slug in Kairos, when the `origin` remote of the checkout is not a repository of Kairos.{0}"
     )]
     NoCheckout(Below),
     #[error(
@@ -706,7 +706,7 @@ mod tests {
         assert_eq!(
             e.text_with(Some(&StillOpen::Nothing)),
             "NOT_A_CHECKOUT: The folder /tmp/x is not in a git checkout. The server has no open \
-             checkout, so the other tools refuse until `fetch_index` succeeds."
+             checkout. A tool opens the checkout that its `checkout` names."
         );
         let e = ToolError::MissingArgument {
             argument: "root".into(),
@@ -714,7 +714,7 @@ mod tests {
         };
         let text = e.text_with(Some(&StillOpen::Nothing));
         assert!(
-            text.contains("succeeds.\ndetails: {\"field\":\"root\"}"),
+            text.contains("names.\ndetails: {\"field\":\"root\"}"),
             "{text}"
         );
     }

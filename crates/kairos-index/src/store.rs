@@ -266,6 +266,36 @@ pub fn set_taken_base_pool(db: &Path, value: &str) -> Result<(), IndexError> {
     Ok(())
 }
 
+const INSTALLED_BASE: &str = "installed_base";
+
+/// The base index that the checkout index at `db` was installed from
+/// (KAIROS-T-0755), as `<commit>@<updated_at>` of the index in Kairos, if
+/// a download installed it.
+pub fn installed_base(db: &Path) -> Result<Option<String>, IndexError> {
+    let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    check_version(&conn)?;
+    Ok(conn
+        .query_row(
+            "SELECT value FROM pool_meta WHERE name = ?1",
+            [INSTALLED_BASE],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+/// Record in the checkout index at `db` that a download of the base
+/// `value` (`<commit>@<updated_at>`) installed it (KAIROS-T-0755), so that
+/// the next fetch does not install the same index again.
+pub fn set_installed_base(db: &Path, value: &str) -> Result<(), IndexError> {
+    let conn = Connection::open(db)?;
+    check_version(&conn)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO pool_meta (name, value) VALUES (?1, ?2)",
+        params![INSTALLED_BASE, value],
+    )?;
+    Ok(())
+}
+
 /// The summary keys that the index file at `db` uses. Sorted.
 pub fn keys_of(db: &Path) -> Result<Vec<String>, IndexError> {
     let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -358,6 +388,26 @@ mod tests {
         // Not a structure at all.
         assert_eq!(structure_version(b"not gzip"), None);
         assert_eq!(structure_version(&[]), None);
+    }
+
+    /// KAIROS-T-0755: the mark of the base that a download installed.
+    #[test]
+    fn the_installed_base_is_recorded_and_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("index.db");
+        index_with_pool(&db);
+        assert_eq!(installed_base(&db).unwrap(), None);
+        set_installed_base(&db, "abc123@2026-11-07T00:00:00Z").unwrap();
+        assert_eq!(
+            installed_base(&db).unwrap().as_deref(),
+            Some("abc123@2026-11-07T00:00:00Z")
+        );
+        set_installed_base(&db, "abc123@2026-11-08T00:00:00Z").unwrap();
+        assert_eq!(
+            installed_base(&db).unwrap().as_deref(),
+            Some("abc123@2026-11-08T00:00:00Z"),
+            "a new write replaces the mark"
+        );
     }
 
     /// KAIROS-T-0746: the version of an index file, from its header only.

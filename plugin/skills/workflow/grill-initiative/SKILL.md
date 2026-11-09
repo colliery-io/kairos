@@ -45,6 +45,8 @@ For a strategy, the default columns are Draft, Review, Active, Monitoring and Co
 
 Each branch below is a root of the design tree. Look up each fact before you ask: the code, the documents, the ADRs, other items (`search`, `get_repository`). Ask only for decisions. Expect new branches as answers come in.
 
+Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`.
+
 **An initiative**
 
 - **Context.** What is true today that makes this work necessary now? Check it against the code and the strategy. Who asks for it? Who does it change, without a request from them? What did people try before, and why did it stop?

@@ -179,6 +179,10 @@ pub(crate) async fn set_org_read_token(
             set(conn, &tenant_slug, user, key, &host, &body.token)
         })
         .await?;
+    // KAIROS-T-0753: a token of the host can make each fetch work: no wait.
+    if let Some(service) = &state.code_index {
+        service.fetch_reset_all();
+    }
     Ok(Json(status))
 }
 
@@ -209,5 +213,10 @@ pub(crate) async fn remove_org_read_token(
         .blocking
         .run(&tenant.slug, move |conn| remove(conn, user, &host))
         .await?;
+    // KAIROS-T-0753: the fetches can work with the tokens of the
+    // repositories: no wait.
+    if let Some(service) = &state.code_index {
+        service.fetch_reset_all();
+    }
     Ok(Json(tokens))
 }

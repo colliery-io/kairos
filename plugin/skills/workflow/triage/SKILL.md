@@ -43,6 +43,8 @@ Name each item by its short code and the title. Take the column names from the b
 
 ## Triage a specific item
 
+Code index first. Find code with the tools of the `kairos-code` MCP server before you read a file. `code_search` finds what the code does; `symbol` finds one name. `callers` and `references` find its uses; `path` finds how one symbol reaches another. Then read only the files that they name. grep is for literal text only: a log line, a config key, an error message. After you change code, run `kairos index update`.
+
 1. **Gather context.** `get_item` for content, metadata, relationships and the prior triage notes (they follow the content), so you don't re-ask resolved questions. Note the item's lane and `repository` (`get_item` prints both). A **request** from a different team is in the entry column, in the support lane, and needs no repository. Triage it like any other item; its author owes the answers to "needs info" questions. Check redundancy: `search` the boards for a duplicate item, and search the codebase for an existing implementation of the requested behavior by domain concept, not just the request's wording — report where you looked.
 2. **Verify the claim.** For a Bug, reproduce it from the reported steps before anything else; report confirmed (with code path), failed, or insufficient detail. For a Task or Tech Debt item, confirm the premise still holds in the codebase.
 3. **Recommend.** Give the lead your recommendation — refine toward Todo, needs info, cancel, or archive — with reasoning and a brief summary of what you found in the codebase. Wait for direction.

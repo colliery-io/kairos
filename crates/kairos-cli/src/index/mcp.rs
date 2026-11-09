@@ -909,6 +909,7 @@ fn upload_failure_of(text: &str, now: std::time::SystemTime, folder: &Path) -> O
          log is update.log in {}.",
         display(folder)
     ))
+}
 
 /// Download the base `b` and install it at `db`, then push `line`. A
 /// download that fails after its tries (KAIROS-T-0755) leaves the local

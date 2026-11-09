@@ -2,7 +2,7 @@
 title: "Install Kairos on Kubernetes with Helm"
 ---
 
-Get a Kairos 0.19.1 deployment serving on a cluster you already run.
+Get a Kairos 0.20.0 deployment serving on a cluster you already run.
 
 **Before you start**, have all four:
 
@@ -123,7 +123,7 @@ mounts the Swagger UI at `/api/docs`.
 
 ```sh
 helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
-  --version 0.19.1 -f my-values.yaml
+  --version 0.20.0 -f my-values.yaml
 ```
 
 `--version` is not optional in practice: the chart publishes no floating tag.
@@ -595,7 +595,7 @@ Changes that people and agents see:
   and its `.sha256` from the server. An upgrade of the CLI needs no access
   to github.com.
 - A CLI of 0.18 cannot read a link that is a path. When `KAIROS_PUBLIC_URL`
-  is not set, run `kairos self-update --version 0.19.1` once. That command
+  is not set, run `kairos self-update --version 0.20.0` once. That command
   downloads from GitHub. The next upgrades use the server.
 
 ### From 0.19.0 to 0.19.1

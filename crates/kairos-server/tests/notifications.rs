@@ -585,6 +585,7 @@ fn read_notifications_deleted(conn: &mut PgConnection, config: &RetentionConfig)
     let config = RetentionConfig {
         mode: kairos_core::retention::RetentionMode::Off,
         code_index_keep: 0,
+        code_index_pr_days: 7,
         ..config.clone()
     };
     kairos_db::retention::run_retention_pass(conn, &config, Utc::now(), &mut || {})

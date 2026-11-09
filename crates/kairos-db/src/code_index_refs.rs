@@ -15,10 +15,11 @@ use uuid::Uuid;
 
 use crate::schema::code_index_refs;
 
-/// The kind of a ref: the value of the column `kind`.
-pub const BRANCH: &str = "branch";
-pub const PULL: &str = "pull";
-pub const TAG: &str = "tag";
+/// The kind of a ref: the value of the column `kind` (the constants of
+/// kairos-core, so the retention plan reads the same words).
+pub use kairos_core::retention::{
+    REF_KIND_BRANCH as BRANCH, REF_KIND_PULL as PULL, REF_KIND_TAG as TAG,
+};
 
 /// One ref that points at an indexed commit.
 #[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable)]
@@ -101,6 +102,31 @@ fn kind_rank(kind: &str) -> u8 {
         TAG => 1,
         _ => 2,
     }
+}
+
+impl From<IndexRef> for kairos_core::retention::CodeIndexRefMeta {
+    fn from(r: IndexRef) -> Self {
+        kairos_core::retention::CodeIndexRefMeta {
+            repository_id: r.repository_id,
+            ref_name: r.ref_name,
+            kind: r.kind,
+            commit_sha: r.commit_sha,
+            updated_at: r.updated_at,
+        }
+    }
+}
+
+/// The refs of `repositories`, for the retention pass (KAIROS-T-0751), as
+/// `index_meta` gives the indexes.
+pub fn ref_meta(
+    conn: &mut PgConnection,
+    repositories: &[Uuid],
+) -> QueryResult<Vec<kairos_core::retention::CodeIndexRefMeta>> {
+    let rows = code_index_refs::table
+        .filter(code_index_refs::repository_id.eq_any(repositories))
+        .select(IndexRef::as_select())
+        .load::<IndexRef>(conn)?;
+    Ok(rows.into_iter().map(Into::into).collect())
 }
 
 /// The refs of `repository`.

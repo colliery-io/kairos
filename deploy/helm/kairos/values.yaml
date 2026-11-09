@@ -314,9 +314,13 @@ config:
     # Emitted when not null, also for 0.
     codeIndexPoolDays: null
     # -- KAIROS_CODE_INDEX_KEEP — code indexes that stay per repository and
-    # ref, the newest (server default 5; 0 keeps each index). Emitted when
-    # not null, also for 0.
+    # branch ref, the newest (server default 10; 0 keeps each index). Emitted
+    # when not null, also for 0.
     codeIndexKeep: null
+    # -- KAIROS_CODE_INDEX_PR_DAYS — days an index of a pull request stays
+    # after the pull request stopped being a target of the builder (server
+    # default 7; 0 keeps them). Emitted when not null, also for 0.
+    codeIndexPrDays: null
     # -- KAIROS_ARCHIVE_TARGET — NDJSON offload target: a filesystem path or an
     # s3://bucket/prefix URL (credentials from the AWS chain: a role for the
     # service account, Pod Identity or the environment). Empty means no target

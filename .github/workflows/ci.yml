@@ -116,8 +116,9 @@ jobs:
           # The workflow itself, the cargo setup and the angreal tasks run
           # every gate.
           all='^(\.github/workflows/ci\.yml|\.config/nextest\.toml|\.angreal/|Cargo\.(toml|lock)|rust-toolchain\.toml|\.cargo/)'
-          # A unit test of kairos-cli reads reference/cli.md (KAIROS-T-0596).
-          rust="$(has "${all}|^crates/|^scripts/render-openapi\.py|^docs/src/content/docs/reference/rest/|^docs/src/content/docs/reference/cli\.md$")"
+          # A unit test of kairos-cli reads reference/cli.md (KAIROS-T-0596);
+          # the mention tests of kairos-server read the skills (KAIROS-T-0759).
+          rust="$(has "${all}|^crates/|^scripts/render-openapi\.py|^plugin/skills/|^docs/src/content/docs/reference/rest/|^docs/src/content/docs/reference/cli\.md$")"
           web="$(has "${all}|^crates/kairos-web/|^crates/kairos-client/")"
           helm="$(has "${all}|^deploy/helm/")"
           python="$(has "${all}|^plugin/|^\.claude-plugin/|^scripts/")"

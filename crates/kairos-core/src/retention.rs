@@ -26,7 +26,7 @@
 //! enforced by the I/O layer (`kairos_db::retention`); the planner only
 //! decides WHICH rows are candidates.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -64,9 +64,13 @@ pub const ENV_NOTIFICATIONS_READ_DAYS: &str = "KAIROS_NOTIFICATIONS_READ_DAYS";
 /// Env var: the days that a summary of the code-index pool that no stored
 /// index has used stays (default 30, KAIROS-T-0378); 0 keeps them.
 pub const ENV_CODE_INDEX_POOL_DAYS: &str = "KAIROS_CODE_INDEX_POOL_DAYS";
-/// Env var: the code indexes that stay per repository and ref, the newest
-/// by last write (default 5, KAIROS-T-0638); 0 keeps every index.
+/// Env var: the code indexes that stay per repository and branch ref, the
+/// newest by last write (default 10, KAIROS-T-0638, KAIROS-T-0751); 0 keeps
+/// every index.
 pub const ENV_CODE_INDEX_KEEP: &str = "KAIROS_CODE_INDEX_KEEP";
+/// Env var: the days a pull request index stays after its ref was last a
+/// target of the builder (default 7, KAIROS-T-0751); 0 keeps them.
+pub const ENV_CODE_INDEX_PR_DAYS: &str = "KAIROS_CODE_INDEX_PR_DAYS";
 /// Env var: the days an unread notification stays (default 180,
 /// KAIROS-T-0638); 0 keeps unread notifications.
 pub const ENV_NOTIFICATIONS_UNREAD_DAYS: &str = "KAIROS_NOTIFICATIONS_UNREAD_DAYS";
@@ -270,10 +274,16 @@ pub struct RetentionConfig {
     /// (KAIROS-T-0378). 0 keeps them. In each mode: such a summary is a
     /// cache that a build can make again.
     pub code_index_pool_days: u32,
-    /// The code indexes that stay per repository and ref, the newest by
-    /// last write (KAIROS-T-0638). 0 keeps every index. In each mode, not
-    /// archived: a build or an upload makes an index again.
+    /// The code indexes that stay per repository and branch ref, the
+    /// newest by last write (KAIROS-T-0638, KAIROS-T-0751: 10 for the
+    /// default branch). 0 keeps every index. In each mode, not archived: a
+    /// build or an upload makes an index again.
     pub code_index_keep: u32,
+    /// The days a pull request index stays after its ref was last a target
+    /// of the builder (KAIROS-T-0751): the pull request merged, closed past
+    /// its window, or got a new head. 0 keeps the pull request indexes. A
+    /// commit that a tag or a branch points at stays whatever this says.
+    pub code_index_pr_days: u32,
     /// An unread notification is deleted this many days after it was made
     /// (KAIROS-T-0638). 0 keeps unread notifications. In each mode, not
     /// archived, as a read notification.
@@ -300,7 +310,8 @@ impl Default for RetentionConfig {
             mode: RetentionMode::Archive,
             notifications_read_days: 30,
             code_index_pool_days: 30,
-            code_index_keep: 5,
+            code_index_keep: 10,
+            code_index_pr_days: 7,
             notifications_unread_days: 180,
             archive_s3_endpoint: None,
             archive_s3_region: None,
@@ -360,6 +371,9 @@ impl RetentionConfig {
         }
         if let Some(value) = lookup(ENV_CODE_INDEX_KEEP) {
             config.code_index_keep = parse_u32(ENV_CODE_INDEX_KEEP, &value)?;
+        }
+        if let Some(value) = lookup(ENV_CODE_INDEX_PR_DAYS) {
+            config.code_index_pr_days = parse_u32(ENV_CODE_INDEX_PR_DAYS, &value)?;
         }
         if let Some(value) = lookup(ENV_NOTIFICATIONS_UNREAD_DAYS) {
             config.notifications_unread_days = parse_u32(ENV_NOTIFICATIONS_UNREAD_DAYS, &value)?;
@@ -565,39 +579,115 @@ pub struct CodeIndexKey {
     pub commit_sha: String,
 }
 
-/// The pure code-index planner (KAIROS-T-0638): per repository and ref
-/// (no ref is a group of its own), keep the `keep` newest indexes by last
-/// write (`updated_at`, then `commit_sha` as tiebreaker); the others are
-/// candidates. `keep` 0 keeps every index. The result is sorted.
-pub fn plan_code_index_retention(rows: &[CodeIndexMeta], keep: u32) -> Vec<CodeIndexKey> {
+/// A ref that points at a stored code index (KAIROS-T-0750): the rows of
+/// `code_index_refs`. `kind` is `branch`, `pull` or `tag`; `updated_at` is
+/// when the builder last saw the ref as a target.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeIndexRefMeta {
+    pub repository_id: Uuid,
+    pub ref_name: String,
+    pub kind: String,
+    pub commit_sha: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// The kinds of a ref in `code_index_refs` (KAIROS-T-0750): the default
+/// branch (or an uploaded branch), a pull request head, a tag.
+pub const REF_KIND_BRANCH: &str = "branch";
+pub const REF_KIND_PULL: &str = "pull";
+pub const REF_KIND_TAG: &str = "tag";
+
+/// Whether a ref name is a pull request or a merge request head
+/// (KAIROS-T-0750): `pull/12`, `merge-requests/12`, or the full ref
+/// `refs/pull/12/head`, `refs/merge-requests/12/head`.
+pub fn is_pull_ref_name(name: &str) -> bool {
+    name.starts_with("pull/")
+        || name.starts_with("merge-requests/")
+        || name.starts_with("refs/pull/")
+        || name.starts_with("refs/merge-requests/")
+}
+
+/// Whether the ref a build was for names a pull request.
+fn is_pull_ref(name: Option<&str>) -> bool {
+    name.is_some_and(is_pull_ref_name)
+}
+
+/// The code indexes to delete (KAIROS-T-0638, KAIROS-T-0751), sorted:
+///
+/// - A commit that a tag or a branch ref points at (`refs`) stays. It
+///   counts among the newest `keep` of its group.
+/// - An index built for a pull request ref stays while its ref was a target
+///   of the builder in the last `pr_days` days and still points at it, or
+///   while the index itself was written in the last `pr_days` days. Else it
+///   goes: the pull request merged, closed past its window, or moved on.
+///   `pr_days` 0 keeps the pull request indexes.
+/// - The other indexes keep the newest `keep` per repository and ref (the
+///   default branch, an uploaded branch, no ref), by the time of the last
+///   write, ties by sha.
+/// - `keep` 0 keeps every index.
+pub fn plan_code_index_retention(
+    rows: &[CodeIndexMeta],
+    refs: &[CodeIndexRefMeta],
+    keep: u32,
+    pr_days: u32,
+    now: DateTime<Utc>,
+) -> Vec<CodeIndexKey> {
     if keep == 0 {
         return Vec::new();
     }
+    let grace = Duration::days(i64::from(pr_days));
+    let mut protected: HashSet<(Uuid, &str)> = HashSet::new();
+    let mut fresh_pull_heads: HashSet<(Uuid, &str)> = HashSet::new();
+    for r in refs {
+        let key = (r.repository_id, r.commit_sha.as_str());
+        if r.kind == REF_KIND_PULL {
+            if pr_days == 0 || r.updated_at + grace >= now {
+                fresh_pull_heads.insert(key);
+            }
+        } else {
+            protected.insert(key);
+        }
+    }
+    let mut prune: Vec<CodeIndexKey> = Vec::new();
     let mut groups: BTreeMap<(Uuid, Option<&str>), Vec<&CodeIndexMeta>> = BTreeMap::new();
     for row in rows {
+        let key = (row.repository_id, row.commit_sha.as_str());
+        if is_pull_ref(row.ref_name.as_deref()) {
+            if protected.contains(&key) {
+                continue;
+            }
+            if pr_days == 0 || fresh_pull_heads.contains(&key) || row.updated_at + grace >= now {
+                continue;
+            }
+            prune.push(CodeIndexKey {
+                repository_id: row.repository_id,
+                commit_sha: row.commit_sha.clone(),
+            });
+            continue;
+        }
         groups
             .entry((row.repository_id, row.ref_name.as_deref()))
             .or_default()
             .push(row);
     }
-    let mut prune: Vec<CodeIndexKey> = groups
-        .into_values()
-        .flat_map(|mut group| {
-            group.sort_by(|a, b| {
-                b.updated_at
-                    .cmp(&a.updated_at)
-                    .then_with(|| b.commit_sha.cmp(&a.commit_sha))
-            });
-            group
-                .into_iter()
-                .skip(keep as usize)
-                .map(|row| CodeIndexKey {
-                    repository_id: row.repository_id,
-                    commit_sha: row.commit_sha.clone(),
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    // A protected commit never goes. One among the newest `keep` of its
+    // group counts as one of them; an older one stays in addition.
+    prune.extend(groups.into_values().flat_map(|mut group| {
+        group.sort_by(|a, b| {
+            b.updated_at
+                .cmp(&a.updated_at)
+                .then_with(|| b.commit_sha.cmp(&a.commit_sha))
+        });
+        group
+            .into_iter()
+            .skip(keep as usize)
+            .filter(|row| !protected.contains(&(row.repository_id, row.commit_sha.as_str())))
+            .map(|row| CodeIndexKey {
+                repository_id: row.repository_id,
+                commit_sha: row.commit_sha.clone(),
+            })
+            .collect::<Vec<_>>()
+    }));
     prune.sort();
     prune
 }
@@ -658,7 +748,8 @@ mod tests {
                 mode: RetentionMode::Archive,
                 notifications_read_days: 30,
                 code_index_pool_days: 30,
-                code_index_keep: 5,
+                code_index_keep: 10,
+                code_index_pr_days: 7,
                 notifications_unread_days: 180,
                 archive_s3_endpoint: None,
                 archive_s3_region: None,
@@ -678,6 +769,7 @@ mod tests {
             (ENV_NOTIFICATIONS_READ_DAYS, "0"),
             (ENV_CODE_INDEX_POOL_DAYS, "7"),
             (ENV_CODE_INDEX_KEEP, "2"),
+            (ENV_CODE_INDEX_PR_DAYS, "3"),
             (ENV_NOTIFICATIONS_UNREAD_DAYS, "0"),
         ]);
         let config =
@@ -695,6 +787,7 @@ mod tests {
         assert_eq!(config.notifications_read_days, 0);
         assert_eq!(config.code_index_pool_days, 7);
         assert_eq!(config.code_index_keep, 2);
+        assert_eq!(config.code_index_pr_days, 3);
         assert_eq!(config.notifications_unread_days, 0);
     }
 
@@ -1063,13 +1156,30 @@ mod tests {
         plan.iter().map(|k| k.commit_sha.as_str()).collect()
     }
 
+    fn index_ref(
+        repository_id: Uuid,
+        name: &str,
+        kind: &str,
+        sha: &str,
+        updated_at: DateTime<Utc>,
+    ) -> CodeIndexRefMeta {
+        CodeIndexRefMeta {
+            repository_id,
+            ref_name: name.to_string(),
+            kind: kind.to_string(),
+            commit_sha: sha.to_string(),
+            updated_at,
+        }
+    }
+
     #[test]
     fn code_indexes_keep_the_newest_per_repository_and_ref() {
         let repo = Uuid::new_v4();
         let other = Uuid::new_v4();
+        let now = at(2026, 7, 5, 0, 0, 0);
         let mut rows = Vec::new();
-        // main: m1 (oldest) .. m4 (newest); a PR ref with 1; no ref with 3;
-        // the other repository's main with 3.
+        // main: m1 (oldest) .. m4 (newest); a fresh PR ref with 1; no ref
+        // with 3; the other repository's main with 3.
         for (i, sha) in ["m1", "m2", "m3", "m4"].iter().enumerate() {
             rows.push(index(
                 repo,
@@ -1082,7 +1192,7 @@ mod tests {
             repo,
             "p1",
             Some("refs/pull/7/head"),
-            at(2026, 1, 1, 0, 0, 0),
+            at(2026, 7, 4, 0, 0, 0),
         ));
         for (i, sha) in ["n1", "n2", "n3"].iter().enumerate() {
             rows.push(index(repo, sha, None, at(2026, 7, 1 + i as u32, 0, 0, 0)));
@@ -1095,7 +1205,7 @@ mod tests {
                 at(2026, 7, 1 + i as u32, 0, 0, 0),
             ));
         }
-        let plan = plan_code_index_retention(&rows, 2);
+        let plan = plan_code_index_retention(&rows, &[], 2, 7, now);
         let mut got = shas(&plan);
         got.sort();
         assert_eq!(got, vec!["m1", "m2", "n1", "o1"]);
@@ -1113,8 +1223,88 @@ mod tests {
             index(repo, "b", Some("main"), t),
             index(repo, "c", Some("main"), t),
         ];
-        assert!(plan_code_index_retention(&rows, 0).is_empty());
-        assert_eq!(shas(&plan_code_index_retention(&rows, 2)), vec!["a"]);
-        assert!(plan_code_index_retention(&rows, 3).is_empty());
+        assert!(plan_code_index_retention(&rows, &[], 0, 7, t).is_empty());
+        assert_eq!(
+            shas(&plan_code_index_retention(&rows, &[], 2, 7, t)),
+            vec!["a"]
+        );
+        assert!(plan_code_index_retention(&rows, &[], 3, 7, t).is_empty());
+    }
+
+    // KAIROS-T-0751: a commit that a tag points at stays, whatever its
+    // age and its group.
+    #[test]
+    fn code_indexes_with_a_tag_stay() {
+        let repo = Uuid::new_v4();
+        let now = at(2026, 7, 10, 0, 0, 0);
+        let rows: Vec<CodeIndexMeta> = (1..=4)
+            .map(|i| {
+                index(
+                    repo,
+                    &format!("m{i}"),
+                    Some("main"),
+                    at(2026, 7, i, 0, 0, 0),
+                )
+            })
+            .collect();
+        let refs = vec![
+            index_ref(repo, "main", "branch", "m4", now),
+            index_ref(repo, "v1.0.0", "tag", "m1", at(2026, 1, 1, 0, 0, 0)),
+        ];
+        // keep 2: m3 and m4 stay as the newest; m1 stays for the tag.
+        assert_eq!(
+            shas(&plan_code_index_retention(&rows, &refs, 2, 7, now)),
+            vec!["m2"]
+        );
+    }
+
+    // KAIROS-T-0751: a pull request keeps its head while the ref is fresh;
+    // an old head of the same pull request goes after the grace; a stale
+    // pull request (its ref no longer a target) loses its index after the
+    // grace; a pull commit that is also a tag stays.
+    #[test]
+    fn pull_request_indexes_keep_the_fresh_head_and_go_after_the_grace() {
+        let repo = Uuid::new_v4();
+        let now = at(2026, 7, 20, 0, 0, 0);
+        let rows = vec![
+            index(repo, "m1", Some("main"), at(2026, 7, 1, 0, 0, 0)),
+            // pull/7: p1 then p2 (the head), both written 2 weeks ago.
+            index(repo, "p1", Some("pull/7"), at(2026, 7, 5, 0, 0, 0)),
+            index(repo, "p2", Some("pull/7"), at(2026, 7, 6, 0, 0, 0)),
+            // pull/8: merged a month ago, its ref no longer a target.
+            index(repo, "q1", Some("pull/8"), at(2026, 6, 1, 0, 0, 0)),
+            // pull/9: written yesterday, no ref row yet.
+            index(
+                repo,
+                "r1",
+                Some("merge-requests/9"),
+                at(2026, 7, 19, 0, 0, 0),
+            ),
+            // pull/10: stale, but its commit is a tag.
+            index(repo, "t1", Some("pull/10"), at(2026, 6, 1, 0, 0, 0)),
+        ];
+        let refs = vec![
+            index_ref(repo, "main", "branch", "m1", now),
+            // The sweep saw pull/7 at p2 today: open and in the window.
+            index_ref(repo, "pull/7", "pull", "p2", now),
+            // pull/8 was last a target a month ago.
+            index_ref(repo, "pull/8", "pull", "q1", at(2026, 6, 2, 0, 0, 0)),
+            index_ref(repo, "pull/10", "pull", "t1", at(2026, 6, 2, 0, 0, 0)),
+            index_ref(repo, "v2", "tag", "t1", at(2026, 6, 1, 0, 0, 0)),
+        ];
+        let plan = plan_code_index_retention(&rows, &refs, 10, 7, now);
+        let mut got = shas(&plan);
+        got.sort();
+        assert_eq!(got, vec!["p1", "q1"]);
+        // pr_days 0 keeps the pull request indexes.
+        assert!(plan_code_index_retention(&rows, &refs, 10, 0, now).is_empty());
+        // A fresh pull head with no ref row stays by the time of its write.
+        let fresh = vec![index(repo, "r1", Some("pull/9"), at(2026, 7, 19, 0, 0, 0))];
+        assert!(plan_code_index_retention(&fresh, &[], 10, 7, now).is_empty());
+        let old = vec![index(repo, "r1", Some("pull/9"), at(2026, 7, 1, 0, 0, 0))];
+        assert_eq!(
+            shas(&plan_code_index_retention(&old, &[], 10, 7, now)),
+            vec!["r1"]
+        );
     }
 }

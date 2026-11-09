@@ -691,6 +691,27 @@ Changes that people and agents see:
   as `kairos config project` does. `--path` names the folder by its path
   also when it has an origin remote. 0.19.0 refused these folders.
 
+### From 0.19.1 to 0.20.0
+
+These changes of 0.20.0 show after the upgrade. They apply to Compose too.
+
+- The code index builder indexes the head of each open pull request and
+  each tag, not only the default branch (KAIROS-T-0750). The first sweep
+  after the upgrade adds a build job for each repository with a new target.
+  A target is a tag or a pull request head in the window of
+  `KAIROS_CODE_INDEX_REF_DAYS` (30 days). One job builds at most 4 targets.
+  The next sweeps build the rest. Set `KAIROS_CODE_INDEX_REF_DAYS=0` to
+  index each tag and each open pull request, or a smaller number to index
+  fewer.
+- The retention of the code indexes is by the kind of the ref
+  (KAIROS-T-0751). The default of `KAIROS_CODE_INDEX_KEEP` is 10, not 5. A
+  deployment that set `KAIROS_CODE_INDEX_KEEP` keeps its value: it applies
+  to the default branch and the other branches. The index of a pull request
+  goes `KAIROS_CODE_INDEX_PR_DAYS` (7) days after the builder last saw it as
+  a target. A commit that a tag points at stays.
+- The list of the indexes shows each ref of a commit with its kind. That is
+  `kairos repos indexes`, the GUI and the API field `refs`.
+
 ## Trying it out without a database
 
 `helm install` with nothing but the two OIDC values works, because the chart

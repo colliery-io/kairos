@@ -1565,9 +1565,11 @@ fn the_pass_removes_old_rows_of_the_other_tables_a_page_at_a_time() {
         .execute(&mut conn)
         .expect("resetting search_path");
 
-    // `off`: no sweep, but each of these tables in pages of 3.
+    // `off`: no sweep, but each of these tables in pages of 3. The keep
+    // count of the indexes is 5 here (KAIROS-T-0751).
     let config = RetentionConfig {
         mode: RetentionMode::Off,
+        code_index_keep: 5,
         ..RetentionConfig::default()
     };
     let paging = SweepPaging {
@@ -1672,6 +1674,7 @@ fn the_pass_removes_old_rows_of_the_other_tables_a_page_at_a_time() {
     let keep = RetentionConfig {
         mode: RetentionMode::Off,
         code_index_keep: 0,
+        code_index_pr_days: 7,
         notifications_unread_days: 0,
         ..RetentionConfig::default()
     };
@@ -1682,6 +1685,122 @@ fn the_pass_removes_old_rows_of_the_other_tables_a_page_at_a_time() {
 
     drop(conn);
     sql_query(format!("DROP DATABASE IF EXISTS {OTHER_DB} WITH (FORCE)"))
+        .execute(&mut admin_conn)
+        .expect("dropping scratch database");
+}
+
+/// KAIROS-T-0751: the pass keeps a commit that a tag points at whatever its
+/// age, keeps the head of an open pull request, and removes the index of a
+/// pull request that stopped being a target more than
+/// `code_index_pr_days` ago, and an old head of an open pull request. The
+/// refs rows of a removed index go with it.
+#[test]
+fn the_pass_keeps_tagged_and_open_pull_request_indexes() {
+    use diesel::sql_types::{Nullable, Text, Timestamptz, Uuid as SqlUuid};
+    use kairos_db::retention::run_retention_pass_with;
+
+    static REFS_DB: scratch::ScratchName =
+        scratch::ScratchName::new("kairos_retention_index_refs_test");
+    let (mut admin_conn, mut conn) = fresh_acme(&REFS_DB);
+    let _scratch_guard = scratch::ScratchGuard::new(&REFS_DB);
+    let now = at(2026, 11, 7, 12, 0, 0);
+    let repo = Uuid::new_v4();
+    let sha = |n: u32| format!("{n:040x}");
+    let put_index = |conn: &mut PgConnection, n: u32, ref_name: &str, at: DateTime<Utc>| {
+        sql_query(
+            "INSERT INTO code_indexes (repository_id, commit_sha, ref_name, source, structure, \
+             structure_bytes, summary_keys, created_at, updated_at) \
+             VALUES ($1, $2, $3, 'build', '\\x01'::bytea, 1, 0, $4, $4)",
+        )
+        .bind::<SqlUuid, _>(repo)
+        .bind::<Text, _>(sha(n))
+        .bind::<Nullable<Text>, _>(Some(ref_name))
+        .bind::<Timestamptz, _>(at)
+        .execute(conn)
+        .expect("an index");
+    };
+    let put_ref = |conn: &mut PgConnection, name: &str, kind: &str, n: u32, at: DateTime<Utc>| {
+        sql_query(
+            "INSERT INTO code_index_refs (repository_id, ref_name, commit_sha, kind, updated_at) \
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind::<SqlUuid, _>(repo)
+        .bind::<Text, _>(name)
+        .bind::<Text, _>(sha(n))
+        .bind::<Text, _>(kind)
+        .bind::<Timestamptz, _>(at)
+        .execute(conn)
+        .expect("a ref");
+    };
+    // main: 12 indexes, one a day; the oldest carries the tag v1.
+    for i in 0..12_u32 {
+        put_index(
+            &mut conn,
+            i,
+            "main",
+            now - Duration::days(30 - i64::from(i)),
+        );
+    }
+    put_ref(&mut conn, "main", "branch", 11, now);
+    put_ref(&mut conn, "v1", "tag", 0, now - Duration::days(30));
+    // pull/7: an old head (20) and the head (21), seen by the sweep today.
+    put_index(&mut conn, 20, "pull/7", now - Duration::days(20));
+    put_index(&mut conn, 21, "pull/7", now - Duration::days(15));
+    put_ref(&mut conn, "pull/7", "pull", 21, now);
+    // pull/8: merged; its ref was last a target 10 days ago.
+    put_index(&mut conn, 30, "pull/8", now - Duration::days(25));
+    put_ref(&mut conn, "pull/8", "pull", 30, now - Duration::days(10));
+    // pull/9: written yesterday, no ref row yet.
+    put_index(&mut conn, 40, "pull/9", now - Duration::days(1));
+    sql_query("SET search_path TO DEFAULT")
+        .execute(&mut conn)
+        .expect("resetting search_path");
+
+    let config = RetentionConfig {
+        mode: RetentionMode::Off,
+        ..RetentionConfig::default()
+    };
+    let paging = SweepPaging {
+        items_per_page: 10,
+        activity_per_page: 10,
+        batch: 10,
+    };
+    let pass = run_retention_pass_with(&mut conn, &config, now, paging, &mut || {}).expect("pass");
+    // main: 12 with keep 10 removes 2 of the oldest, but the tagged one
+    // stays: 1. pull/7: the old head goes: 1. pull/8: stale: 1.
+    assert_eq!(pass.code_indexes_deleted, 3, "{pass:?}");
+
+    pin(&mut conn, "org_acme");
+    let mut shas: Vec<String> = schema::code_indexes::table
+        .filter(schema::code_indexes::repository_id.eq(repo))
+        .select(schema::code_indexes::commit_sha)
+        .load(&mut conn)
+        .expect("indexes");
+    shas.sort();
+    let mut want: Vec<String> = [0_u32, 21, 40].into_iter().chain(2..12).map(sha).collect();
+    want.sort();
+    assert_eq!(
+        shas, want,
+        "the tagged oldest, the newest 10 of main but the untagged oldest, the head of pull/7, the fresh pull/9"
+    );
+    assert_eq!(
+        count_where(
+            &mut conn,
+            &format!("SELECT count(*) AS n FROM code_index_refs WHERE repository_id = '{repo}'")
+        ),
+        3,
+        "the ref row of pull/8 went with its index; main, v1 and pull/7 stay"
+    );
+
+    // A second pass removes nothing.
+    sql_query("SET search_path TO DEFAULT")
+        .execute(&mut conn)
+        .expect("resetting search_path");
+    let pass = run_retention_pass_with(&mut conn, &config, now, paging, &mut || {}).expect("pass");
+    assert_eq!(pass.code_indexes_deleted, 0);
+
+    drop(conn);
+    sql_query(format!("DROP DATABASE IF EXISTS {REFS_DB} WITH (FORCE)"))
         .execute(&mut admin_conn)
         .expect("dropping scratch database");
 }

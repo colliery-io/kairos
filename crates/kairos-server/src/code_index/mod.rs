@@ -1592,11 +1592,7 @@ pub(crate) fn ref_kind_of(name: &str) -> &'static str {
     use kairos_db::code_index_refs::{BRANCH, PULL, TAG};
     if name.starts_with("refs/tags/") {
         TAG
-    } else if name.starts_with("refs/pull/")
-        || name.starts_with("refs/merge-requests/")
-        || name.starts_with("pull/")
-        || name.starts_with("merge-requests/")
-    {
+    } else if kairos_core::retention::is_pull_ref_name(name) {
         PULL
     } else {
         BRANCH
@@ -3017,8 +3013,10 @@ pub(crate) fn used_rows(
         .collect()
 }
 
-#[cfg(all(test, feature = "llama"))]
-mod tests {
+/// The tests of the targets of the builder (KAIROS-T-0750). Not behind the
+/// `llama` feature: they run no model.
+#[cfg(test)]
+mod target_tests {
     use super::*;
 
     /// KAIROS-T-0750: the targets of a clone are the head of the branch,
@@ -3138,6 +3136,11 @@ mod tests {
         assert_eq!(ref_kind_of("pull/12"), "pull");
         assert_eq!(ref_kind_of("main"), "branch");
     }
+}
+
+#[cfg(all(test, feature = "llama"))]
+mod tests {
+    use super::*;
 
     #[test]
     fn the_builder_summarizes_on_the_threads_of_the_setting() {

@@ -207,6 +207,7 @@ fn unused_summaries_deleted(
     let config = RetentionConfig {
         mode: kairos_core::retention::RetentionMode::Off,
         code_index_keep: 0,
+        code_index_pr_days: 7,
         ..config.clone()
     };
     kairos_db::retention::run_retention_pass(conn, &config, now, &mut || {})

@@ -1184,15 +1184,18 @@ fn delete_unused_summaries_with(
     })
 }
 
-/// Delete, in each tenant, the code indexes past the newest
-/// `code_index_keep` of their repository and ref (KAIROS-T-0638). A page is
-/// the indexes of up to `items_per_page` repositories, read with no
-/// structure; each delete names at most `batch` commits. In each mode,
-/// also `off`: a build or an upload makes an index again. 0 keeps every
-/// index. Returns the count.
+/// Delete, in each tenant, the old code indexes (KAIROS-T-0638,
+/// KAIROS-T-0751): past the newest `code_index_keep` of their repository
+/// and branch ref, or of a pull request that stopped being a target
+/// `code_index_pr_days` ago; a commit with a tag or a branch ref stays. A
+/// page is the indexes and the refs of up to `items_per_page` repositories,
+/// read with no structure; each delete names at most `batch` commits. In
+/// each mode, also `off`: a build or an upload makes an index again. 0
+/// keeps every index. Returns the count.
 fn delete_old_code_indexes(
     conn: &mut PgConnection,
     config: &RetentionConfig,
+    now: DateTime<Utc>,
     paging: SweepPaging,
 ) -> Result<u64, RetentionError> {
     if config.code_index_keep == 0 {
@@ -1205,8 +1208,17 @@ fn delete_old_code_indexes(
             let repositories =
                 crate::code_indexes::repositories_page(conn, true, after, paging.items_per_page)?;
             let meta = crate::code_indexes::index_meta(conn, &repositories)?;
+            // KAIROS-T-0751: the refs tell which commits a tag or a branch
+            // points at, and which pull requests are still open.
+            let refs = crate::code_index_refs::ref_meta(conn, &repositories)?;
             let mut by_repository: HashMap<Uuid, Vec<String>> = HashMap::new();
-            for key in plan_code_index_retention(&meta, config.code_index_keep) {
+            for key in plan_code_index_retention(
+                &meta,
+                &refs,
+                config.code_index_keep,
+                config.code_index_pr_days,
+                now,
+            ) {
                 by_repository
                     .entry(key.repository_id)
                     .or_default()
@@ -1365,7 +1377,7 @@ pub fn run_retention_pass_with(
     progress();
     // The indexes first, so the summaries that only they used go in the
     // same pass.
-    let indexes = delete_old_code_indexes(conn, config, paging)?;
+    let indexes = delete_old_code_indexes(conn, config, now, paging)?;
     progress();
     let summaries = delete_unused_summaries_with(conn, config, now, paging)?;
     progress();

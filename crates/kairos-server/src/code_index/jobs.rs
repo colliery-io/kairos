@@ -236,6 +236,10 @@ enum HeadIndex {
     /// behind (KAIROS-T-0746): the server reads none of it, so the build
     /// does not wait for the least time between 2 updates.
     OtherSchema,
+    /// An index that a client uploaded (KAIROS-T-0756): the build of the
+    /// server replaces it, so the commit needs a build, and it does not
+    /// wait for the least time between 2 updates.
+    Uploaded,
     Missing,
 }
 
@@ -254,14 +258,15 @@ async fn indexes_of(
             let listed = kairos_db::code_indexes::list(conn, repo).map_err(ApiError::internal)?;
             let mut out = std::collections::HashMap::new();
             for commit in commits {
-                if !listed.iter().any(|i| i.commit_sha == commit) {
+                let Some(info) = listed.iter().find(|i| i.commit_sha == commit) else {
                     out.insert(commit, HeadIndex::Missing);
                     continue;
-                }
+                };
                 let found =
                     super::stored_schema(conn, repo, &commit).map_err(ApiError::internal)?;
                 let at = match found {
                     Some(found) if found != kairos_index::SCHEMA_VERSION => HeadIndex::OtherSchema,
+                    _ if info.source == super::UPLOAD => HeadIndex::Uploaded,
                     _ => HeadIndex::Current,
                 };
                 out.insert(commit, at);

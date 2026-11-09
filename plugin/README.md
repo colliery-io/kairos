@@ -191,6 +191,15 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   minute after the last edit (KAIROS-T-0524). `KAIROS_INDEX_DEBOUNCE_SECONDS` sets the
   number of seconds. `off` stops the update after an edit. With no `kairos` on PATH, no job
   starts.
+- **The upload after a push.** `hooks/index_update.py push` is a `PostToolUse` hook on `Bash`
+  (KAIROS-T-0756). When the command has a `git push`, it starts the background job for the
+  checkout of the push (the `-C` folder, else the folder of the command). The job runs the
+  update. When the update worked, at a session start or after a push, the job can run
+  `kairos index upload --ref <branch>`. It runs it when HEAD is on its upstream branch, the tree
+  has no change, and the sha has no mark (`uploaded-sha` in the state folder). The ref is the
+  upstream branch of HEAD. Kairos keeps the upload as the index of the sha until its builder
+  builds the sha. The build replaces it. The output goes to `update.log` and the result to
+  `last-upload.json`. Nothing goes to the chat; `fetch_index` names a failed upload.
 - **The code tools before grep.** `hooks/index_first.py tool` is a `PreToolUse` hook on `Grep`,
   `Glob` and `Bash` (KAIROS-T-0757). It finds the folder of the search. For `Grep` and `Glob`
   that is their `path`. For `Bash` it is the path argument of `grep`, `rg`, `ag`, `ack`, `find`,
@@ -212,8 +221,8 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   line: the exit code, the refusal, the command to run again and the log. A success, no file, a
   file that does not parse, or a result older than 7 days gives no line.
 - **The state** is outside the checkout: `~/.claude/kairos-index/<name>-<hash>/` holds
-  `changed-files`, `update.log` (and `update.log.1`), `last-update.json`, `lock`, `last-edit` and
-  `debounce.lock`. `KAIROS_INDEX_STATE_DIR` overrides the parent folder. Only one update runs at
+  `changed-files`, `update.log` (and `update.log.1`), `last-update.json`, `last-upload.json`,
+  `uploaded-sha`, `lock`, `last-edit` and `debounce.lock`. `KAIROS_INDEX_STATE_DIR` overrides the parent folder. Only one update runs at
   a time for each checkout.
 - Tests: `hooks/test_index_update.py` (also `bin/kairos-code`), part of `angreal test unit`.
 

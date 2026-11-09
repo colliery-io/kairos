@@ -260,6 +260,33 @@ fn content_of(bytes: &[u8]) -> Content {
     }
 }
 
+/// The symbols of an index by place and name (KAIROS-T-0756): what two
+/// parses of one tree share, without the summary keys.
+fn symbol_list(content: &Content) -> Vec<String> {
+    let mut list: Vec<String> = content
+        .symbols
+        .iter()
+        .map(|s| {
+            // `SymbolRecord { file: "..", name: "..", container: .., kind: "..", ..`
+            let field = |name: &str| {
+                let key = format!("{name}: ");
+                let at = s.find(&key).map(|i| i + key.len()).unwrap_or(0);
+                s[at..].split(',').next().unwrap_or("").to_string()
+            };
+            format!(
+                "{} {} {} {}-{}",
+                field("file"),
+                field("name"),
+                field("kind"),
+                field("start_line"),
+                field("end_line")
+            )
+        })
+        .collect();
+    list.sort();
+    list
+}
+
 fn keys_in(bytes: &[u8]) -> BTreeSet<String> {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("index.db");
@@ -575,6 +602,80 @@ async fn upload_then_download_an_index() {
 }
 
 // ===========================================================================
+// Scenario: The build of the server replaces an upload of the head
+// (KAIROS-T-0756), and a later upload does not replace the build.
+// ===========================================================================
+#[tokio::test]
+async fn the_build_replaces_an_upload_of_the_head() {
+    let w = World::new("kairos_code_index_t0756_upload_then_build").await;
+    let a = w.a.clone();
+    let index_a = w.index(&a);
+
+    // Given an upload of the index of A, the head of main
+    let uploaded = w
+        .bob
+        .upload_code_index("payments-api", &a, Some("main"), index_a.clone())
+        .await
+        .expect("bob uploads the index of A");
+    assert_eq!(uploaded.index.source, "upload");
+
+    // When the sweep runs
+    let outcomes = w.sweep().await;
+    let built = outcomes
+        .iter()
+        .find(|o| o.repository == "payments-api")
+        .unwrap_or_else(|| panic!("no outcome: {outcomes:?}"));
+    assert_eq!(built.commit, a, "{built:?}");
+    assert!(
+        built.report.is_some(),
+        "the upload did not stop the build: {built:?}"
+    );
+
+    // Then the index of A is the build, with the files and the symbols of
+    // the upload
+    let listed = w
+        .alice
+        .list_code_indexes("payments-api")
+        .await
+        .expect("the list of the indexes");
+    let stored = listed
+        .iter()
+        .find(|i| i.commit == a)
+        .expect("the index of A");
+    assert_eq!(stored.source, "build");
+    let build = content_of(
+        &w.alice
+            .download_code_index("payments-api", &a)
+            .await
+            .expect("the build downloads"),
+    );
+    let upload = content_of(&index_a);
+    assert_eq!(build.files, upload.files);
+    assert_eq!(symbol_list(&build), symbol_list(&upload));
+
+    // And a later upload of A does not replace the build; its ref is kept
+    let again = w
+        .bob
+        .upload_code_index("payments-api", &a, Some("feature"), index_a)
+        .await
+        .expect("a second upload");
+    assert_eq!(again.index.source, "build");
+    assert_eq!(again.new_summaries, 0);
+    assert!(
+        again.index.refs.iter().any(|r| r.name == "feature"),
+        "{:?}",
+        again.index.refs
+    );
+    let after = content_of(
+        &w.alice
+            .download_code_index("payments-api", &a)
+            .await
+            .expect("the build downloads"),
+    );
+    assert_eq!(after, build);
+}
+
+// ===========================================================================
 // Scenario: The nearest indexed commit
 // ===========================================================================
 #[tokio::test]
@@ -738,6 +839,11 @@ async fn a_push_updates_the_index() {
         .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
         .await
         .expect("the first index");
+    // KAIROS-T-0756: the build of the server replaces the upload of A.
+    let outcomes = w.sweep().await;
+    let built: Vec<_> = outcomes.iter().filter(|o| o.report.is_some()).collect();
+    assert_eq!(built.len(), 1, "the upload of A gets a build: {outcomes:?}");
+    assert_eq!(built[0].commit, a);
     let outcomes = w.sweep().await;
     assert!(
         outcomes.iter().all(|o| o.report.is_none()),
@@ -1503,9 +1609,12 @@ async fn a_push_records_an_ok_run_and_an_upload_is_a_run() {
     assert!(runs[0].requested_by.is_some(), "the uploader is recorded");
     assert!(runs[0].finished_at.is_some());
 
-    // A pass with nothing to do leaves no row
+    // KAIROS-T-0756: the pass builds A in place of the upload: a push run.
+    // Then a pass with nothing to do leaves no row.
     w.sweep().await;
-    assert_eq!(runs_of(&w).await.len(), 1);
+    assert_eq!(runs_of(&w).await.len(), 2);
+    w.sweep().await;
+    assert_eq!(runs_of(&w).await.len(), 2);
 
     // When commit B is pushed and the builder runs
     let b = commit_b(&w.git);
@@ -1514,7 +1623,7 @@ async fn a_push_records_an_ok_run_and_an_upload_is_a_run() {
 
     // Then the newest run is an ok push run of commit B with the counts
     let runs = runs_of(&w).await;
-    assert_eq!(runs.len(), 2, "{runs:?}");
+    assert_eq!(runs.len(), 3, "{runs:?}");
     let run = &runs[0];
     assert_eq!(run.trigger, "push");
     assert_eq!(run.outcome, "ok");
@@ -1526,7 +1635,8 @@ async fn a_push_records_an_ok_run_and_an_upload_is_a_run() {
     assert_eq!(run.error, None);
     assert_eq!(run.requested_by, None, "the builder has no user");
     assert!(run.finished_at.is_some());
-    assert_eq!(runs[1].trigger, "upload");
+    assert_eq!(runs[1].trigger, "push", "the build of A over the upload");
+    assert_eq!(runs[2].trigger, "upload");
 }
 
 #[tokio::test]

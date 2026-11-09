@@ -1214,6 +1214,39 @@ mod tests {
         assert_eq!(plan, sorted, "the plan is sorted");
     }
 
+    // KAIROS-T-0756: the uploads of a branch are a group of their own,
+    // and keep the newest `keep` as the default branch does.
+    #[test]
+    fn an_uploaded_branch_keeps_the_newest_per_ref() {
+        let repo = Uuid::new_v4();
+        let now = at(2026, 7, 20, 0, 0, 0);
+        let mut rows = Vec::new();
+        for i in 1..=4u32 {
+            rows.push(index(
+                repo,
+                &format!("f{i}"),
+                Some("feature"),
+                at(2026, 7, i, 0, 0, 0),
+            ));
+        }
+        for i in 1..=3u32 {
+            rows.push(index(
+                repo,
+                &format!("m{i}"),
+                Some("main"),
+                at(2026, 7, i, 0, 0, 0),
+            ));
+        }
+        let refs = vec![
+            index_ref(repo, "feature", REF_KIND_BRANCH, "f4", now),
+            index_ref(repo, "main", REF_KIND_BRANCH, "m3", now),
+        ];
+        let plan = plan_code_index_retention(&rows, &refs, 2, 7, now);
+        let mut got = shas(&plan);
+        got.sort();
+        assert_eq!(got, vec!["f1", "f2", "m1"]);
+    }
+
     #[test]
     fn code_index_keep_zero_keeps_every_index_and_ties_break_by_sha() {
         let repo = Uuid::new_v4();

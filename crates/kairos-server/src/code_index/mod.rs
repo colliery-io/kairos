@@ -172,6 +172,9 @@ pub const DEFAULT_REF_DAYS: u64 = 30;
 /// hours.
 pub const MAX_TARGETS_PER_JOB: usize = 4;
 
+/// The `source` of an index that a client sent (KAIROS-T-0756).
+pub(crate) const UPLOAD: &str = kairos_db::code_indexes::UPLOAD;
+
 /// The URL to fetch a repository from.
 pub type RemoteOf = Arc<dyn Fn(&Repository) -> String + Send + Sync>;
 
@@ -2395,7 +2398,13 @@ async fn build_target(
         .run(tenant, move |conn| {
             let listed =
                 kairos_db::code_indexes::list(conn, repo_id).map_err(ApiError::internal)?;
-            let indexed: HashSet<String> = listed.into_iter().map(|i| i.commit_sha).collect();
+            // KAIROS-T-0756: an upload of the head is not the index of the
+            // head; the build replaces it. An uploaded ancestor is a base.
+            let indexed: HashSet<String> = listed
+                .into_iter()
+                .filter(|i| i.source != UPLOAD || i.commit_sha != ancestors[0])
+                .map(|i| i.commit_sha)
+                .collect();
             let Some(nearest) = ancestors.iter().find(|c| indexed.contains(*c)) else {
                 return Ok(None);
             };

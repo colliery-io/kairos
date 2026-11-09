@@ -1397,6 +1397,19 @@ the symbols. It gives the summaries linked from the pool and the symbols with
 none. It gives the call edges from SCIP and by name, and how many wait for a
 SCIP run. It gives when Kairos first wrote the base index and last wrote it.
 
+After a `git push`, the Claude Code plugin sends the local index to Kairos
+with `kairos index upload --ref <branch>` (the hook `index_update.py push`).
+It sends when HEAD is on its upstream branch and the tree has no change. It
+does not send a sha twice. Kairos keeps the upload as the index of the sha
+and serves it to `fetch_index`.
+
+The builder does not skip the sha because of
+the upload. Its build replaces the upload. The files and the symbols stay the
+same; the build adds the SCIP edges and the summaries. An upload of a sha
+that the builder built already changes nothing. Kairos records the ref and
+answers with the build. A failed upload goes to `update.log` of the hook and
+to the next `fetch_index` answer, not to the chat.
+
 | Setting | Description |
 |---|---|
 | `--url`, then `KAIROS_URL`, then the binding of the checkout (the `[[project]]` of [`config.toml`](#configtoml), `[default]`) | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |

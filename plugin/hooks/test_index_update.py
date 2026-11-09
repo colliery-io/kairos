@@ -66,6 +66,12 @@ fi
 if [ -n "$FAKE_KAIROS_EDIT" ]; then
   echo "$FAKE_KAIROS_EDIT" >> "$FAKE_KAIROS_LIST"
 fi
+case " $* " in *" index upload "*)
+  if [ -n "$FAKE_KAIROS_UPLOAD_EXIT" ]; then
+    echo "error: ${FAKE_KAIROS_UPLOAD_ERROR:-the upload failed}" >&2
+    exit "$FAKE_KAIROS_UPLOAD_EXIT"
+  fi;;
+esac
 sleep "${FAKE_KAIROS_SLEEP:-0}"
 echo "Structure: 3 files (fake)"
 if [ -n "$FAKE_KAIROS_ERROR" ]; then
@@ -743,6 +749,178 @@ class DebouncedUpdate(Harness):
         self.edit_in(os.path.join(self.one, "a.rs"))
         time.sleep(1.0)
         self.assertFalse(os.path.exists(self.state))
+
+
+class Upload(Harness):
+    """Scenario: the worker uploads the index of a pushed checkout
+    (KAIROS-T-0756)."""
+
+    def setUp(self):
+        super().setUp()
+        # A real git checkout with a remote, in place of the empty `.git`.
+        shutil.rmtree(os.path.join(self.project, ".git"))
+        self.remote = os.path.join(os.path.realpath(self.tmp.name), "remote.git")
+        self.git_at(self.remote, "init", "-q", "--bare")
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.email", "robin@example.com")
+        self.git("config", "user.name", "Robin")
+        self.write("pkg/app.py", "def main():\n    return 1\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "one")
+        self.git("remote", "add", "origin", self.remote)
+        self.git("push", "-q", "-u", "origin", "main")
+        self.sha = self.git("rev-parse", "HEAD")
+
+    def git_at(self, folder, *args):
+        os.makedirs(folder, exist_ok=True)
+        result = subprocess.run(
+            ["git", "-C", folder, *args],
+            capture_output=True,
+            text=True,
+            env=self.env(),
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def git(self, *args):
+        return self.git_at(self.project, *args)
+
+    def write(self, relative, text):
+        path = os.path.join(self.project, relative)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+
+    def worker(self, *args, env=None):
+        result = self.run_hook("worker", args=(self.project, *args), env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "", "the worker says nothing to the chat")
+        return result
+
+    def log_text(self):
+        with open(os.path.join(self.state_dir(), "update.log"), encoding="utf-8") as handle:
+            return handle.read()
+
+    def upload_result(self):
+        path = os.path.join(self.state_dir(), "last-upload.json")
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def mark(self):
+        path = os.path.join(self.state_dir(), "uploaded-sha")
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as handle:
+            return handle.read().strip()
+
+    def test_the_worker_after_a_push_uploads_the_index_for_the_branch(self):
+        self.worker("push")
+        calls = self.calls_text()
+        self.assertIn("args: index update --link-only\n", calls)
+        self.assertIn("args: index upload --ref main\n", calls)
+        self.assertLess(calls.index("index update"), calls.index("index upload"))
+        self.assertIn("Started by: a git push", self.log_text())
+        self.assertEqual(self.mark(), self.sha)
+        result = self.upload_result()
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(result["commit"], self.sha)
+        self.assertEqual(result["ref"], "main")
+        self.assertIsNone(result["refusal"])
+
+    def test_the_start_uploads_a_pushed_checkout_with_no_change(self):
+        result = self.run_hook("start", {"session_id": "s1", "source": "startup"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("upload", result.stdout)
+        self.assertTrue(self.wait_for(lambda: "index upload --ref main" in self.calls_text()))
+
+    def test_the_same_sha_is_uploaded_one_time(self):
+        self.worker("push")
+        self.worker("push")
+        self.assertEqual(self.calls_text().count("index upload"), 1)
+        self.assertIn(
+            f"No upload: the index of {self.sha[:12]} was uploaded before.", self.log_text()
+        )
+
+    def test_a_tree_with_a_change_is_not_uploaded(self):
+        self.write("notes.txt", "scratch\n")
+        self.worker("push")
+        self.assertNotIn("index upload", self.calls_text())
+        self.assertIn("No upload: the tree has 1 change that is not committed.", self.log_text())
+        self.assertIsNone(self.mark())
+
+    def test_a_commit_that_is_not_pushed_is_not_uploaded(self):
+        self.write("pkg/app.py", "def main():\n    return 2\n")
+        self.git("commit", "-q", "-am", "two")
+        sha = self.git("rev-parse", "HEAD")
+        self.worker("push")
+        self.assertNotIn("index upload", self.calls_text())
+        self.assertIn(
+            f"No upload: HEAD {sha[:12]} is not on its upstream branch origin/main.",
+            self.log_text(),
+        )
+
+    def test_a_branch_with_no_upstream_is_not_uploaded(self):
+        # A new branch at the pushed sha: the sha is on origin/main, but the
+        # ref `feature` is on no remote.
+        self.git("checkout", "-q", "-b", "feature")
+        self.worker("push")
+        self.assertNotIn("index upload", self.calls_text())
+        self.assertIn(f"No upload: HEAD {self.sha[:12]} has no upstream branch.", self.log_text())
+
+    def test_a_failed_upload_goes_to_the_log_and_the_result_not_the_chat(self):
+        env = self.env(
+            FAKE_KAIROS_UPLOAD_EXIT="1", FAKE_KAIROS_UPLOAD_ERROR="Kairos refused the upload (403)"
+        )
+        self.worker("push", env=env)
+        self.assertIn("=== upload exit code 1", self.log_text())
+        result = self.upload_result()
+        self.assertEqual(result["exit_code"], 1)
+        self.assertEqual(result["refusal"], "Kairos refused the upload (403)")
+        self.assertIsNone(self.mark(), "a failed upload leaves no mark")
+        # The update itself worked: its result says so.
+        with open(os.path.join(self.state_dir(), "last-update.json"), encoding="utf-8") as handle:
+            self.assertEqual(json.load(handle)["exit_code"], 0)
+
+    def test_a_git_push_command_starts_the_worker_of_its_checkout(self):
+        result = self.run_hook(
+            "push",
+            {
+                "session_id": "s1",
+                "hook_event_name": "PostToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": "git push -u origin main"},
+                "cwd": self.project,
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertTrue(self.wait_for(lambda: "index upload --ref main" in self.calls_text()))
+        self.assertIn("Started by: a git push", self.log_text())
+
+    def test_a_command_with_no_push_starts_nothing(self):
+        for command in ("git status", "git commit -m 'push it'", "cd x && git push"):
+            result = self.run_hook(
+                "push",
+                {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": self.project},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        time.sleep(0.5)
+        self.assertEqual(self.calls_text(), "")
+
+    def test_the_folder_of_the_push_is_read_from_the_command(self):
+        folder = index_update.push_folder
+        self.assertEqual(folder("git push -u origin main"), "")
+        self.assertEqual(folder("git -C /a/b push origin main"), "/a/b")
+        self.assertEqual(folder("git -C '/a b' push"), "/a b")
+        self.assertEqual(folder("gh pr view && git -C wt push -u origin x"), "wt")
+        self.assertEqual(folder("git -c core.pager=cat push"), "")
+        self.assertIsNone(folder("git status"))
+        self.assertIsNone(folder("git commit -m 'push it'"))
+        self.assertIsNone(folder("cd x && git push"))
+        self.assertIsNone(folder("echo push"))
 
 
 class DebounceSeconds(unittest.TestCase):

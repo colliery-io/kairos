@@ -4,7 +4,8 @@
 # Triggered by pushing a version tag (`v*`, e.g. `v0.1.0`). Builds the
 # `kairos` CLI binary natively on each platform:
 #
-#   macos-14         -> aarch64-apple-darwin      (Apple Silicon)
+#   macos-15         -> aarch64-apple-darwin      (Apple Silicon; macos-14
+#                       retired by GitHub on 2026-11-02)
 #   macos-15-intel   -> x86_64-apple-darwin       (Intel; macos-13 was
 #                       retired by GitHub — actionlint 2026 label set)
 #   ubuntu-24.04     -> x86_64-unknown-linux-gnu
@@ -40,7 +41,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64-apple-darwin
           - runner: macos-15-intel
             target: x86_64-apple-darwin

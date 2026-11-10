@@ -326,6 +326,7 @@ pub(super) fn references(
     let mut out = envelope(uses, found.uses.len(), limit);
     out.insert("symbol".into(), symbol(s));
     out.insert("coverage".into(), coverage(found.coverage));
+    out.insert("not_covered_files".into(), json!(found.not_covered));
     out.insert("possible_not_shown".into(), json!(not_shown));
     Ok(Value::Object(out))
 }

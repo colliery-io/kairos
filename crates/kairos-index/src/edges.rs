@@ -1287,7 +1287,9 @@ pub fn resolve(files: &[ParsedFile<'_>], scip: ScipEdges<'_>, go_modules: &[GoMo
         } else if let ScipEdges::Base { bases, marked } = &scip
             && marked.contains(file.language)
         {
-            pending = true;
+            // A file that the SCIP run did not cover gets no SCIP edges from
+            // the next run either: its edges by name do not wait for it.
+            pending = !crate::refs::not_covered(bases, file.path);
             let base_files: Vec<&BaseFile> = bases
                 .iter()
                 .filter_map(|b| b.files.get(file.path))
@@ -1882,6 +1884,35 @@ mod tests {
             got,
             [(2, Some(3), "scip", 2, false), (2, None, "scip", 2, false)]
         );
+    }
+
+    #[test]
+    fn a_file_that_the_scip_run_did_not_cover_has_no_pending_edges() {
+        // `a` changed, in a file that the SCIP run of the base did not cover
+        // (KAIROS-T-0760): its edge by name does not wait for a SCIP run.
+        let text = "fn a() { b(); }\nfn b() {}\n";
+        let mut a = sym(1, "a", "function", (0, 15));
+        a.tree_hash = "new".into();
+        let b = sym(2, "b", "function", (16, 25));
+        let calls = [call("b", "b", 9)];
+        let files = [rust_file(text, vec![a, b], &calls)];
+        let mut not_covered = base();
+        not_covered.refs = crate::refs::BaseRefs::not_covering(&["src/lib.rs"]);
+        for (bases, pending) in [([base()], true), ([not_covered], false)] {
+            let Resolved { edges, .. } = resolve(
+                &files,
+                ScipEdges::Base {
+                    bases: &bases,
+                    marked: &rust_marked(),
+                },
+                &[],
+            );
+            let got: Vec<_> = edges
+                .iter()
+                .map(|e| (e.caller_id, e.scip_pending))
+                .collect();
+            assert_eq!(got, [(1, pending)]);
+        }
     }
 
     #[test]

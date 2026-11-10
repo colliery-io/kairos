@@ -389,11 +389,16 @@ fn cargo_metadata(
     // --lockfile-path <path>`. Later cargo (1.96 tested) refuses that flag and
     // takes `-Zlockfile-path --config resolver.lockfile-path=<path>` instead.
     // A repository can pin either, so try the old form and fall back.
-    let run = |form: LockfileForm| {
+    // Each feature on (KAIROS-A-0083): rust-analyzer takes the active
+    // features of each package from `resolve`, so code behind a feature gets
+    // SCIP data. A workspace whose features cannot be on together falls back
+    // to the default features.
+    let run = |form: LockfileForm, all_features: bool| {
         let mut command = Command::new(sysroot.join("bin/cargo"));
         with_toolchain(&mut command, &sysroot.join("bin"))
             .arg("metadata")
             .args(["--format-version", "1"])
+            .args(all_features.then_some("--all-features"))
             .arg("--manifest-path")
             .arg(manifest)
             .args(lockfile_args(form, &lock_copy))
@@ -405,9 +410,18 @@ fn cargo_metadata(
             .output()
             .map_err(|e| IndexError::Scip(format!("cargo metadata did not run: {e}")))
     };
-    let mut output = run(LockfileForm::Flag)?;
-    if !output.status.success() && refuses_lockfile_flag(&String::from_utf8_lossy(&output.stderr)) {
-        output = run(LockfileForm::Config)?;
+    let attempt = |all_features: bool| {
+        let output = run(LockfileForm::Flag, all_features)?;
+        if !output.status.success()
+            && refuses_lockfile_flag(&String::from_utf8_lossy(&output.stderr))
+        {
+            return run(LockfileForm::Config, all_features);
+        }
+        Ok(output)
+    };
+    let mut output = attempt(true)?;
+    if !output.status.success() {
+        output = attempt(false)?;
     }
     if !output.status.success() {
         return Err(IndexError::Scip(failure_text(
@@ -1144,6 +1158,39 @@ mod tests {
     /// metadata step must use the `rustc` of the given toolchain. The test
     /// toolchain has a `rustc` that records each call, so a `rustc` found on
     /// `PATH` does not make the test pass.
+    /// KAIROS-T-0760: the metadata has each feature on, so rust-analyzer
+    /// gives SCIP data for the code behind a feature.
+    #[test]
+    fn cargo_metadata_turns_on_each_feature() {
+        let Some(sysroot) = Command::new("rustc")
+            .args(["--print", "sysroot"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+        else {
+            eprintln!("no rustc on this computer; the test does nothing");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("crate");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"t\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\
+             [features]\nextra = []\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/lib.rs"), "").unwrap();
+        let work = dir.path().join("work");
+        fs::create_dir(&work).unwrap();
+        let metadata = cargo_metadata(&root, &root.join("Cargo.toml"), &sysroot, &work).unwrap();
+        assert_eq!(
+            metadata["resolve"]["nodes"][0]["features"],
+            serde_json::json!(["extra"])
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn cargo_metadata_uses_the_rustc_of_the_toolchain() {

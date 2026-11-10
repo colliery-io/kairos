@@ -1223,6 +1223,7 @@ pub(super) fn references_text(
             s.language
         )),
     }
+    out.push_str(&not_covered_text(&found.not_covered, &s.language));
     if uses.len() > limit {
         out.push_str(&format!(
             " Only the first {limit} are shown. Give a larger `limit`, up to {MAX_USES}."
@@ -1362,6 +1363,39 @@ pub(super) fn duplicates_text(
         }
     }
     Ok(out)
+}
+
+/// The sentence of `references` about the files that the SCIP run did not
+/// cover: the paths of 3 at most, then a count (KAIROS-T-0760). Pure.
+fn not_covered_text(paths: &[String], language: &str) -> String {
+    const SHOWN: usize = 3;
+    if paths.is_empty() {
+        return String::new();
+    }
+    let mut named = paths
+        .iter()
+        .take(SHOWN)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if paths.len() > SHOWN {
+        named.push_str(&format!(" and {} more", paths.len() - SHOWN));
+    }
+    let example = if language == "rust" {
+        "the code is behind a Cargo feature or a `cfg`"
+    } else {
+        "the indexer skips its folder"
+    };
+    format!(
+        " The SCIP run did not cover {}: {named}. For example, {example}. In {}, the result \
+         has the calls only.",
+        plural(paths.len(), "file", "files"),
+        if paths.len() == 1 {
+            "this file"
+        } else {
+            "these files"
+        },
+    )
 }
 
 pub(super) fn plural(count: usize, one: &str, many: &str) -> String {
@@ -1972,6 +2006,28 @@ fn display(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// KAIROS-T-0760: the files that the SCIP run did not cover are named,
+    /// with no promise of the next index.
+    #[test]
+    fn the_files_with_no_scip_data_are_named() {
+        assert_eq!(super::not_covered_text(&[], "rust"), "");
+        let one = super::not_covered_text(&["src/llama.rs".to_string()], "rust");
+        assert!(one.contains("did not cover 1 file: src/llama.rs."), "{one}");
+        assert!(
+            one.contains("In this file, the result has the calls only."),
+            "{one}"
+        );
+        assert!(!one.contains("next index"), "{one}");
+        let paths: Vec<String> = (1..=5).map(|n| format!("f{n}.py")).collect();
+        assert!(one.contains("Cargo feature"), "{one}");
+        let many = super::not_covered_text(&paths, "python");
+        assert!(
+            many.contains("did not cover 5 files: f1.py, f2.py, f3.py and 2 more."),
+            "{many}"
+        );
+        assert!(!many.contains("Cargo"), "{many}");
+    }
+
     /// KAIROS-T-0756: the line names the commit, the ref and the refusal;
     /// a success, an old result or a bad text gives no line.
     #[test]

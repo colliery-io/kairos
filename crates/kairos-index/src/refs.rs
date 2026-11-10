@@ -14,6 +14,10 @@
 //! - **An update with no SCIP run** keeps the uses of each Rust file whose
 //!   content did not change, while their symbols are there. A changed Rust
 //!   file has no uses until the next SCIP run: it is marked `pending`.
+//! - **A file that the SCIP run did not cover** (a module behind a cargo
+//!   feature, a folder that the indexer skips) has no row in `refs_files`.
+//!   An update keeps it so, changed or not: the next SCIP run will not cover
+//!   it either, so it is not `pending` (KAIROS-A-0083).
 //! - **The other languages with a SCIP runner** (Go, TypeScript, TSX,
 //!   JavaScript, Python, KAIROS-T-0473) get their uses from their SCIP index
 //!   the same way, when the runner gave one. A language with no SCIP index
@@ -77,6 +81,36 @@ pub enum Source<'a> {
 #[derive(Debug, Default)]
 pub struct BaseRefs {
     files: HashMap<String, BaseFile>,
+    /// The files of a language with a SCIP runner that have no row in
+    /// `refs_files`: the SCIP run did not cover them (KAIROS-T-0760).
+    uncovered: HashSet<String>,
+}
+
+impl BaseRefs {
+    /// Whether the base has `path` as a file that the SCIP run did not cover.
+    pub fn uncovered(&self, path: &str) -> bool {
+        self.uncovered.contains(path)
+    }
+    /// A base with no SCIP uses, whose SCIP run did not cover `paths`.
+    #[cfg(test)]
+    pub(crate) fn not_covering(paths: &[&str]) -> Self {
+        BaseRefs {
+            files: HashMap::new(),
+            uncovered: paths.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+
+    /// Whether the base has SCIP uses for `path` (or waits for them).
+    pub fn covers(&self, path: &str) -> bool {
+        self.files.contains_key(path)
+    }
+}
+
+/// Whether the SCIP run of each base that has `path` did not cover it: no
+/// base has SCIP data for it, and one has the file. Such a file does not
+/// wait for the next SCIP run (KAIROS-T-0760).
+pub fn not_covered(bases: &[BaseIndex], path: &str) -> bool {
+    bases.iter().any(|b| b.refs.uncovered(path)) && !bases.iter().any(|b| b.refs.covers(path))
 }
 
 #[derive(Debug)]
@@ -165,8 +199,19 @@ pub fn read_base(conn: &Connection, keys: &HashMap<i64, SymKey>) -> Result<BaseR
             });
         }
     }
+    let uncovered = {
+        let languages = SCIP_LANGUAGES.map(|l| format!("'{l}'")).join(", ");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT path FROM files
+             WHERE language IN ({languages})
+               AND id NOT IN (SELECT file_id FROM refs_files)"
+        ))?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
     Ok(BaseRefs {
         files: files.into_values().collect(),
+        uncovered,
     })
 }
 
@@ -370,6 +415,10 @@ fn from_base(
             .iter()
             .filter_map(|b| b.refs.files.get(file.path))
             .collect();
+        if not_covered(bases, file.path) {
+            // The SCIP run did not cover the file: it stays so.
+            continue;
+        }
         let Some(same) = known.iter().find(|b| b.content_hash == hashes[i]) else {
             // A changed file, or a new file of the workspace: no uses until
             // the next SCIP run.
@@ -583,6 +632,7 @@ mod tests {
                     ),
                 ),
             ]),
+            uncovered: HashSet::new(),
         };
         let file = |path, symbols| ParsedFile {
             path,
@@ -621,5 +671,44 @@ mod tests {
                 kind: "type",
             }]
         );
+    }
+
+    #[test]
+    fn a_file_that_the_scip_run_did_not_cover_does_not_wait_for_it() {
+        let mut base = BaseIndex::default();
+        base.refs = BaseRefs {
+            files: HashMap::new(),
+            uncovered: HashSet::from(["src/gated.rs".to_string(), "src/edited.rs".to_string()]),
+        };
+        let file = |path| ParsedFile {
+            path,
+            language: "rust",
+            text: "",
+            symbols: vec![],
+            calls: &[],
+            use_ranges: &[],
+            macro_calls: &[],
+            macro_ranges: &[],
+            package: None,
+            imports: &[],
+        };
+        let files = [
+            file("src/gated.rs"),
+            file("src/edited.rs"),
+            file("src/new.rs"),
+        ];
+        let marked = HashSet::from(["rust"]);
+        let out = resolve(
+            &files,
+            &["same", "changed", "new"],
+            Source::Base {
+                bases: std::slice::from_ref(&base),
+                marked: &marked,
+            },
+        );
+        // The 2 files that SCIP did not cover have no row, changed or not.
+        // A file that is new to the base waits for the next SCIP run.
+        assert_eq!(out.files, [(2, true)]);
+        assert!(out.refs.is_empty());
     }
 }

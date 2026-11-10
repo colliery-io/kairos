@@ -445,6 +445,24 @@ impl BaseIndex {
     }
 }
 
+/// The word of a called name that its definition line has: the last part
+/// after `::` (Rust) and `.` (`api.bearer` of TypeScript, Python and Go,
+/// KAIROS-T-0760). A SCIP tag in `<>` is cut: `Persona.<get>credentials`
+/// gives `credentials`, and `CliError.<constructor>` gives `constructor`,
+/// the word of the line that defines it. Pure.
+fn last_name(name: &str) -> &str {
+    let last = name
+        .rsplit("::")
+        .next()
+        .and_then(|n| n.rsplit('.').next())
+        .unwrap_or_default();
+    match last.strip_prefix('<').and_then(|rest| rest.split_once('>')) {
+        Some((tag, "")) => tag,
+        Some((_, rest)) => rest,
+        None => last,
+    }
+}
+
 /// Whether the function `s` of `file` has the code of the base symbol `b`,
 /// so that it keeps the SCIP edges of `b`: the same tree, the same length in
 /// bytes and lines, no edge that waits for SCIP, and the start of a name at
@@ -1287,7 +1305,10 @@ pub fn resolve(files: &[ParsedFile<'_>], scip: ScipEdges<'_>, go_modules: &[GoMo
         } else if let ScipEdges::Base { bases, marked } = &scip
             && marked.contains(file.language)
         {
-            pending = true;
+            // A file that the SCIP run did not cover (KAIROS-A-0083): an edit
+            // does not make the next run cover it, so its edges by name do
+            // not wait for that run.
+            pending = !crate::refs::not_covered(bases, file.path);
             let base_files: Vec<&BaseFile> = bases
                 .iter()
                 .filter_map(|b| b.files.get(file.path))
@@ -1325,7 +1346,7 @@ pub fn resolve(files: &[ParsedFile<'_>], scip: ScipEdges<'_>, go_modules: &[GoMo
                     // class until the next SCIP run (COLLIERY-T-2531).
                     let mut target = None;
                     if let (None, Some((path, at, macro_made))) = (&e.callee, &e.target) {
-                        let last = e.callee_name.rsplit("::").next().unwrap_or_default();
+                        let last = last_name(&e.callee_name);
                         let place = by_path.get(path.as_str()).copied().filter(|&f| {
                             files[f]
                                 .text
@@ -1885,6 +1906,35 @@ mod tests {
     }
 
     #[test]
+    fn a_file_that_the_scip_run_did_not_cover_has_no_pending_edges() {
+        // `a` changed, in a file that the SCIP run of the base did not cover
+        // (KAIROS-T-0760): its edge by name does not wait for a SCIP run.
+        let text = "fn a() { b(); }\nfn b() {}\n";
+        let mut a = sym(1, "a", "function", (0, 15));
+        a.tree_hash = "new".into();
+        let b = sym(2, "b", "function", (16, 25));
+        let calls = [call("b", "b", 9)];
+        let files = [rust_file(text, vec![a, b], &calls)];
+        let mut not_covered = base();
+        not_covered.refs = crate::refs::BaseRefs::not_covering(&["src/lib.rs"]);
+        for (bases, pending) in [([base()], true), ([not_covered], false)] {
+            let Resolved { edges, .. } = resolve(
+                &files,
+                ScipEdges::Base {
+                    bases: &bases,
+                    marked: &rust_marked(),
+                },
+                &[],
+            );
+            let got: Vec<_> = edges
+                .iter()
+                .map(|e| (e.caller_id, e.scip_pending))
+                .collect();
+            assert_eq!(got, [(1, pending)]);
+        }
+    }
+
+    #[test]
     fn a_kept_edge_to_a_removed_callee_becomes_a_marked_name_class() {
         // `b` is gone; `a` did not change.
         let text = "fn a() { b(); Vec::new(); }\n";
@@ -2079,6 +2129,50 @@ mod tests {
             (gone[0].origin, gone[0].scip_pending, gone[0].target.clone()),
             ("name", true, None)
         );
+    }
+
+    #[test]
+    fn the_last_part_of_a_called_name_is_after_the_last_separator() {
+        assert_eq!(last_name("m::f"), "f");
+        assert_eq!(last_name("api.bearer"), "bearer");
+        assert_eq!(last_name("crate::m::T::f"), "f");
+        assert_eq!(last_name("f"), "f");
+        assert_eq!(last_name("CliError.<constructor>"), "constructor");
+        assert_eq!(last_name("Persona.<get>credentials"), "credentials");
+    }
+
+    /// KAIROS-T-0760: a kept edge with a dotted name (TypeScript, Python,
+    /// Go) keeps its place, and does not wait for a SCIP run.
+    #[test]
+    fn a_kept_edge_with_a_dotted_name_keeps_its_place() {
+        let mut a = sym(1, "a", "function", (0, 18));
+        a.tree_hash = "hash a".into();
+        let calls = [call("f", "m::f", 12)];
+        let mut base = macro_base();
+        for f in base.files.values_mut() {
+            for s in f.symbols.values_mut() {
+                for e in &mut s.edges {
+                    e.callee_name = "api.f".into();
+                }
+            }
+        }
+        let bases = [base];
+        let files = [rust_file(
+            "fn a() { m::f(); }\nmake!(f);\n",
+            vec![sym_like(&a)],
+            &calls,
+        )];
+        let edges = resolve(
+            &files,
+            ScipEdges::Base {
+                bases: &bases,
+                marked: &rust_marked(),
+            },
+            &[],
+        )
+        .edges;
+        assert_eq!(edges.len(), 1, "{edges:?}");
+        assert_eq!((edges[0].origin, edges[0].scip_pending), ("scip", false));
     }
 
     fn sym_like(s: &Sym) -> Sym {

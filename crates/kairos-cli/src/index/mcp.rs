@@ -1223,6 +1223,7 @@ pub(super) fn references_text(
             s.language
         )),
     }
+    out.push_str(&not_covered_text(&found.not_covered, &s.language));
     if uses.len() > limit {
         out.push_str(&format!(
             " Only the first {limit} are shown. Give a larger `limit`, up to {MAX_USES}."
@@ -1362,6 +1363,50 @@ pub(super) fn duplicates_text(
         }
     }
     Ok(out)
+}
+
+/// The sentence of `references` about the files that the SCIP run did not
+/// cover: the paths of 3 at most, then a count (KAIROS-T-0760). Pure.
+fn not_covered_text(paths: &[String], language: &str) -> String {
+    const SHOWN: usize = 3;
+    if paths.is_empty() {
+        return String::new();
+    }
+    let mut named = paths
+        .iter()
+        .take(SHOWN)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if paths.len() > SHOWN {
+        named.push_str(&format!(" and {} more", paths.len() - SHOWN));
+    }
+    let example = if language == "rust" {
+        "the code is behind a `cfg` that the SCIP run does not turn on"
+    } else {
+        "the indexer skips its folder"
+    };
+    format!(
+        " The SCIP run did not cover {}: {named}. For example, {example}. In {}, the result \
+         has the calls only.",
+        plural(paths.len(), "file", "files"),
+        if paths.len() == 1 {
+            "this file"
+        } else {
+            "these files"
+        },
+    )
+}
+
+/// The line of `callers` for a type with no callers (KAIROS-T-0760): a type
+/// is used, not called. Pure.
+fn no_callers_hint(kind: &str) -> &'static str {
+    match kind {
+        "struct" | "enum" | "trait" | "type" | "type_alias" | "interface" | "class" | "union" => {
+            "\nA type has uses, not calls: `references` gives each use of it."
+        }
+        _ => "",
+    }
 }
 
 pub(super) fn plural(count: usize, one: &str, many: &str) -> String {
@@ -1580,6 +1625,9 @@ impl CodeTools {
                         "\n{} not shown. Set `possible` to true to see them.",
                         plural(hidden.len(), "possible caller is", "possible callers are")
                     ));
+                }
+                if all.is_empty() {
+                    out.push_str(no_callers_hint(&s.kind));
                 }
                 Ok(format!("{head}{out}"))
             }
@@ -1972,6 +2020,37 @@ fn display(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// KAIROS-T-0760: a type with no callers points to `references`.
+    #[test]
+    fn a_type_with_no_callers_points_to_references() {
+        assert!(super::no_callers_hint("enum").contains("`references`"));
+        assert!(super::no_callers_hint("struct").contains("`references`"));
+        assert_eq!(super::no_callers_hint("function"), "");
+    }
+
+    /// KAIROS-T-0760: the files that the SCIP run did not cover are named,
+    /// with no promise of the next index.
+    #[test]
+    fn the_files_with_no_scip_data_are_named() {
+        assert_eq!(super::not_covered_text(&[], "rust"), "");
+        let one = super::not_covered_text(&["src/llama.rs".to_string()], "rust");
+        assert!(one.contains("did not cover 1 file: src/llama.rs."), "{one}");
+        assert!(
+            one.contains("In this file, the result has the calls only."),
+            "{one}"
+        );
+        assert!(!one.contains("next index"), "{one}");
+        assert!(one.contains("behind a `cfg`"), "{one}");
+
+        let paths: Vec<String> = (1..=5).map(|n| format!("f{n}.py")).collect();
+        let many = super::not_covered_text(&paths, "python");
+        assert!(
+            many.contains("did not cover 5 files: f1.py, f2.py, f3.py and 2 more."),
+            "{many}"
+        );
+        assert!(!many.contains("cfg"), "{many}");
+    }
+
     /// KAIROS-T-0756: the line names the commit, the ref and the refusal;
     /// a success, an old result or a bad text gives no line.
     #[test]

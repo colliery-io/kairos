@@ -205,6 +205,11 @@ pub struct References {
     /// By file, line and column.
     pub uses: Vec<Reference>,
     pub coverage: Coverage,
+    /// The source and test files of the language family of the target that
+    /// the SCIP run did not cover (code behind a `cfg` that the run does not turn on, a folder
+    /// that the indexer skips), by path: they have their calls only. Empty
+    /// with `Coverage::CallsOnly` (KAIROS-T-0760).
+    pub not_covered: Vec<String>,
 }
 
 /// What `callees` gives./// What `callees` gives.
@@ -906,10 +911,27 @@ impl Index {
                 n => Coverage::Pending(n),
             }
         };
+        let mut not_covered = Vec::new();
+        if coverage != Coverage::CallsOnly {
+            let mut stmt = self.conn.prepare(
+                "SELECT path FROM files
+                 WHERE language = ?1 AND decision IN ('source', 'test')
+                   AND id NOT IN (SELECT file_id FROM refs_files)
+                 ORDER BY path",
+            )?;
+            for language in family {
+                let rows = stmt.query_map(params![language], |r| r.get::<_, String>(0))?;
+                for row in rows {
+                    not_covered.push(row?);
+                }
+            }
+            not_covered.sort();
+        }
         Ok(References {
             target,
             uses,
             coverage,
+            not_covered,
         })
     }
 

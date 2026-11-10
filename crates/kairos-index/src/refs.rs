@@ -14,6 +14,11 @@
 //! - **An update with no SCIP run** keeps the uses of each Rust file whose
 //!   content did not change, while their symbols are there. A changed Rust
 //!   file has no uses until the next SCIP run: it is marked `pending`.
+//! - **A file that the SCIP run did not cover** (code behind a `cfg` that
+//!   the run does not turn on, a folder that the indexer skips) has no row
+//!   in `refs_files`, in a language that has rows. An update keeps it so,
+//!   changed or not, and does not mark it `pending`: an edit does not make
+//!   the next SCIP run cover it. Only a server index can (KAIROS-A-0083).
 //! - **The other languages with a SCIP runner** (Go, TypeScript, TSX,
 //!   JavaScript, Python, KAIROS-T-0473) get their uses from their SCIP index
 //!   the same way, when the runner gave one. A language with no SCIP index
@@ -77,6 +82,40 @@ pub enum Source<'a> {
 #[derive(Debug, Default)]
 pub struct BaseRefs {
     files: HashMap<String, BaseFile>,
+    /// The files that the SCIP run did not cover: no row in `refs_files`,
+    /// in a language that has rows in this base (KAIROS-A-0083). A language
+    /// whose SCIP run gave nothing has no such files.
+    not_covered: HashSet<String>,
+}
+
+impl BaseRefs {
+    /// Whether the SCIP run of this base did not cover `path`.
+    pub fn not_covered(&self, path: &str) -> bool {
+        self.not_covered.contains(path)
+    }
+
+    /// Whether this base has a `refs_files` row for `path`: SCIP uses, or a
+    /// mark that they wait for a SCIP run.
+    pub fn has_scip_row(&self, path: &str) -> bool {
+        self.files.contains_key(path)
+    }
+
+    /// A base with no SCIP uses, whose SCIP run did not cover `paths`.
+    #[cfg(test)]
+    pub(crate) fn not_covering(paths: &[&str]) -> Self {
+        BaseRefs {
+            files: HashMap::new(),
+            not_covered: paths.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+}
+
+/// Whether the SCIP run did not cover `path`: a base has the file as not
+/// covered, and no base has a row for it. Such a file does not wait for
+/// the next SCIP run (KAIROS-A-0083). Pure.
+pub fn not_covered(bases: &[BaseIndex], path: &str) -> bool {
+    bases.iter().any(|b| b.refs.not_covered(path))
+        && !bases.iter().any(|b| b.refs.has_scip_row(path))
 }
 
 #[derive(Debug)]
@@ -165,8 +204,19 @@ pub fn read_base(conn: &Connection, keys: &HashMap<i64, SymKey>) -> Result<BaseR
             });
         }
     }
+    let not_covered = {
+        let mut stmt = conn.prepare(
+            "SELECT path FROM files
+             WHERE id NOT IN (SELECT file_id FROM refs_files)
+               AND language IN (SELECT DISTINCT f.language FROM refs_files r
+                                JOIN files f ON f.id = r.file_id)",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
     Ok(BaseRefs {
         files: files.into_values().collect(),
+        not_covered,
     })
 }
 
@@ -370,6 +420,10 @@ fn from_base(
             .iter()
             .filter_map(|b| b.refs.files.get(file.path))
             .collect();
+        if not_covered(bases, file.path) {
+            // The SCIP run did not cover the file: it stays so.
+            continue;
+        }
         let Some(same) = known.iter().find(|b| b.content_hash == hashes[i]) else {
             // A changed file, or a new file of the workspace: no uses until
             // the next SCIP run.
@@ -583,6 +637,7 @@ mod tests {
                     ),
                 ),
             ]),
+            not_covered: HashSet::new(),
         };
         let file = |path, symbols| ParsedFile {
             path,
@@ -621,5 +676,74 @@ mod tests {
                 kind: "type",
             }]
         );
+    }
+
+    #[test]
+    fn a_file_that_the_scip_run_did_not_cover_does_not_wait_for_it() {
+        let mut base = BaseIndex::default();
+        base.refs = BaseRefs {
+            files: HashMap::new(),
+            not_covered: HashSet::from(["src/gated.rs".to_string(), "src/edited.rs".to_string()]),
+        };
+        let file = |path| ParsedFile {
+            path,
+            language: "rust",
+            text: "",
+            symbols: vec![],
+            calls: &[],
+            use_ranges: &[],
+            macro_calls: &[],
+            macro_ranges: &[],
+            package: None,
+            imports: &[],
+        };
+        let files = [
+            file("src/gated.rs"),
+            file("src/edited.rs"),
+            file("src/new.rs"),
+        ];
+        let marked = HashSet::from(["rust"]);
+        let out = resolve(
+            &files,
+            &["same", "changed", "new"],
+            Source::Base {
+                bases: std::slice::from_ref(&base),
+                marked: &marked,
+            },
+        );
+        // The 2 files that SCIP did not cover have no row, changed or not.
+        // A file that is new to the base waits for the next SCIP run.
+        assert_eq!(out.files, [(2, true)]);
+        assert!(out.refs.is_empty());
+    }
+
+    #[test]
+    fn a_language_with_no_scip_rows_has_no_files_that_are_not_covered() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::schema::prepare(&conn).unwrap();
+        for (id, path, language) in [
+            (1, "src/lib.rs", "rust"),
+            (2, "src/gated.rs", "rust"),
+            (3, "tools/run.py", "python"),
+        ] {
+            conn.execute(
+                "INSERT INTO files (id, path, language, decision, rule, rule_origin, size,
+                                    longest_line, content_hash)
+                 VALUES (?1, ?2, ?3, 'source', 'r', 'default', 1, 1, 'h')",
+                rusqlite::params![id, path, language],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO refs_files (file_id, pending) VALUES (1, 0)",
+            [],
+        )
+        .unwrap();
+        let base = read_base(&conn, &HashMap::new()).unwrap();
+        // Rust has SCIP rows, so src/gated.rs is not covered. Python has none
+        // (its SCIP run gave nothing): its files wait as before.
+        assert!(base.not_covered("src/gated.rs"));
+        assert!(!base.not_covered("src/lib.rs"));
+        assert!(!base.not_covered("tools/run.py"));
     }
 }

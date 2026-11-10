@@ -206,7 +206,7 @@ pub struct References {
     pub uses: Vec<Reference>,
     pub coverage: Coverage,
     /// The source and test files of the language family of the target that
-    /// the SCIP run did not cover (a module behind a cargo feature, a folder
+    /// the SCIP run did not cover (code behind a `cfg` that the run does not turn on, a folder
     /// that the indexer skips), by path: they have their calls only. Empty
     /// with `Coverage::CallsOnly` (KAIROS-T-0760).
     pub not_covered: Vec<String>,

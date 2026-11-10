@@ -418,10 +418,10 @@ cores. The build used the embedded summary model.
 
 The rust-analyzer SCIP run of a Rust repository uses the most memory of a
 build. It reads the full workspace and its dependencies. Each Cargo
-feature is on, so the code behind a feature has SCIP data. When the
-features of a workspace cannot be on together, the run uses the default
-features. The memory is at
-its peak at the end of the run, when rust-analyzer writes the index.
+feature is on, so the code behind a feature has SCIP data. When
+`cargo metadata` refuses all features, the run uses the default
+features. The memory is at its peak at the end of the run, when
+rust-analyzer writes the index.
 
 | Repository | Rust files | Peak memory of the SCIP run |
 |---|---|---|
@@ -1541,11 +1541,12 @@ symbol as `symbol` does.
   It runs no SCIP indexer. A changed file has its calls only until the next
   index that the server builds. The result gives the count of these files.
 - Some files have no SCIP data: the SCIP run did not cover them. An
-  example is code behind a `cfg` that the build does not turn on. Another
-  example is a folder that the indexer skips. scip-python skips the folders
-  whose names start with a dot. These files have their calls only, also in the next index. The
-  result names them (3 at most, then a count). The JSON gives them in
-  `not_covered_files`. An update does not mark them as changed.
+  example is code behind a `cfg` that the run does not turn on. Another
+  example is a folder that the indexer skips. scip-python skips the
+  folders whose names start with a dot. These files have their calls
+  only. The result names them (3 at most, then a count). The JSON gives
+  them in `not_covered_files`. An update does not mark them as changed,
+  because an edit does not make the next SCIP run cover them.
 - The result shows the possible calls only when `possible` is true. A
   possible call is a call by a name that more than one function has.
 - `limit` is the most uses to show, from 1 to 1000. The default is 100.

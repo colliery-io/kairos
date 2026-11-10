@@ -391,8 +391,10 @@ fn cargo_metadata(
     // A repository can pin either, so try the old form and fall back.
     // Each feature on (KAIROS-A-0083): rust-analyzer takes the active
     // features of each package from `resolve`, so code behind a feature gets
-    // SCIP data. A workspace whose features cannot be on together falls back
-    // to the default features.
+    // SCIP data. When cargo refuses all features (a feature that does not
+    // resolve), the run takes the default features. Features that clash only
+    // in the code (`compile_error!`) are not found here: rust-analyzer
+    // indexes that code as it is.
     let run = |form: LockfileForm, all_features: bool| {
         let mut command = Command::new(sysroot.join("bin/cargo"));
         with_toolchain(&mut command, &sysroot.join("bin"))
@@ -1154,11 +1156,7 @@ mod tests {
         assert!(!refuses_lockfile_flag("error: failed to parse manifest"));
     }
 
-    /// COLLIERY-T-3107: in the server image, `rustc` is not on `PATH`. The
-    /// metadata step must use the `rustc` of the given toolchain. The test
-    /// toolchain has a `rustc` that records each call, so a `rustc` found on
-    /// `PATH` does not make the test pass.
-    /// KAIROS-T-0760: the metadata has each feature on, so rust-analyzer
+    /// KAIROS-A-0083: the metadata has each feature on, so rust-analyzer
     /// gives SCIP data for the code behind a feature.
     #[test]
     fn cargo_metadata_turns_on_each_feature() {
@@ -1191,6 +1189,10 @@ mod tests {
         );
     }
 
+    /// COLLIERY-T-3107: in the server image, `rustc` is not on `PATH`. The
+    /// metadata step must use the `rustc` of the given toolchain. The test
+    /// toolchain has a `rustc` that records each call, so a `rustc` found on
+    /// `PATH` does not make the test pass.
     #[cfg(unix)]
     #[test]
     fn cargo_metadata_uses_the_rustc_of_the_toolchain() {

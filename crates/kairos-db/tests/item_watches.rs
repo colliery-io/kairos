@@ -9,7 +9,11 @@
 //!   children does not;
 //! - the actor of the change is not told; a person who stopped the watch
 //!   is not told; a service account is never told;
-//! - the list of the watches of a person.
+//! - the list of the watches of a person;
+//! - KAIROS-T-0762: a member adds another member as a watcher; the added
+//!   person is told, a self-watch tells nobody; only the watcher or the
+//!   adder removes the watch, a third person is refused; the watchers of
+//!   an item with who added each; the `added_by` migration.
 //!
 //! The REST and MCP surfaces are in `kairos-server/tests/item_watches.rs`.
 //!
@@ -48,6 +52,10 @@ const UP: &str = include_str!("../migrations/tenant/2026-10-30-000500_item_watch
 const DOWN: &str = include_str!("../migrations/tenant/2026-10-30-000500_item_watches/down.sql");
 const VALIDATE: &str =
     include_str!("../migrations/tenant/2026-10-30-000600_item_watches_validate/up.sql");
+const ADDED_BY_UP: &str =
+    include_str!("../migrations/tenant/2026-11-12-000100_item_watches_added_by/up.sql");
+const ADDED_BY_DOWN: &str =
+    include_str!("../migrations/tenant/2026-11-12-000100_item_watches_added_by/down.sql");
 
 fn admin_database_url() -> String {
     std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string())
@@ -232,6 +240,12 @@ fn a_watch_tells_of_each_coarse_change() {
     conn.batch_execute(DOWN).expect("down");
     conn.batch_execute(UP).expect("up");
     conn.batch_execute(VALIDATE).expect("validate");
+    // KAIROS-T-0762: added_by is re-runnable, and down then up gives it.
+    conn.batch_execute(ADDED_BY_UP).expect("added_by up");
+    conn.batch_execute(ADDED_BY_UP)
+        .expect("a second added_by up changes nothing");
+    conn.batch_execute(ADDED_BY_DOWN).expect("added_by down");
+    conn.batch_execute(ADDED_BY_UP).expect("added_by up");
 
     let robin = insert_user(&mut conn, "robin", "Robin");
     let sam = insert_user(&mut conn, "sam", "Sam");
@@ -514,5 +528,110 @@ fn a_watch_tells_of_each_coarse_change() {
     assert!(
         take(&mut conn, jamie).is_empty(),
         "a person who turned the kind off is not told"
+    );
+
+    // --- KAIROS-T-0762: watchers that people can see -------------------------
+    // A self-watch records the watcher as the adder and tells nobody.
+    let shared = task(&mut conn, board, "Shared", robin);
+    let c6 = code(&mut conn, shared);
+    let own = watches::add_watcher(&mut conn, robin, shared, false, robin).expect("self");
+    assert!(own.new);
+    assert_eq!(
+        own.watch.added_by, robin,
+        "a self-watch: the adder is the watcher"
+    );
+    assert!(
+        take(&mut conn, robin).is_empty(),
+        "a self-watch makes no notification"
+    );
+
+    // Robin adds Sam: Sam is told, and the watch records Robin.
+    let added = watches::add_watcher(&mut conn, sam, shared, false, robin).expect("add");
+    assert!(added.new);
+    assert_eq!(added.watch.added_by, robin);
+    assert_eq!(
+        take(&mut conn, sam),
+        vec![format!("Robin added you as a watcher of {c6}: Shared")]
+    );
+    assert!(take(&mut conn, robin).is_empty(), "the adder is not told");
+
+    // A second add of a watcher that is there changes nothing, and tells
+    // nobody.
+    let again = watches::add_watcher(&mut conn, sam, shared, true, robin).expect("again");
+    assert!(!again.new);
+    assert!(
+        !again.watch.with_children,
+        "an add by another person keeps the watch"
+    );
+    assert!(take(&mut conn, sam).is_empty(), "no second notification");
+
+    // The added watch tells of changes as a self-watch does.
+    item_notes::append_note(&mut conn, ItemType::Task, shared, "Go.", robin).expect("note");
+    assert_eq!(
+        take(&mut conn, sam),
+        vec![format!("Robin added a note to {c6}: Shared")]
+    );
+
+    // A person who turned the kind `watch` off is not told of the add.
+    watches::add_watcher(&mut conn, jamie, shared, false, sam).expect("add");
+    assert!(
+        take(&mut conn, jamie).is_empty(),
+        "the setting of the kind watch applies to an add"
+    );
+
+    // The watchers of the item, oldest first, with who added each.
+    let listed = watches::item_watchers(&mut conn, shared).expect("watchers");
+    let rows: Vec<(Uuid, Uuid, Option<&str>)> = listed
+        .iter()
+        .map(|w| (w.user_id, w.added_by, w.added_by_name.as_deref()))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            (robin, robin, Some("Robin")),
+            (sam, robin, Some("Robin")),
+            (jamie, sam, Some("Sam")),
+        ]
+    );
+    assert_eq!(listed[1].user_name, "sam");
+    assert_eq!(listed[1].display_name, "Sam");
+
+    // Remove: a third person is refused; the adder and the watcher may.
+    assert_eq!(
+        watches::remove_watcher(&mut conn, sam, shared, jamie).expect("remove"),
+        watches::Removal::Refused { added_by: robin },
+        "Jamie neither watches as Sam nor added Sam"
+    );
+    assert!(
+        watches::watch_of(&mut conn, sam, shared)
+            .expect("of")
+            .is_some()
+    );
+    assert_eq!(
+        watches::remove_watcher(&mut conn, sam, shared, robin).expect("remove"),
+        watches::Removal::Removed,
+        "the adder removes the watch"
+    );
+    assert_eq!(
+        watches::remove_watcher(&mut conn, jamie, shared, jamie).expect("remove"),
+        watches::Removal::Removed,
+        "the watcher removes the watch"
+    );
+    assert_eq!(
+        watches::remove_watcher(&mut conn, jamie, shared, jamie).expect("remove"),
+        watches::Removal::NotWatching
+    );
+    assert_eq!(
+        watches::remove_watcher(&mut conn, robin, shared, sam).expect("remove"),
+        watches::Removal::Refused { added_by: robin },
+        "Sam did not add the self-watch of Robin"
+    );
+    assert_eq!(
+        watches::item_watchers(&mut conn, shared)
+            .expect("watchers")
+            .iter()
+            .map(|w| w.user_id)
+            .collect::<Vec<_>>(),
+        vec![robin]
     );
 }

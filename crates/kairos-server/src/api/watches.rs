@@ -12,6 +12,20 @@
 //!
 //! A coarse change of a watched item (moved, edited, note added, done)
 //! makes a `watch` notification ([`kairos_db::watches`]).
+//!
+//! WATCHERS THAT PEOPLE CAN SEE (KAIROS-T-0762, COLLIERY-I-0674):
+//!
+//! - `GET /api/items/{short_code}/watchers`: each person who watches the
+//!   item. Each member can read it.
+//! - `PUT /api/items/{short_code}/watchers/{user}`: add a person of the
+//!   organization as a watcher. The added person gets a `watch`
+//!   notification; a self-watch makes none.
+//! - `DELETE /api/items/{short_code}/watchers/{user}`: remove a watcher.
+//!   Only the watcher or the person who added the watch can (403).
+//!
+//! `{user}` is a user id, an email, a user name, or `me`. The MCP tools
+//! `watch_item` and `unwatch_item` take `user`; `list_watches` takes
+//! `short_code` for the watchers of one item.
 
 use axum::extract::{Extension, Path, State};
 use axum::routing::get;
@@ -20,7 +34,9 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::{Bool, Nullable, Text, Uuid as SqlUuid};
-use kairos_client::types_notifications::{WatchList, WatchRequest, WatchState, WatchedItem};
+use kairos_client::types_notifications::{
+    ItemWatcher, ItemWatchers, WatchList, WatchRequest, WatchState, WatchedItem,
+};
 use uuid::Uuid;
 
 use crate::app::AppState;
@@ -35,6 +51,11 @@ pub(crate) fn router() -> Router<AppState> {
         .route(
             "/api/items/{short_code}/watch",
             get(get_watch).put(put_watch).delete(delete_watch),
+        )
+        .route("/api/items/{short_code}/watchers", get(get_watchers))
+        .route(
+            "/api/items/{short_code}/watchers/{user}",
+            axum::routing::put(put_watcher).delete(delete_watcher),
         )
 }
 
@@ -286,4 +307,242 @@ pub(crate) async fn delete_watch(
         })
         .await?;
     Ok(Json(watch))
+}
+
+/// The person that `reference` names (KAIROS-T-0762): a user id, an email,
+/// a user name, or `me` for `me`. `members_only`: the person must be a
+/// member of the organization `slug` and not a service account (an add).
+/// A remove finds any person who watches, also a former member.
+fn resolve_watcher(
+    conn: &mut PgConnection,
+    slug: &str,
+    reference: &str,
+    me: Uuid,
+    members_only: bool,
+) -> Result<Uuid, ApiError> {
+    let reference = crate::references::text(reference);
+    let mut found = None;
+    for user in crate::references::people(conn, me, reference)? {
+        if members_only
+            && !kairos_db::abac::is_org_member(conn, slug, user.id).map_err(ApiError::internal)?
+        {
+            continue;
+        }
+        if found.is_some() {
+            return Err(ApiError::validation(format!(
+                "More than one person has the name {reference:?}. Send the id of the person."
+            ))
+            .with_details(serde_json::json!({ "field": "user" })));
+        }
+        found = Some(user);
+    }
+    let Some(user) = found else {
+        return Err(ApiError::validation(format!(
+            "No member of the organization has the id, the email or the user name \
+             {reference:?}. Send me, or a person of the organization."
+        ))
+        .with_details(serde_json::json!({ "field": "user" })));
+    };
+    if members_only && user.kind != kairos_db::models::public::USER_KIND_HUMAN {
+        return Err(ApiError::validation(format!(
+            "{reference:?} is a service account. A service account cannot watch an item. Send \
+             a person of the organization."
+        ))
+        .with_details(serde_json::json!({ "field": "user" })));
+    }
+    Ok(user.id)
+}
+
+fn rfc3339(at: chrono::DateTime<chrono::Utc>) -> String {
+    at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+/// The watchers of the item `item`, for the caller `caller`.
+fn watchers_of(
+    conn: &mut PgConnection,
+    caller: Uuid,
+    item: Target,
+) -> Result<ItemWatchers, ApiError> {
+    let rows = kairos_db::watches::item_watchers(conn, item.id).map_err(ApiError::internal)?;
+    Ok(ItemWatchers {
+        short_code: item.short_code,
+        watchers: rows
+            .into_iter()
+            .map(|w| ItemWatcher {
+                user_id: w.user_id.to_string(),
+                user_name: w.user_name,
+                display_name: w.display_name,
+                added_by: w.added_by.to_string(),
+                added_by_name: w.added_by_name,
+                with_children: w.with_children,
+                created_at: rfc3339(w.created_at),
+                can_remove: caller == w.user_id || caller == w.added_by,
+            })
+            .collect(),
+    })
+}
+
+/// Each person who watches the item (KAIROS-T-0762). Each member reads it.
+pub(crate) fn watchers_for(
+    conn: &mut PgConnection,
+    caller: Uuid,
+    short_code: &str,
+) -> Result<ItemWatchers, ApiError> {
+    let item = target(conn, short_code, false)?;
+    watchers_of(conn, caller, item)
+}
+
+/// `caller` adds the person `user` as a watcher of the live item
+/// (KAIROS-T-0762). Returns the watchers after, and whether the watch is
+/// new. A watch that is there does not change.
+pub(crate) fn add_watcher_for(
+    conn: &mut PgConnection,
+    slug: &str,
+    caller: Uuid,
+    short_code: &str,
+    user: &str,
+    with_children: bool,
+) -> Result<(ItemWatchers, Uuid, bool), ApiError> {
+    require_person(conn, caller)?;
+    let watcher = resolve_watcher(conn, slug, user, caller, true)?;
+    let item = target(conn, short_code, true)?;
+    let added = kairos_db::watches::add_watcher(conn, watcher, item.id, with_children, caller)
+        .map_err(ApiError::internal)?;
+    Ok((watchers_of(conn, caller, item)?, watcher, added.new))
+}
+
+/// `caller` removes the watch of the person `user` on the item, archived
+/// or not (KAIROS-T-0762). Only the watcher or the person who added the
+/// watch can: anyone else gets 403. Returns the watchers after, and
+/// whether there was a watch.
+pub(crate) fn remove_watcher_for(
+    conn: &mut PgConnection,
+    slug: &str,
+    caller: Uuid,
+    short_code: &str,
+    user: &str,
+) -> Result<(ItemWatchers, Uuid, bool), ApiError> {
+    let watcher = resolve_watcher(conn, slug, user, caller, false)?;
+    let item = target(conn, short_code, false)?;
+    let removed = match kairos_db::watches::remove_watcher(conn, watcher, item.id, caller)
+        .map_err(ApiError::internal)?
+    {
+        kairos_db::watches::Removal::Removed => true,
+        kairos_db::watches::Removal::NotWatching => false,
+        kairos_db::watches::Removal::Refused { added_by } => {
+            return Err(ApiError::forbidden(format!(
+                "You cannot remove this watcher of {}. Only the watcher or the person who \
+                 added the watch can remove it.",
+                item.short_code
+            ))
+            .with_details(serde_json::json!({
+                "field": "user",
+                "watcher": watcher,
+                "added_by": added_by,
+            })));
+        }
+    };
+    Ok((watchers_of(conn, caller, item)?, watcher, removed))
+}
+
+/// Each person who watches the item, oldest watch first, with who added
+/// each watch. A person who watches a parent with its children is not in
+/// the list. Each member can read it.
+#[utoipa::path(
+    get,
+    path = "/api/items/{short_code}/watchers",
+    tag = "me",
+    params(("short_code" = String, Path, description = "The item")),
+    responses(
+        (status = 200, description = "The watchers of the item", body = ItemWatchers),
+        (status = 404, description = "No item has the short code", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn get_watchers(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+) -> Result<Json<ItemWatchers>, ApiError> {
+    let user = auth.user_id;
+    let watchers = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            watchers_for(conn, user, &short_code)
+        })
+        .await?;
+    Ok(Json(watchers))
+}
+
+/// Add a person of the organization as a watcher of the item. The person
+/// gets a `watch` notification that you added them, and then one for each
+/// coarse change of the item. A person who watches the item already: the
+/// watch does not change. `me` watches the item for you.
+#[utoipa::path(
+    put,
+    path = "/api/items/{short_code}/watchers/{user}",
+    tag = "me",
+    params(
+        ("short_code" = String, Path, description = "The item"),
+        ("user" = String, Path, description = "The watcher: a user id, an email, a user name, or me"),
+    ),
+    request_body = WatchRequest,
+    responses(
+        (status = 200, description = "The watchers of the item after the change", body = ItemWatchers),
+        (status = 403, description = "The caller is a service account", body = kairos_client::types::ErrorEnvelope),
+        (status = 404, description = "No item has the short code, the code is retired, or the item is archived", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "The user is not a person of the organization", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn put_watcher(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((short_code, user)): Path<(String, String)>,
+    ApiJson(body): ApiJson<WatchRequest>,
+) -> Result<Json<ItemWatchers>, ApiError> {
+    let caller = auth.user_id;
+    let slug = tenant.slug.clone();
+    let with_children = body.with_children.unwrap_or(false);
+    let (watchers, _, _) = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            add_watcher_for(conn, &slug, caller, &short_code, &user, with_children)
+        })
+        .await?;
+    Ok(Json(watchers))
+}
+
+/// Remove a watcher of the item. Only the watcher or the person who added
+/// the watch can remove it. No watch: nothing changes.
+#[utoipa::path(
+    delete,
+    path = "/api/items/{short_code}/watchers/{user}",
+    tag = "me",
+    params(
+        ("short_code" = String, Path, description = "The item"),
+        ("user" = String, Path, description = "The watcher: a user id, an email, a user name, or me"),
+    ),
+    responses(
+        (status = 200, description = "The watchers of the item after the change", body = ItemWatchers),
+        (status = 403, description = "The caller is not the watcher and did not add the watch", body = kairos_client::types::ErrorEnvelope),
+        (status = 404, description = "No item has the short code", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "No person has the user reference", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn delete_watcher(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((short_code, user)): Path<(String, String)>,
+) -> Result<Json<ItemWatchers>, ApiError> {
+    let caller = auth.user_id;
+    let slug = tenant.slug.clone();
+    let (watchers, _, _) = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            remove_watcher_for(conn, &slug, caller, &short_code, &user)
+        })
+        .await?;
+    Ok(Json(watchers))
 }

@@ -9,6 +9,13 @@
 //! 3. `unwatch_item` and `DELETE` end it; a second end changes nothing.
 //! 4. A service account cannot watch (403); an unknown code is a 404; an
 //!    unknown argument is refused.
+//! 5. KAIROS-T-0762: a member adds another member as a watcher (REST
+//!    `PUT /api/items/{code}/watchers/{user}`, MCP `watch_item` with
+//!    `user`); the added person is told, a self-add tells nobody; each
+//!    member reads the watchers (`GET .../watchers`, `list_watches` with
+//!    `short_code`); the adder and the watcher remove a watch, a third
+//!    person is refused (403); a service account cannot be a watcher; an
+//!    unknown argument is refused.
 //!
 //! The kinds of change and the children are in
 //! `kairos-db/tests/item_watches.rs`.
@@ -180,6 +187,7 @@ async fn a_person_watches_an_item_over_rest_and_mcp() {
     let svc_token = user_token(&http, "svc").await;
     let alice_token = user_token(&http, "alice").await;
     let bob_token = user_token(&http, "bob").await;
+    let carol_token = user_token(&http, "carol").await;
     let pool = TenantPool::new(&scratch_url, 4).await.expect("pool");
     let auth = Arc::new(
         Authenticator::discover(ISSUER, AUDIENCE)
@@ -191,13 +199,15 @@ async fn a_person_watches_an_item_over_rest_and_mcp() {
     let admin = server.client(&svc_token, "acme");
     let alice = server.client(&alice_token, "acme");
     let bob = server.client(&bob_token, "acme");
-    for client in [&admin, &alice, &bob] {
+    let carol = server.client(&carol_token, "acme");
+    for client in [&admin, &alice, &bob, &carol] {
         let _ = client.whoami().await;
     }
     for (email, role) in [
         ("svc@kairos.test", OrgRole::Admin),
         ("alice@kairos.test", OrgRole::Member),
         ("bob@kairos.test", OrgRole::Member),
+        ("carol@kairos.test", OrgRole::Member),
     ] {
         let user_id = user(&mut conn, email);
         diesel::insert_into(organization_members::table)
@@ -404,6 +414,163 @@ async fn a_person_watches_an_item_over_rest_and_mcp() {
         .await;
     assert!(
         error && text.contains("children"),
+        "an unknown argument: {text}"
+    );
+
+    // --- 5. KAIROS-T-0762: watchers that people can see ------------------------
+    let watch_texts = |list: &kairos_client::types_notifications::NotificationList| -> Vec<String> {
+        list.items
+            .iter()
+            .filter(|n| n.kind == "watch")
+            .map(|n| n.text.clone())
+            .collect()
+    };
+    let alice_before = watch_texts(&alice.notifications().await.expect("alice")).len();
+    // Alice adds Bob over REST: Bob is told, and the watch records Alice.
+    let watchers = alice
+        .add_watcher(&second, "bob@kairos.test", &WatchRequest::default())
+        .await
+        .expect("add bob");
+    assert_eq!(watchers.short_code, second);
+    assert_eq!(watchers.watchers.len(), 1, "{watchers:?}");
+    let alice_id = user(&mut conn, "alice@kairos.test").to_string();
+    let w = &watchers.watchers[0];
+    assert_eq!(
+        (w.user_id.as_str(), w.added_by.as_str(), w.can_remove),
+        (bob_id.to_string().as_str(), alice_id.as_str(), true)
+    );
+    let told = watch_texts(&bob.notifications().await.expect("bob"));
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(
+        told[0].ends_with(&format!("added you as a watcher of {second}: Second")),
+        "{told:?}"
+    );
+    // A second add changes nothing and tells nobody.
+    alice
+        .add_watcher(&second, "bob@kairos.test", &WatchRequest::default())
+        .await
+        .expect("add bob again");
+    assert_eq!(
+        watch_texts(&bob.notifications().await.expect("bob")).len(),
+        1,
+        "no second notification"
+    );
+    // A self-add (`me`) makes no notification.
+    let watchers = alice
+        .add_watcher(&second, "me", &WatchRequest::default())
+        .await
+        .expect("self add");
+    assert_eq!(watchers.watchers.len(), 2);
+    assert_eq!(
+        watch_texts(&alice.notifications().await.expect("alice")).len(),
+        alice_before,
+        "a self-add tells nobody"
+    );
+    // Carol reads the watchers; she can remove neither watch.
+    let seen = carol.item_watchers(&second).await.expect("carol reads");
+    let rows: Vec<(&str, bool)> = seen
+        .watchers
+        .iter()
+        .map(|w| (w.user_id.as_str(), w.can_remove))
+        .collect();
+    assert_eq!(
+        rows,
+        vec![
+            (bob_id.to_string().as_str(), false),
+            (alice_id.as_str(), false)
+        ]
+    );
+    // A third person is refused.
+    let err = carol
+        .remove_watcher(&second, "bob@kairos.test")
+        .await
+        .expect_err("carol did not add bob");
+    assert!(matches!(err, Error::Forbidden { .. }), "{err}");
+    assert_eq!(
+        alice
+            .item_watchers(&second)
+            .await
+            .expect("read")
+            .watchers
+            .len(),
+        2
+    );
+    // The watcher removes the watch.
+    let after = bob.remove_watcher(&second, "me").await.expect("bob leaves");
+    assert_eq!(after.watchers.len(), 1);
+    // A service account cannot be a watcher.
+    let err = alice
+        .add_watcher(&second, &account.id, &WatchRequest::default())
+        .await
+        .expect_err("a service account is not a watcher");
+    assert!(matches!(err, Error::Validation { .. }), "{err}");
+    let err = alice
+        .add_watcher(&second, "nobody@kairos.test", &WatchRequest::default())
+        .await
+        .expect_err("not a member");
+    assert!(matches!(err, Error::Validation { .. }), "{err}");
+
+    // MCP: Alice's agent key adds Carol; Carol is told.
+    let text = agent
+        .call_ok(
+            "watch_item",
+            json!({"short_code": first, "user": "carol@kairos.test"}),
+        )
+        .await;
+    assert!(text.contains(&format!("watches {first} now.")), "{text}");
+    let told = watch_texts(&carol.notifications().await.expect("carol"));
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert!(
+        told[0].ends_with(&format!("added you as a watcher of {first}: First")),
+        "{told:?}"
+    );
+    let text = agent
+        .call_ok("list_watches", json!({"short_code": first}))
+        .await;
+    assert!(
+        text.starts_with(&format!("# Watchers of {first} (1)")),
+        "{text}"
+    );
+    assert!(text.contains("· added by "), "{text}");
+    // Bob cannot remove Carol over MCP; Alice, who added her, can.
+    let mut bob_mcp = Mcp::connect(&server.base_url, &bob_token).await;
+    let (text, error) = bob_mcp
+        .call(
+            "unwatch_item",
+            json!({"short_code": first, "user": "carol@kairos.test"}),
+        )
+        .await;
+    assert!(error && text.starts_with("FORBIDDEN"), "{text}");
+    let text = agent
+        .call_ok(
+            "unwatch_item",
+            json!({"short_code": first, "user": "carol@kairos.test"}),
+        )
+        .await;
+    assert!(
+        text.starts_with(&format!("carol@kairos.test does not watch {first} now.")),
+        "{text}"
+    );
+    let text = agent
+        .call_ok("list_watches", json!({"short_code": first}))
+        .await;
+    assert!(
+        text.starts_with(&format!("Nobody watches {first}.")),
+        "{text}"
+    );
+    // An unknown argument is refused.
+    let (text, error) = agent
+        .call("watch_item", json!({"short_code": first, "watcher": "bob"}))
+        .await;
+    assert!(
+        error && text.contains("watcher"),
+        "an unknown argument: {text}"
+    );
+    let (text, error) = agent
+        .call("list_watches", json!({"short_code": first, "people": true}))
+        .await;
+    assert!(
+        error && text.contains("people"),
         "an unknown argument: {text}"
     );
 }

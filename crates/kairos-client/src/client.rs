@@ -1566,6 +1566,56 @@ impl KairosClient {
             .await
     }
 
+    /// `GET /api/standup-groups` (KAIROS-T-0764): each group of an AdHoc
+    /// stand-up.
+    pub async fn standup_groups(&self) -> Result<crate::types_work::StandupGroupList, Error> {
+        self.get("/api/standup-groups").await
+    }
+
+    /// `POST /api/standup-groups` (KAIROS-T-0764): create a group.
+    pub async fn create_standup_group(
+        &self,
+        request: &crate::types_work::CreateStandupGroupRequest,
+    ) -> Result<crate::types_work::StandupGroup, Error> {
+        self.post_created("/api/standup-groups", request).await
+    }
+
+    /// `GET /api/standup-groups/{id}` (KAIROS-T-0764): one group.
+    pub async fn standup_group(&self, id: &str) -> Result<crate::types_work::StandupGroup, Error> {
+        self.get(&format!("/api/standup-groups/{id}")).await
+    }
+
+    /// `PATCH /api/standup-groups/{id}` (KAIROS-T-0764): change the name or
+    /// the people of a group.
+    pub async fn update_standup_group(
+        &self,
+        id: &str,
+        request: &crate::types_work::UpdateStandupGroupRequest,
+    ) -> Result<crate::types_work::StandupGroup, Error> {
+        self.patch(&format!("/api/standup-groups/{id}"), request)
+            .await
+    }
+
+    /// `DELETE /api/standup-groups/{id}` (KAIROS-T-0764): delete a group.
+    /// Only its creator can.
+    pub async fn delete_standup_group(
+        &self,
+        id: &str,
+    ) -> Result<crate::types_work::StandupGroup, Error> {
+        self.delete(&format!("/api/standup-groups/{id}")).await
+    }
+
+    /// `GET /api/standup-groups/{id}/people/{user_id}` (KAIROS-T-0764): the
+    /// work of one person of the group, on each board.
+    pub async fn standup_group_person(
+        &self,
+        id: &str,
+        user_id: &str,
+    ) -> Result<crate::types_work::MyWork, Error> {
+        self.get(&format!("/api/standup-groups/{id}/people/{user_id}"))
+            .await
+    }
+
     /// `POST /api/me/notifications/read` (KAIROS-T-0382): mark notifications
     /// of the caller read.
     pub async fn mark_notifications_read(

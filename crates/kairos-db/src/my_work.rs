@@ -31,6 +31,10 @@
 //!   under the initiatives of the person, and not the tasks that the claims
 //!   block.
 //!
+//! [`person_work`] gives a stop of an AdHoc stand-up (KAIROS-T-0764,
+//! KAIROS-A-0084): the same two lanes as [`team_work`], with no team
+//! filter, so the work of the person on each board shows.
+//!
 //! [`unclaimed_work`] gives the last stop of the round: the tasks on the
 //! boards of the team that no one claims, in the state Todo or Blocked. A
 //! task in Backlog is not in it. [`team_people`] gives the people of the
@@ -434,6 +438,23 @@ fn team_boards(conn: &mut PgConnection, team: Uuid) -> Result<HashSet<Uuid>, Die
 /// The work of `user` in `team`, for the stand-up (module docs). Twelve
 /// queries, whatever the size of the work.
 pub fn team_work(conn: &mut PgConnection, team: Uuid, user: Uuid) -> Result<MyWork, DieselError> {
+    stop_work(conn, Some(team), user)
+}
+
+/// The work of `user` by ownership on each board, for a stop of an AdHoc
+/// stand-up (KAIROS-A-0084, module docs): [`team_work`] with no team
+/// filter. The initiatives that the person owns (no strategies), and the
+/// tasks that the person (or an agent key of the person) claims.
+pub fn person_work(conn: &mut PgConnection, user: Uuid) -> Result<MyWork, DieselError> {
+    stop_work(conn, None, user)
+}
+
+/// The work of a stop of a stand-up: in `team`, or on each board.
+fn stop_work(
+    conn: &mut PgConnection,
+    team: Option<Uuid>,
+    user: Uuid,
+) -> Result<MyWork, DieselError> {
     use crate::schema::{item_owners as owners, task_claims as claims};
 
     let mut reasons: HashMap<Uuid, BTreeSet<WorkReason>> = HashMap::new();
@@ -447,16 +468,21 @@ pub fn team_work(conn: &mut PgConnection, team: Uuid, user: Uuid) -> Result<MyWo
         .into_iter()
         .filter(|c| c.entity_type == "initiative")
         .collect();
-    let ids: Vec<Uuid> = owned.iter().map(|c| c.id).collect();
-    let teams = item_teams::teams_of_items(conn, &ids)?;
-    let initiative_cards: Vec<CardRow> = owned
-        .into_iter()
-        .filter(|c| {
-            teams
-                .get(&c.id)
-                .is_some_and(|ts| ts.iter().any(|t| t.team_id == team))
-        })
-        .collect();
+    let initiative_cards: Vec<CardRow> = match team {
+        None => owned,
+        Some(team) => {
+            let ids: Vec<Uuid> = owned.iter().map(|c| c.id).collect();
+            let teams = item_teams::teams_of_items(conn, &ids)?;
+            owned
+                .into_iter()
+                .filter(|c| {
+                    teams
+                        .get(&c.id)
+                        .is_some_and(|ts| ts.iter().any(|t| t.team_id == team))
+                })
+                .collect()
+        }
+    };
     for card in &initiative_cards {
         reasons
             .entry(card.id)
@@ -464,15 +490,21 @@ pub fn team_work(conn: &mut PgConnection, team: Uuid, user: Uuid) -> Result<MyWo
             .insert(WorkReason::Owned);
     }
 
-    // The claims of the person on the boards of the team.
-    let boards = team_boards(conn, team)?;
+    // The claims of the person: on the boards of the team, or on each
+    // board.
+    let boards = match team {
+        Some(team) => Some(team_boards(conn, team)?),
+        None => None,
+    };
     let claimed: Vec<Uuid> = claims::table
         .filter(claims::user_id.eq(user))
         .select(claims::task_id)
         .load(conn)?;
     let task_cards: Vec<CardRow> = cards(conn, &claimed)?
         .into_iter()
-        .filter(|c| c.entity_type == "task" && boards.contains(&c.board_id))
+        .filter(|c| {
+            c.entity_type == "task" && boards.as_ref().is_none_or(|b| b.contains(&c.board_id))
+        })
         .collect();
     for card in &task_cards {
         reasons

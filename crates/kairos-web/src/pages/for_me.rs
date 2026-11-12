@@ -345,6 +345,8 @@ pub fn ForMePage() -> impl IntoView {
             // KAIROS-T-0763: the items that the person watches.
             <super::watching::WatchingLane reload/>
         </div>
+        // KAIROS-T-0764: the AdHoc stand-ups, a section of its own.
+        <super::standup_groups::StandupGroupsSection/>
     }
 }
 

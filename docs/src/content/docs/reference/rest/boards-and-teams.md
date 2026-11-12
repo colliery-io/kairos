@@ -850,6 +850,104 @@ revoke it.
 
 ## teams
 
+### `GET /api/standup-groups`
+
+Each stand-up group of the organization, by name, with its people.
+Each member of the organization reads each group.
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`StandupGroupList`](../schemas/#standupgrouplist) | Each group, by name |
+| `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
+
+### `POST /api/standup-groups`
+
+Create a stand-up group. Each member of the organization can. The name
+is unique in the organization, with no regard to case. Each person must
+be a person of the organization: a user id, an email or a user name.
+
+Request body (required): `application/json`, [`CreateStandupGroupRequest`](../schemas/#createstandupgrouprequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `201` | [`StandupGroup`](../schemas/#standupgroup) | The new group |
+| `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | A different group has the name |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | A name with no characters or too many, or a person who is not a person of the organization |
+
+### `GET /api/standup-groups/{id}`
+
+One stand-up group, with its people.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The id (UUID) of the group |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`StandupGroup`](../schemas/#standupgroup) | The group |
+| `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown group |
+
+### `DELETE /api/standup-groups/{id}`
+
+Delete a stand-up group and its people. Only the person who created the
+group can delete it. The answer is the group before the delete.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The id (UUID) of the group |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`StandupGroup`](../schemas/#standupgroup) | The group that was deleted |
+| `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller did not create the group |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown group |
+
+### `PATCH /api/standup-groups/{id}`
+
+Change the name, the people, or both, of a stand-up group. Each member
+of the organization can edit each group. `people` is the full list
+after the change.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The id (UUID) of the group |
+
+Request body (required): `application/json`, [`UpdateStandupGroupRequest`](../schemas/#updatestandupgrouprequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`StandupGroup`](../schemas/#standupgroup) | The group after the change |
+| `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown group |
+| `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | A different group has the name |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No field to change, a bad name, or a person who is not a person of the organization |
+
+### `GET /api/standup-groups/{id}/people/{user_id}`
+
+The stop of one person of a stand-up group: the work of the person by
+ownership on each board, in two lanes.
+
+- Initiatives: the initiatives that the person owns, of each team.
+- Tasks: the tasks on each board that the person, or an agent key of
+  the person, claims.
+
+Any member of the organization can read the stop of any person of a
+group.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The id (UUID) of the group |
+| `user_id` | path | yes | `string` | The id (UUID) of a person of the group |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`MyWork`](../schemas/#mywork) | The two lanes of the work of the person |
+| `401` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing/invalid token |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown group, or the person is not in the group |
+
 ### `GET /api/teams`
 
 List teams (open tenant-wide).

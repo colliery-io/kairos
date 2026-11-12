@@ -325,6 +325,13 @@ use crate::app::AppState;
         crate::api::work::get_standup,
         crate::api::work::get_standup_person,
         crate::api::work::get_standup_unclaimed,
+        // The AdHoc stand-up (KAIROS-T-0764).
+        crate::api::standup_groups::list_standup_groups,
+        crate::api::standup_groups::create_standup_group,
+        crate::api::standup_groups::get_standup_group,
+        crate::api::standup_groups::update_standup_group,
+        crate::api::standup_groups::delete_standup_group,
+        crate::api::standup_groups::get_standup_group_person,
         // Local password login (KAIROS-T-0203). Documented unconditionally even
         // though the routes are mounted only when KAIROS_LOCAL_AUTH is on: the spec
         // is the API contract, and an operator reading it needs to know the

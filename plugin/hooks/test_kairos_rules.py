@@ -197,6 +197,9 @@ class TheRulesText(KairosRulesCase):
             "Code index first",
             "`code_search`",
             "`kairos index update`",
+            # KAIROS-T-0761: mark a notification read after the act.
+            "`mark_events_read`",
+            "Do not mark a notification read before you have read it.",
         ):
             self.assertIn(phrase, text)
         self.assertNotIn("KAIROS_MCP_KEY", text)

@@ -52,3 +52,7 @@ An initiative gets its teams from its tasks: the team of the board of each task 
 `move_item` gives a document to a different owner board. You need `manage_documents` on the board that owns the document now and on the new board.
 
 **A request to a different team** — the recipe lives with the `implement` skill (model-invoked, so agents can reach it without this router): [workflow/implement/CROSS-TEAM-FILING.md](../../workflow/implement/CROSS-TEAM-FILING.md). In one line: `create_item {board: the delivery board of that team, parent: your initiative}` → `link_items blocks` back to your item → report the short code. The request goes to the entry column of that board, in the support lane.
+
+## Notifications: read them, act, then mark them read
+
+While you have unread notifications, each answer of a Kairos tool ends with a block `## Your notifications (N unread)`. Its last line gives the ids of the notifications in the block; `get_events` gives all of them with their ids. Act on each notification that changes your work, or tell the person about it. Then mark it read with `mark_events_read` (`ids`, or `all: true` with `up_to`). Do not mark a notification read before you have read it. This rule applies in each skill and outside the skills too.

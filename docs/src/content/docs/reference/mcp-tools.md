@@ -3062,7 +3062,9 @@ GUI.
 
 The block at the end of an answer. It is a content block of its own, after
 the answer (KAIROS-T-0549). The content that `get_item` gives stays the
-content of the item. Its lines have no id: `get_events` gives the ids.
+content of the item.
+
+Its lines have no id. The last line says when to mark a notification read (KAIROS-T-0761). It gives the ids of the notifications in the block. `get_events` gives all the ids.
 
 The heading gives the count up to 5. With more than 5, it says `5+ unread`
 (KAIROS-T-0612). `get_events` gives the full count.
@@ -3072,7 +3074,7 @@ The heading gives the count up to 5. With more than 5, it says `5+ unread`
 - 2026-10-12 09:15Z · hand_off · ACME-T-0012: Robin gave you the claim on ACME-T-0012: Fix the login
 - ...
 More: call get_events
-get_events gives each with its id; mark them read with mark_events_read when you have acted on them.
+When you have acted on a notification, or told the person about it, mark it read with mark_events_read (`ids`). Do not mark a notification read before you have read it. The ids of these: ["6f1a1f9e-...", ...]. get_events gives each with its id.
 ```
 
 ### The read state

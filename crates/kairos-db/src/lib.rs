@@ -63,6 +63,7 @@ pub mod seed;
 pub mod service_accounts;
 pub mod site_content;
 pub mod sites;
+pub mod standup_groups;
 pub mod task_cancellations;
 pub mod task_claims;
 pub mod task_state;

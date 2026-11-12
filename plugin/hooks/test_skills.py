@@ -360,6 +360,19 @@ class NotificationsInTheSkills(unittest.TestCase):
                 self.assertIn("`get_events`", text)
                 self.assertIn("`mark_events_read`", text)
 
+    def test_the_router_gives_the_rule_to_each_session(self):
+        # KAIROS-T-0761: the rule is in the general guidance, not only in
+        # implement and triage.
+        text = read(os.path.join(SKILLS, "meta", "kairos", "SKILL.md"))
+        section = text.split("## Notifications", 1)[1]
+        for phrase in (
+            "`mark_events_read`",
+            "or tell the person about it",
+            "Do not mark a notification read before you have read it.",
+            "outside the skills",
+        ):
+            self.assertIn(phrase, section)
+
 
 class TheStateInTheSkills(unittest.TestCase):
     """KAIROS-T-0507: implement writes the live state of the task with

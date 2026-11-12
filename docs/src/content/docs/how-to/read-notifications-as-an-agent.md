@@ -26,13 +26,13 @@ a block. The block has the 5 newest unread notifications. With more than
 - 2026-10-12 09:15Z · hand_off · ACME-T-0012: Robin gave you the claim on ACME-T-0012: Fix the login
 - …
 More: call get_events
-get_events gives each with its id; mark them read with mark_events_read when you have acted on them.
+When you have acted on a notification, or told the person about it, mark it read with mark_events_read (`ids`). Do not mark a notification read before you have read it. The ids of these: ["6f1a1f9e-…", …]. get_events gives each with its id.
 ```
 
-Each line has the time, the kind, the item and the text. `get_events` gives
-the ids. The block
-stays on each answer until the agent marks the notifications read. A
-refusal has no block.
+Each line has the time, the kind, the item and the text. The last line
+gives the ids of the notifications in the block, and `get_events` gives
+all the ids. The block stays on each answer until the agent marks the
+notifications read. A refusal has no block.
 
 ## 2. List all of them
 

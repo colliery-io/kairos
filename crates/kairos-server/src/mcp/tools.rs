@@ -10416,10 +10416,19 @@ fn ride_along_text(unread: &kairos_db::notifications::Unread) -> Option<String> 
     if unread.more {
         out.push_str("More: call get_events\n");
     }
-    out.push_str(
-        "get_events gives each with its id; mark them read with mark_events_read when you \
-         have acted on them.\n",
-    );
+    // KAIROS-T-0761: the footer says when to mark a notification read, and
+    // gives the ids of the ones that it shows.
+    let ids: Vec<String> = unread
+        .newest
+        .iter()
+        .map(|n| format!("\"{}\"", n.id))
+        .collect();
+    out.push_str(&format!(
+        "When you have acted on a notification, or told the person about it, mark it read \
+         with mark_events_read (`ids`). Do not mark a notification read before you have \
+         read it. The ids of these: [{}]. get_events gives each with its id.\n",
+        ids.join(", ")
+    ));
     Some(out)
 }
 
@@ -10621,6 +10630,27 @@ mod ride_along_tests {
         );
         assert_eq!(text.matches("\n- ").count(), 3, "{text}");
         assert!(!text.contains("More:"), "{text}");
+    }
+
+    #[test]
+    fn the_footer_says_when_to_mark_read_and_names_the_ids() {
+        // KAIROS-T-0761.
+        let newest: Vec<Notification> = (1..=2).map(notification).collect();
+        let ids = format!("[\"{}\", \"{}\"]", newest[0].id, newest[1].id);
+        let unread = Unread {
+            newest,
+            more: false,
+        };
+        let text = ride_along_text(&unread).expect("a block");
+        let last = text.lines().last().expect("a last line");
+        assert_eq!(
+            last,
+            format!(
+                "When you have acted on a notification, or told the person about it, mark it \
+                 read with mark_events_read (`ids`). Do not mark a notification read before \
+                 you have read it. The ids of these: {ids}. get_events gives each with its id."
+            )
+        );
     }
 
     #[test]

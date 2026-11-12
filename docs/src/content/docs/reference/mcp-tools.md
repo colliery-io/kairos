@@ -3160,9 +3160,21 @@ links, the live state) give no notification.
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The code of the item. |
 | `with_children` | boolean | no | false | `true`: a change of a child of the item gives you a notification too. A child is an item that has the item as its parent. |
+| `user` | string | no | `me` | The person to add as a watcher: a user id, an email or a user name of a person of the organization. |
 
 A second call changes `with_children`. An agent key watches for its person:
 the watch is the person's. The REST routes show it.
+
+With `user` (KAIROS-T-0762), you add a different person as a watcher. The
+person gets a `watch` notification: `Robin added you as a watcher of
+ACME-T-0001: Fix the login`. When the person turned off the kind `watch`, the
+person gets no notification. The watch records who added it. When the person
+watches the item already, the watch does not change, and the person gets no
+notification. The result is `sam watches ACME-T-0001 now. sam got a
+notification that you added them.`
+
+Refuses: `VALIDATION` when `user` is a service account, or is not a person of
+the organization.
 
 The result is one line: `You watch ACME-T-0001. A move, an edit, a note or a
 done of the item gives you a notification.`
@@ -3180,20 +3192,30 @@ Stops your watch on an item.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The code of the item. |
+| `user` | string | no | `me` | The watcher to remove: a user id, an email or a user name. |
 
 The result is `You do not watch ACME-T-0001 now.` When you do not watch the
 item, the result is `You did not watch ACME-T-0001. Nothing changed.`
 
-Refuses: `NOT_FOUND` when no item has the code. `FORBIDDEN` for a service
-account.
+With `user` (KAIROS-T-0762), you remove the watch of a different person. Only
+the watcher or the person who added the watch can remove it.
 
-REST: `DELETE /api/items/{short_code}/watch`.
+Refuses: `NOT_FOUND` when no item has the code. `FORBIDDEN` for a service
+account. `FORBIDDEN` when you are not the watcher and you did not add the
+watch.
+
+REST: `DELETE /api/items/{short_code}/watch`. For a different person:
+`DELETE /api/items/{short_code}/watchers/{user}`.
 
 ### `list_watches`
 
 Gives your watches, one line for each item. A line has the code, the type and
 the title of the item. It has `with children` when the watch includes the
-children. The tool has no arguments.
+children.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | no | — | An item. The result gives each person who watches the item. |
 
 ```text
 # Your watches (2)
@@ -3206,7 +3228,22 @@ With no watch, the result is `You watch no item. watch_item starts a watch.`
 
 Refuses: `FORBIDDEN` for a service account.
 
-REST: `GET /api/me/watches`.
+With `short_code` (KAIROS-T-0762), the result gives each person who watches
+the item, and who added each watch. Each member can read it. A person who
+watches a parent with its children is not in the list.
+
+```text
+# Watchers of ACME-T-0012 (2)
+
+- Robin (@robin)
+- Sam (@sam) · added by Robin
+```
+
+With no watcher, the result starts with `Nobody watches ACME-T-0012.`
+
+REST: `GET /api/me/watches`. For an item: `GET
+/api/items/{short_code}/watchers`. To add a watcher: `PUT
+/api/items/{short_code}/watchers/{user}`.
 ### `send_notice`
 
 Sends a notice to a person or to each member of a team (KAIROS-T-0737). A

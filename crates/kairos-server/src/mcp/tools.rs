@@ -1033,6 +1033,11 @@ pub struct WatchItemParams {
     /// level) tells you too. Default false. A second call changes it.
     #[serde(default)]
     pub with_children: Option<bool>,
+    /// The person to add as a watcher (KAIROS-T-0762): a user id, an
+    /// email or a user name of a person of the organization, or `me`.
+    /// Default `me`. The person gets a notification that you added them.
+    #[serde(default)]
+    pub user: Option<String>,
 }
 
 /// Parameters for `unwatch_item` (KAIROS-T-0736).
@@ -1040,15 +1045,25 @@ pub struct WatchItemParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct UnwatchItemParams {
-    /// The short code of the item that you watch.
+    /// The short code of the item.
     pub short_code: String,
+    /// The watcher to remove (KAIROS-T-0762): a user id, an email, a user
+    /// name, or `me`. Default `me`. Only the watcher or the person who
+    /// added the watch can remove it.
+    #[serde(default)]
+    pub user: Option<String>,
 }
 
-/// `list_watches` has no arguments (KAIROS-T-0736).
+/// Parameters for `list_watches` (KAIROS-T-0736, KAIROS-T-0762).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
-pub struct ListWatchesParams {}
+pub struct ListWatchesParams {
+    /// An item: the answer gives each person who watches it, and who
+    /// added each watch. Not sent: your own watches.
+    #[serde(default)]
+    pub short_code: Option<String>,
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -3562,7 +3577,7 @@ impl KairosMcp {
 
     // KAIROS-T-0736: the watches of the person of the key.
     #[tool(
-        description = "Watch an item. When the item moves, is edited, gets a note, or is done, you get a `watch` notification (`get_events`), except for a change that you made. `with_children: true`: a change of a child of the item (one level of parent edges) tells you too. A second call changes `with_children`. An agent key watches for its person: the watch is the person's. A service account cannot watch."
+        description = "Watch an item. When the item moves, is edited, gets a note, or is done, you get a `watch` notification (`get_events`), except for a change that you made. `with_children: true`: a change of a child of the item (one level of parent edges) tells you too. A second call changes `with_children`. `user`: add a different person of the organization as a watcher; that person gets a notification that you added them, and a watch that is there does not change. An agent key watches for its person: the watch is the person's. A service account cannot watch."
     )]
     pub async fn watch_item(
         &self,
@@ -3571,8 +3586,38 @@ impl KairosMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
+        let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
             let with_children = params.with_children.unwrap_or(false);
+            if let Some(other) = params.user.as_deref() {
+                let (watchers, watcher, new) = crate::api::watches::add_watcher_for(
+                    conn,
+                    &slug,
+                    user,
+                    &params.short_code,
+                    other,
+                    with_children,
+                )?;
+                if watcher != user {
+                    let name = watchers
+                        .watchers
+                        .iter()
+                        .find(|w| w.user_id == watcher.to_string())
+                        .map(|w| w.user_name.clone())
+                        .unwrap_or_else(|| watcher.to_string());
+                    return Ok(if new {
+                        format!(
+                            "{name} watches {} now. {name} got a notification that you added                              them.",
+                            watchers.short_code
+                        )
+                    } else {
+                        format!(
+                            "{name} watches {} already. Nothing changed.",
+                            watchers.short_code
+                        )
+                    });
+                }
+            }
             let watch =
                 crate::api::watches::watch_for(conn, user, &params.short_code, with_children)?;
             Ok(if watch.with_children {
@@ -3593,7 +3638,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Stop your watch on an item. When you do not watch the item, nothing changes. `list_watches` gives your watches."
+        description = "Stop your watch on an item. When you do not watch the item, nothing changes. `list_watches` gives your watches. `user`: remove the watch of a different person; only the watcher or the person who added the watch can remove it."
     )]
     pub async fn unwatch_item(
         &self,
@@ -3602,7 +3647,24 @@ impl KairosMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
+        let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
+            if let Some(other) = params.user.as_deref() {
+                let (watchers, watcher, removed) = crate::api::watches::remove_watcher_for(
+                    conn,
+                    &slug,
+                    user,
+                    &params.short_code,
+                    other,
+                )?;
+                let code = &watchers.short_code;
+                return Ok(match (watcher == user, removed) {
+                    (true, true) => format!("You do not watch {code} now."),
+                    (true, false) => format!("You did not watch {code}. Nothing changed."),
+                    (false, true) => format!("{other} does not watch {code} now."),
+                    (false, false) => format!("{other} did not watch {code}. Nothing changed."),
+                });
+            }
             let (watch, removed) =
                 crate::api::watches::unwatch_for(conn, user, &params.short_code)?;
             Ok(if removed {
@@ -3615,16 +3677,20 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Your watches: each item that you watch, by code, and whether the watch includes its children. An agent key gives the watches of its person."
+        description = "Your watches: each item that you watch, by code, and whether the watch includes its children. An agent key gives the watches of its person. `short_code`: each person who watches that item, and who added each watch."
     )]
     pub async fn list_watches(
         &self,
-        Parameters(_params): Parameters<ListWatchesParams>,
+        Parameters(params): Parameters<ListWatchesParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         self.run_tool(&tenant, move |conn| {
+            if let Some(code) = params.short_code.as_deref() {
+                let watchers = crate::api::watches::watchers_for(conn, user, code)?;
+                return Ok(item_watchers_text(&watchers));
+            }
             let items = crate::api::watches::list_for(conn, user)?;
             Ok(watches_text(&items))
         })
@@ -10438,6 +10504,44 @@ fn refusal_counts_text(
             c.agent_key,
             c.service_account
         ));
+    }
+    out
+}
+
+/// The text of `list_watches` with `short_code` (KAIROS-T-0762): one line
+/// for each watcher of the item.
+fn item_watchers_text(list: &kairos_client::types_notifications::ItemWatchers) -> String {
+    if list.watchers.is_empty() {
+        return format!(
+            "Nobody watches {}. watch_item with `user` adds a watcher.",
+            list.short_code
+        );
+    }
+    let mut out = format!(
+        "# Watchers of {} ({})\n\n",
+        list.short_code,
+        list.watchers.len()
+    );
+    for w in &list.watchers {
+        let name = if w.display_name.trim().is_empty() {
+            format!("@{}", w.user_name)
+        } else {
+            format!("{} (@{})", w.display_name, w.user_name)
+        };
+        let children = if w.with_children {
+            " · with children"
+        } else {
+            ""
+        };
+        let added = if w.added_by == w.user_id {
+            String::new()
+        } else {
+            format!(
+                " · added by {}",
+                w.added_by_name.as_deref().unwrap_or(&w.added_by)
+            )
+        };
+        out.push_str(&format!("- {name}{children}{added}\n"));
     }
     out
 }

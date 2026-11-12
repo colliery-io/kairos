@@ -113,3 +113,67 @@ pub struct UnclaimedWork {
     /// state `todo` or `blocked`, by short code.
     pub tasks: Vec<WorkItem>,
 }
+
+/// A person of the group of an AdHoc stand-up (KAIROS-T-0764).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StandupGroupPerson {
+    /// User id (UUID).
+    pub user_id: String,
+    pub user_name: String,
+    pub display_name: String,
+}
+
+/// The group of an AdHoc stand-up (KAIROS-T-0764, KAIROS-A-0084): a saved,
+/// named group of people of the organization. Each stop shows the work of
+/// one person by ownership on each board. There is no Unclaimed stop.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StandupGroup {
+    /// Group id (UUID).
+    pub id: String,
+    /// Unique in the organization, with no regard to case.
+    pub name: String,
+    /// The person who created the group. Only this person can delete it.
+    pub created_by: StandupGroupPerson,
+    /// `true` when the caller created the group, so the caller can delete
+    /// it.
+    pub can_delete: bool,
+    /// The people of the round, by display name.
+    pub people: Vec<StandupGroupPerson>,
+    /// RFC 3339.
+    pub created_at: String,
+    /// RFC 3339.
+    pub updated_at: String,
+}
+
+/// `GET /api/standup-groups` response: each group, by name.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct StandupGroupList {
+    pub items: Vec<StandupGroup>,
+}
+
+/// `POST /api/standup-groups` body.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateStandupGroupRequest {
+    /// 1 to 100 characters. Unique in the organization, with no regard to
+    /// case.
+    pub name: String,
+    /// The people of the group: the user id (UUID) or the user name of
+    /// each. Each must be a person of the organization. Default: none.
+    #[serde(default)]
+    pub people: Vec<String>,
+}
+
+/// `PATCH /api/standup-groups/{id}` body: send `name`, `people`, or both.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateStandupGroupRequest {
+    /// The new name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// All the people of the group after the change: the user id (UUID) or
+    /// the user name of each. A person who is not in the list leaves the
+    /// group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub people: Option<Vec<String>>,
+}

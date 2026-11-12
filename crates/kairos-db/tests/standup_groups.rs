@@ -249,8 +249,8 @@ fn a_group_has_rights_and_its_stop_spans_the_boards_of_two_teams() {
     join(conn, api, sam);
 
     // --- create, read, edit by a different member, delete by the creator.
-    let group = standup_groups::create(conn, "Release crew", robin, &[sam, robin, sam])
-        .expect("a group");
+    let group =
+        standup_groups::create(conn, "Release crew", robin, &[sam, robin, sam]).expect("a group");
     assert_eq!(group.name, "Release crew");
     assert_eq!(group.created_by, robin);
     let people = |conn: &mut PgConnection, id: Uuid| -> Vec<String> {
@@ -346,7 +346,11 @@ fn a_group_has_rights_and_its_stop_spans_the_boards_of_two_teams() {
         "the claims on the boards of both teams; not the task under the \
          initiative that no one claims, not the claim of Sam"
     );
-    assert!(work.tasks.iter().all(|t| t.claim.as_ref().is_some_and(|c| c.user_id == robin)));
+    assert!(
+        work.tasks
+            .iter()
+            .all(|t| t.claim.as_ref().is_some_and(|c| c.user_id == robin))
+    );
     let mut boards: Vec<&str> = work.tasks.iter().map(|t| t.board_slug.as_str()).collect();
     boards.sort();
     boards.dedup();

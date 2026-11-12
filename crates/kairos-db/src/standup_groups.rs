@@ -107,10 +107,12 @@ pub fn list(conn: &mut PgConnection) -> Result<Vec<StandupGroup>, DieselError> {
 
 /// The group of `id`, when there is one.
 pub fn get(conn: &mut PgConnection, id: Uuid) -> Result<Option<StandupGroup>, DieselError> {
-    sql_query(format!("SELECT {COLUMNS} FROM standup_groups WHERE id = $1"))
-        .bind::<SqlUuid, _>(id)
-        .get_result(conn)
-        .optional()
+    sql_query(format!(
+        "SELECT {COLUMNS} FROM standup_groups WHERE id = $1"
+    ))
+    .bind::<SqlUuid, _>(id)
+    .get_result(conn)
+    .optional()
 }
 
 /// The people of the groups of `ids`, by group, each by display name. A

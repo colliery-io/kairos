@@ -343,6 +343,8 @@ pub fn ForMePage() -> impl IntoView {
                 }.into_any(),
             }}
         </div>
+        // KAIROS-T-0764: the AdHoc stand-ups, a section of its own.
+        <super::standup_groups::StandupGroupsSection/>
     }
 }
 

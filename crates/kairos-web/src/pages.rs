@@ -341,6 +341,11 @@ pub use for_me::ForMePage;
 mod standup;
 pub use standup::StandupPage;
 
+// The AdHoc stand-up at `/standup-groups/:id`, and its section of the
+// "for me" page (KAIROS-T-0764).
+mod standup_groups;
+pub use standup_groups::StandupGroupPage;
+
 /// Router fallback.
 #[component]
 pub fn NotFoundPage() -> impl IntoView {

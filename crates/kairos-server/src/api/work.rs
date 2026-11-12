@@ -55,7 +55,10 @@ pub(crate) fn work_for(
 }
 
 /// The two lanes as the wire type, with the names of the people. One query.
-fn to_wire(conn: &mut diesel::pg::PgConnection, work: my_work::MyWork) -> Result<MyWork, ApiError> {
+pub(crate) fn to_wire(
+    conn: &mut diesel::pg::PgConnection,
+    work: my_work::MyWork,
+) -> Result<MyWork, ApiError> {
     let names = names_of(conn, work.initiatives.iter().chain(work.tasks.iter()))?;
     Ok(MyWork {
         initiatives: work

@@ -90,7 +90,17 @@ pub fn to_html_with_codes(
     source: &str,
     resolve: impl FnOnce(&[String]) -> HashMap<String, String>,
 ) -> String {
-    let terms = Terms::new(&[]);
+    to_html_with_codes_and_terms(source, &[], resolve)
+}
+
+/// [`to_html_with_codes`] and [`to_html_with_terms`] in one render: the
+/// short codes and the terms of a dictionary in text are links.
+pub fn to_html_with_codes_and_terms(
+    source: &str,
+    terms: &[TermLink],
+    resolve: impl FnOnce(&[String]) -> HashMap<String, String>,
+) -> String {
+    let terms = Terms::new(terms);
     let codes = {
         let mut codes: Vec<String> = Vec::new();
         let mut in_link = 0usize;

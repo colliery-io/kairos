@@ -119,6 +119,9 @@ pub enum WatchEvent {
     NoteAdded,
     /// The item went into a done column.
     Done,
+    /// Another person added the watcher (KAIROS-T-0762). Only the added
+    /// person is told.
+    Added,
 }
 
 impl WatchEvent {
@@ -129,6 +132,7 @@ impl WatchEvent {
             WatchEvent::Edited => "edited",
             WatchEvent::NoteAdded => "note_added",
             WatchEvent::Done => "done",
+            WatchEvent::Added => "added",
         }
     }
 
@@ -144,6 +148,7 @@ impl WatchEvent {
                 format!("{code} is done ({place}), by {actor}: {title}")
             }
             (WatchEvent::Done, None) => format!("{code} is done, by {actor}: {title}"),
+            (WatchEvent::Added, _) => format!("{actor} added you as a watcher of {code}: {title}"),
         }
     }
 }
@@ -324,6 +329,10 @@ mod tests {
         assert_eq!(
             WatchEvent::Done.text("Robin", "ACME-T-0001", "Fix", Some("Completed")),
             "ACME-T-0001 is done (Completed), by Robin: Fix"
+        );
+        assert_eq!(
+            WatchEvent::Added.text("Robin", "ACME-T-0001", "Fix", None),
+            "Robin added you as a watcher of ACME-T-0001: Fix"
         );
         assert_eq!(
             NotificationKind::parse("watch"),

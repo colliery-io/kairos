@@ -1563,6 +1563,30 @@ Response of `GET /api/{entity_type}/{short_code}/teams` (KAIROS-T-0321).
 | `short_code` | `string` | yes | The short code of the item. |
 | `teams` | array of [`ItemTeam`](#itemteam) | yes | The teams of the item, by slug. Empty when the item has no team. |
 
+## ItemWatcher
+
+One watcher of an item (KAIROS-T-0762), in `GET /api/items/{short_code}/watchers`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `added_by` | `string` | yes | Who added the watch (UUID): the watcher for a self-watch. |
+| `added_by_name` | `string`, nullable | no | The display name, else the user name, of who added the watch. |
+| `can_remove` | `boolean` | yes | `true` when the caller can remove this watch: the caller is the watcher, or added the watch. |
+| `created_at` | `string` | yes | When the watch started (RFC 3339). |
+| `display_name` | `string` | yes |  |
+| `user_id` | `string` | yes | The watcher (UUID). |
+| `user_name` | `string` | yes |  |
+| `with_children` | `boolean` | yes | `true` when the watch includes the children of the item. |
+
+## ItemWatchers
+
+`GET`, `PUT` and `DELETE /api/items/{short_code}/watchers...` response (KAIROS-T-0762): each person who watches the item, oldest watch first. A person who watches a parent with its children is not in the list.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | `string` | yes | The code of the item. |
+| `watchers` | array of [`ItemWatcher`](#itemwatcher) | yes |  |
+
 ## JobFailure
 
 A job that failed, with its error.
@@ -3579,10 +3603,15 @@ One watch of the caller, in `GET /api/me/watches`.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `archived` | `boolean` | yes | `true` when the item is archived. |
+| `board` | `string`, nullable | no | The name of the board of the item; for a document, its owner board (KAIROS-T-0763). |
+| `claim` | `string`, nullable | no | The person who claims the task: the display name, else the email. |
+| `column` | `string`, nullable | no | The name of the column of the item. A document has no column. |
 | `created_at` | `string` | yes | When the caller started the watch (RFC 3339). |
 | `entity_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
 | `short_code` | `string` | yes | The code of the item now. |
+| `state` | `string` | no | The state of the item: `todo`, `active`, `blocked` or `done` (the column of the Watching lane of the "for me" page). Active and Blocked follow the rule of `GET /api/me/work`; done is a done column; a document is `todo`. |
 | `title` | `string` | yes | The title of the item now. |
+| `updated_at` | `string` | no | The last change of the item (RFC 3339). |
 | `with_children` | `boolean` | yes | `true` when the watch includes the children of the item. |
 
 ## WebhookDelivery

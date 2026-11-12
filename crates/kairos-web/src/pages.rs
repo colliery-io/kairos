@@ -336,6 +336,8 @@ pub use notifications::{NotificationBell, NotificationsPage};
 // initiatives and the tasks, in Todo, Active and Blocked.
 mod for_me;
 pub use for_me::ForMePage;
+// The Watching lane of the for me page (KAIROS-T-0763).
+mod watching;
 
 // The stand-up of a team at `/teams/:slug/standup` (KAIROS-T-0723).
 mod standup;

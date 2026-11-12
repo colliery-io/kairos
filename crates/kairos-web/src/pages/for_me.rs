@@ -342,6 +342,8 @@ pub fn ForMePage() -> impl IntoView {
                     </Stack>
                 }.into_any(),
             }}
+            // KAIROS-T-0763: the items that the person watches.
+            <super::watching::WatchingLane reload/>
         </div>
     }
 }

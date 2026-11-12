@@ -1059,8 +1059,8 @@ pub struct UnwatchItemParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct ListWatchesParams {
-    /// An item: the answer gives each person who watches it, and who
-    /// added each watch. Not sent: your own watches.
+    /// The short code of an item: the answer gives each person who watches
+    /// it, and who added each watch. Not sent: your own watches.
     #[serde(default)]
     pub short_code: Option<String>,
 }

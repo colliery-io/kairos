@@ -286,12 +286,31 @@ async fn a_person_watches_an_item_over_rest_and_mcp() {
         listed,
         vec![(first.as_str(), false), (second.as_str(), true)]
     );
+    // KAIROS-T-0763: each row has the board, the column, the claim and the
+    // last change of the item.
+    for w in &list.items {
+        assert!(
+            w.board.is_some() && w.column.is_some() && w.claim.is_none(),
+            "{w:?}"
+        );
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(&w.updated_at).is_ok(),
+            "{w:?}"
+        );
+    }
     let text = agent.call_ok("list_watches", json!({})).await;
     assert!(text.starts_with("# Your watches (2)"), "{text}");
     assert!(
-        text.contains(&format!("- {second} (task) · with children — Second")),
+        text.contains(&format!("- {second} (task) · with children — Second · ")),
         "{text}"
     );
+    let place = format!(
+        " · {} / {} · updated {}",
+        list.items[1].board.as_deref().unwrap_or_default(),
+        list.items[1].column.as_deref().unwrap_or_default(),
+        list.items[1].updated_at
+    );
+    assert!(text.contains(&place), "{text}");
     // Bob watches nothing.
     assert!(bob.watches().await.expect("bob").items.is_empty());
     assert!(!bob.watch_state(&first).await.expect("state").watching);

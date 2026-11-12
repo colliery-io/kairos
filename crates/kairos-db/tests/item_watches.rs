@@ -381,6 +381,33 @@ fn a_watch_tells_of_each_coarse_change() {
         boards::transition_task(&mut conn, solo, to, robin).expect("move");
     }
     take(&mut conn, sam);
+    // KAIROS-T-0763: the list gives the board, the column, the claim and
+    // the last change of each watched item.
+    let listed = watches::list(&mut conn, sam).expect("list");
+    let row = |c: &str| {
+        listed
+            .iter()
+            .find(|w| w.short_code == c)
+            .unwrap_or_else(|| panic!("{c} in {listed:?}"))
+    };
+    let (todo_row, active_row) = (row(&c1), row(&c5));
+    assert_eq!(
+        (
+            todo_row.board.as_deref(),
+            todo_row.column.as_deref(),
+            todo_row.claim.as_deref()
+        ),
+        (Some("Core"), Some("Todo"), None)
+    );
+    assert_eq!(
+        (
+            active_row.board.as_deref(),
+            active_row.column.as_deref(),
+            active_row.claim.as_deref()
+        ),
+        (Some("Core"), Some("Active"), Some("Robin")),
+        "a claimed task names the claimant"
+    );
     boards::transition_task(&mut conn, solo, completed, robin).expect("to Completed");
     assert_eq!(
         take(&mut conn, sam),

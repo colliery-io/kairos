@@ -3579,10 +3579,14 @@ One watch of the caller, in `GET /api/me/watches`.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `archived` | `boolean` | yes | `true` when the item is archived. |
+| `board` | `string`, nullable | no | The name of the board of the item; for a document, its owner board (KAIROS-T-0763). |
+| `claim` | `string`, nullable | no | The person who claims the task: the display name, else the email. |
+| `column` | `string`, nullable | no | The name of the column of the item. A document has no column. |
 | `created_at` | `string` | yes | When the caller started the watch (RFC 3339). |
 | `entity_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
 | `short_code` | `string` | yes | The code of the item now. |
 | `title` | `string` | yes | The title of the item now. |
+| `updated_at` | `string` | no | The last change of the item (RFC 3339). |
 | `with_children` | `boolean` | yes | `true` when the watch includes the children of the item. |
 
 ## WebhookDelivery

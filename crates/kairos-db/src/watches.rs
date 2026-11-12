@@ -16,6 +16,15 @@
 //! [`crate::notifications::notify`] applies the rules of each
 //! notification: a person of the organization, never the actor, the kind
 //! not turned off. The producer runs in the transaction of the change.
+//!
+//! WATCHERS THAT PEOPLE CAN SEE (KAIROS-T-0762, COLLIERY-I-0674 decisions
+//! 1–6). A watch records who added it (`added_by`; the watcher for a
+//! self-watch). Any member can add any other member as a watcher of any
+//! item ([`add_watcher`]); the added person gets a `watch` notification
+//! ([`WatchEvent::Added`]), so the setting of the kind `watch` applies.
+//! Only the watcher or the person who added the watch can remove it
+//! ([`remove_watcher`]). Each member can read the watchers of an item
+//! ([`item_watchers`]).
 
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
@@ -35,6 +44,40 @@ pub struct Watch {
     pub with_children: bool,
     #[diesel(sql_type = Timestamptz)]
     pub created_at: DateTime<Utc>,
+    /// Who added the watch: the watcher for a self-watch (KAIROS-T-0762).
+    #[diesel(sql_type = SqlUuid)]
+    pub added_by: Uuid,
+}
+
+/// One watcher of an item, with the names (KAIROS-T-0762).
+#[derive(Debug, Clone, PartialEq, Eq, QueryableByName)]
+pub struct ItemWatcher {
+    #[diesel(sql_type = SqlUuid)]
+    pub user_id: Uuid,
+    #[diesel(sql_type = Text)]
+    pub user_name: String,
+    #[diesel(sql_type = Text)]
+    pub display_name: String,
+    #[diesel(sql_type = SqlUuid)]
+    pub added_by: Uuid,
+    #[diesel(sql_type = Nullable<Text>)]
+    pub added_by_name: Option<String>,
+    #[diesel(sql_type = Bool)]
+    pub with_children: bool,
+    #[diesel(sql_type = Timestamptz)]
+    pub created_at: DateTime<Utc>,
+}
+
+/// The result of [`remove_watcher`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Removal {
+    /// The watch is gone.
+    Removed,
+    /// The person did not watch the item. Nothing changed.
+    NotWatching,
+    /// The caller is not the watcher and did not add the watch. Nothing
+    /// changed.
+    Refused { added_by: Uuid },
 }
 
 /// One watch of a person, with the item now.
@@ -56,8 +99,9 @@ pub struct WatchedItem {
     pub created_at: DateTime<Utc>,
 }
 
-/// Watch the item, or change `with_children` of a watch that is there.
-/// Returns the watch.
+/// The person watches the item (a self-watch: `added_by` is the person),
+/// or changes `with_children` of a watch that is there. A watch that
+/// another person added keeps its `added_by`. Returns the watch.
 pub fn watch(
     conn: &mut PgConnection,
     user: Uuid,
@@ -65,9 +109,10 @@ pub fn watch(
     with_children: bool,
 ) -> Result<Watch, DieselError> {
     sql_query(
-        "INSERT INTO item_watches (user_id, item_id, with_children) VALUES ($1, $2, $3) \
+        "INSERT INTO item_watches (user_id, item_id, with_children, added_by) \
+         VALUES ($1, $2, $3, $1) \
          ON CONFLICT (user_id, item_id) DO UPDATE SET with_children = EXCLUDED.with_children \
-         RETURNING item_id, with_children, created_at",
+         RETURNING item_id, with_children, created_at, added_by",
     )
     .bind::<SqlUuid, _>(user)
     .bind::<SqlUuid, _>(item_id)
@@ -91,7 +136,7 @@ pub fn watch_of(
     item_id: Uuid,
 ) -> Result<Option<Watch>, DieselError> {
     sql_query(
-        "SELECT item_id, with_children, created_at FROM item_watches \
+        "SELECT item_id, with_children, created_at, added_by FROM item_watches \
           WHERE user_id = $1 AND item_id = $2",
     )
     .bind::<SqlUuid, _>(user)
@@ -137,6 +182,107 @@ pub fn watchers(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<Uuid>, Die
     Ok(rows.into_iter().map(|r| r.user_id).collect())
 }
 
+/// The result of [`add_watcher`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Added {
+    /// The watch now.
+    pub watch: Watch,
+    /// `true` when this call made the watch.
+    pub new: bool,
+}
+
+/// `by` adds `user` as a watcher of the item (KAIROS-T-0762). When `by` is
+/// `user`, this is [`watch`]. Otherwise a new watch records `by` in
+/// `added_by`, and `user` gets a `watch` notification
+/// ([`WatchEvent::Added`]). A watch that is there is left as it is: its
+/// `with_children` and its `added_by` do not change, and nobody is told.
+/// The caller checks that `user` is a person of the organization.
+pub fn add_watcher(
+    conn: &mut PgConnection,
+    user: Uuid,
+    item_id: Uuid,
+    with_children: bool,
+    by: Uuid,
+) -> Result<Added, DieselError> {
+    if user == by {
+        let before = watch_of(conn, user, item_id)?;
+        let watch = watch(conn, user, item_id, with_children)?;
+        return Ok(Added {
+            watch,
+            new: before.is_none(),
+        });
+    }
+    let made: Option<Watch> = sql_query(
+        "INSERT INTO item_watches (user_id, item_id, with_children, added_by) \
+         VALUES ($1, $2, $3, $4) \
+         ON CONFLICT (user_id, item_id) DO NOTHING \
+         RETURNING item_id, with_children, created_at, added_by",
+    )
+    .bind::<SqlUuid, _>(user)
+    .bind::<SqlUuid, _>(item_id)
+    .bind::<Bool, _>(with_children)
+    .bind::<SqlUuid, _>(by)
+    .get_result(conn)
+    .optional()?;
+    let Some(watch) = made else {
+        let watch = watch_of(conn, user, item_id)?.ok_or(DieselError::NotFound)?;
+        return Ok(Added { watch, new: false });
+    };
+    if let Some(head) = head(conn, item_id, by)? {
+        let actor_name = head.actor.unwrap_or_else(|| by.to_string());
+        let text = WatchEvent::Added.text(&actor_name, &head.short_code, &head.title, None);
+        crate::notifications::notify(
+            conn,
+            &[user],
+            NotificationKind::Watch,
+            Some((item_id, &head.short_code)),
+            &text,
+            by,
+        )?;
+    }
+    Ok(Added { watch, new: true })
+}
+
+/// `by` removes the watch of `watcher` on the item (KAIROS-T-0762). Only
+/// the watcher or the person who added the watch can remove it.
+pub fn remove_watcher(
+    conn: &mut PgConnection,
+    watcher: Uuid,
+    item_id: Uuid,
+    by: Uuid,
+) -> Result<Removal, DieselError> {
+    let Some(watch) = watch_of(conn, watcher, item_id)? else {
+        return Ok(Removal::NotWatching);
+    };
+    if by != watcher && by != watch.added_by {
+        return Ok(Removal::Refused {
+            added_by: watch.added_by,
+        });
+    }
+    unwatch(conn, watcher, item_id)?;
+    Ok(Removal::Removed)
+}
+
+/// The watchers of the item that watch it directly, oldest watch first,
+/// with their names and the name of who added each (KAIROS-T-0762). A
+/// person who watches a parent with its children is not in the list.
+pub fn item_watchers(
+    conn: &mut PgConnection,
+    item_id: Uuid,
+) -> Result<Vec<ItemWatcher>, DieselError> {
+    sql_query(
+        "SELECT w.user_id, u.user_name, u.display_name, w.added_by, \
+                (SELECT COALESCE(NULLIF(btrim(a.display_name), ''), a.user_name) \
+                   FROM public.users a WHERE a.id = w.added_by) AS added_by_name, \
+                w.with_children, w.created_at \
+           FROM item_watches w JOIN public.users u ON u.id = w.user_id \
+          WHERE w.item_id = $1 \
+          ORDER BY w.created_at, u.user_name",
+    )
+    .bind::<SqlUuid, _>(item_id)
+    .load(conn)
+}
+
 #[derive(QueryableByName)]
 struct Head {
     #[diesel(sql_type = Text)]
@@ -161,17 +307,7 @@ pub fn on_watched(
     if told.iter().all(|user| *user == actor) {
         return Ok(());
     }
-    let head: Option<Head> = sql_query(
-        "SELECT d.short_code, d.title, \
-                (SELECT NULLIF(btrim(u.display_name), '') FROM public.users u WHERE u.id = $2) \
-                    AS actor \
-           FROM entity_directory d WHERE d.id = $1",
-    )
-    .bind::<SqlUuid, _>(item_id)
-    .bind::<SqlUuid, _>(actor)
-    .get_result(conn)
-    .optional()?;
-    let Some(head) = head else {
+    let Some(head) = head(conn, item_id, actor)? else {
         return Ok(());
     };
     let actor_name = head.actor.unwrap_or_else(|| actor.to_string());
@@ -185,6 +321,20 @@ pub fn on_watched(
         actor,
     )?;
     Ok(())
+}
+
+/// The code and the title of the item, and the display name of `actor`.
+fn head(conn: &mut PgConnection, item_id: Uuid, actor: Uuid) -> Result<Option<Head>, DieselError> {
+    sql_query(
+        "SELECT d.short_code, d.title, \
+                (SELECT NULLIF(btrim(u.display_name), '') FROM public.users u WHERE u.id = $2) \
+                    AS actor \
+           FROM entity_directory d WHERE d.id = $1",
+    )
+    .bind::<SqlUuid, _>(item_id)
+    .bind::<SqlUuid, _>(actor)
+    .get_result(conn)
+    .optional()
 }
 
 /// Delete the watches of an item (a purge of the item).

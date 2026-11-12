@@ -60,6 +60,59 @@ and the answer is the same.
 | `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller is a service account |
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No item has the short code |
 
+### `GET /api/items/{short_code}/watchers`
+
+Each person who watches the item, oldest watch first, with who added
+each watch. A person who watches a parent with its children is not in
+the list. Each member can read it.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | The item |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`ItemWatchers`](../schemas/#itemwatchers) | The watchers of the item |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No item has the short code |
+
+### `PUT /api/items/{short_code}/watchers/{user}`
+
+Add a person of the organization as a watcher of the item. The person
+gets a `watch` notification that you added them, and then one for each
+coarse change of the item. A person who watches the item already: the
+watch does not change. `me` watches the item for you.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | The item |
+| `user` | path | yes | `string` | The watcher: a user id, an email, a user name, or me |
+
+Request body (required): `application/json`, [`WatchRequest`](../schemas/#watchrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`ItemWatchers`](../schemas/#itemwatchers) | The watchers of the item after the change |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller is a service account |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No item has the short code, the code is retired, or the item is archived |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The user is not a person of the organization |
+
+### `DELETE /api/items/{short_code}/watchers/{user}`
+
+Remove a watcher of the item. Only the watcher or the person who added
+the watch can remove it. No watch: nothing changes.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | The item |
+| `user` | path | yes | `string` | The watcher: a user id, an email, a user name, or me |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`ItemWatchers`](../schemas/#itemwatchers) | The watchers of the item after the change |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | The caller is not the watcher and did not add the watch |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No item has the short code |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No person has the user reference |
+
 ### `GET /api/me/agent-keys`
 
 The caller's agent keys (metadata only, never a secret), newest first.

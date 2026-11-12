@@ -233,6 +233,37 @@ pub struct WatchList {
     pub items: Vec<WatchedItem>,
 }
 
+/// One watcher of an item (KAIROS-T-0762), in `GET
+/// /api/items/{short_code}/watchers`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ItemWatcher {
+    /// The watcher (UUID).
+    pub user_id: String,
+    pub user_name: String,
+    pub display_name: String,
+    /// Who added the watch (UUID): the watcher for a self-watch.
+    pub added_by: String,
+    /// The display name, else the user name, of who added the watch.
+    pub added_by_name: Option<String>,
+    /// `true` when the watch includes the children of the item.
+    pub with_children: bool,
+    /// When the watch started (RFC 3339).
+    pub created_at: String,
+    /// `true` when the caller can remove this watch: the caller is the
+    /// watcher, or added the watch.
+    pub can_remove: bool,
+}
+
+/// `GET`, `PUT` and `DELETE /api/items/{short_code}/watchers...` response
+/// (KAIROS-T-0762): each person who watches the item, oldest watch first.
+/// A person who watches a parent with its children is not in the list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ItemWatchers {
+    /// The code of the item.
+    pub short_code: String,
+    pub watchers: Vec<ItemWatcher>,
+}
+
 /// `POST /api/notices` body (KAIROS-T-0737): a notice to a person (`to`) or
 /// to each member of a team (`team`). Send one of the two.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

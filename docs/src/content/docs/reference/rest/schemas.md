@@ -1563,6 +1563,30 @@ Response of `GET /api/{entity_type}/{short_code}/teams` (KAIROS-T-0321).
 | `short_code` | `string` | yes | The short code of the item. |
 | `teams` | array of [`ItemTeam`](#itemteam) | yes | The teams of the item, by slug. Empty when the item has no team. |
 
+## ItemWatcher
+
+One watcher of an item (KAIROS-T-0762), in `GET /api/items/{short_code}/watchers`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `added_by` | `string` | yes | Who added the watch (UUID): the watcher for a self-watch. |
+| `added_by_name` | `string`, nullable | no | The display name, else the user name, of who added the watch. |
+| `can_remove` | `boolean` | yes | `true` when the caller can remove this watch: the caller is the watcher, or added the watch. |
+| `created_at` | `string` | yes | When the watch started (RFC 3339). |
+| `display_name` | `string` | yes |  |
+| `user_id` | `string` | yes | The watcher (UUID). |
+| `user_name` | `string` | yes |  |
+| `with_children` | `boolean` | yes | `true` when the watch includes the children of the item. |
+
+## ItemWatchers
+
+`GET`, `PUT` and `DELETE /api/items/{short_code}/watchers...` response (KAIROS-T-0762): each person who watches the item, oldest watch first. A person who watches a parent with its children is not in the list.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | `string` | yes | The code of the item. |
+| `watchers` | array of [`ItemWatcher`](#itemwatcher) | yes |  |
+
 ## JobFailure
 
 A job that failed, with its error.

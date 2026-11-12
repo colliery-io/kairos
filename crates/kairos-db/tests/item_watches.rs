@@ -31,7 +31,8 @@ use kairos_db::items::{ContentUpdate, CreateInitiative, CreateTask};
 use kairos_db::models::enums::{BoardLevel, TaskType, WorkClass};
 use kairos_db::models::teams::NewTeam;
 use kairos_db::models::{
-    NewOrganizationMember, NewServiceAccountUser, NewUser, OrgRole, TeamType, User,
+    NewOrganizationMember, NewServiceAccountUser, NewUser, OrgRole, RelationshipType, TeamType,
+    User,
 };
 use kairos_db::{
     boards, create_board, graph, item_notes, items, provision_tenant, run_public_migrations,
@@ -408,7 +409,26 @@ fn a_watch_tells_of_each_coarse_change() {
         (Some("Core"), Some("Active"), Some("Robin")),
         "a claimed task names the claimant"
     );
+    // The state of each row: the column of the Watching lane.
+    assert_eq!(
+        (todo_row.state.as_str(), active_row.state.as_str()),
+        ("todo", "active")
+    );
+    // An open blocker makes the task Blocked.
+    let blocker = task(&mut conn, board, "Blocker", robin);
+    graph::link_items(&mut conn, blocker, solo, RelationshipType::Blocks, robin).expect("blocks");
+    let state_of = |conn: &mut PgConnection, c: &str| {
+        watches::list(conn, sam)
+            .expect("list")
+            .into_iter()
+            .find(|w| w.short_code == c)
+            .map(|w| w.state)
+    };
+    assert_eq!(state_of(&mut conn, &c5).as_deref(), Some("blocked"));
+    graph::unlink_items(&mut conn, blocker, solo, RelationshipType::Blocks, robin)
+        .expect("unblock");
     boards::transition_task(&mut conn, solo, completed, robin).expect("to Completed");
+    assert_eq!(state_of(&mut conn, &c5).as_deref(), Some("done"));
     assert_eq!(
         take(&mut conn, sam),
         vec![format!("{c5} is done (Completed), by Robin: Solo")]

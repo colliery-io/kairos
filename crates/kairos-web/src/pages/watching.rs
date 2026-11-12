@@ -2,9 +2,12 @@
 //! COLLIERY-I-0674): each item that the person watches, from
 //! `GET /api/me/watches`.
 //!
-//! Each row links to the item and names its board, its column, the claim
-//! of a task and the time of its last change. The newest change is first.
-//! An archived item does not show.
+//! A swim lane as the other lanes of the page, with four columns: Todo,
+//! Active, Blocked and Done. The server decides the state of each item
+//! (`state`); an unknown state goes to Todo. Each card links to the item and
+//! names its board, its column, the claim of a task and the time of its last
+//! change. In each column the newest change is first. An archived item does
+//! not show.
 
 use aurora_dark::components::{Group, Pill, Stack, Text};
 use aurora_dark::tokens::{ApiError, token};
@@ -29,6 +32,8 @@ pub(super) struct WatchedItem {
     pub claim: Option<String>,
     #[serde(default)]
     pub updated_at: String,
+    #[serde(default)]
+    pub state: String,
 }
 
 /// mirror of: `kairos_client::types_notifications::WatchList`.
@@ -53,6 +58,28 @@ pub(super) fn rows(items: &[WatchedItem]) -> Vec<WatchedItem> {
             .cmp(&a.updated_at)
             .then_with(|| a.short_code.cmp(&b.short_code))
     });
+    out
+}
+
+/// The columns of the lane: `(state, heading)`, in the order of the page.
+pub(super) const COLUMNS: [(&str, &str); 4] = [
+    ("todo", "Todo"),
+    ("active", "Active"),
+    ("blocked", "Blocked"),
+    ("done", "Done"),
+];
+
+/// The rows in each column, in the order of [`COLUMNS`]; the order of
+/// [`rows`] in each. An unknown state goes to Todo. Pure, host-tested.
+pub(super) fn columns_of(items: &[WatchedItem]) -> [Vec<WatchedItem>; 4] {
+    let mut out: [Vec<WatchedItem>; 4] = Default::default();
+    for item in rows(items) {
+        let index = COLUMNS
+            .iter()
+            .position(|(state, _)| *state == item.state)
+            .unwrap_or(0);
+        out[index].push(item);
+    }
     out
 }
 
@@ -90,10 +117,14 @@ fn WatchRow(item: WatchedItem) -> impl IntoView {
     } = item;
     let href = format!("/items/{short_code}");
     let code_attr = short_code.clone();
+    let code_for_copy = short_code.clone();
     view! {
         <article class="kairos-card" data-testid="watching-item" data-code=code_attr>
             <Group justify="between" wrap=true>
-                <a class="cl-mono kairos-card__code" href=href>{short_code}</a>
+                <Group gap="xs">
+                    <a class="cl-mono kairos-card__code" href=href>{short_code}</a>
+                    <super::copy_link::CopyLinkButton code=code_for_copy/>
+                </Group>
                 <Group gap="xs" wrap=true>
                     {claim.map(|name| view! {
                         <span class="kairos-card__claim" data-testid="watching-claim">
@@ -135,7 +166,7 @@ pub(super) fn WatchingLane(reload: RwSignal<u32>) -> impl IntoView {
             <Stack gap="xs">
                 {move || {
                     let items = match list.get() {
-                        Some(Ok(list)) => Some(rows(&list.items)),
+                        Some(Ok(list)) => Some(list.items.into_iter().filter(|w| !w.archived).collect::<Vec<_>>()),
                         Some(Err(_)) => None,
                         None => Some(Vec::new()),
                     };
@@ -155,11 +186,31 @@ pub(super) fn WatchingLane(reload: RwSignal<u32>) -> impl IntoView {
                                 </span>
                             }.into_any(),
                             Some(items) => view! {
-                                <Stack gap="xs">
-                                    {items.into_iter().map(|item| view! {
-                                        <WatchRow item/>
+                                <div class="kairos-board">
+                                    {COLUMNS.iter().zip(columns_of(&items)).map(|((state, heading), cards)| {
+                                        let size = cards.len().to_string();
+                                        view! {
+                                            <section class="kairos-board__column" data-column=*state>
+                                                <header class="kairos-board__column-head">
+                                                    <Group gap="xs">
+                                                        <Text bright=true bold=true size="sm">{*heading}</Text>
+                                                        <Text dimmed=true size="xs">{size}</Text>
+                                                    </Group>
+                                                </header>
+                                                <div class="kairos-board__cards">
+                                                    <Stack gap="xs">
+                                                        {cards.is_empty().then(|| view! {
+                                                            <Text dimmed=true size="xs">"No items in this column."</Text>
+                                                        })}
+                                                        {cards.into_iter().map(|item| view! {
+                                                            <WatchRow item/>
+                                                        }).collect_view()}
+                                                    </Stack>
+                                                </div>
+                                            </section>
+                                        }
                                     }).collect_view()}
-                                </Stack>
+                                </div>
                             }.into_any(),
                         }}
                     }
@@ -183,7 +234,37 @@ mod tests {
             column: Some("Active".into()),
             claim: None,
             updated_at: updated_at.into(),
+            state: "active".into(),
         }
+    }
+
+    #[test]
+    fn each_state_has_its_column_and_an_unknown_one_goes_to_todo() {
+        let mut todo = item("WEB-T-0001", "2026-11-10T00:00:00Z");
+        todo.state = "todo".into();
+        let active = item("WEB-T-0002", "2026-11-10T00:00:00Z");
+        let mut blocked = item("WEB-T-0003", "2026-11-10T00:00:00Z");
+        blocked.state = "blocked".into();
+        let mut done = item("WEB-T-0004", "2026-11-10T00:00:00Z");
+        done.state = "done".into();
+        let mut odd = item("WEB-T-0005", "2026-11-11T00:00:00Z");
+        odd.state = "elsewhere".into();
+        let mut archived = item("WEB-T-0006", "2026-11-12T00:00:00Z");
+        archived.archived = true;
+        let out = columns_of(&[todo, active, blocked, done, odd, archived]);
+        let codes: Vec<Vec<&str>> = out
+            .iter()
+            .map(|c| c.iter().map(|w| w.short_code.as_str()).collect())
+            .collect();
+        assert_eq!(
+            codes,
+            vec![
+                vec!["WEB-T-0005", "WEB-T-0001"],
+                vec!["WEB-T-0002"],
+                vec!["WEB-T-0003"],
+                vec!["WEB-T-0004"],
+            ]
+        );
     }
 
     #[test]
@@ -228,11 +309,12 @@ mod tests {
                 "archived": false, "with_children": false,
                 "created_at": "2026-11-10T00:00:00Z",
                 "board": "Web", "column": "Active", "claim": "Robin",
-                "updated_at": "2026-11-11T00:00:00Z"
+                "updated_at": "2026-11-11T00:00:00Z", "state": "done"
             }]
         }))
         .expect("parses");
         assert_eq!(list.items[0].claim.as_deref(), Some("Robin"));
         assert_eq!(rows(&list.items).len(), 1);
+        assert_eq!(columns_of(&list.items)[3].len(), 1);
     }
 }

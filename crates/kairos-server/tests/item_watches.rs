@@ -305,12 +305,15 @@ async fn a_person_watches_an_item_over_rest_and_mcp() {
         "{text}"
     );
     let place = format!(
-        " · {} / {} · updated {}",
+        " · {} / {} · {} · updated {}",
         list.items[1].board.as_deref().unwrap_or_default(),
         list.items[1].column.as_deref().unwrap_or_default(),
+        list.items[1].state,
         list.items[1].updated_at
     );
     assert!(text.contains(&place), "{text}");
+    // A task in Backlog is in the Todo column of the Watching lane.
+    assert_eq!(list.items[1].state, "todo");
     // Bob watches nothing.
     assert!(bob.watches().await.expect("bob").items.is_empty());
     assert!(!bob.watch_state(&first).await.expect("state").watching);

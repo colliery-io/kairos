@@ -169,6 +169,7 @@ pub(crate) fn list_for(conn: &mut PgConnection, user: Uuid) -> Result<Vec<Watche
             updated_at: w
                 .updated_at
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            state: w.state,
         })
         .collect())
 }

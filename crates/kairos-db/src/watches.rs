@@ -67,6 +67,12 @@ pub struct WatchedItem {
     /// The last change of the item.
     #[diesel(sql_type = Timestamptz)]
     pub updated_at: DateTime<Utc>,
+    /// The state of the item, the column of the Watching lane: `done` (a
+    /// done column), `blocked` (an open blocker, or a column named
+    /// Blocked), `active` (the rule of the "for me" page, `my_work`), or
+    /// `todo` (each other item, and a document).
+    #[diesel(sql_type = Text)]
+    pub state: String,
 }
 
 /// Watch the item, or change `with_children` of a watch that is there.
@@ -122,7 +128,24 @@ pub fn list(conn: &mut PgConnection, user: Uuid) -> Result<Vec<WatchedItem>, Die
                 (d.deleted_at IS NOT NULL) AS archived, w.with_children, w.created_at, \
                 b.name AS board, col.name AS \"column\", \
                 COALESCE(NULLIF(btrim(u.display_name), ''), u.email) AS claim, \
-                p.updated_at \
+                p.updated_at, \
+                CASE WHEN col.is_done THEN 'done' \
+                     WHEN lower(btrim(col.name)) = 'blocked' OR EXISTS ( \
+                       SELECT 1 FROM item_relationships r \
+                         JOIN (SELECT id, column_id FROM strategies WHERE deleted_at IS NULL \
+                               UNION ALL SELECT id, column_id FROM initiatives \
+                                 WHERE deleted_at IS NULL \
+                               UNION ALL SELECT id, column_id FROM tasks WHERE deleted_at IS NULL \
+                               UNION ALL SELECT id, column_id FROM adrs WHERE deleted_at IS NULL) bp \
+                           ON bp.id = r.source_id \
+                         JOIN board_columns bc ON bc.id = bp.column_id \
+                        WHERE r.relationship = 'blocks' AND r.target_id = d.id \
+                          AND NOT bc.is_done) THEN 'blocked' \
+                     WHEN d.entity_type = 'task' \
+                          AND (col.claims OR lower(btrim(col.name)) = 'active') THEN 'active' \
+                     WHEN d.entity_type IN ('strategy', 'initiative') \
+                          AND lower(btrim(col.name)) IN ('active', 'monitoring') THEN 'active' \
+                     ELSE 'todo' END AS state \
            FROM item_watches w JOIN entity_directory d ON d.id = w.item_id \
            JOIN (SELECT id, board_id, column_id, updated_at FROM tasks \
                  UNION ALL SELECT id, board_id, column_id, updated_at FROM initiatives \

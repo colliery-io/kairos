@@ -3615,7 +3615,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Your watches: each item that you watch, by code, with its board, its column, its claim and its last change, and whether the watch includes its children. An agent key gives the watches of its person."
+        description = "Your watches: each item that you watch, by code, with its board, its column, its claim, its state (todo, active, blocked or done) and its last change, and whether the watch includes its children. An agent key gives the watches of its person."
     )]
     pub async fn list_watches(
         &self,
@@ -10467,8 +10467,8 @@ fn watches_text(items: &[kairos_client::types_notifications::WatchedItem]) -> St
             .map(|c| format!(" · claim: {c}"))
             .unwrap_or_default();
         out.push_str(&format!(
-            "- {} ({}){children}{archived} — {}{place}{claim} · updated {}\n",
-            w.short_code, w.entity_type, w.title, w.updated_at
+            "- {} ({}){children}{archived} — {}{place}{claim} · {} · updated {}\n",
+            w.short_code, w.entity_type, w.title, w.state, w.updated_at
         ));
     }
     out

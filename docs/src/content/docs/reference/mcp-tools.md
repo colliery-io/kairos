@@ -3197,13 +3197,15 @@ children. The tool has no arguments.
 
 After the title, a line has the board and the column of the item (KAIROS-T-0763).
 A document has its owner board and no column. A claimed task has the name of
-the person who claims it. The line ends with the time of the last change.
+the person who claims it. Then the state of the item: `todo`, `active`,
+`blocked` or `done`. These are the columns of the Watching lane of the For me
+page. The line ends with the time of the last change.
 
 ```text
 # Your watches (2)
 
-- ACME-I-0003 (initiative) · with children — The new search · Initiatives / Active · updated 2026-11-10T09:12:00Z
-- ACME-T-0012 (task) — Fix the login · Acme / Active · claim: Robin · updated 2026-11-11T14:03:00Z
+- ACME-I-0003 (initiative) · with children — The new search · Initiatives / Active · active · updated 2026-11-10T09:12:00Z
+- ACME-T-0012 (task) — Fix the login · Acme / Active · claim: Robin · active · updated 2026-11-11T14:03:00Z
 ```
 
 With no watch, the result is `You watch no item. watch_item starts a watch.`

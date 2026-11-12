@@ -238,6 +238,12 @@ pub struct WatchedItem {
     /// The last change of the item (RFC 3339).
     #[serde(default)]
     pub updated_at: String,
+    /// The state of the item: `todo`, `active`, `blocked` or `done` (the
+    /// column of the Watching lane of the "for me" page). Active and
+    /// Blocked follow the rule of `GET /api/me/work`; done is a done
+    /// column; a document is `todo`.
+    #[serde(default)]
+    pub state: String,
 }
 
 /// `GET /api/me/watches` response: each watch of the caller, by code.

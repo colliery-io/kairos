@@ -3585,6 +3585,7 @@ One watch of the caller, in `GET /api/me/watches`.
 | `created_at` | `string` | yes | When the caller started the watch (RFC 3339). |
 | `entity_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
 | `short_code` | `string` | yes | The code of the item now. |
+| `state` | `string` | no | The state of the item: `todo`, `active`, `blocked` or `done` (the column of the Watching lane of the "for me" page). Active and Blocked follow the rule of `GET /api/me/work`; done is a done column; a document is `todo`. |
 | `title` | `string` | yes | The title of the item now. |
 | `updated_at` | `string` | no | The last change of the item (RFC 3339). |
 | `with_children` | `boolean` | yes | `true` when the watch includes the children of the item. |

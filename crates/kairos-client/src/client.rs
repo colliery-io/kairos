@@ -1500,6 +1500,39 @@ impl KairosClient {
         self.delete(&format!("/api/items/{short_code}/watch")).await
     }
 
+    /// `GET /api/items/{short_code}/watchers` (KAIROS-T-0762): each person
+    /// who watches the item.
+    pub async fn item_watchers(
+        &self,
+        short_code: &str,
+    ) -> Result<crate::types_notifications::ItemWatchers, Error> {
+        self.get(&format!("/api/items/{short_code}/watchers")).await
+    }
+
+    /// `PUT /api/items/{short_code}/watchers/{user}` (KAIROS-T-0762): add a
+    /// member of the organization as a watcher of the item.
+    pub async fn add_watcher(
+        &self,
+        short_code: &str,
+        user: &str,
+        request: &crate::types_notifications::WatchRequest,
+    ) -> Result<crate::types_notifications::ItemWatchers, Error> {
+        self.put_ok(&format!("/api/items/{short_code}/watchers/{user}"), request)
+            .await
+    }
+
+    /// `DELETE /api/items/{short_code}/watchers/{user}` (KAIROS-T-0762):
+    /// remove a watcher of the item. Only the watcher or the person who
+    /// added the watch can.
+    pub async fn remove_watcher(
+        &self,
+        short_code: &str,
+        user: &str,
+    ) -> Result<crate::types_notifications::ItemWatchers, Error> {
+        self.delete(&format!("/api/items/{short_code}/watchers/{user}"))
+            .await
+    }
+
     /// `GET /api/me/work` (KAIROS-T-0489): the work of the caller, in two
     /// lanes (initiatives and tasks).
     pub async fn my_work(&self) -> Result<crate::types_work::MyWork, Error> {

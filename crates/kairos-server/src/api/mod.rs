@@ -42,6 +42,7 @@ pub mod notifications;
 pub mod org;
 pub mod proposals;
 pub mod search;
+pub mod standup_groups;
 pub mod strategies;
 pub mod tasks;
 // KAIROS-T-0736: the watches of a person.
@@ -90,6 +91,8 @@ pub fn router() -> Router<AppState> {
         .merge(notices::router())
         // KAIROS-T-0489: the work of a person.
         .merge(work::router())
+        // KAIROS-T-0764: the groups of the AdHoc stand-up.
+        .merge(standup_groups::router())
 }
 
 // ---------------------------------------------------------------------------

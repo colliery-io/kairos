@@ -770,6 +770,17 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
+## CreateStandupGroupRequest
+
+`POST /api/standup-groups` body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | yes | 1 to 100 characters. Unique in the organization, with no regard to case. |
+| `people` | array of `string` | no | The people of the group: the user id (UUID) or the user name of each. Each must be a person of the organization. Default: none. |
+
+The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
+
 ## CreateStrategyRequest
 
 Body of `POST /api/strategies`.
@@ -2893,6 +2904,38 @@ One publish of a site.
 | `people` | array of [`StandupPerson`](#standupperson) | yes | The people of the round, by display name: the members of the team, and each person who holds work of the team and is not a member. No service accounts. |
 | `team` | [`StandupTeam`](#standupteam) | yes |  |
 
+## StandupGroup
+
+The group of an AdHoc stand-up (KAIROS-T-0764, KAIROS-A-0084): a saved, named group of people of the organization. Each stop shows the work of one person by ownership on each board. There is no Unclaimed stop.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `can_delete` | `boolean` | yes | `true` when the caller created the group, so the caller can delete it. |
+| `created_at` | `string` | yes | RFC 3339. |
+| `created_by` | [`StandupGroupPerson`](#standupgroupperson) | yes | The person who created the group. Only this person can delete it. |
+| `id` | `string` | yes | Group id (UUID). |
+| `name` | `string` | yes | Unique in the organization, with no regard to case. |
+| `people` | array of [`StandupGroupPerson`](#standupgroupperson) | yes | The people of the round, by display name. |
+| `updated_at` | `string` | yes | RFC 3339. |
+
+## StandupGroupList
+
+`GET /api/standup-groups` response: each group, by name.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `items` | array of [`StandupGroup`](#standupgroup) | yes |  |
+
+## StandupGroupPerson
+
+A person of the group of an AdHoc stand-up (KAIROS-T-0764).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `display_name` | `string` | yes |  |
+| `user_id` | `string` | yes | User id (UUID). |
+| `user_name` | `string` | yes |  |
+
 ## StandupPerson
 
 A person of the round of a stand-up.
@@ -3454,6 +3497,17 @@ Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-hom
 | `site_enabled` | `boolean`, nullable | no | The site switch (KAIROS-T-0406). Off: a publish is refused, and the site is not served. |
 | `slug` | `string`, nullable | no |  |
 | `team` | `string`, nullable | no | New owning team (UUID or slug). |
+
+The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
+
+## UpdateStandupGroupRequest
+
+`PATCH /api/standup-groups/{id}` body: send `name`, `people`, or both.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string`, nullable | no | The new name. |
+| `people` | `array`, nullable | no | All the people of the group after the change: the user id (UUID) or the user name of each. A person who is not in the list leaves the group. |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 

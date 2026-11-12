@@ -16,6 +16,7 @@
 //! | `/teams`        | team directory       | T-0067     |
 //! | `/teams/:slug`  | team detail (roster, board, streams) | T-0067 |
 //! | `/teams/:slug/standup` | the stand-up of the team | KAIROS-T-0723 |
+//! | `/standup-groups/:id` | an AdHoc stand-up: a saved group of people | KAIROS-T-0764 |
 //! | `/teams/:slug/pages/*path` | one page of the team | T-0086 |
 //! | `/admin`        | admin overview       | T-0043     |
 //! | `/admin/boards` | board list + create/delete | T-0043 |
@@ -87,6 +88,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("teams") view=pages::TeamsPage/>
                     <Route path=path!("teams/:slug") view=pages::TeamPage/>
                     <Route path=path!("teams/:slug/standup") view=pages::StandupPage/>
+                    <Route path=path!("standup-groups/:id") view=pages::StandupGroupPage/>
                     <Route path=path!("teams/:slug/pages/*path") view=pages::TeamDocPage/>
                     <ParentRoute path=path!("admin") view=pages::AdminPage>
                         <Route path=path!("") view=pages::admin::AdminHomePage/>

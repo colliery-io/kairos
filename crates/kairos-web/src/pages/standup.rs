@@ -82,7 +82,7 @@ enum Stop {
 /// The order of `n` people for `seed`: a Fisher-Yates shuffle with a
 /// xorshift generator. The same seed gives the same order. Pure,
 /// host-tested.
-fn shuffled(n: usize, seed: u64) -> Vec<usize> {
+pub(super) fn shuffled(n: usize, seed: u64) -> Vec<usize> {
     let mut order: Vec<usize> = (0..n).collect();
     let mut state = seed | 1;
     for i in (1..n).rev() {
@@ -167,7 +167,7 @@ fn keep_query(person: Option<&str>, stop: Option<&str>) -> String {
 }
 
 /// A new seed for the shuffle.
-fn new_seed() -> u64 {
+pub(super) fn new_seed() -> u64 {
     (js_sys::Math::random() * u64::MAX as f64) as u64 ^ (js_sys::Date::now() as u64)
 }
 
@@ -282,7 +282,7 @@ fn Round(slug: String, stops: Vec<Stop>, people: Vec<StandupPerson>, at: usize) 
 
 /// A link button, or the same button turned off when there is no link.
 #[component]
-fn StepButton(
+pub(super) fn StepButton(
     href: Option<String>,
     #[prop(into)] variant: String,
     label: &'static str,

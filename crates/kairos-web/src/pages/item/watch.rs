@@ -285,7 +285,7 @@ fn WatcherList(code: String, archived: Signal<bool>, reload: RwSignal<u32>) -> i
                             view! {
                                 <Group gap="sm" wrap=true>
                                     <Text size="sm">
-                                        <span data-testid="watcher">{line}</span>
+                                        <span data-testid="watcher" style="overflow-wrap:anywhere">{line}</span>
                                     </Text>
                                     {w.can_remove.then(|| view! {
                                         <span data-testid="watcher-remove">

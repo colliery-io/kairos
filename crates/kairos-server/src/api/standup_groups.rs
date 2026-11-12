@@ -299,7 +299,8 @@ pub(crate) async fn update_standup_group(
             if body.name.is_none() && body.people.is_none() {
                 return Err(ApiError::validation(
                     "Send `name`, `people`, or both: the request has no change.",
-                ));
+                )
+                .with_details(serde_json::json!({"field": "name"})));
             }
             let name = body.name.as_deref().map(checked_name).transpose()?;
             let people = body

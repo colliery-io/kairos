@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-pub(crate) use kairos_markdown::{TermLink, to_html_with_terms};
+pub(crate) use kairos_markdown::TermLink;
 
 /// The path of the item page of `code`. The hover preview
 /// ([`crate::pages::code_peek`]) reads the code back from it.
@@ -18,7 +18,12 @@ pub(crate) const ITEM_PATH: &str = "/items/";
 /// Markdown to HTML, with each short code in text as a link to its page.
 /// Codes in code spans, in code blocks and in links stay as they are.
 pub(crate) fn to_html(source: &str) -> String {
-    kairos_markdown::to_html_with_codes(source, |codes| {
+    to_html_with_terms(source, &[])
+}
+
+/// [`to_html`], and each term of the dictionary in text is a link too.
+pub(crate) fn to_html_with_terms(source: &str, terms: &[TermLink]) -> String {
+    kairos_markdown::to_html_with_codes_and_terms(source, terms, |codes| {
         codes
             .iter()
             .map(|code| (code.clone(), format!("{ITEM_PATH}{code}")))
@@ -64,6 +69,19 @@ mod tests {
         let html = to_html("[DEMO-T-0042](https://example.com/x)");
         assert_eq!(html.matches("<a ").count(), 1, "{html}");
         assert!(html.contains("https://example.com/x"), "{html}");
+    }
+
+    #[test]
+    fn a_code_and_a_term_both_link() {
+        let terms = [TermLink {
+            word: "board".into(),
+            part_of_speech: "noun".into(),
+            meaning: "A set of columns.".into(),
+            href: Some("/items/DEMO-D-0001".into()),
+        }];
+        let html = to_html_with_terms("The board is blocked by DEMO-T-0042.", &terms);
+        assert!(html.contains(r#"href="/items/DEMO-T-0042""#), "{html}");
+        assert!(html.contains("A set of columns."), "{html}");
     }
 
     #[test]

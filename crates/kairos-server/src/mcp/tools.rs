@@ -3677,7 +3677,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Your watches: each item that you watch, by code, and whether the watch includes its children. An agent key gives the watches of its person. `short_code`: each person who watches that item, and who added each watch."
+        description = "Your watches: each item that you watch, by code, with its board, its column, its claim, its state (todo, active, blocked or done) and its last change, and whether the watch includes its children. An agent key gives the watches of its person. `short_code`: each person who watches that item, and who added each watch."
     )]
     pub async fn list_watches(
         &self,
@@ -10559,9 +10559,20 @@ fn watches_text(items: &[kairos_client::types_notifications::WatchedItem]) -> St
             ""
         };
         let archived = if w.archived { " · archived" } else { "" };
+        // KAIROS-T-0763: where the item is, who claims it, its last change.
+        let place = match (&w.board, &w.column) {
+            (Some(board), Some(column)) => format!(" · {board} / {column}"),
+            (Some(board), None) => format!(" · {board}"),
+            _ => String::new(),
+        };
+        let claim = w
+            .claim
+            .as_deref()
+            .map(|c| format!(" · claim: {c}"))
+            .unwrap_or_default();
         out.push_str(&format!(
-            "- {} ({}){children}{archived} — {}\n",
-            w.short_code, w.entity_type, w.title
+            "- {} ({}){children}{archived} — {}{place}{claim} · {} · updated {}\n",
+            w.short_code, w.entity_type, w.title, w.state, w.updated_at
         ));
     }
     out

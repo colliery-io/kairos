@@ -35,7 +35,8 @@ use kairos_db::items::{ContentUpdate, CreateInitiative, CreateTask};
 use kairos_db::models::enums::{BoardLevel, TaskType, WorkClass};
 use kairos_db::models::teams::NewTeam;
 use kairos_db::models::{
-    NewOrganizationMember, NewServiceAccountUser, NewUser, OrgRole, TeamType, User,
+    NewOrganizationMember, NewServiceAccountUser, NewUser, OrgRole, RelationshipType, TeamType,
+    User,
 };
 use kairos_db::{
     boards, create_board, graph, item_notes, items, provision_tenant, run_public_migrations,
@@ -395,7 +396,53 @@ fn a_watch_tells_of_each_coarse_change() {
         boards::transition_task(&mut conn, solo, to, robin).expect("move");
     }
     take(&mut conn, sam);
+    // KAIROS-T-0763: the list gives the board, the column, the claim and
+    // the last change of each watched item.
+    let listed = watches::list(&mut conn, sam).expect("list");
+    let row = |c: &str| {
+        listed
+            .iter()
+            .find(|w| w.short_code == c)
+            .unwrap_or_else(|| panic!("{c} in {listed:?}"))
+    };
+    let (todo_row, active_row) = (row(&c1), row(&c5));
+    assert_eq!(
+        (
+            todo_row.board.as_deref(),
+            todo_row.column.as_deref(),
+            todo_row.claim.as_deref()
+        ),
+        (Some("Core"), Some("Todo"), None)
+    );
+    assert_eq!(
+        (
+            active_row.board.as_deref(),
+            active_row.column.as_deref(),
+            active_row.claim.as_deref()
+        ),
+        (Some("Core"), Some("Active"), Some("Robin")),
+        "a claimed task names the claimant"
+    );
+    // The state of each row: the column of the Watching lane.
+    assert_eq!(
+        (todo_row.state.as_str(), active_row.state.as_str()),
+        ("todo", "active")
+    );
+    // An open blocker makes the task Blocked.
+    let blocker = task(&mut conn, board, "Blocker", robin);
+    graph::link_items(&mut conn, blocker, solo, RelationshipType::Blocks, robin).expect("blocks");
+    let state_of = |conn: &mut PgConnection, c: &str| {
+        watches::list(conn, sam)
+            .expect("list")
+            .into_iter()
+            .find(|w| w.short_code == c)
+            .map(|w| w.state)
+    };
+    assert_eq!(state_of(&mut conn, &c5).as_deref(), Some("blocked"));
+    graph::unlink_items(&mut conn, blocker, solo, RelationshipType::Blocks, robin)
+        .expect("unblock");
     boards::transition_task(&mut conn, solo, completed, robin).expect("to Completed");
+    assert_eq!(state_of(&mut conn, &c5).as_deref(), Some("done"));
     assert_eq!(
         take(&mut conn, sam),
         vec![format!("{c5} is done (Completed), by Robin: Solo")]

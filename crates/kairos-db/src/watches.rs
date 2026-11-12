@@ -97,6 +97,25 @@ pub struct WatchedItem {
     pub with_children: bool,
     #[diesel(sql_type = Timestamptz)]
     pub created_at: DateTime<Utc>,
+    /// The name of the board of the item (the owner board of a document,
+    /// KAIROS-T-0763).
+    #[diesel(sql_type = Nullable<Text>)]
+    pub board: Option<String>,
+    /// The name of the column of the item. A document has no column.
+    #[diesel(sql_type = Nullable<Text>)]
+    pub column: Option<String>,
+    /// The person who claims the task: the display name, else the email.
+    #[diesel(sql_type = Nullable<Text>)]
+    pub claim: Option<String>,
+    /// The last change of the item.
+    #[diesel(sql_type = Timestamptz)]
+    pub updated_at: DateTime<Utc>,
+    /// The state of the item, the column of the Watching lane: `done` (a
+    /// done column), `blocked` (an open blocker, or a column named
+    /// Blocked), `active` (the rule of the "for me" page, `my_work`), or
+    /// `todo` (each other item, and a document).
+    #[diesel(sql_type = Text)]
+    pub state: String,
 }
 
 /// The person watches the item (a self-watch: `added_by` is the person),
@@ -146,12 +165,43 @@ pub fn watch_of(
 }
 
 /// Each watch of the person, by short code. A watch of an item that is
-/// gone (purged) is not in the list.
+/// gone (purged) is not in the list. Each row has the board, the column,
+/// the claim and the last change of the item (KAIROS-T-0763).
 pub fn list(conn: &mut PgConnection, user: Uuid) -> Result<Vec<WatchedItem>, DieselError> {
     sql_query(
         "SELECT w.item_id, d.short_code, d.entity_type, d.title, \
-                (d.deleted_at IS NOT NULL) AS archived, w.with_children, w.created_at \
+                (d.deleted_at IS NOT NULL) AS archived, w.with_children, w.created_at, \
+                b.name AS board, col.name AS \"column\", \
+                COALESCE(NULLIF(btrim(u.display_name), ''), u.email) AS claim, \
+                p.updated_at, \
+                CASE WHEN col.is_done THEN 'done' \
+                     WHEN lower(btrim(col.name)) = 'blocked' OR EXISTS ( \
+                       SELECT 1 FROM item_relationships r \
+                         JOIN (SELECT id, column_id FROM strategies WHERE deleted_at IS NULL \
+                               UNION ALL SELECT id, column_id FROM initiatives \
+                                 WHERE deleted_at IS NULL \
+                               UNION ALL SELECT id, column_id FROM tasks WHERE deleted_at IS NULL \
+                               UNION ALL SELECT id, column_id FROM adrs WHERE deleted_at IS NULL) bp \
+                           ON bp.id = r.source_id \
+                         JOIN board_columns bc ON bc.id = bp.column_id \
+                        WHERE r.relationship = 'blocks' AND r.target_id = d.id \
+                          AND NOT bc.is_done) THEN 'blocked' \
+                     WHEN d.entity_type = 'task' \
+                          AND (col.claims OR lower(btrim(col.name)) = 'active') THEN 'active' \
+                     WHEN d.entity_type IN ('strategy', 'initiative') \
+                          AND lower(btrim(col.name)) IN ('active', 'monitoring') THEN 'active' \
+                     ELSE 'todo' END AS state \
            FROM item_watches w JOIN entity_directory d ON d.id = w.item_id \
+           JOIN (SELECT id, board_id, column_id, updated_at FROM tasks \
+                 UNION ALL SELECT id, board_id, column_id, updated_at FROM initiatives \
+                 UNION ALL SELECT id, board_id, column_id, updated_at FROM strategies \
+                 UNION ALL SELECT id, board_id, column_id, updated_at FROM adrs \
+                 UNION ALL SELECT id, board_id, NULL::uuid, updated_at FROM documents) p \
+             ON p.id = d.id \
+           LEFT JOIN boards b ON b.id = p.board_id \
+           LEFT JOIN board_columns col ON col.id = p.column_id \
+           LEFT JOIN task_claims cl ON cl.task_id = d.id \
+           LEFT JOIN public.users u ON u.id = cl.user_id \
           WHERE w.user_id = $1 \
           ORDER BY d.short_code",
     )

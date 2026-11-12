@@ -184,6 +184,13 @@ pub(crate) fn list_for(conn: &mut PgConnection, user: Uuid) -> Result<Vec<Watche
             created_at: w
                 .created_at
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            board: w.board,
+            column: w.column,
+            claim: w.claim,
+            updated_at: w
+                .updated_at
+                .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            state: w.state,
         })
         .collect())
 }

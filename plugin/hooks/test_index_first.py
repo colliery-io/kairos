@@ -299,31 +299,46 @@ class Subagents(Harness):
             },
         )
 
-    def test_a_subagent_gets_the_index_instruction_with_the_checkout(self):
-        output = json.loads(self.start().stdout)["hookSpecificOutput"]
+    def text_of(self, result):
+        output = json.loads(result.stdout)["hookSpecificOutput"]
         self.assertEqual(output["hookEventName"], "SubagentStart")
-        text = output["additionalContext"]
-        self.assertTrue(text.startswith("Code index of this checkout"), text)
+        return output["additionalContext"]
+
+    def test_a_subagent_gets_the_index_instruction_with_the_checkout(self):
+        text = self.text_of(self.start())
+        self.assertTrue(text.startswith("Code index first:"), text)
         self.assertIn("`code_search`", text)
-        self.assertIn("Checkouts with an index: checkout.", text)
+        self.assertIn(f"Checkouts: {self.project}.", text)
         self.assertEqual(
             self.log_lines()[0].split()[1:],
             [SESSION, "agent-9", "Explore", "SubagentStart", "-", "nudge"],
         )
 
-    def test_a_subagent_in_a_board_folder_gets_the_indexed_checkouts(self):
+    def test_a_subagent_in_a_board_folder_gets_each_checkout(self):
         board = os.path.dirname(self.project)
-        text = json.loads(self.start(cwd=board).stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Checkouts with an index: checkout.", text)
+        text = self.text_of(self.start(cwd=board))
+        self.assertIn(f"Checkouts: {self.project}; {self.other} (no local index yet).", text)
+        self.assertIn("the nearest index from Kairos", text)
         self.give_index(self.other)
-        text = json.loads(self.start(cwd=board).stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Checkouts with an index: checkout, other.", text)
+        text = self.text_of(self.start(cwd=board))
+        self.assertIn(f"Checkouts: {self.project}; {self.other}.", text)
 
-    def test_a_subagent_with_no_indexed_checkout_is_told_to_fetch(self):
-        text = json.loads(self.start(cwd=self.other).stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("No checkout of this session has a local index yet", text)
+    def test_a_subagent_in_a_worktree_with_no_local_index_gets_it(self):
+        worktree = os.path.join(os.path.dirname(self.project), "wt-task")
+        os.makedirs(os.path.join(worktree, "src"))
+        with open(os.path.join(worktree, ".git"), "w") as handle:
+            handle.write("gitdir: ../checkout/.git/worktrees/wt-task\n")
+        text = self.text_of(self.start(cwd=os.path.join(worktree, "src")))
+        self.assertTrue(text.startswith("Code index first:"), text)
+        self.assertIn(f"Checkouts: {worktree} (no local index yet).", text)
+
+    def test_a_subagent_in_a_folder_with_no_checkout(self):
+        empty = os.path.join(os.path.dirname(self.project), "notes")
+        os.makedirs(empty)
+        text = self.text_of(self.start(cwd=empty))
+        self.assertTrue(text.startswith("Code index first:"), text)
+        self.assertIn("This folder is not a checkout", text)
         self.assertIn("`fetch_index`", text)
-
 
 if __name__ == "__main__":
     unittest.main()

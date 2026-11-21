@@ -209,9 +209,11 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   the other definition words of the languages of the index). `callers` answers a call (`X(`).
   `references` answers a name over source files (`-t rust X`, `--include=*.py X`). The message
   says that grep stays right for literal text. The hook allows the call. Literal text, a search
-  over other files (logs, docs, config), `find` and `fd` get no message. A grep after a pipe filters output: no message. `hooks/index_first.py subagent`
-  is a `SubagentStart` hook for each agent type. It gives the index instruction of the session
-  start, with the checkouts that have an index. Each call writes one line to `tool-calls.log` in
+  over other files (logs, docs, config), a grep after a pipe, `find` and `fd` get no message.
+  `hooks/index_first.py subagent` is a `SubagentStart` hook for each agent type (KAIROS-T-0767). It gives "Code index first", the
+  index instruction of the session start, and the path of each checkout of the session folder. A
+  checkout with no local index yet is in the list too: a code tool with `checkout` opens it with
+  the nearest index from Kairos. Each call writes one line to `tool-calls.log` in
   the state folder: the time, the session, `agent_id`, `agent_type`, the event, the tool, and
   `nudge` or `quiet`. The measurement of the index use reads it.
 - **The result of the last update.** After each update, the background job writes

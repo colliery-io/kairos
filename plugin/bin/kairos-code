@@ -2,14 +2,15 @@
 """The `kairos-code` MCP server of the plugin (COLLIERY-T-1855,
 COLLIERY-T-2529, KAIROS-T-0513).
 
-- With `kairos` on PATH at the version of the plugin or newer: run
-  `kairos index mcp` in place of this process (exec), with the same stdin,
-  stdout, folder and exit code.
-- With `kairos` on PATH but older than the plugin: serve MCP over stdio
-  with no tools. The instructions name both versions and `kairos
-  self-update`. An old CLI reads an old index schema, and refuses the index
-  that the server and a current CLI write (KAIROS-T-0513); a refusal on
-  stderr shows as a connection error, so the wrapper says why instead.
+- With `kairos` on PATH: run `kairos index mcp` in place of this process
+  (exec), with the same stdin, stdout, folder and exit code. A CLI older
+  than the plugin runs too (KAIROS-T-0768): the session start warns and
+  gives a safe restart, and the CLI itself refuses an index of a newer
+  schema with the update and the restart in the error (KAIROS-T-0746).
+- With `kairos` on PATH but older than MIN_CLI (before `kairos
+  mcp-proxy` and the schema checks): serve MCP over stdio with no tools.
+  The instructions name both versions, `kairos self-update` and the
+  restart.
 - With no `kairos` on PATH: the same server with no tools; its instructions
   say that `kairos` is not on PATH.
 
@@ -43,13 +44,23 @@ NO_CLI = (
 )
 
 
+# The oldest CLI that the plugin runs: it has `kairos mcp-proxy` and it
+# checks the schema of an index before it reads one (KAIROS-T-0768).
+MIN_CLI = "0.17.0"
+RESTART = (
+    "To restart with no loss: end this session, then run `claude --resume` in "
+    "the same folder and pick this session. The conversation and the files "
+    "stay as they are."
+)
+
+
 def old_cli(cli, plugin):
-    """The instructions when the CLI is older than the plugin."""
+    """The instructions when the CLI is too old to run."""
     return (
         f"The code tools of Kairos are off: the kairos CLI is {cli} and the "
-        f"plugin is {plugin}. An old CLI reads an old index schema. Run "
+        f"plugin is {plugin}. A CLI before {MIN_CLI} cannot read the index. Run "
         "`kairos self-update` (it installs the version of the server), then "
-        f"start the session again to get {TOOLS}."
+        f"restart the session to get {TOOLS}. {RESTART}"
     )
 
 
@@ -163,7 +174,7 @@ def main():
     instructions = NO_CLI
     if kairos is not None:
         cli, plugin = cli_version(kairos), plugin_version()
-        if not is_older(cli, plugin):
+        if not is_older(cli, MIN_CLI):
             os.execv(kairos, ["kairos", "index", "mcp", *sys.argv[1:]])
         instructions = old_cli(cli, plugin)
     try:

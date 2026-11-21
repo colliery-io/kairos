@@ -144,7 +144,18 @@ class CliNote(unittest.TestCase):
         # KAIROS-T-0526: the code tools run the old binary until a restart.
         note = session_start.cli_note("0.8.0", "0.12.0")
         self.assertIn("kairos-code", note)
-        self.assertIn("restart the session", note)
+        self.assertIn("until the session starts again", note)
+
+    def test_the_line_gives_a_safe_restart_with_the_session_id(self):
+        # KAIROS-T-0768: the tools stay on; the restart keeps the conversation.
+        note = session_start.cli_note("0.20.0", "0.21.0", "0.21.0", "abc-123")
+        self.assertIn("The tools stay on", note)
+        self.assertIn("`claude --resume abc-123` in the same folder", note)
+        self.assertIn("The conversation and the work in progress stay", note)
+        note = session_start.cli_note("0.20.0", "0.21.0", None, None)
+        self.assertIn("`claude --resume` (pick this session)", note)
+        note = session_start.cli_note("0.20.0", "0.21.0", None, "bad id; rm")
+        self.assertIn("`claude --resume` (pick this session)", note)
 
     def test_versions_compare_by_number(self):
         self.assertIsNotNone(session_start.cli_note("0.9.0", "0.12.0"))

@@ -374,10 +374,16 @@ async fn nearest_of(client: &KairosClient, slug: &str, root: &Path, from: &str) 
         .schema_version
         .filter(|found| *found != kairos_index::SCHEMA_VERSION)
     {
+        // KAIROS-T-0768: a newer index means an old CLI, not an old server.
+        let fix = if found > kairos_index::SCHEMA_VERSION {
+            "Update the kairos CLI (`kairos self-update`), then restart the session with \
+             `claude --resume`: the conversation stays"
+        } else {
+            "The Kairos server builds a new index of the repository after its upgrade"
+        };
         return Asked::NoBase(format!(
             "the nearest index in Kairos, of commit {}, has schema version {found}, and this \
-             CLI reads version {}. The Kairos server builds a new index of the repository \
-             after its upgrade",
+             CLI reads version {}. {fix}",
             short(&nearest.index.commit),
             kairos_index::SCHEMA_VERSION
         ));

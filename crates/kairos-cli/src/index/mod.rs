@@ -1236,6 +1236,9 @@ mod tests {
         with_version(99);
         let refused = set_aside_old(&db).expect_err("newer").to_string();
         assert!(refused.contains("schema version 99"), "{refused}");
+        // KAIROS-T-0768: the refusal names the update and a safe restart.
+        assert!(refused.contains("`kairos self-update`"), "{refused}");
+        assert!(refused.contains("`claude --resume`"), "{refused}");
         assert!(
             refused.contains(&format!("reads version {}", kairos_index::SCHEMA_VERSION)),
             "{refused}"

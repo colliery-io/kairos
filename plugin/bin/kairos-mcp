@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """The `kairos` MCP server of the plugin (#270).
 
-- With `kairos` on PATH at the version of the plugin or newer: run
-  `kairos mcp-proxy` in place of this process (exec). The proxy finds the
+- With `kairos` on PATH at `MIN_CLI` of `kairos-code` or newer: run
+  `kairos mcp-proxy` in place of this process (exec). A CLI older than
+  the plugin runs too; the session start warns (KAIROS-T-0768). The proxy finds the
   deployment of the project of the session (`--url`, `KAIROS_URL`, the
   `[[project]]` of `~/.config/kairos/config.toml`, `[default]`, a login),
   and forwards MCP over stdio to its `/mcp`.
-- With an older `kairos`, or none: serve MCP over stdio with no tools, as
+- With a `kairos` before `MIN_CLI` (no `mcp-proxy`), or none: serve MCP over stdio with no tools, as
   `kairos-code` does; the instructions say why and what to do.
 
 The plugin declared `${KAIROS_URL}/mcp` before: one URL for each session,
@@ -38,8 +39,9 @@ def old_cli(cli, plugin):
     """The instructions when the CLI is older than the plugin."""
     return (
         f"The Kairos tools are off: the kairos CLI is {cli} and the plugin is "
-        f"{plugin}. The plugin starts `kairos mcp-proxy`, which an older CLI "
-        "does not have. Run `kairos self-update`, then start the session again."
+        f"{plugin}. The plugin starts `kairos mcp-proxy`, which a CLI before "
+        f"{code.MIN_CLI} does not have. Run `kairos self-update`, then restart "
+        f"the session. {code.RESTART}"
     )
 
 
@@ -48,7 +50,7 @@ def main():
     instructions = NO_CLI
     if kairos is not None:
         cli, plugin = code.cli_version(kairos), code.plugin_version()
-        if not code.is_older(cli, plugin):
+        if not code.is_older(cli, code.MIN_CLI):
             os.execv(kairos, ["kairos", "mcp-proxy", *sys.argv[1:]])
         instructions = old_cli(cli, plugin)
     try:

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Unit tests for the code-tools-before-grep hook (KAIROS-T-0757): a nudge
-on a search over an indexed checkout, once and then each tenth call, and
-the index instruction for each subagent. Stdlib only; run with
+"""Unit tests for the code-tools-before-grep hook (KAIROS-T-0757,
+KAIROS-T-0766): a message on each search over an indexed checkout that the
+index answers (a definition, a call, a name over source files), and the
+index instruction for each subagent. Stdlib only; run with
 `python3 -m unittest plugin/hooks/test_index_first.py` (or `angreal test
 unit`, which includes it).
 
@@ -113,51 +114,108 @@ class Harness(unittest.TestCase):
 
 
 class Searches(Harness):
-    def test_a_bash_grep_inside_an_indexed_checkout_gets_the_message(self):
+    def test_a_definition_search_inside_an_indexed_checkout_gets_the_message(self):
         text = self.context_of(self.call("Bash", {"command": "grep -rn 'fn fetch' src/"}))
         self.assertIsNotNone(text)
-        self.assertIn("the checkout checkout has a code index", text)
-        self.assertIn("`code_search`", text)
-        self.assertIn("`symbol` and `references`", text)
-        self.assertIn("`callers`", text)
+        self.assertIn("`symbol` gives the definition of fetch in checkout", text)
         self.assertIn("grep stays right for literal text", text)
         self.assertLessEqual(len(text.splitlines()), 2)
         self.assertNotIn("http", text)
 
     def test_a_grep_outside_an_indexed_checkout_is_quiet(self):
-        result = self.call("Bash", {"command": "grep -rn foo src/"}, cwd=self.other)
+        result = self.call("Bash", {"command": "grep -rn 'fn foo' src/"}, cwd=self.other)
         self.assertEqual(result.stdout, "")
         self.assertEqual(self.log_lines(self.other), [])
 
     def test_a_grep_with_a_path_into_another_checkout_follows_the_path(self):
-        result = self.call("Bash", {"command": f"rg foo {self.project}/src"}, cwd=self.other)
-        self.assertIn("checkout checkout", self.context_of(result))
+        result = self.call("Bash", {"command": f"rg 'def foo' {self.project}/src"}, cwd=self.other)
+        self.assertIn("in checkout", self.context_of(result))
 
-    def test_the_message_comes_on_the_first_call_and_then_each_tenth(self):
-        given = []
-        for i in range(22):
-            text = self.context_of(self.call("Bash", {"command": "grep foo src/"}))
-            if text:
-                given.append(i)
-        self.assertEqual(given, [0, 10, 20])
-        with open(os.path.join(self.state_dir(), f"index-first-{SESSION}")) as handle:
-            self.assertEqual(handle.read().strip(), "22")
+    def test_each_search_that_the_index_answers_gets_the_message(self):
+        given = [
+            self.context_of(self.call("Bash", {"command": "grep -rn 'struct Index' src/"}))
+            for _ in range(3)
+        ]
+        self.assertTrue(all(given), given)
 
-    def test_another_session_has_its_own_count(self):
-        self.call("Bash", {"command": "grep foo src/"})
-        text = self.context_of(self.call("Bash", {"command": "grep foo src/"}, session="s2"))
-        self.assertIsNotNone(text)
+    def test_a_definition_search_in_each_language(self):
+        cases = {
+            "rg 'pub struct Index' crates": "Index",
+            "rg 'pub(crate) fn fetch'": "fetch",
+            "rg 'impl Display for Index'": "Display",
+            "rg 'enum Kind'": "Kind",
+            "rg 'trait Store'": "Store",
+            "rg 'mod index'": "index",
+            "grep -rnE 'def cli_note' src": "cli_note",
+            "grep -rn 'class Harness' src": "Harness",
+            "rg 'export function render'": "render",
+            "rg 'export interface Props'": "Props",
+            "rg 'export const store ='": "store",
+            "rg 'type Props ='": "Props",
+            "rg 'func Start'": "Start",
+            "rg '^func (s \\*Server) Start'": "Start",
+            "rg 'type Server struct'": "Server",
+            "rg 'resource \"aws_s3_bucket\"'": "aws_s3_bucket",
+            "rg 'variable region'": "region",
+            "grep -rni 'create table code_index_refs' src": "code_index_refs",
+            "rg 'CREATE OR REPLACE FUNCTION touch'": "touch",
+            "rg '(pub )?fn\\s+fetch'": "fetch",
+        }
+        for command, term in cases.items():
+            text = self.context_of(self.call("Bash", {"command": command}))
+            self.assertIsNotNone(text, command)
+            self.assertIn(f"`symbol` gives the definition of {term} ", text, command)
 
-    def test_the_grep_tool_and_the_glob_tool_with_a_path(self):
-        text = self.context_of(self.call("Grep", {"pattern": "fetch", "path": "src"}))
-        self.assertIn("code index", text)
-        text = self.context_of(self.call("Glob", {"pattern": "**/*.rs"}, cwd=self.other))
-        self.assertIsNone(text)
-        # The first Grep counted for the checkout: another session for the Glob.
-        text = self.context_of(
-            self.call("Glob", {"pattern": "**/*.rs", "path": self.project}, cwd=self.other, session="s3")
+    def test_a_call_search_names_callers(self):
+        for command in ("rg 'fetch_index\\('", "grep -rn 'Index::source(' src"):
+            text = self.context_of(self.call("Bash", {"command": command}))
+            self.assertIn("`callers` gives each function in checkout that calls", text, command)
+
+    def test_a_name_over_source_files_names_references(self):
+        for command in (
+            "rg -t rust tools_off",
+            "grep -rn cli_note --include=*.py src",
+            "git grep -n cli_note -- '*.py'",
+            "grep -n cli_note src/a.py src/b.py",
+        ):
+            text = self.context_of(self.call("Bash", {"command": command}))
+            self.assertIsNotNone(text, command)
+            self.assertIn("`references` gives each use of", text, command)
+        text = self.context_of(self.call("Grep", {"pattern": "cli_note", "type": "py"}))
+        self.assertIn("`references` gives each use of cli_note", text)
+
+    def test_literal_text_gets_no_message_and_is_logged_quiet(self):
+        for command in (
+            "rg 'connection refused'",
+            "grep -rn 'type error in the file' src",
+            "grep -n 'fn main' server.log",
+            "rg 'class Foo' docs/guide.md",
+            "grep -rn 'fn x' logs/",
+            "grep -rn KAIROS_URL --include=*.toml .",
+            "grep -rn tools_off src",
+            "rg struct",
+        ):
+            result = self.call("Bash", {"command": command})
+            self.assertEqual(result.stdout, "", command)
+        self.assertTrue(all(line.endswith(" quiet") for line in self.log_lines()))
+
+    def test_the_grep_tool_with_a_definition_and_the_glob_tool(self):
+        text = self.context_of(self.call("Grep", {"pattern": "def fetch", "path": "src"}))
+        self.assertIn("`symbol`", text)
+        result = self.call("Glob", {"pattern": "**/*.rs", "path": self.project})
+        self.assertEqual(result.stdout, "")
+
+    def test_the_parts_of_a_search_are_read(self):
+        parts = index_first.searches_of
+        self.assertEqual(
+            parts("grep -rnE 'fn x' --include=*.rs src"),
+            [{"name": "grep", "pattern": "fn x", "paths": ["src"], "filters": ["*.rs"]}],
         )
-        self.assertIn("code index", text)
+        self.assertEqual(
+            parts("rg -t rust -e foo crates"),
+            [{"name": "rg", "pattern": "foo", "paths": ["crates"], "filters": ["rust"]}],
+        )
+        self.assertEqual(parts("rg -f patterns.txt src")[0]["pattern"], None)
 
     def test_a_grep_that_filters_a_pipe_is_not_a_search(self):
         result = self.call("Bash", {"command": "cargo test 2>&1 | grep -E 'test result'"})
@@ -166,8 +224,8 @@ class Searches(Harness):
         self.assertEqual(result.stdout, "")
 
     def test_a_find_and_other_commands(self):
-        text = self.context_of(self.call("Bash", {"command": "find . -name '*.rs' | head"}))
-        self.assertIn("code index", text)
+        result = self.call("Bash", {"command": "find . -name '*.rs' | head"})
+        self.assertEqual(result.stdout, "")
         result = self.call("Bash", {"command": "cargo build"})
         self.assertEqual(result.stdout, "")
         result = self.call("Bash", {"command": "ls src && cat src/main.rs"})
@@ -189,25 +247,25 @@ class Searches(Harness):
         self.assertEqual(paths("rg -t rust foo crates"), (True, ["crates"]))
         self.assertEqual(paths("grep -- -foo src/"), (True, ["src/"]))
         self.assertEqual(paths("git grep -n foo -- crates"), (True, ["crates"]))
-        self.assertEqual(paths("git ls-files | xargs grep -l foo"), (False, []))
+        self.assertEqual(paths("git ls-files | xargs grep -l foo"), (True, []))
         self.assertEqual(paths("xargs -0 grep foo src"), (True, ["src"]))
         self.assertEqual(paths("cargo test 2>&1 | grep -E 'test result'"), (False, []))
         self.assertEqual(paths("grep x src | head"), (True, ["src"]))
 
-    def test_no_session_id_gives_no_message_and_still_logs(self):
+    def test_no_session_id_still_gives_the_message_and_logs(self):
         payload = {
             "hook_event_name": "PreToolUse",
             "tool_name": "Bash",
-            "tool_input": {"command": "grep foo src/"},
+            "tool_input": {"command": "grep 'fn foo' src/"},
             "cwd": self.project,
         }
         result = self.run_hook("tool", payload)
-        self.assertEqual(result.stdout, "")
+        self.assertIn("`symbol`", result.stdout)
         self.assertEqual(len(self.log_lines()), 1)
 
     def test_each_call_is_logged_with_the_agent(self):
-        self.call("Bash", {"command": "grep foo src/"}, agent_id="agent-7", agent_type="Explore")
-        self.call("Grep", {"pattern": "foo"})
+        self.call("Bash", {"command": "grep 'fn foo' src/"}, agent_id="agent-7", agent_type="Explore")
+        self.call("Grep", {"pattern": "foo bar"})
         lines = self.log_lines()
         self.assertEqual(len(lines), 2)
         first = lines[0].split()

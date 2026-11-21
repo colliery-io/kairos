@@ -151,6 +151,30 @@ def is_checkout(project):
 # KAIROS-T-0348: a session that starts outside a checkout (a board folder
 # with the clones below it) runs no update. A code tool opens the checkout
 # that its `checkout` names (KAIROS-T-0754); `fetch_index` opens one by hand.
+# The code tools of the plugin, as Claude Code names them: the plugin
+# `kairos`, its MCP server `kairos-code`. Claude Code defers MCP tools: an
+# agent loads them with `ToolSearch` before the first call (KAIROS-T-0769).
+CODE_TOOL_PREFIX = "mcp__plugin_kairos_kairos-code__"
+CODE_TOOLS = (
+    "code_search", "symbol", "callers", "references", "path", "module_map",
+    "callees", "fetch_index",
+)
+
+
+def code_tool_name(tool):
+    """The full name of one code tool, as `ToolSearch` selects it."""
+    return CODE_TOOL_PREFIX + tool
+
+
+def load_text():
+    """The line that tells the agent to load the code tools first."""
+    names = ",".join(code_tool_name(t) for t in CODE_TOOLS)
+    return (
+        "Load the code tools first, in one call: `ToolSearch` with the query "
+        f"`select:{names}`. Until then, a call of a code tool fails."
+    )
+
+
 NOT_A_CHECKOUT_TEXT = (
     "Code index: this folder is not a git checkout, so the local MCP server "
     "`kairos-code` has no index open. Give `checkout`, the path of the checkout "
@@ -355,7 +379,7 @@ def tools_text():
         "one symbol. `callers`, `callees` and `path` give the call graph. "
         "`references` gives each use of a symbol: in Rust, also the uses as a "
         "type, a field or an import. Then read only the files that the tools "
-        "name."
+        "name. " + load_text()
     )
 
 
@@ -500,6 +524,7 @@ def board_text(started):
         for checkout, failure in started:
             if failure:
                 lines.append(f"{os.path.basename(checkout)}: {failure}")
+    lines.append(load_text())
     lines.append(after_edit_text())
     return "\n".join(lines)
 

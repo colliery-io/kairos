@@ -219,6 +219,8 @@ class SessionStart(Harness):
         self.assertIn("before you read files", text)
         self.assertIn("kairos-code", text)
         self.assertIn("update.log", text)
+        # KAIROS-T-0769: the deferred code tools are loaded first.
+        self.assertIn("`ToolSearch` with the query `select:mcp__plugin_kairos_kairos-code__code_search,mcp__plugin_kairos_kairos-code__symbol,mcp__plugin_kairos_kairos-code__callers,mcp__plugin_kairos_kairos-code__references,mcp__plugin_kairos_kairos-code__path,mcp__plugin_kairos_kairos-code__module_map,mcp__plugin_kairos_kairos-code__callees,mcp__plugin_kairos_kairos-code__fetch_index`", text)
 
     def test_the_text_says_when_the_checkout_has_no_index_in_the_user_cache(self):
         # KAIROS-A-0072: the index is in the user cache, not in the checkout.
@@ -621,6 +623,7 @@ class DebouncedUpdate(Harness):
         text = self.start_in_board()
         self.assertIn("`fetch_index`", text)
         self.assertIn("each checkout of this folder: one, two.", text)
+        self.assertIn("`ToolSearch` with the query `select:mcp__plugin_kairos_kairos-code__code_search,mcp__plugin_kairos_kairos-code__symbol,mcp__plugin_kairos_kairos-code__callers,mcp__plugin_kairos_kairos-code__references,mcp__plugin_kairos_kairos-code__path,mcp__plugin_kairos_kairos-code__module_map,mcp__plugin_kairos_kairos-code__callees,mcp__plugin_kairos_kairos-code__fetch_index`", text)  # KAIROS-T-0769
         self.assertTrue(self.wait_for(lambda: self.finished(self.one) and self.finished(self.two)))
         self.assertEqual(self.runs(self.one), 1)
         self.assertEqual(self.runs(self.two), 1)

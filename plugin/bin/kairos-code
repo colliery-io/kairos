@@ -45,7 +45,8 @@ NO_CLI = (
 
 
 # The oldest CLI that the plugin runs: it has `kairos mcp-proxy` and it
-# checks the schema of an index before it reads one (KAIROS-T-0768).
+# checks the schema of an index before it reads one (KAIROS-T-0768,
+# KAIROS-A-0085).
 MIN_CLI = "0.17.0"
 RESTART = (
     "To restart with no loss: end this session, then run `claude --resume` in "

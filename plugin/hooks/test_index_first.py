@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import stat
 import tempfile
 import unittest
 
@@ -335,6 +336,69 @@ class Subagents(Harness):
         text = self.text_of(self.start(cwd=os.path.join(worktree, "src")))
         self.assertTrue(text.startswith("Code index first:"), text)
         self.assertIn(f"Checkouts: {worktree} (no local index yet).", text)
+
+    def wire(self, bound=True):
+        """A fake `kairos` on PATH whose `config show --json` binds the
+        folder, as the CLI does (KAIROS-T-0771)."""
+        bin_dir = os.path.join(self.tmp.name, "bin")
+        os.makedirs(bin_dir, exist_ok=True)
+        data = {
+            "bound": bound,
+            "values": {
+                "deployment": {"value": "https://kairos.example.test", "from": "project", "entry": "x"},
+                "tenant": {"value": "acme", "from": "project", "entry": "x"},
+                "team_board": {"value": "web", "from": "project", "entry": "x"},
+                "adr_board": {"value": "web-adrs", "from": "default"},
+            },
+        }
+        path = os.path.join(bin_dir, "kairos")
+        with open(path, "w") as handle:
+            handle.write("#!/bin/sh\ncat <<'JSON'\n" + json.dumps(data) + "\nJSON\n")
+        os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
+        self.extra_path = bin_dir
+
+    def env(self):
+        env = super().env()
+        if getattr(self, "extra_path", None):
+            env["PATH"] = self.extra_path + ":" + env["PATH"]
+        return env
+
+    def test_a_wired_subagent_gets_the_wiring_the_rules_the_index_and_the_lead(self):
+        self.wire()
+        text = self.text_of(self.start())
+        wiring = text.index("Kairos wiring for this folder")
+        rules = text.index("Kairos rules (from the kairos plugin):")
+        index = text.index("Code index first:")
+        lead = text.index("You work for a lead agent")
+        self.assertLess(wiring, rules)
+        self.assertLess(rules, index)
+        self.assertLess(index, lead)
+        self.assertIn("- tenant: acme [config.toml [[project]] x]", text)
+        self.assertIn("- adr_board: web-adrs [config.toml [default]]", text)
+        self.assertIn("https://kairos.example.test/items/<CODE>", text)
+        self.assertIn(f"Checkouts: {self.project}.", text)
+        # The lines for the main agent only are not there.
+        for absent in ("my_boards", "board_items", "Tell the user", "- status:", "Clones here",
+                       "once per session"):
+            self.assertNotIn(absent, text)
+
+    def test_the_text_is_the_same_for_each_agent_type(self):
+        self.wire()
+        texts = {self.text_of(self.start(agent_type=kind)) for kind in ("Explore", "general-purpose", "Plan")}
+        self.assertEqual(len(texts), 1)
+
+    def test_a_subagent_in_a_board_folder_gets_the_wiring_too(self):
+        self.wire()
+        text = self.text_of(self.start(cwd=os.path.dirname(self.project)))
+        self.assertIn("Kairos wiring for this folder", text)
+        self.assertIn(f"Checkouts: {self.project}; {self.other} (no local index yet).", text)
+
+    def test_an_unwired_folder_gets_the_index_and_the_lead_only(self):
+        self.wire(bound=False)
+        text = self.text_of(self.start())
+        self.assertTrue(text.startswith("Code index first:"), text)
+        self.assertNotIn("Kairos rules", text)
+        self.assertTrue(text.endswith("work the Kairos items that its brief names."), text)
 
     def test_a_subagent_in_a_folder_with_no_checkout(self):
         empty = os.path.join(os.path.dirname(self.project), "notes")

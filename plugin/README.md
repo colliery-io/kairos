@@ -210,8 +210,13 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   `references` answers a name over source files (`-t rust X`, `--include=*.py X`). The message
   says that grep stays right for literal text. The hook allows the call. Literal text, a search
   over other files (logs, docs, config), a grep after a pipe, `find` and `fd` get no message.
-  `hooks/index_first.py subagent` is a `SubagentStart` hook for each agent type (KAIROS-T-0767). It gives "Code index first", the
-  index instruction of the session start, and the path of each checkout of the session folder. A
+  `hooks/index_first.py subagent` is a `SubagentStart` hook for each agent type (KAIROS-T-0767, KAIROS-T-0771). Claude Code does
+  not run the `SessionStart` hooks for a subagent, so this hook gives it the wiring of the folder
+  and the Kairos rules, from the functions of the session start. Then it gives "Code index first",
+  the index instruction of the session start, and the path of each checkout of the session folder.
+  The last line says that the subagent works for a lead agent and works the items of its brief.
+  The text is the same for each agent type. It does not hold the lines for the main agent only:
+  the probe of the deployment, the CLI line, the clones and the call of `my_boards`. A
   checkout with no local index yet is in the list too: a code tool with `checkout` opens it with
   the nearest index from Kairos. Each call writes one line to `tool-calls.log` in
   the state folder: the time, the session, `agent_id`, `agent_type`, the event, the tool, and

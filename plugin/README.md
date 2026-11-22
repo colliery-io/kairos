@@ -200,15 +200,16 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
   upstream branch of HEAD. Kairos keeps the upload as the index of the sha until its builder
   builds the sha. The build replaces it. The output goes to `update.log` and the result to
   `last-upload.json`. Nothing goes to the chat; `fetch_index` names a failed upload.
-- **The code tools before grep.** `hooks/index_first.py tool` is a `PreToolUse` hook on `Grep`,
-  `Glob` and `Bash` (KAIROS-T-0757). It finds the folder of the search. For `Grep` and `Glob`
-  that is their `path`. For `Bash` it is the path argument of `grep`, `rg`, `ag`, `ack`, `find`,
-  `fd` or `git grep` in the command. With none, it is the folder of the call. When the checkout
-  of that folder has an index in the user cache, the hook gives one message of two lines. The
-  message names the checkout and the index tools that answer the same question. It says that
-  grep stays right for literal text. The hook allows the call. The message comes on the first
-  search of a session over the checkout, then on each tenth one (`index-first-<session>` in the
-  state folder). A grep after a pipe filters output: no message. `hooks/index_first.py subagent`
+- **The code tools before grep.** `hooks/index_first.py tool` is a `PreToolUse` hook on `Grep`
+  and `Bash` (KAIROS-T-0757, KAIROS-T-0766). It reads the search: the pattern, the paths and the
+  file filters of `grep`, `rg`, `ag`, `ack` or `git grep`. When the code index answers the search,
+  and the checkout of its path has an index in the user cache, the hook gives a message of two
+  lines on each such search. The message names the index tool and the name. `symbol` answers a
+  definition (`fn`, `struct`, `def`, `class`, `func`, `interface`, `resource`, `CREATE TABLE` and
+  the other definition words of the languages of the index). `callers` answers a call (`X(`).
+  `references` answers a name over source files (`-t rust X`, `--include=*.py X`). The message
+  says that grep stays right for literal text. The hook allows the call. Literal text, a search
+  over other files (logs, docs, config), `find` and `fd` get no message. A grep after a pipe filters output: no message. `hooks/index_first.py subagent`
   is a `SubagentStart` hook for each agent type. It gives the index instruction of the session
   start, with the checkouts that have an index. Each call writes one line to `tool-calls.log` in
   the state folder: the time, the session, `agent_id`, `agent_type`, the event, the tool, and

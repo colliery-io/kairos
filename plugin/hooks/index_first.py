@@ -299,6 +299,17 @@ def names_files(name):
     return "." in base or "*" in base or name.lower() in SOURCE_TYPES
 
 
+def in_other_folder(path):
+    """True when a path is inside a folder that holds no source (logs,
+    tmp, target). An absolute path is read from the top of its checkout,
+    so a checkout under /tmp is not a log folder."""
+    if os.path.isabs(path):
+        top = index_update.checkout_top(path if os.path.isdir(path) else os.path.dirname(path))
+        if index_update.is_checkout(top):
+            path = os.path.relpath(os.path.realpath(path), top)
+    return bool(set(path.strip("/").split("/")) & OTHER_FOLDERS)
+
+
 def classify(pattern, paths, filters):
     """(tool, term) when the code index answers the search, else None:
     `symbol` for a definition, `callers` for a call, `references` for a
@@ -306,7 +317,7 @@ def classify(pattern, paths, filters):
     docs, config) is literal text. Pure."""
     if not pattern:
         return None
-    if paths and all(set(p.strip("/").split("/")) & OTHER_FOLDERS for p in paths):
+    if paths and all(in_other_folder(p) for p in paths):
         return None
     named = list(filters) + [p for p in paths if names_files(p)]
     source = any(is_source(n) for n in named)

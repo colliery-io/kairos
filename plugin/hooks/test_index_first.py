@@ -134,6 +134,20 @@ class Searches(Harness):
         result = self.call("Bash", {"command": f"rg 'def foo' {self.project}/src"}, cwd=self.other)
         self.assertIn("in checkout", self.context_of(result))
 
+    def test_a_checkout_under_a_tmp_folder_is_not_a_log_folder(self):
+        # CI runs the tests under /tmp: the folder rule reads the path from
+        # the top of the checkout.
+        base = os.path.join(os.path.dirname(self.project), "tmp", "build")
+        checkout = os.path.join(base, "repo")
+        os.makedirs(os.path.join(checkout, ".git"))
+        os.makedirs(os.path.join(checkout, "src"))
+        os.makedirs(os.path.join(checkout, "logs"))
+        self.give_index(checkout)
+        text = self.context_of(self.call("Bash", {"command": f"rg 'def foo' {checkout}/src"}, cwd=self.other))
+        self.assertIn("in repo", text)
+        result = self.call("Bash", {"command": f"rg 'def foo' {checkout}/logs"}, cwd=self.other)
+        self.assertEqual(result.stdout, "")
+
     def test_each_search_that_the_index_answers_gets_the_message(self):
         given = [
             self.context_of(self.call("Bash", {"command": "grep -rn 'struct Index' src/"}))

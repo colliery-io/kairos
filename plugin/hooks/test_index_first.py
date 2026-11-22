@@ -119,6 +119,8 @@ class Searches(Harness):
         self.assertIsNotNone(text)
         self.assertIn("`symbol` gives the definition of fetch in checkout", text)
         self.assertIn("grep stays right for literal text", text)
+        # KAIROS-T-0769: the load of the one tool that answers.
+        self.assertIn("`ToolSearch` with `select:mcp__plugin_kairos_kairos-code__symbol`", text)
         self.assertLessEqual(len(text.splitlines()), 2)
         self.assertNotIn("http", text)
 
@@ -184,6 +186,7 @@ class Searches(Harness):
         for command in ("rg 'fetch_index\\('", "grep -rn 'Index::source(' src"):
             text = self.context_of(self.call("Bash", {"command": command}))
             self.assertIn("`callers` gives each function in checkout that calls", text, command)
+            self.assertIn("select:mcp__plugin_kairos_kairos-code__callers`", text, command)
 
     def test_a_name_over_source_files_names_references(self):
         for command in (
@@ -323,6 +326,7 @@ class Subagents(Harness):
         self.assertTrue(text.startswith("Code index first:"), text)
         self.assertIn("`code_search`", text)
         self.assertIn(f"Checkouts: {self.project}.", text)
+        self.assertIn("`ToolSearch` with the query `select:mcp__plugin_kairos_kairos-code__", text)
         self.assertEqual(
             self.log_lines()[0].split()[1:],
             [SESSION, "agent-9", "Explore", "SubagentStart", "-", "nudge"],

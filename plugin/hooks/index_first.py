@@ -423,6 +423,9 @@ def tool(payload):
         return
     index_tool, term = answer
     text = MESSAGES[index_tool].format(term=term, name=os.path.basename(checkout))
+    text += (
+        f" Not loaded? `ToolSearch` with `select:{index_update.code_tool_name(index_tool)}`."
+    )
     json.dump(context("PreToolUse", text + "\n" + LITERAL), sys.stdout)
 
 

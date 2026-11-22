@@ -36,6 +36,7 @@ stdlib only.
 """
 
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -430,6 +431,9 @@ def live_state_hint(values, board_folder=False):
     )
 
 
+SESSION_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
 def server_version(url, timeout=3):
     """The version of the server (`GET /version`, open), or None."""
     try:
@@ -477,10 +481,11 @@ def plugin_version():
     return version if isinstance(version, str) and version else None
 
 
-def cli_note(cli, server, plugin=None):
+def cli_note(cli, server, plugin=None, session=None):
     """One line when the CLI is older than the server (KAIROS-T-0432) or
-    than the plugin (KAIROS-T-0513), else None (pure; testable). An old CLI
-    reads an old index schema, so the code tools of the plugin are off."""
+    than the plugin (KAIROS-T-0513), else None (pure; testable). The tools
+    stay on (KAIROS-T-0768): the line warns and gives a safe restart, with
+    the session id when the hook has it."""
     if not cli or not any(c.isdigit() for c in cli):
         return None
     behind = []
@@ -490,12 +495,19 @@ def cli_note(cli, server, plugin=None):
         behind.append(f"the plugin is {plugin}")
     if not behind:
         return None
+    resume = (
+        f"`claude --resume {session}`"
+        if isinstance(session, str) and SESSION_ID.match(session)
+        else "`claude --resume` (pick this session)"
+    )
     return (
         f"- cli: the kairos CLI is {cli}; {' and '.join(behind)}. "
-        "Tell the user. Update the CLI: `kairos self-update` installs the "
-        "version of the server. `kairos-code` runs the old binary until the "
-        "session starts again: restart the session after the update "
-        "(KAIROS-T-0526)."
+        "Tell the user. The tools stay on, but the code tools can refuse a newer "
+        "index until the update. Update the CLI: `kairos self-update` installs "
+        "the version of the server. `kairos-code` runs the old binary until the "
+        "session starts again (KAIROS-T-0526). A safe restart: end this session, "
+        f"then run {resume} in the same folder. The conversation and the work in "
+        "progress stay."
     )
 
 
@@ -575,7 +587,7 @@ def run(payload):
     server = None
     if deployment and "NOT reachable" not in status:
         server = server_version(deployment, budget.left())
-    note = cli_note(cli_version(budget.left()), server, plugin_version())
+    note = cli_note(cli_version(budget.left()), server, plugin_version(), session)
 
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     checkouts = None

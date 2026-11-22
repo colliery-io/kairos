@@ -70,6 +70,9 @@ class Versions(unittest.TestCase):
         self.assertIn("0.15.0", text)
         self.assertIn("kairos self-update", text)
         self.assertIn("module_map", text)
+        # KAIROS-T-0768: a restart that keeps the conversation.
+        self.assertIn("`claude --resume`", text)
+        self.assertIn("The conversation and the files stay", text)
 
 
 class EndToEnd(unittest.TestCase):
@@ -83,7 +86,7 @@ class EndToEnd(unittest.TestCase):
         plugin = os.path.join(self.root.name, "plugin")
         os.makedirs(os.path.join(plugin, ".claude-plugin"))
         with open(os.path.join(plugin, ".claude-plugin", "plugin.json"), "w") as f:
-            json.dump({"name": "kairos", "version": "0.15.0"}, f)
+            json.dump({"name": "kairos", "version": "0.21.0"}, f)
         self.env = {k: v for k, v in os.environ.items()
                     if k not in ("KAIROS_URL", "KAIROS_MCP_KEY")}
         self.env["PATH"] = self.bin
@@ -106,21 +109,27 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(proc.stderr, "")
         return proc.stdout
 
-    def test_an_older_cli_gets_the_server_with_no_tools(self):
+    def test_a_cli_older_than_the_plugin_still_runs_index_mcp(self):
+        # KAIROS-T-0768: a warning at the session start, not tools off.
+        self.fake_kairos("0.20.0")
+        self.assertEqual(self.run_wrapper().strip(), "ran: index mcp --extra")
+
+    def test_a_cli_before_the_minimum_gets_the_server_with_no_tools(self):
         self.fake_kairos("0.13.0")
         reply = json.loads(self.run_wrapper().splitlines()[0])
         instructions = reply["result"]["instructions"]
         self.assertIn("kairos CLI is 0.13.0", instructions)
-        self.assertIn("plugin is 0.15.0", instructions)
+        self.assertIn("plugin is 0.21.0", instructions)
         self.assertIn("kairos self-update", instructions)
+        self.assertIn("`claude --resume`", instructions)
         self.assertEqual(reply["result"]["capabilities"], {"tools": {}})
 
     def test_an_equal_cli_runs_index_mcp(self):
-        self.fake_kairos("0.15.0")
+        self.fake_kairos("0.21.0")
         self.assertEqual(self.run_wrapper().strip(), "ran: index mcp --extra")
 
     def test_a_newer_cli_runs_index_mcp(self):
-        self.fake_kairos("0.16.0")
+        self.fake_kairos("0.22.0")
         self.assertEqual(self.run_wrapper().strip(), "ran: index mcp --extra")
 
     def test_a_cli_with_no_readable_version_runs(self):
@@ -170,7 +179,11 @@ class KairosMcp(unittest.TestCase):
         return proc.stdout
 
     def test_a_current_cli_runs_the_proxy(self):
-        self.fake_kairos("0.15.0")
+        self.fake_kairos("0.21.0")
+        self.assertEqual(self.run_wrapper().strip(), "ran: mcp-proxy --extra")
+
+    def test_a_cli_older_than_the_plugin_still_runs_the_proxy(self):
+        self.fake_kairos("0.20.0")
         self.assertEqual(self.run_wrapper().strip(), "ran: mcp-proxy --extra")
 
     def test_an_older_cli_gets_the_server_with_no_tools_and_the_reason(self):
@@ -178,9 +191,10 @@ class KairosMcp(unittest.TestCase):
         reply = json.loads(self.run_wrapper().splitlines()[0])
         self.assertEqual(reply["result"]["serverInfo"]["name"], "kairos")
         instructions = reply["result"]["instructions"]
-        self.assertIn("kairos CLI is 0.13.0 and the plugin is 0.15.0", instructions)
+        self.assertIn("kairos CLI is 0.13.0 and the plugin is 0.21.0", instructions)
         self.assertIn("`kairos mcp-proxy`", instructions)
         self.assertIn("kairos self-update", instructions)
+        self.assertIn("`claude --resume`", instructions)
 
     def test_no_cli_gets_the_server_with_no_tools(self):
         reply = json.loads(self.run_wrapper().splitlines()[0])

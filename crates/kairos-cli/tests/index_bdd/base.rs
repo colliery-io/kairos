@@ -1623,6 +1623,7 @@ fn refuses_newer(world: &mut CliWorld, version: i64) {
         "{out}"
     );
     assert!(out.contains("`kairos self-update`"), "{out}");
+    assert!(out.contains("`claude --resume`"), "{out}"); // KAIROS-T-0768
     // Before any work: no download and no structure.
     assert!(!out.contains("Kairos: downloaded"), "{out}");
     assert!(!out.contains("Structure:"), "{out}");

@@ -409,7 +409,7 @@ pub fn build_structure_with(
 /// server.
 fn schema_hint(found: i64) -> &'static str {
     if found > SCHEMA_VERSION {
-        "The index is newer than this CLI: update the kairos CLI to the version of the server (`kairos self-update`)."
+        "The index is newer than this CLI: update the kairos CLI to the version of the server (`kairos self-update`). Then restart the session with no loss: end it, and run `claude --resume` in the same folder (KAIROS-T-0768)."
     } else {
         "Run `kairos index update`: it moves the old index aside and takes a new index from the Kairos server."
     }

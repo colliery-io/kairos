@@ -15,9 +15,11 @@ Two modes:
   files), and that grep stays right for literal text. The hook allows the
   call. Literal text, a search over other files (logs, docs, config), a
   grep that reads a pipe, find and fd get no message.
-- `subagent` (SubagentStart, each agent type): give the index instruction
-  of the session start (the code tools of `kairos-code`), with the
-  checkouts of the session that have an index.
+- `subagent` (SubagentStart, each agent type, KAIROS-T-0767): give
+  "Code index first" and the index instruction of the session start (the
+  code tools of `kairos-code`), with the paths of the checkouts of the
+  session folder, also those with no local index yet: a code tool with
+  `checkout` opens one with the nearest index from Kairos.
 
 Each call writes one line to `tool-calls.log` in the state folder of the
 checkout: the time, the session, `agent_id`, `agent_type`, the hook event,
@@ -424,37 +426,48 @@ def tool(payload):
     json.dump(context("PreToolUse", text + "\n" + LITERAL), sys.stdout)
 
 
+SUBAGENT_FIRST = (
+    "Code index first: find code with the tools of `kairos-code` before you "
+    "grep or read a file. grep is for literal text only: a log line, a config "
+    "key, an error message."
+)
+
+
 def session_checkouts(folder):
-    """The checkouts with an index for a session folder: the checkout
-    itself, or the checkouts below a board folder."""
+    """The checkouts of a session folder, as (path, has a local index): the
+    checkout itself, or the checkouts below a board folder (a clone or a
+    worktree). A checkout with no local index counts too: a code tool with
+    `checkout` opens it, with the nearest index of Kairos (KAIROS-T-0767)."""
     top = index_update.checkout_top(folder)
-    if index_update.is_checkout(top):
-        return [top] if index_update.has_index(top) else []
-    return [c for c in index_update.board_checkouts(folder) if index_update.has_index(c)]
+    found = [top] if index_update.is_checkout(top) else index_update.board_checkouts(folder)
+    return [(c, index_update.has_index(c)) for c in found]
 
 
 def subagent_text(checkouts):
-    lines = [index_update.tools_text()]
+    lines = [SUBAGENT_FIRST, index_update.tools_text()]
     if checkouts:
-        names = ", ".join(os.path.basename(c) for c in checkouts)
+        listed = "; ".join(
+            f"{path}{'' if indexed else ' (no local index yet)'}" for path, indexed in checkouts
+        )
         lines.append(
-            f"Checkouts with an index: {names}. `fetch_index` with the path of one "
-            "opens it; the tools then answer for it."
+            f"Checkouts: {listed}. Give the path of the checkout you work on as "
+            "`checkout` to a code tool: the tool opens it, with the nearest index "
+            "from Kairos when it has no local one."
         )
     else:
         lines.append(
-            "No checkout of this session has a local index yet: call `fetch_index` "
-            "with the path of the checkout you work on."
+            "This folder is not a checkout. Give the path of the checkout you work "
+            "on as `checkout` to a code tool, or call `fetch_index` with it as `root`."
         )
     return "\n".join(lines)
 
 
 def subagent(payload):
     checkouts = session_checkouts(cwd_of(payload))
-    # The log goes to the state folder of a checkout with an index; a folder
-    # with none gets no state folder.
+    # The log goes to the state folder of the first checkout; a folder with
+    # no checkout gets no state folder.
     if checkouts:
-        log_call(index_update.state_dir(checkouts[0]), payload, "-", True)
+        log_call(index_update.state_dir(checkouts[0][0]), payload, "-", True)
     json.dump(context("SubagentStart", subagent_text(checkouts)), sys.stdout)
 
 

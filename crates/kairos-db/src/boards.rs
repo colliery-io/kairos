@@ -255,6 +255,13 @@ pub enum BoardError {
          An admin of the board must add a column first."
     )]
     NoOpenColumn { task: String, board_id: Uuid },
+    /// [`move_task_back`] (KAIROS-T-0774): no column of the board leads
+    /// into the column of the item (it is the entry column).
+    #[error(
+        "{item} is in the column {column}, and no column of its board comes before it. \
+         There is no column to move it back to."
+    )]
+    NoColumnBack { item: String, column: String },
     /// Any other database error.
     #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
@@ -1482,6 +1489,133 @@ pub fn reopen_task(
             to_column,
             to_column_id,
             was_cancelled,
+        })
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Moving an item back one column (KAIROS-T-0774, COLLIERY-I-0678)
+// ---------------------------------------------------------------------------
+
+/// The column before `from_column_id` on its board: the live column that
+/// is not done, that has a transition INTO `from_column_id`, and that comes
+/// first by position. On a seeded delivery board that is Todo for Active
+/// (not Blocked) and Backlog for Todo; on a seeded initiative board it is
+/// the column before in the flow. `None` when no column leads into it
+/// (the entry column), or when `from_column_id` is done: a done item comes
+/// back by a reopen or by a transition of the board, not by a move back.
+pub fn back_column(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+    from_column_id: Uuid,
+) -> Result<Option<(Uuid, String)>, DieselError> {
+    use crate::schema::{board_columns, board_transitions};
+    let from_done: Option<bool> = board_columns::table
+        .filter(board_columns::id.eq(from_column_id))
+        .select(board_columns::is_done)
+        .first(conn)
+        .optional()?;
+    if from_done != Some(false) {
+        return Ok(None);
+    }
+    board_transitions::table
+        .inner_join(
+            board_columns::table.on(board_columns::id.eq(board_transitions::from_column_id)),
+        )
+        .filter(board_transitions::board_id.eq(board_id))
+        .filter(board_transitions::to_column_id.eq(from_column_id))
+        .filter(board_columns::is_done.eq(false))
+        .filter(board_columns::deleted_at.is_null())
+        .order((board_columns::position.asc(), board_columns::id.asc()))
+        .select((board_columns::id, board_columns::name))
+        .first(conn)
+        .optional()
+}
+
+/// The result of [`move_task_back`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovedBack {
+    pub short_code: String,
+    pub from_column: String,
+    pub to_column: String,
+    pub to_column_id: Uuid,
+    /// The claim that the move ended (a move out of Active), if any.
+    pub ended_claim: Option<Uuid>,
+}
+
+/// Move a live task back one column ([`back_column`]): Active → Todo,
+/// Todo → Backlog. A false start goes back with no transition of the board
+/// (KAIROS-T-0774). A move out of a claims column ends the claim, as each
+/// move does. A task in a done column comes back by [`reopen_task`]
+/// (KAIROS-A-0048). The rule of who may do it is on the server. One
+/// transaction.
+pub fn move_task_back(
+    conn: &mut PgConnection,
+    task_id: Uuid,
+    actor_id: Uuid,
+) -> Result<MovedBack, BoardError> {
+    conn.transaction::<_, BoardError, _>(|conn| {
+        use crate::schema::{board_columns, tasks};
+
+        // KAIROS-T-0534: the lock holds a second move of the task until
+        // this one commits.
+        let row: Option<(String, Uuid, Uuid)> = tasks::table
+            .filter(tasks::id.eq(task_id))
+            .filter(tasks::deleted_at.is_null())
+            .select((tasks::short_code, tasks::board_id, tasks::column_id))
+            .for_update()
+            .first(conn)
+            .optional()?;
+        let (short_code, board_id, from_column_id) = row.ok_or(BoardError::ItemNotFound {
+            entity_type: "task",
+            id: task_id,
+        })?;
+        let (from_column, from_done): (String, bool) = board_columns::table
+            .filter(board_columns::id.eq(from_column_id))
+            .select((board_columns::name, board_columns::is_done))
+            .first(conn)?;
+        if from_done {
+            return Err(BoardError::TaskDone {
+                task: short_code,
+                column: from_column,
+            });
+        }
+        let (to_column_id, to_column) =
+            back_column(conn, board_id, from_column_id)?.ok_or_else(|| {
+                BoardError::NoColumnBack {
+                    item: short_code.clone(),
+                    column: from_column.clone(),
+                }
+            })?;
+        let ended_claim = crate::task_claims::claim_of(conn, task_id)?.map(|c| c.user_id);
+        crate::board_policy::check_task_move(conn, task_id, to_column_id)?;
+
+        diesel::update(tasks::table.filter(tasks::id.eq(task_id)))
+            .set((
+                tasks::column_id.eq(to_column_id),
+                tasks::updated_by.eq(actor_id),
+                tasks::updated_at.eq(diesel::dsl::now),
+            ))
+            .execute(conn)?;
+        after_column_move(
+            conn,
+            "task",
+            task_id,
+            (from_column_id, &from_column),
+            (to_column_id, &to_column),
+            actor_id,
+            "move_back",
+        )?;
+        let ended_claim = match ended_claim {
+            Some(user) if crate::task_claims::claim_of(conn, task_id)?.is_none() => Some(user),
+            _ => None,
+        };
+        Ok(MovedBack {
+            short_code,
+            from_column,
+            to_column,
+            to_column_id,
+            ended_claim,
         })
     })
 }

@@ -50,6 +50,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/tasks/{short_code}/release", post(release_task))
         .route("/api/tasks/{short_code}/cancel", post(cancel_task))
         .route("/api/tasks/{short_code}/reopen", post(reopen_task))
+        .route("/api/tasks/{short_code}/back", post(move_task_back))
         .route("/api/tasks/{short_code}/purge", post(purge_task))
         .route("/api/tasks/{short_code}/work-class", post(set_work_class))
         .route(
@@ -981,6 +982,17 @@ pub(crate) async fn transition_task(
         .run(&tenant.slug, move |conn| {
             crate::api::idempotency::run(conn, keyed, StatusCode::OK, |conn| {
                 let task = load(conn, &short_code, Liveness::LiveOnly)?;
+                // KAIROS-T-0774: a move to the column before is a move back,
+                // with its own rule (the claimant or a board manager). The
+                // board drags a card back through this route.
+                if boards::back_column(conn, task.board_id, task.column_id)
+                    .map_err(ApiError::internal)?
+                    .is_some_and(|(id, _)| id == to_column_id)
+                {
+                    crate::move_back::move_back(conn, &auth, &slug, task.id, task.board_id)?;
+                    let task = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
+                    return embed(conn, task);
+                }
                 // NOT an edit (COLLIERY-T-0228): creation grants no right here.
                 // The creator of an item needs this capability as all others do,
                 // because a team controls its own plan (COLLIERY-T-0218).
@@ -1269,6 +1281,46 @@ pub(crate) async fn reopen_task(
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
             crate::reopen::reopen(conn, &slug, task.id, task.board_id, user)?;
+            let task = load(conn, &task.short_code, Liveness::LiveOnly)?.into_dto();
+            embed(conn, task)
+        })
+        .await?;
+    Ok(Json(task))
+}
+
+/// Move a task back one column (KAIROS-T-0774): Active → Todo, Todo →
+/// Backlog, after a false start. The target is the first column, by
+/// position, with a transition into the column of the task. The board
+/// needs no transition for the move. A move out of Active ends the claim.
+/// No body.
+///
+/// Requires `transition_items` on the board. Only the claimant moves a
+/// claimed task back. A board manager (`configure_boards`) can move back
+/// the task of a different person. A done task comes back by a reopen.
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{short_code}/back",
+    tag = "tasks",
+    params(("short_code" = String, Path, description = "Task short code")),
+    responses(
+        (status = 200, description = "Moved back: the task is in the column before", body = dto::Task),
+        (status = 403, description = "Missing capability, or CLAIMED (a different person has the claim, and the caller is not a board manager)", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 422, description = "TASK_DONE (reopen it instead), or NO_COLUMN_BACK (no column comes before)", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn move_task_back(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+) -> Result<Json<dto::Task>, ApiError> {
+    let slug = tenant.slug.clone();
+    let task = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
+            crate::move_back::move_back(conn, &auth, &slug, task.id, task.board_id)?;
             let task = load(conn, &task.short_code, Liveness::LiveOnly)?.into_dto();
             embed(conn, task)
         })

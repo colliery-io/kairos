@@ -34,6 +34,7 @@ pub mod local_auth;
 pub mod login;
 pub mod metrics;
 pub mod middleware;
+pub mod move_back;
 pub mod owners;
 pub mod pages;
 pub mod periodic;

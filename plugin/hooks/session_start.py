@@ -499,10 +499,10 @@ def cli_note(cli, server, plugin=None):
     )
 
 
-def build_context(values, status, note=None, checkouts=None):
-    """The full additionalContext text (pure; testable). `checkouts`: the
-    list of `board_checkouts` in a board folder. Each value names its
-    source (`values.sources` of a Wiring, KAIROS-T-0708)."""
+def wiring_lines(values):
+    """The lines of the wiring, each value with its source (pure;
+    testable). The session start and the SubagentStart hook give them
+    (KAIROS-T-0771)."""
     sources = getattr(values, "sources", None) or {}
     lines = [
         "Kairos wiring for this folder (the source of each value is in "
@@ -514,6 +514,14 @@ def build_context(values, status, note=None, checkouts=None):
             lines.append(f"- {key}: {value} [{sources[key]}]")
         else:
             lines.append(f"- {key}: {value or '(not set)'}")
+    return lines
+
+
+def build_context(values, status, note=None, checkouts=None):
+    """The full additionalContext text (pure; testable). `checkouts`: the
+    list of `board_checkouts` in a board folder. Each value names its
+    source (`values.sources` of a Wiring, KAIROS-T-0708)."""
+    lines = wiring_lines(values)
     lines.append(f"- status: {status}")
     if note:
         lines.append(note)

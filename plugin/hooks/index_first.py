@@ -46,6 +46,8 @@ if HERE not in sys.path:
 
 import git_guard  # noqa: E402  (words_of)
 import index_update  # noqa: E402  (state_dir, checkout_top, has_index, texts)
+import kairos_rules  # noqa: E402  (the rules text)
+import session_start  # noqa: E402  (the wiring)
 
 SEARCHERS = ("grep", "egrep", "fgrep", "rg", "ag", "ack", "find", "fd")
 # The options of grep, rg, ag, ack and fd that take a value as the next word.
@@ -465,13 +467,43 @@ def subagent_text(checkouts):
     return "\n".join(lines)
 
 
+LEAD = (
+    "You work for a lead agent: report what you find to it, and work the "
+    "Kairos items that its brief names."
+)
+RULES_HEADING = "Kairos rules (once per session, from the kairos plugin):"
+
+
+def kairos_context(folder):
+    """The wiring and the Kairos rules for a subagent (KAIROS-T-0771): the
+    same functions as the session start, without its lines for the main
+    agent (the probe of the deployment, the CLI line, the clones, the call
+    of `my_boards`). Empty when nothing wires the folder."""
+    try:
+        values = session_start.wiring(folder)
+    except Exception:  # noqa: BLE001  (the hook never fails)
+        return []
+    if not values or values.error:
+        return []
+    rules = kairos_rules.build_context(values.get("deployment_url", ""))
+    rules = rules.replace(RULES_HEADING, "Kairos rules (from the kairos plugin):", 1)
+    return session_start.wiring_lines(values) + [rules]
+
+
+def subagent_context(folder, checkouts):
+    """The full SubagentStart text: the wiring, the rules, the code index
+    text and the lead line. The same for each agent type."""
+    return "\n".join(kairos_context(folder) + [subagent_text(checkouts), LEAD])
+
+
 def subagent(payload):
-    checkouts = session_checkouts(cwd_of(payload))
+    folder = cwd_of(payload)
+    checkouts = session_checkouts(folder)
     # The log goes to the state folder of the first checkout; a folder with
     # no checkout gets no state folder.
     if checkouts:
         log_call(index_update.state_dir(checkouts[0][0]), payload, "-", True)
-    json.dump(context("SubagentStart", subagent_text(checkouts)), sys.stdout)
+    json.dump(context("SubagentStart", subagent_context(folder, checkouts)), sys.stdout)
 
 
 def main():

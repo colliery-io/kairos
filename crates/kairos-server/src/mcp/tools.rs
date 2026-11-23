@@ -242,6 +242,9 @@ pub struct SetBoardPolicyParams {
     /// move into a claims column or a done column (BLOCKED). False: the
     /// move goes on with a warning.
     pub blockers_gate: Option<bool>,
+    /// An initiative board only (KAIROS-T-0779): past this many tasks (1 to
+    /// 1000; 15 by default), Kairos asks whether an initiative is too big.
+    pub size_warning: Option<i32>,
 }
 
 /// `delete_dispatch_rule` (KAIROS-T-0385).
@@ -2744,6 +2747,7 @@ impl KairosMcp {
                     parent_gate: params.parent_gate,
                     owner_gate: params.owner_gate,
                     blockers_gate: params.blockers_gate,
+                    size_warning: params.size_warning,
                 },
             )?;
             Ok(format!(
@@ -9148,8 +9152,10 @@ fn policy_text(board: &Board) -> Option<String> {
             if board.blockers_gate { "on" } else { "off" }
         )),
         BoardLevel::Initiative => Some(format!(
-            "owner_gate {} (an initiative moves to Active only with an owner)",
-            if board.owner_gate { "on" } else { "off" }
+            "owner_gate {} (an initiative moves to Active only with an owner); size_warning {} \
+             (past this many tasks, Kairos asks whether an initiative is too big)",
+            if board.owner_gate { "on" } else { "off" },
+            board.size_warning
         )),
         _ => None,
     }
@@ -9857,6 +9863,10 @@ fn create_item_impl(
         )?;
         graph::link_items(conn, parent.id, created_id, relationship, user)
             .map_err(map_graph_error)?;
+        // KAIROS-T-0779: a new task of an initiative: its size.
+        if item_type == ItemType::Task {
+            crate::claims::note_size(conn, parent.id)?;
+        }
         // KAIROS-T-0641: a create into a claims column is a move into it.
         // The entry column can have the flag; the parent edge exists now.
         if item_type == ItemType::Task {

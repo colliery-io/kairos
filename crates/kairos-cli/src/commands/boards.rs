@@ -116,7 +116,9 @@ pub enum BoardsCommand {
     /// moves to a claims column only while its parent initiative is active.
     /// owner_gate (an initiative board): an initiative moves to Active only
     /// with an owner. blockers_gate (a delivery board, KAIROS-T-0565): a task
-    /// with an open blocker cannot move to a claims or done column
+    /// with an open blocker cannot move to a claims or done column.
+    /// size_warning (an initiative board, KAIROS-T-0779): past this many
+    /// tasks, Kairos asks whether an initiative is too big
     Policy {
         /// Board slug or id (UUID)
         #[arg(value_name = "BOARD")]
@@ -130,6 +132,9 @@ pub enum BoardsCommand {
         /// on or off
         #[arg(long, value_name = "on|off", value_parser = ["on", "off"])]
         blockers_gate: Option<String>,
+        /// 1 to 1000 tasks (an initiative board)
+        #[arg(long, value_name = "TASKS", value_parser = clap::value_parser!(i32).range(1..=1000))]
+        size_warning: Option<i32>,
         #[command(flatten)]
         common: Common,
     },
@@ -440,6 +445,7 @@ impl BoardsCommand {
                 parent_gate,
                 owner_gate,
                 blockers_gate,
+                size_warning,
                 common,
             } => {
                 let client = client(&common)?;
@@ -447,7 +453,11 @@ impl BoardsCommand {
                 let parent_gate = parent_gate.map(|v| v == "on");
                 let owner_gate = owner_gate.map(|v| v == "on");
                 let blockers_gate = blockers_gate.map(|v| v == "on");
-                if parent_gate.is_some() || owner_gate.is_some() || blockers_gate.is_some() {
+                if parent_gate.is_some()
+                    || owner_gate.is_some()
+                    || blockers_gate.is_some()
+                    || size_warning.is_some()
+                {
                     current = client
                         .update_board(
                             &current.id,
@@ -455,6 +465,7 @@ impl BoardsCommand {
                                 parent_gate,
                                 owner_gate,
                                 blockers_gate,
+                                size_warning,
                                 ..UpdateBoardRequest::default()
                             },
                         )
@@ -540,6 +551,12 @@ fn policy_text(board: &kairos_client::types_org::Board) -> String {
         lines.push(format!(
             "owner_gate: {} (an initiative moves to Active only with an owner)",
             on_off(on)
+        ));
+    }
+    if let Some(size) = board.size_warning {
+        lines.push(format!(
+            "size_warning: {size} (past this many tasks, Kairos asks whether an initiative is \
+             too big)"
         ));
     }
     if lines.is_empty() {
@@ -914,6 +931,7 @@ mod policy_tests {
             parent_gate: Some(true),
             owner_gate: None,
             blockers_gate: Some(false),
+            size_warning: None,
             created_at: String::new(),
             updated_at: String::new(),
         };

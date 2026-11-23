@@ -284,6 +284,44 @@ pub async fn delete_json<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<
     decode_response(auth, token, path, response).await
 }
 
+// The `Kairos-Warning` values of the last response (KAIROS-T-0779).
+thread_local! {
+    static LAST_WARNINGS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The `Kairos-Warning` values of the last response, taken (KAIROS-T-0779):
+/// a page shows them after a write (the size of an initiative, a WIP
+/// limit, open blockers, a claim of a different person).
+pub fn take_warnings() -> Vec<String> {
+    LAST_WARNINGS.with(|cell| std::mem::take(&mut *cell.borrow_mut()))
+}
+
+/// The values of a `Kairos-Warning` header: the browser joins several
+/// values with `, `, and each value names a code, so a split at `, ` that
+/// starts a new code is safe enough. Pure, host-tested.
+pub(crate) fn split_warnings(header: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for part in header.split(", ") {
+        // A new value starts with a code and the verb of a warning.
+        let mut words = part.split_whitespace();
+        let starts_code = words
+            .next()
+            .is_some_and(|w| w.contains("-T-") || w.contains("-I-"))
+            && words
+                .next()
+                .is_some_and(|w| matches!(w, "has" | "moved" | "claimed"));
+        match out.last_mut() {
+            Some(last) if !starts_code => {
+                last.push_str(", ");
+                last.push_str(part);
+            }
+            _ => out.push(part.to_string()),
+        }
+    }
+    out.retain(|w| !w.trim().is_empty());
+    out
+}
+
 /// The shared response tail of every `*_json` helper: 401 clears the
 /// session (the protected shell then re-runs the login redirect), non-2xx
 /// maps through the S-0005 envelope, 2xx JSON-decodes.
@@ -301,6 +339,12 @@ async fn decode_response<T: DeserializeOwned>(
     response: gloo_net::http::Response,
 ) -> Result<T, ApiError> {
     let status = response.status();
+    let warnings = response
+        .headers()
+        .get("kairos-warning")
+        .map(|h| split_warnings(&h))
+        .unwrap_or_default();
+    LAST_WARNINGS.with(|cell| *cell.borrow_mut() = warnings);
     if status == 401 && sent_token.is_some() && auth.token() == sent_token {
         // Convention: expired/invalid CURRENT token → drop the session;
         // the protected shell reacts with the issuer redirect (silent
@@ -528,6 +572,20 @@ pub struct WhoamiTeam {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0779: the values of a joined `Kairos-Warning` header.
+    #[test]
+    fn the_warnings_of_a_joined_header() {
+        let joined = "ACME-I-0001 has 16 tasks, over the size_warning 15 of its board: is it \
+                      too big?, ACME-T-0002 moved into Active, over its WIP limit (4 of 3)";
+        let got = split_warnings(joined);
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert!(got[0].starts_with("ACME-I-0001 has 16 tasks"));
+        assert!(got[1].starts_with("ACME-T-0002 moved"));
+        let blocked =
+            "ACME-T-0002 moved into Active, blocked by ACME-T-0003 (open), ACME-T-0004 (open)";
+        assert_eq!(split_warnings(blocked), [blocked]);
+    }
 
     /// COLLIERY-T-0267: a refusal keeps the field that the server names.
     #[test]

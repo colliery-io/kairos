@@ -191,12 +191,40 @@ impl BlockerWarning {
     }
 }
 
-/// One warning of a request: a claim, a WIP limit, or open blockers.
+/// An initiative with more tasks than the `size_warning` of its board
+/// (KAIROS-T-0779).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SizeWarning {
+    pub short_code: String,
+    pub size: kairos_db::board_policy::InitiativeSize,
+}
+
+impl SizeWarning {
+    /// The value of the header [`WARNING_HEADER`].
+    pub fn header_text(&self) -> String {
+        format!(
+            "{} has {} tasks, over the size_warning {} of its board: is it too big?",
+            self.short_code, self.size.tasks, self.size.warning
+        )
+    }
+
+    /// The line at the end of the text of an MCP tool.
+    pub fn mcp_text(&self) -> String {
+        format!(
+            "Warning: {}",
+            kairos_db::board_policy::size_question(&self.short_code, &self.size)
+        )
+    }
+}
+
+/// One warning of a request: a claim, a WIP limit, open blockers, or the
+/// size of an initiative.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Warning {
     Claim(ClaimWarning),
     Wip(WipWarning),
     Blockers(BlockerWarning),
+    Size(SizeWarning),
 }
 
 impl Warning {
@@ -206,6 +234,7 @@ impl Warning {
             Self::Claim(w) => w.header_text(),
             Self::Wip(w) => w.header_text(),
             Self::Blockers(w) => w.header_text(),
+            Self::Size(w) => w.header_text(),
         }
     }
 
@@ -215,6 +244,7 @@ impl Warning {
             Self::Claim(w) => w.mcp_text(),
             Self::Wip(w) => w.mcp_text(),
             Self::Blockers(w) => w.mcp_text(),
+            Self::Size(w) => w.mcp_text(),
         }
     }
 }
@@ -303,6 +333,37 @@ pub fn note(conn: &mut PgConnection, task_id: Uuid, actor: Uuid) -> Result<(), A
     {
         warnings.push(Warning::Claim(warning));
     }
+    Ok(())
+}
+
+/// Note a new child task of the item `parent_id` (KAIROS-T-0779): when the
+/// parent is an initiative with more tasks than the `size_warning` of its
+/// board, the response gets a warning. Once for each initiative in a
+/// request. Nothing outside of a request, and nothing for a parent that is
+/// not an initiative.
+pub fn note_size(conn: &mut PgConnection, parent_id: Uuid) -> Result<(), ApiError> {
+    let Some(sink) = BLOCKING_SINK.with(|cell| cell.borrow().clone()) else {
+        return Ok(());
+    };
+    let Some(size) =
+        kairos_db::board_policy::initiative_size(conn, parent_id).map_err(ApiError::internal)?
+    else {
+        return Ok(());
+    };
+    if !size.too_big() {
+        return Ok(());
+    }
+    let short_code: String = {
+        use kairos_db::schema::initiatives;
+        initiatives::table
+            .filter(initiatives::id.eq(parent_id))
+            .select(initiatives::short_code)
+            .first(conn)
+            .map_err(ApiError::internal)?
+    };
+    let mut warnings = sink.lock().unwrap_or_else(|e| e.into_inner());
+    warnings.retain(|w| !matches!(w, Warning::Size(s) if s.short_code == short_code));
+    warnings.push(Warning::Size(SizeWarning { short_code, size }));
     Ok(())
 }
 

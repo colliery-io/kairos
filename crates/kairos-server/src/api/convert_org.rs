@@ -33,6 +33,9 @@ impl IntoDto<dto::Board> for Board {
             // KAIROS-T-0565: only a delivery board reads blockers_gate.
             blockers_gate: (self.board_level == kairos_db::models::enums::BoardLevel::Delivery)
                 .then_some(self.blockers_gate),
+            // KAIROS-T-0779: only an initiative board reads size_warning.
+            size_warning: (self.board_level == kairos_db::models::enums::BoardLevel::Initiative)
+                .then_some(self.size_warning),
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
         }

@@ -565,6 +565,10 @@ pub(crate) fn link_created_parent(
     )?;
     graph::link_items(conn, parent.id, item.0, RelationshipType::Parent, user)
         .map_err(crate::api::map_graph_error)?;
+    // KAIROS-T-0779: a new task of an initiative: its size.
+    if item.1 == ItemType::Task {
+        crate::claims::note_size(conn, parent.id)?;
+    }
     Ok(())
 }
 
@@ -634,6 +638,10 @@ pub(crate) fn change_parent(
                 e @ GraphError::ParentExists { .. } => parent_exists(e, fix),
                 other => map_link_error(other),
             })?;
+        // KAIROS-T-0779: a task under a new initiative: its size.
+        if let (ItemType::Task, Some(new)) = (item_type, &new_parent) {
+            crate::claims::note_size(conn, new.id)?;
+        }
         Ok((
             dto::SetParentResponse {
                 short_code: change.item,

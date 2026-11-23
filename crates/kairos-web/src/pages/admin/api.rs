@@ -47,6 +47,20 @@ pub struct Board {
     /// `None` on each other level.
     #[serde(default)]
     pub blockers_gate: Option<bool>,
+    /// The setting `size_warning` of an initiative board (KAIROS-T-0779);
+    /// `None` on each other level.
+    #[serde(default)]
+    pub size_warning: Option<i32>,
+}
+
+/// `PATCH /api/boards/{id}` with `size_warning` (KAIROS-T-0779).
+pub async fn set_size_warning(auth: Auth, board_id: &str, size: i32) -> Result<Value, ApiError> {
+    patch_json(
+        auth,
+        &format!("/api/boards/{board_id}"),
+        &serde_json::json!({ "size_warning": size }),
+    )
+    .await
 }
 
 /// mirror of: `kairos_client::types_org::BoardColumn` (partial).

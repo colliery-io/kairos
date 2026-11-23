@@ -655,11 +655,11 @@ pub(crate) async fn update_board(
     let nothing_to_update = || {
         ApiError::validation(
             "The request has no field to change. Send one or more of name, slug, team_id, \
-             parent_gate, owner_gate and blockers_gate.",
+             parent_gate, owner_gate, blockers_gate and size_warning.",
         )
         .with_details(json!({
             "field": "name",
-            "fields": ["name", "slug", "team_id", "parent_gate", "owner_gate", "blockers_gate"],
+            "fields": ["name", "slug", "team_id", "parent_gate", "owner_gate", "blockers_gate", "size_warning"],
         }))
     };
     if body.name.is_none()
@@ -668,6 +668,7 @@ pub(crate) async fn update_board(
         && body.parent_gate.is_none()
         && body.owner_gate.is_none()
         && body.blockers_gate.is_none()
+        && body.size_warning.is_none()
     {
         return Err(nothing_to_update());
     }
@@ -688,6 +689,7 @@ pub(crate) async fn update_board(
                 && body.parent_gate.is_none()
                 && body.owner_gate.is_none()
                 && body.blockers_gate.is_none()
+                && body.size_warning.is_none()
             {
                 return Err(nothing_to_update());
             }
@@ -695,6 +697,7 @@ pub(crate) async fn update_board(
                 parent_gate: body.parent_gate,
                 owner_gate: body.owner_gate,
                 blockers_gate: body.blockers_gate,
+                size_warning: body.size_warning,
             };
             check_policies(&board, policies)?;
             // COLLIERY-T-0258: the form of a slug that the caller sent. A
@@ -763,12 +766,17 @@ pub(crate) struct PolicyChange {
     pub owner_gate: Option<bool>,
     /// `blockers_gate`, a policy of a delivery board (KAIROS-T-0565).
     pub blockers_gate: Option<bool>,
+    /// `size_warning`, a setting of an initiative board (KAIROS-T-0779).
+    pub size_warning: Option<i32>,
 }
 
 impl PolicyChange {
     /// True when the request sends no policy.
     pub(crate) fn is_empty(self) -> bool {
-        self.parent_gate.is_none() && self.owner_gate.is_none() && self.blockers_gate.is_none()
+        self.parent_gate.is_none()
+            && self.owner_gate.is_none()
+            && self.blockers_gate.is_none()
+            && self.size_warning.is_none()
     }
 }
 
@@ -798,6 +806,22 @@ pub(crate) fn check_policies(board: &Board, change: PolicyChange) -> Result<(), 
             board.slug, board.board_level
         ))
         .with_details(json!({ "field": "blockers_gate" })));
+    }
+    if let Some(size) = change.size_warning {
+        if board.board_level != BoardLevel::Initiative {
+            return Err(ApiError::validation(format!(
+                "The board {} is a {} board. size_warning is a setting of an initiative board \
+                 only. Leave out size_warning.",
+                board.slug, board.board_level
+            ))
+            .with_details(json!({ "field": "size_warning" })));
+        }
+        if !(1..=1000).contains(&size) {
+            return Err(ApiError::validation(format!(
+                "size_warning is {size}. Send a number from 1 to 1000."
+            ))
+            .with_details(json!({ "field": "size_warning" })));
+        }
     }
     Ok(())
 }
@@ -854,6 +878,20 @@ pub(crate) fn apply_policies(
         )?;
         changed = true;
     }
+    if let Some(size) = change.size_warning
+        && kairos_db::board_policy::set_size_warning(conn, board.id, size)
+            .map_err(ApiError::internal)?
+    {
+        log_activity(
+            conn,
+            user,
+            ActivityAction::BoardConfig,
+            board.id,
+            "board",
+            format!("size_warning:{size}"),
+        )?;
+        changed = true;
+    }
     Ok(changed)
 }
 
@@ -870,11 +908,12 @@ pub(crate) fn set_board_policy_as(
     require_capability(conn, slug, Some(board.id), user, CONFIGURE)?;
     if change.is_empty() {
         return Err(ApiError::validation(
-            "The request has no policy to set. Send parent_gate, owner_gate or blockers_gate.",
+            "The request has no policy to set. Send parent_gate, owner_gate, blockers_gate or \
+             size_warning.",
         )
         .with_details(json!({
             "field": "parent_gate",
-            "fields": ["parent_gate", "owner_gate", "blockers_gate"],
+            "fields": ["parent_gate", "owner_gate", "blockers_gate", "size_warning"],
         })));
     }
     check_policies(&board, change)?;

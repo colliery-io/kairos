@@ -1404,6 +1404,17 @@ An initiative on a board or in a search (KAIROS-T-0602).
 | `updated_by` | `string`, nullable | no | Last editor user id (UUID). Only with `fields=full` on the board route. |
 | `version` | `integer` | yes | Optimistic-concurrency version (KAIROS-A-0004). |
 
+## InitiativeMoveBack
+
+What a move back of an initiative does, or did (KAIROS-T-0775): `GET /api/initiatives/{short_code}/back` gives it before the move, `POST` gives it after.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `from_column` | `string` | yes |  |
+| `short_code` | `string` | yes |  |
+| `tasks` | array of [`MoveBackTask`](#movebacktask) | yes | The Todo and Active tasks of the initiative. Blocked, completed and cancelled tasks stay, and are not in the list. |
+| `to_column` | `string` | yes |  |
+
 ## IssueImport
 
 An import of the open issues of a repository (KAIROS-T-0487). It is a job of the job queue. `POST` and `GET /api/repositories/{slug}/import-issues` give it.
@@ -1974,6 +1985,18 @@ One typed metadata value on an item, hydrated with its definition.
 | `slug` | `string` | yes | The definition's slug (the PATCH key). |
 | `value` | `string` | yes | The stored value. |
 
+## MoveBackTask
+
+One task that a move back of its initiative takes to Backlog (KAIROS-T-0775).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `claimant` | `string`, nullable | no | The person who has the claim now: the claim ends with the move. |
+| `from_column` | `string` | yes | The column of the task now. |
+| `short_code` | `string` | yes |  |
+| `title` | `string` | yes |  |
+| `to_column` | `string` | yes | The entry column of its board (Backlog). |
+
 ## MoveTaskRequest
 
 Body of `POST /api/tasks/{short_code}/move` (KAIROS-I-0012): the delivery board to move the task to, by slug or UUID. It lands in that board's entry column and follows its team.
@@ -2039,7 +2062,7 @@ One notification of the caller (KAIROS-T-0382).
 | `created_at` | `string` | yes | When Kairos made the notification (RFC 3339). |
 | `entity_type` | `string`, nullable | no | `strategy|initiative|task|document|adr`; `null` when the item is gone. |
 | `id` | `string` | yes | The id (UUID). `POST /api/me/notifications/read` takes it. |
-| `kind` | `string` | yes | `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch|notice`. |
+| `kind` | `string` | yes | `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch|notice|moved_back`. |
 | `read_at` | `string`, nullable | no | When the person read it (RFC 3339); `null` while unread. |
 | `short_code` | `string`, nullable | no | The code of the item now; `null` when the item is gone. |
 | `text` | `string` | yes | What happened, in one sentence or two. |
@@ -2071,6 +2094,7 @@ One notification of the caller (KAIROS-T-0382).
 | `hand_off` | `boolean` | yes | A person handed off the claim of a task to you. |
 | `key_expiring` | `boolean` | yes | An agent key of yours, or a key of a service account of your organization (you are an admin), expires within 7 days (KAIROS-T-0540). |
 | `mention` | `boolean` | yes | A person wrote `@your_user_name` in a note or in the content of an item. |
+| `moved_back` | `boolean` | no | A person moved an initiative back, and its tasks went back to Backlog (KAIROS-T-0775). The default is for the client only: a response of an older server has no `moved_back`. |
 | `muted_keys` | array of [`MutedKey`](#mutedkey) | yes | The agent keys that you muted: a notice from one of them, or from a key that replaced one of them, makes no notification for you (KAIROS-T-0737). |
 | `notice` | `boolean` | yes | A person, or an agent key of a person, sent you a notice: to you, or to a team of yours (KAIROS-T-0737). |
 | `p0_bug` | `boolean` | yes | A bug with the priority P0 (critical) is on the board of your team. |
@@ -3461,6 +3485,7 @@ The server refuses a body with a field that is not in this table ([Errors](../..
 | `hand_off` | `boolean`, nullable | no |  |
 | `key_expiring` | `boolean`, nullable | no |  |
 | `mention` | `boolean`, nullable | no |  |
+| `moved_back` | `boolean`, nullable | no |  |
 | `mute_keys` | `array`, nullable | no | Agent keys to mute (ids). A notice from a muted key makes no notification for you (KAIROS-T-0737). |
 | `notice` | `boolean`, nullable | no |  |
 | `p0_bug` | `boolean`, nullable | no |  |

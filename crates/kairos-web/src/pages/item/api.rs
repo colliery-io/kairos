@@ -1349,6 +1349,44 @@ pub async fn cancel_task(auth: Auth, code: &str, reason: &str) -> Result<ItemDet
     .await
 }
 
+/// mirror of: `kairos_client::types::MoveBackTask` (KAIROS-T-0775).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct MoveBackTask {
+    pub short_code: String,
+    pub title: String,
+    pub from_column: String,
+    pub to_column: String,
+    #[serde(default)]
+    pub claimant: Option<String>,
+}
+
+/// mirror of: `kairos_client::types::InitiativeMoveBack` (KAIROS-T-0775).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct InitiativeMoveBack {
+    pub short_code: String,
+    pub from_column: String,
+    pub to_column: String,
+    #[serde(default)]
+    pub tasks: Vec<MoveBackTask>,
+}
+
+/// The path of the move back of an initiative (KAIROS-T-0775). Pure,
+/// host-tested.
+pub(crate) fn initiative_back_path(code: &str) -> String {
+    format!("/api/initiatives/{code}/back")
+}
+
+/// `GET /api/initiatives/{short_code}/back` — what a move back will do.
+pub async fn initiative_back_plan(auth: Auth, code: &str) -> Result<InitiativeMoveBack, ApiError> {
+    crate::api::get_json(auth, &initiative_back_path(code)).await
+}
+
+/// `POST /api/initiatives/{short_code}/back` — move the initiative back,
+/// and its Todo and Active tasks to Backlog.
+pub async fn move_initiative_back(auth: Auth, code: &str) -> Result<InitiativeMoveBack, ApiError> {
+    send_json(auth, Verb::Post, &initiative_back_path(code), None::<&()>).await
+}
+
 /// The path of a move back (KAIROS-T-0774). Pure, host-tested.
 pub(crate) fn back_path(code: &str) -> String {
     format!("/api/tasks/{code}/back")

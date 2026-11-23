@@ -1259,6 +1259,10 @@ write. The tool writes the item and its edge in one transaction. No item,
 history, activity or event stays behind. The tool does not use the short code
 number of that create again.
 
+The answer of a new initiative ends with the line `Guidance:`
+(KAIROS-T-0780). It asks for one objective and the work that delivers it.
+The web form of a new initiative shows the same words.
+
 ### `update_item`
 
 Replaces an item's full content, and optionally its title, under optimistic
@@ -2306,6 +2310,11 @@ The refusal for a task says how to link a task:
 ```text
 RELATIONSHIP_RULE: ACME-T-0012 is a task. Only a document or an ADR can impact a repository. A task links to a repository. To link ACME-T-0012 to a repository, use the tool set_repository.
 ```
+
+A `blocks` edge between two tasks of two initiatives gets the line
+`Warning:` (KAIROS-T-0780). The line names each task and its initiative. It
+asks whether the task belongs in the other initiative, or whether the
+dependency is real. REST gives the same text in the header `Kairos-Warning`.
 
 ### `unlink_items`
 

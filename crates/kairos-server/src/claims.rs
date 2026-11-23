@@ -217,14 +217,47 @@ impl SizeWarning {
     }
 }
 
-/// One warning of a request: a claim, a WIP limit, open blockers, or the
-/// size of an initiative.
+/// A `blocks` edge between tasks of two initiatives (KAIROS-T-0780).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrossWarning(pub kairos_db::board_policy::CrossInitiative);
+
+impl CrossWarning {
+    /// The value of the header [`WARNING_HEADER`].
+    pub fn header_text(&self) -> String {
+        let c = &self.0;
+        format!(
+            "{} has a blocks edge to {}, a task of the other initiative {} (its own: {}): does \
+             it belong in {}?",
+            c.source, c.target, c.target_initiative, c.source_initiative, c.target_initiative
+        )
+    }
+
+    /// The line at the end of the text of an MCP tool.
+    pub fn mcp_text(&self) -> String {
+        let c = &self.0;
+        format!(
+            "Warning: {} (of {}) blocks {} (of {}). The two tasks are in two initiatives. Does \
+             {} belong in {}, or is the dependency real? A real dependency is a blocks edge \
+             between the two initiatives too.",
+            c.source,
+            c.source_initiative,
+            c.target,
+            c.target_initiative,
+            c.source,
+            c.target_initiative
+        )
+    }
+}
+
+/// One warning of a request: a claim, a WIP limit, open blockers, the
+/// size of an initiative, or work across two initiatives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Warning {
     Claim(ClaimWarning),
     Wip(WipWarning),
     Blockers(BlockerWarning),
     Size(SizeWarning),
+    Cross(CrossWarning),
 }
 
 impl Warning {
@@ -235,6 +268,7 @@ impl Warning {
             Self::Wip(w) => w.header_text(),
             Self::Blockers(w) => w.header_text(),
             Self::Size(w) => w.header_text(),
+            Self::Cross(w) => w.header_text(),
         }
     }
 
@@ -245,6 +279,7 @@ impl Warning {
             Self::Wip(w) => w.mcp_text(),
             Self::Blockers(w) => w.mcp_text(),
             Self::Size(w) => w.mcp_text(),
+            Self::Cross(w) => w.mcp_text(),
         }
     }
 }
@@ -332,6 +367,27 @@ pub fn note(conn: &mut PgConnection, task_id: Uuid, actor: Uuid) -> Result<(), A
         .any(|w| matches!(w, Warning::Claim(c) if c.short_code == warning.short_code))
     {
         warnings.push(Warning::Claim(warning));
+    }
+    Ok(())
+}
+
+/// Note a new `blocks` edge from the task `source_id` to the task
+/// `target_id` (KAIROS-T-0780): when the two tasks are in two initiatives,
+/// the response gets a warning that asks why. Nothing outside of a request.
+pub fn note_cross(
+    conn: &mut PgConnection,
+    source_id: Uuid,
+    target_id: Uuid,
+) -> Result<(), ApiError> {
+    let Some(sink) = BLOCKING_SINK.with(|cell| cell.borrow().clone()) else {
+        return Ok(());
+    };
+    if let Some(cross) = kairos_db::board_policy::cross_initiative(conn, source_id, target_id)
+        .map_err(ApiError::internal)?
+    {
+        sink.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Warning::Cross(CrossWarning(cross)));
     }
     Ok(())
 }

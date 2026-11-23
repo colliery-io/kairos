@@ -9885,6 +9885,13 @@ fn create_item_impl(
             renamed_lines(&[&parent])
         ));
     }
+    // KAIROS-T-0780: the guidance of a new initiative.
+    if item_type == ItemType::Initiative {
+        out.push_str(&format!(
+            "\nGuidance: {}",
+            kairos_db::board_policy::INITIATIVE_GUIDANCE
+        ));
+    }
     Ok(out)
 }
 

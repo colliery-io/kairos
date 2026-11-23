@@ -1487,6 +1487,59 @@ pub fn reopen_task(
 }
 
 // ---------------------------------------------------------------------------
+// The tasks of an initiative that a team change leaves behind (KAIROS-T-0777)
+// ---------------------------------------------------------------------------
+
+/// One open task of an initiative that is not on the board of a team.
+#[derive(Debug, Clone, PartialEq, Eq, QueryableByName)]
+pub struct TaskOffTeam {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub short_code: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub title: String,
+    /// The slug of the board of the task now.
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub board: String,
+}
+
+/// The open child tasks of the item (live, in a column that is not done)
+/// whose board is not a board of the team `team_id`, by short code
+/// (KAIROS-T-0777). Completed and cancelled tasks are not in the list:
+/// they stay on their board.
+pub fn tasks_off_team(
+    conn: &mut PgConnection,
+    item_id: Uuid,
+    team_id: Uuid,
+) -> Result<Vec<TaskOffTeam>, DieselError> {
+    diesel::sql_query(
+        "SELECT t.short_code, t.title, b.slug AS board \
+           FROM item_relationships r \
+           JOIN tasks t ON t.id = r.target_id AND t.deleted_at IS NULL \
+           JOIN board_columns c ON c.id = t.column_id \
+           JOIN boards b ON b.id = t.board_id \
+          WHERE r.source_id = $1 AND r.relationship = 'parent' \
+            AND NOT c.is_done \
+            AND b.team_id IS DISTINCT FROM $2 \
+          ORDER BY t.short_code",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(item_id)
+    .bind::<diesel::sql_types::Uuid, _>(team_id)
+    .load(conn)
+}
+
+/// The slug of the delivery board of the team (the oldest live one), or
+/// `None` when the team has none (KAIROS-T-0777).
+pub fn team_delivery_board(
+    conn: &mut PgConnection,
+    team_id: Uuid,
+) -> Result<Option<String>, DieselError> {
+    Ok(live_delivery_boards(conn, team_id)?
+        .into_iter()
+        .next()
+        .map(|board| board.slug))
+}
+
+// ---------------------------------------------------------------------------
 // Moving a task to another delivery board (KAIROS-I-0012)
 // ---------------------------------------------------------------------------
 

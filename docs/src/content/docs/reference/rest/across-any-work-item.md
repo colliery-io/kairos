@@ -445,6 +445,26 @@ The edit rule of the item applies. The team can be archived.
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown family or short code, or the team is not set on the item by hand |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | RELATIONSHIP_RULE: the item is not an initiative and not a strategy |
 
+### `GET /api/{entity_type}/{short_code}/teams/{team}/open-tasks`
+
+The open tasks of an initiative that are not on a board of the team,
+and the delivery board of the team (KAIROS-T-0777). After a team
+change, the web asks whether to move them to that board too
+(`POST /api/tasks/move`). Completed and cancelled tasks are not in the
+list. Each person in the tenant can read it.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `entity_type` | path | yes | `string` | Plural family name (initiatives|strategies) |
+| `short_code` | path | yes | `string` | Item short code |
+| `team` | path | yes | `string` | Team slug or UUID |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`OpenTasksOffTeam`](../schemas/#opentasksoffteam) | The open tasks off the team, and the board of the team |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown family, short code or team |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | RELATIONSHIP_RULE: the item is not an initiative and not a strategy |
+
 ## metadata
 
 ### `GET /api/{entity_type}/{short_code}/metadata`

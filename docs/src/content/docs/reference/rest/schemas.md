@@ -1556,7 +1556,7 @@ Response of `GET /api/{entity_type}/{short_code}/relationships`: both directions
 
 ## ItemTeam
 
-One team of an initiative or a strategy (KAIROS-T-0321). The item gets the team from its tasks, or a person sets it by hand, or both. A task gives the team of its board. A strategy reads two levels down. A team gives no right on the item.
+gives no right on the item.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -2106,6 +2106,26 @@ One notification of the caller (KAIROS-T-0382).
 | `p0_bug` | `boolean` | yes | A bug with the priority P0 (critical) is on the board of your team. |
 | `proposal_decided` | `boolean` | yes | A person confirmed or rejected an edge proposal that you made (KAIROS-T-0558). |
 | `watch` | `boolean` | yes | An item that you watch, or a child of an item that you watch with its children, moved, was edited, got a note, or is done (KAIROS-T-0736). |
+
+## OpenTaskOffTeam
+
+One team of an initiative or a strategy (KAIROS-T-0321). The item gets the team from its tasks, or a person sets it by hand, or both. A task gives the team of its board. A strategy reads two levels down. A team One open task of an initiative that is not on the board of a team (KAIROS-T-0777).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `board` | `string` | yes | The slug of the board of the task now. |
+| `short_code` | `string` | yes |  |
+| `title` | `string` | yes |  |
+
+## OpenTasksOffTeam
+
+The open tasks of an initiative that are not on the board of a team, and the delivery board of the team (KAIROS-T-0777). The web asks, after a team change, whether to move them too.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `board` | `string`, nullable | no | The slug of the delivery board of the team; `null` when the team has none. |
+| `tasks` | array of [`OpenTaskOffTeam`](#opentaskoffteam) | yes |  |
+| `team` | `string` | yes | The slug of the team. |
 
 ## OrgAgentKey
 

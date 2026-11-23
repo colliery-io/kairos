@@ -1194,6 +1194,42 @@ struct SetItemTeamBody<'a> {
 
 /// `POST /api/{family}/{short_code}/teams` — set a team on an initiative
 /// or a strategy by hand (KAIROS-T-0321).
+/// mirror of: `kairos_client::types_org::OpenTaskOffTeam` (KAIROS-T-0777).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct OpenTaskOffTeam {
+    pub short_code: String,
+    pub title: String,
+    pub board: String,
+}
+
+/// mirror of: `kairos_client::types_org::OpenTasksOffTeam` (KAIROS-T-0777).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct OpenTasksOffTeam {
+    pub team: String,
+    #[serde(default)]
+    pub board: Option<String>,
+    #[serde(default)]
+    pub tasks: Vec<OpenTaskOffTeam>,
+}
+
+/// `GET /api/{family}/{code}/teams/{team}/open-tasks` — the open tasks of
+/// an initiative that are not on a board of the team (KAIROS-T-0777).
+pub async fn open_tasks_off_team(
+    auth: Auth,
+    family: Family,
+    code: &str,
+    team: &str,
+) -> Result<OpenTasksOffTeam, ApiError> {
+    crate::api::get_json(
+        auth,
+        &format!(
+            "/api/{}/{code}/teams/{team}/open-tasks",
+            family.api_family()
+        ),
+    )
+    .await
+}
+
 pub async fn set_item_team(
     auth: Auth,
     family: Family,

@@ -57,6 +57,7 @@ const fn on(
 const NAMES: &[Name] = &[
     // References to a thing.
     one("short_code", "an item, by short code"),
+    one("short_codes", "many items, by short code (KAIROS-T-0776)"),
     one("source", "the item at the start of an edge"),
     one("target", "the item at the end of an edge"),
     on(

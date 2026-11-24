@@ -1349,6 +1349,19 @@ pub async fn cancel_task(auth: Auth, code: &str, reason: &str) -> Result<ItemDet
     .await
 }
 
+/// The path of a move back (KAIROS-T-0774). Pure, host-tested.
+pub(crate) fn back_path(code: &str) -> String {
+    format!("/api/tasks/{code}/back")
+}
+
+/// `POST /api/tasks/{short_code}/back` — move a task back one column
+/// (KAIROS-T-0774). 403 `CLAIMED` when a different person has the claim
+/// and the caller is not a board manager; 422 `TASK_DONE` or
+/// `NO_COLUMN_BACK`.
+pub async fn move_task_back(auth: Auth, code: &str) -> Result<ItemDetail, ApiError> {
+    send_json(auth, Verb::Post, &back_path(code), None::<&()>).await
+}
+
 /// The path of a reopen (KAIROS-T-0648). Pure, host-tested.
 pub(crate) fn reopen_path(code: &str) -> String {
     format!("/api/tasks/{code}/reopen")

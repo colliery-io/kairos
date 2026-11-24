@@ -56,6 +56,34 @@ pub struct BoardDetail {
     pub transitions: Vec<BoardTransition>,
 }
 
+/// The column before `column_id` (KAIROS-T-0774): the column that is not
+/// done, has a transition INTO `column_id`, and comes first by position.
+/// The same rule as `kairos_db::boards::back_column`: on a seeded delivery
+/// board, Todo for Active and Backlog for Todo. Pure, host-tested.
+pub fn back_column_id(detail: &BoardDetail, column_id: &str) -> Option<String> {
+    // A done column has no move back: a reopen or a transition.
+    if detail
+        .columns
+        .iter()
+        .any(|c| c.id == column_id && c.is_done)
+    {
+        return None;
+    }
+    let mut before: Vec<&BoardColumn> = detail
+        .columns
+        .iter()
+        .filter(|c| !c.is_done)
+        .filter(|c| {
+            detail
+                .transitions
+                .iter()
+                .any(|t| t.from_column_id == c.id && t.to_column_id == column_id)
+        })
+        .collect();
+    before.sort_by_key(|c| c.position);
+    before.first().map(|c| c.id.clone())
+}
+
 // ---- mirrors: the grouped items view --------------------------------------
 
 /// mirror of: `kairos_client::types_cards::StrategyCard` (partial).
@@ -1451,6 +1479,53 @@ pub async fn create_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0774: the column before is the first column by position
+    /// that leads into the column and is not done: Todo for Active (not
+    /// Blocked), Backlog for Todo, none for Backlog.
+    #[test]
+    fn the_column_before_is_the_first_that_leads_in() {
+        let column = |id: &str, position: i32, is_done: bool| BoardColumn {
+            id: id.into(),
+            name: id.into(),
+            position,
+            is_done,
+            wip_limit: None,
+        };
+        let edge = |from: &str, to: &str| BoardTransition {
+            from_column_id: from.into(),
+            to_column_id: to.into(),
+        };
+        let detail = BoardDetail {
+            board: Board {
+                id: "b".into(),
+                name: "Web".into(),
+                slug: "web-delivery".into(),
+                board_level: "delivery".into(),
+                team_id: None,
+            },
+            columns: vec![
+                column("Completed", 4, true),
+                column("Active", 3, false),
+                column("Blocked", 2, false),
+                column("Todo", 1, false),
+                column("Backlog", 0, false),
+            ],
+            transitions: vec![
+                edge("Backlog", "Todo"),
+                edge("Todo", "Active"),
+                edge("Active", "Completed"),
+                edge("Todo", "Blocked"),
+                edge("Blocked", "Todo"),
+                edge("Active", "Blocked"),
+                edge("Blocked", "Active"),
+            ],
+        };
+        assert_eq!(back_column_id(&detail, "Active").as_deref(), Some("Todo"));
+        assert_eq!(back_column_id(&detail, "Todo").as_deref(), Some("Backlog"));
+        assert_eq!(back_column_id(&detail, "Backlog"), None);
+        assert_eq!(back_column_id(&detail, "Completed"), None);
+    }
 
     /// KAIROS-T-0776: "Select all" picks each live task of the board.
     #[test]

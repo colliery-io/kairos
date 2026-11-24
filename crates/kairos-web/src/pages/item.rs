@@ -78,7 +78,7 @@ use claim::ClaimPanel;
 use create_doc::CreateDocumentDialog;
 use delete::DeleteDialog;
 use editor::ContentEditor;
-use end::{CancelDialog, CancelledBanner, PurgeDialog, ReopenDialog};
+use end::{BackDialog, CancelDialog, CancelledBanner, PurgeDialog, ReopenDialog};
 use external::ExternalRefsPanel;
 use item_owner::OwnerPanel;
 use metadata::MetadataPanel;
@@ -262,6 +262,7 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
     let cancel_open = RwSignal::new(false);
     let purge_open = RwSignal::new(false);
     let reopen_open = RwSignal::new(false);
+    let back_open = RwSignal::new(false);
 
     // The facts that do not change while the page shows this code.
     let code = StoredValue::new(item.short_code.clone());
@@ -551,7 +552,8 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
     // restore (no claim); Archive shows only to a person who passes it,
     // as Cancel does.
     let can_archive = can_restore;
-    let task_powers = task_end_powers(family, board, column_id.into());
+    let task_powers = task_end_powers(family, board, column_id.into(), claim.into());
+    let back_to = Signal::derive(move || task_powers.get().back);
     // KAIROS-T-0581: the edit rule with the claim, for the editor and the
     // metadata panel. The reason names the board when the page knows it.
     let may_edit = edit_power(family, board, created_by.clone(), claim.into());
@@ -640,6 +642,14 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                     <Button variant="default" size="xs"
                         on_click=Callback::new(move |_| cancel_open.set(true))>
                         "Cancel task"
+                    </Button>
+                })}
+                // KAIROS-T-0774: a task goes back one column after a false
+                // start: its claimant, or a board manager.
+                {move || (task_powers.get().back.is_some() && !archived.get()).then(|| view! {
+                    <Button variant="default" size="xs"
+                        on_click=Callback::new(move |_| back_open.set(true))>
+                        {format!("Move back to {}", back_to.get().unwrap_or_default())}
                     </Button>
                 })}
                 // KAIROS-T-0648: a done task (completed or cancelled) can
@@ -780,6 +790,8 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                     <PurgeDialog code=code.get_value() title=title.clone() open=purge_open/>
                     <ReopenDialog code=code.get_value() title=title.clone() open=reopen_open
                         on_reopened=on_moved/>
+                    <BackDialog code=code.get_value() title=title.clone() to=back_to
+                        open=back_open on_moved=on_moved/>
                 })}
             }
         }}
@@ -893,7 +905,7 @@ fn link_power(may_edit: Memo<Option<bool>>) -> Signal<bool> {
 }
 
 /// What the signed-in user may do to END a task (KAIROS-T-0362).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct TaskEndPowers {
     /// Cancel: `transition_items` on the board (the capability of a move),
     /// and the task is not in a done column.
@@ -905,6 +917,11 @@ struct TaskEndPowers {
     /// Reopen (KAIROS-T-0648): `transition_items` on the board, and the
     /// task is in a done column. A cancelled task is in a done column too.
     reopen: bool,
+    /// Move back (KAIROS-T-0774): the name of the column before, when the
+    /// person may move the task back: `transition_items`, and the task has
+    /// no claim, or the person has it, or is a board manager
+    /// (`configure_boards`).
+    back: Option<String>,
 }
 
 impl TaskEndPowers {
@@ -915,7 +932,21 @@ impl TaskEndPowers {
             cancel: transition && !done,
             purge,
             reopen: transition && done,
+            back: None,
         }
+    }
+
+    /// The column before (KAIROS-T-0774), when the rule of the move back
+    /// lets the person do it: a move needs `transition_items`; a claim of
+    /// a different person needs a board manager. Pure, host-tested.
+    fn with_back(
+        mut self,
+        transition: bool,
+        back: Option<String>,
+        (claimed, mine, manager): (bool, bool, bool),
+    ) -> Self {
+        self.back = back.filter(|_| transition && (!claimed || mine || manager));
+        self
     }
 }
 
@@ -926,6 +957,7 @@ fn task_end_powers(
     family: Family,
     board: LocalResource<Result<Option<api::BoardInfo>, ApiError>>,
     column_id: Signal<Option<String>>,
+    claim: Signal<Option<api::Claim>>,
 ) -> Memo<TaskEndPowers> {
     let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
     Memo::new(move |_| {
@@ -950,7 +982,40 @@ fn task_end_powers(
         let powers = boards::board_powers(&me, &board.slug, board.team_id.as_deref(), None);
         let purge =
             boards::holds_capability(&me, Some(&board.slug), board.team_id.as_deref(), "purge");
-        TaskEndPowers::from_rule(powers.transition, purge, done)
+        // KAIROS-T-0774: the column before, by the rule of the server.
+        let back = column_id.with(|column| {
+            column.as_ref().and_then(|column| {
+                let mut before: Vec<(usize, &api::BoardColumnInfo)> = board
+                    .columns
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, c)| !c.is_done && c.removed_at.is_none())
+                    .filter(|(_, c)| {
+                        board
+                            .transitions
+                            .iter()
+                            .any(|t| t.from_column_id == c.id && t.to_column_id == *column)
+                    })
+                    .collect();
+                before.sort_by_key(|(position, _)| *position);
+                before.first().map(|(_, c)| c.name.clone())
+            })
+        });
+        let manager = boards::holds_capability(
+            &me,
+            Some(&board.slug),
+            board.team_id.as_deref(),
+            "configure_boards",
+        );
+        let (claimed, mine) =
+            claim.with(|claim| (claim.is_some(), access::holds_claim(&me, claim.as_ref())));
+        // A done task comes back by a reopen, not by a move back.
+        let back = back.filter(|_| !done);
+        TaskEndPowers::from_rule(powers.transition, purge, done).with_back(
+            powers.transition,
+            back,
+            (claimed, mine, manager),
+        )
     })
 }
 
@@ -2682,6 +2747,38 @@ mod tests {
         assert_eq!(
             TaskEndPowers::default(),
             TaskEndPowers::from_rule(false, false, false)
+        );
+    }
+
+    /// KAIROS-T-0774: the move back shows with the move capability, when
+    /// the task has no claim, or the person has it, or is a board manager.
+    #[test]
+    fn move_back_shows_for_the_claimant_or_a_board_manager() {
+        let back = || Some("Todo".to_string());
+        let base = || TaskEndPowers::from_rule(true, false, false);
+        assert_eq!(
+            base().with_back(true, back(), (false, false, false)).back,
+            back()
+        );
+        assert_eq!(
+            base().with_back(true, back(), (true, true, false)).back,
+            back()
+        );
+        assert_eq!(
+            base().with_back(true, back(), (true, false, true)).back,
+            back()
+        );
+        assert_eq!(
+            base().with_back(true, back(), (true, false, false)).back,
+            None
+        );
+        assert_eq!(
+            base().with_back(false, back(), (false, false, true)).back,
+            None
+        );
+        assert_eq!(
+            base().with_back(true, None, (false, false, false)).back,
+            None
         );
     }
 

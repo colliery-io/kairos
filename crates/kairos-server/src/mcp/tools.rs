@@ -4527,7 +4527,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move an item to another column on its board (`to_column` is a column name or UUID). A move goes one column at a time, along a transition of the board. When you do not know the columns, call `my_boards` first: it gives the columns of each board and the moves between them (`get_item` gives the next columns of the item). An invalid move fails with the allowed target columns enumerated, and the path to the target when one goes there (`path`): call transition_item for each step. A done task leaves its done column only by `reopen_item`. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. A move of an INITIATIVE does not set its owner, and the board policy owner_gate refuses a move to Active with no owner (OWNER_REQUIRED). Send `claim: true` to become the owner in the same move (the rules of `claim_item` apply), or call `claim_item` first. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`. Send a `request_key` when you may retry this call."
+        description = "Move an item to another column on its board (`to_column` is a column name or UUID). A move goes one column at a time, along a transition of the board. A task also moves back one column after a false start (Active → Todo, Todo → Backlog: the column before) with no transition of the board: by its claimant, or by a board manager (`configure_boards`) when a different person has the claim; the move ends the claim. When you do not know the columns, call `my_boards` first: it gives the columns of each board and the moves between them (`get_item` gives the next columns of the item). An invalid move fails with the allowed target columns enumerated, and the path to the target when one goes there (`path`): call transition_item for each step. A done task leaves its done column only by `reopen_item`. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim. A move of an INITIATIVE does not set its owner, and the board policy owner_gate refuses a move to Active with no owner (OWNER_REQUIRED). Send `claim: true` to become the owner in the same move (the rules of `claim_item` apply), or call `claim_item` first. An agent's move of intake (a support-lane task in the entry column) is refused with AGENT_TRIAGE_OFF while the board lets a person decide: write the proposal with `append_note`. Send a `request_key` when you may retry this call."
     )]
     pub async fn transition_item(
         &self,
@@ -4584,6 +4584,18 @@ impl KairosMcp {
                     item.short_code, item.item_type, item.item_type
                 ))
                 .with_details(json!({ "field": "claim" })));
+            }
+            // KAIROS-T-0774: a task to the column before is a move back, with
+            // its own rule (the claimant or a board manager), whatever the
+            // transitions of the board say.
+            if item.item_type == ItemType::Task
+                && !claim
+                && boards::back_column(conn, board_id, from_column_id)
+                    .map_err(ApiError::internal)?
+                    .is_some_and(|(id, _)| id == to_column_id)
+            {
+                let moved = crate::move_back::move_back(conn, &auth, &slug, item.id, board_id)?;
+                return Ok(crate::move_back::move_back_text(&moved));
             }
             let mut triaged = None;
             if item.item_type == ItemType::Task {

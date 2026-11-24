@@ -1804,6 +1804,15 @@ A move goes one column at a time, along a transition of the board. To find
 the columns and the moves between them, call [`my_boards`](#my_boards) first.
 `get_item` also gives the next columns of the item.
 
+A task also moves back one column after a false start: Active to Todo, Todo
+to Backlog. The board does not need a transition for it. The column is the
+first column, by position, that has a transition into the column of the
+task.
+
+Only the claimant moves a claimed task back. A board manager
+(`configure_boards` on the board) can move back the task of a different
+person. The move ends the claim. A refusal is `CLAIMED` (KAIROS-T-0774).
+
 A person who moves a task to Active gets the [claim](../glossary/#claim) of the
 task. The answer then has the line `claim`. An agent can move the task with
 the agent key of a person. Then the claim names the person and has the mark

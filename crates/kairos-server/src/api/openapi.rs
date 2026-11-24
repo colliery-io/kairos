@@ -89,6 +89,7 @@ use crate::app::AppState;
         crate::api::tasks::release_task,
         crate::api::tasks::cancel_task,
         crate::api::tasks::reopen_task,
+        crate::api::tasks::move_task_back,
         crate::api::tasks::move_tasks,
         crate::api::tasks::purge_task,
         crate::api::tasks::set_work_class,

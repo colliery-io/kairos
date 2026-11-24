@@ -400,6 +400,29 @@ Request body (required): `application/json`, [`UpdateContentRequest`](../schemas
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Stale version; details.current carries the current entity |
 
+### `POST /api/tasks/{short_code}/back`
+
+Move a task back one column (KAIROS-T-0774): Active → Todo, Todo →
+Backlog, after a false start. The target is the first column, by
+position, with a transition into the column of the task. The board
+needs no transition for the move. A move out of Active ends the claim.
+No body.
+
+Requires `transition_items` on the board. Only the claimant moves a
+claimed task back. A board manager (`configure_boards`) can move back
+the task of a different person. A done task comes back by a reopen.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Task short code |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`Task`](../schemas/#task) | Moved back: the task is in the column before |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability, or CLAIMED (a different person has the claim, and the caller is not a board manager) |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | TASK_DONE (reopen it instead), or NO_COLUMN_BACK (no column comes before) |
+
 ### `POST /api/tasks/{short_code}/cancel`
 
 Cancel a task (KAIROS-T-0362): a "won't do", with a reason. The task

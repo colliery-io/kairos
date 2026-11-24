@@ -426,7 +426,7 @@ Changes that people and agents see:
 - `transition_item` takes `claim: true`. For an initiative with no owner,
   the call makes you the owner and moves it in one step (KAIROS-A-0066).
 - A refused move names the full path to the target column, for example
-  "Discovery → Design → Ready → Decompose → Active". From a done column the
+  "Discovery → Design → Decompose → Ready → Active". From a done column the
   refusal names `reopen_item`.
 - 14 MCP write tools take an optional `request_key`. A second call with the
   same key in 24 hours writes nothing and returns the first answer. For the

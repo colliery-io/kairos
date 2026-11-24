@@ -384,7 +384,7 @@ async fn a_member_of_an_initiative_board_edits_and_moves_each_initiative_against
         &alice,
         Method::POST,
         &format!("/api/initiatives/{code}/transition"),
-        Some(json!({ "to_column_id": ready })),
+        Some(json!({ "to_column_id": decompose })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -406,7 +406,7 @@ async fn a_member_of_an_initiative_board_edits_and_moves_each_initiative_against
         &bob,
         Method::POST,
         &format!("/api/initiatives/{code}/transition"),
-        Some(json!({ "to_column_id": decompose })),
+        Some(json!({ "to_column_id": ready })),
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
@@ -515,7 +515,7 @@ async fn a_member_of_an_initiative_board_edits_and_moves_each_initiative_against
         &alice,
         Method::POST,
         &format!("/api/initiatives/{code}/transition"),
-        Some(json!({ "to_column_id": decompose })),
+        Some(json!({ "to_column_id": ready })),
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");

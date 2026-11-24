@@ -1986,6 +1986,36 @@ Body of `POST /api/tasks/{short_code}/move` (KAIROS-I-0012): the delivery board 
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
+## MoveTasksRequest
+
+Body of `POST /api/tasks/move` (KAIROS-T-0776): many tasks to one delivery board in one call.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `board` | `string` | yes | The delivery board, by slug or UUID. |
+| `rename` | `boolean` | no | Give each task the next code of the target board (default true: the tasks take the prefix of the new board). |
+| `short_codes` | array of `string` | yes | The short codes of the tasks: 1 to 200. |
+
+The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
+
+## MoveTasksResult
+
+The answer of `POST /api/tasks/move` (KAIROS-T-0776). Each task moves in its own transaction: a refused task does not stop the others.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `moved` | array of [`MovedTask`](#movedtask) | yes |  |
+| `refused` | array of [`RefusedMove`](#refusedmove) | yes |  |
+
+## MovedTask
+
+One task that a bulk move moved (KAIROS-T-0776).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `from` | `string` | yes | The code before the move. |
+| `short_code` | `string` | yes | The code now: the next code of the new board, or the same code when `rename` is false. |
+
 ## MutedKey
 
 An agent key that the caller muted (KAIROS-T-0737).
@@ -2265,6 +2295,16 @@ Body of `POST /api/code-index/query-vector` (KAIROS-T-0360): the text of a code 
 | `text` | `string` | yes | The text of the query: 1 to 2,000 characters. |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
+
+## RefusedMove
+
+One task that a bulk move did not move, and why (KAIROS-T-0776).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `code` | `string` | yes | The error code of the refusal (`FORBIDDEN`, `TASK_DONE`, ...). |
+| `message` | `string` | yes |  |
+| `short_code` | `string` | yes |  |
 
 ## RelatedItem
 

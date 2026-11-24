@@ -806,6 +806,52 @@ pub struct MoveTaskRequest {
     pub rename: bool,
 }
 
+fn rename_by_default() -> bool {
+    true
+}
+
+/// Body of `POST /api/tasks/move` (KAIROS-T-0776): many tasks to one
+/// delivery board in one call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MoveTasksRequest {
+    /// The short codes of the tasks: 1 to 200.
+    pub short_codes: Vec<String>,
+    /// The delivery board, by slug or UUID.
+    pub board: String,
+    /// Give each task the next code of the target board (default true:
+    /// the tasks take the prefix of the new board).
+    #[serde(default = "rename_by_default")]
+    pub rename: bool,
+}
+
+/// One task that a bulk move moved (KAIROS-T-0776).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MovedTask {
+    /// The code before the move.
+    pub from: String,
+    /// The code now: the next code of the new board, or the same code when
+    /// `rename` is false.
+    pub short_code: String,
+}
+
+/// One task that a bulk move did not move, and why (KAIROS-T-0776).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RefusedMove {
+    pub short_code: String,
+    /// The error code of the refusal (`FORBIDDEN`, `TASK_DONE`, ...).
+    pub code: String,
+    pub message: String,
+}
+
+/// The answer of `POST /api/tasks/move` (KAIROS-T-0776). Each task moves in
+/// its own transaction: a refused task does not stop the others.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MoveTasksResult {
+    pub moved: Vec<MovedTask>,
+    pub refused: Vec<RefusedMove>,
+}
+
 // ---------------------------------------------------------------------------
 // Envelopes
 // ---------------------------------------------------------------------------

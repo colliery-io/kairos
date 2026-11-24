@@ -679,13 +679,14 @@ mod tests {
     }
 
     /// The seeded initiative flow (KAIROS-T-0675): Discovery → Design →
-    /// Ready → Decompose → Active, and Completed with no way out.
+    /// Decompose → Ready → Active, and Completed with no way out
+    /// (KAIROS-T-0773: Decompose before Ready).
     fn initiative_flow() -> (Vec<Column>, Vec<Transition>, Vec<Uuid>) {
         let names = [
             "Discovery",
             "Design",
-            "Ready",
             "Decompose",
+            "Ready",
             "Active",
             "Completed",
         ];
@@ -723,13 +724,13 @@ mod tests {
                 .iter()
                 .map(|c| c.name.as_str())
                 .collect::<Vec<_>>(),
-            ["Discovery", "Design", "Ready", "Decompose", "Active"]
+            ["Discovery", "Design", "Decompose", "Ready", "Active"]
         );
         assert_eq!(
             err.to_string(),
             "This board does not permit the transition from Discovery to Active. From \
              Discovery, an item can move to: Design. The path to Active is Discovery → Design \
-             → Ready → Decompose → Active: call transition_item for each step."
+             → Decompose → Ready → Active: call transition_item for each step."
         );
     }
 

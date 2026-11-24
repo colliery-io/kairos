@@ -1098,6 +1098,55 @@ pub fn size_pill(
     Some((label, color))
 }
 
+/// mirror of: `kairos_client::types::MovedTask` (KAIROS-T-0776).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct MovedTask {
+    pub from: String,
+    pub short_code: String,
+}
+
+/// mirror of: `kairos_client::types::RefusedMove` (KAIROS-T-0776).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct RefusedMove {
+    pub short_code: String,
+    pub code: String,
+    pub message: String,
+}
+
+/// mirror of: `kairos_client::types::MoveTasksResult` (KAIROS-T-0776).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct MoveTasksResult {
+    #[serde(default)]
+    pub moved: Vec<MovedTask>,
+    #[serde(default)]
+    pub refused: Vec<RefusedMove>,
+}
+
+/// `POST /api/tasks/move` — many tasks to one delivery board
+/// (KAIROS-T-0776). Each task takes the next code of the new board.
+pub async fn move_tasks(
+    auth: Auth,
+    short_codes: &[String],
+    board: &str,
+) -> Result<MoveTasksResult, ApiError> {
+    crate::api::post_json(
+        auth,
+        "/api/tasks/move",
+        &serde_json::json!({ "short_codes": short_codes, "board": board, "rename": true }),
+    )
+    .await
+}
+
+/// The codes of the live tasks of the board view, column by column
+/// (KAIROS-T-0776: "Select all"). Pure, host-tested.
+pub fn task_codes(view: &BoardView) -> Vec<String> {
+    view.items
+        .columns
+        .iter()
+        .flat_map(|c| c.tasks.iter().map(|t| t.short_code.clone()))
+        .collect()
+}
+
 /// The path of [`archive_completed`]. Pure, host-tested.
 pub fn archive_completed_path(board_id: &str, older_than_days: Option<u32>) -> String {
     let path = format!("{}/archive-completed", board_path(board_id));
@@ -1459,6 +1508,39 @@ mod tests {
         );
         assert_eq!(size_pill(None, Some(15)), None);
         assert_eq!(size_pill(Some(&progress(4, 0)), None), None);
+    }
+
+    /// KAIROS-T-0776: "Select all" picks each live task of the board.
+    #[test]
+    fn select_all_takes_each_task_of_the_board() {
+        let view: BoardView = BoardView {
+            detail: BoardDetail {
+                board: Board {
+                    id: "b".into(),
+                    name: "Web".into(),
+                    slug: "web-delivery".into(),
+                    board_level: "delivery".into(),
+                    team_id: None,
+                },
+                columns: Vec::new(),
+                transitions: Vec::new(),
+            },
+            items: serde_json::from_value(serde_json::json!({
+                "board": {"id": "b", "name": "Web", "slug": "web-delivery", "board_level": "delivery"},
+                "columns": [
+                    {"column": {"id": "c1", "name": "Todo", "position": 1},
+                     "strategies": [], "initiatives": [], "adrs": [],
+                     "tasks": [{"short_code": "WEB-T-0001", "title": "A", "version": 1,
+                                "task_type": "task", "work_class": "planned"}]},
+                    {"column": {"id": "c2", "name": "Active", "position": 2},
+                     "strategies": [], "initiatives": [], "adrs": [],
+                     "tasks": [{"short_code": "WEB-T-0002", "title": "B", "version": 1,
+                                "task_type": "task", "work_class": "planned"}]}
+                ]
+            }))
+            .expect("items"),
+        };
+        assert_eq!(task_codes(&view), ["WEB-T-0001", "WEB-T-0002"]);
     }
 
     /// KAIROS-T-0678: an initiative card reads the cancel mark; an older

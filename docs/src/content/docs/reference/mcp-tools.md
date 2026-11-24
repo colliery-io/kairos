@@ -1872,9 +1872,10 @@ the owner board of a document.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `short_code` | string | yes | — | The short code of the task or of the document. |
+| `short_code` | string | one of the two | — | The short code of the task or of the document. |
+| `short_codes` | string array | one of the two | — | 1 to 200 task codes, to move many tasks to one board in one call. See [Many tasks](#many-tasks). |
 | `to_board` | string | no in the schema | — | Target board, slug or UUID. A task must have it, and the board is a delivery board. For a document, see below. |
-| `rename` | boolean | no | `false` | Give the item the next code of the target board. See [A rename](#a-rename). |
+| `rename` | boolean | no | `false`; `true` with `short_codes` | Give the item the next code of the target board. See [A rename](#a-rename). |
 
 Requires `manage_tasks` on both the task's current board and the target. A
 move is not an edit. The creator of the task gets no right to move it.
@@ -1891,6 +1892,18 @@ task first with [`reopen_item`](#reopen_item). Then move it.
 
 Column-to-column moves on an item's own board are `transition_item`, not this
 tool.
+
+#### Many tasks
+
+`short_codes` moves many tasks to one delivery board in one call
+(KAIROS-T-0776). Send it in place of `short_code`, with `to_board`. Each task
+moves in its own transaction, with the rule above. A task that the rule
+refuses stays, and the answer names it with the reason. The other tasks
+move.
+
+With `short_codes`, each task gets the next code of the target board. Send
+`rename: false` to keep the codes. REST has the same move:
+`POST /api/tasks/move`.
 
 #### A rename
 

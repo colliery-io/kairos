@@ -715,8 +715,15 @@ pub struct TransitionItemParams {
 #[serde(deny_unknown_fields)]
 pub struct MoveItemParams {
     /// The short code of the task (e.g. "ACME-T-0012") or of the document
-    /// (e.g. "ACME-D-0004").
-    pub short_code: String,
+    /// (e.g. "ACME-D-0004"). Send it, or `short_codes`.
+    #[serde(default)]
+    pub short_code: Option<String>,
+    /// Many TASKS to one delivery board in one call (KAIROS-T-0776): 1 to
+    /// 200 short codes, in place of `short_code`. Each task moves on its
+    /// own: a refused task is named with the reason, and the others move.
+    /// With `short_codes`, `rename` is true unless you send false.
+    #[serde(default)]
+    pub short_codes: Option<Vec<String>>,
     /// The board to move it to, by slug (e.g. "web-delivery") or UUID. A
     /// task must have it: a delivery board, and the task lands in the
     /// entry column of that board. For a document it is the new owner
@@ -729,12 +736,35 @@ pub struct MoveItemParams {
     /// new code, one time. A code in a URL or a path does not change. A
     /// document needs `to_board` for a rename.
     #[serde(default)]
-    pub rename: bool,
+    pub rename: Option<bool>,
     /// A key that you choose for this call: 8 to 128 characters of letters,
     /// digits, `.`, `_`, `:` and `-` (a UUID fits). Send one when you may
     /// retry this call: a second call with the same key in 24 hours writes
     /// nothing and gives the first answer again (KAIROS-A-0065).
     pub request_key: Option<String>,
+}
+
+/// The answer of a bulk move of `move_item` (KAIROS-T-0776).
+fn bulk_move_text(result: &kairos_client::types::MoveTasksResult, board: &str) -> String {
+    let mut out = format!(
+        "Moved {} task(s) to {board}; {} not moved.",
+        result.moved.len(),
+        result.refused.len()
+    );
+    for moved in &result.moved {
+        if moved.from == moved.short_code {
+            out.push_str(&format!("\n- {}", moved.short_code));
+        } else {
+            out.push_str(&format!("\n- {} -> {}", moved.from, moved.short_code));
+        }
+    }
+    for refused in &result.refused {
+        out.push_str(&format!(
+            "\n- {} not moved: {}: {}",
+            refused.short_code, refused.code, refused.message
+        ));
+    }
+    out
 }
 
 /// Parameters for `set_repository` (COLLIERY-T-0220).
@@ -3708,7 +3738,7 @@ impl KairosMcp {
     // of a move: the capability on the board that the item leaves and on
     // the board that it goes to, and nothing for the creator.
     #[tool(
-        description = "Move a TASK to another team's delivery board, or a DOCUMENT to another owner board (`to_board`: slug or UUID), instead of recreating it. A task lands in the target's entry column and gets its team; it keeps its repository. Needs `manage_tasks` (a document: `manage_documents`) on both boards; creating the item gives no right. `rename: true` gives the item the next code of the target board; the old code is retired, still finds the item, and is replaced once in the text of items. Between columns of one board, use `transition_item`. Send a `request_key` when you may retry this call."
+        description = "Move a TASK to another team's delivery board, or a DOCUMENT to another owner board (`to_board`: slug or UUID), instead of recreating it. A task lands in the target's entry column and gets its team; it keeps its repository. Needs `manage_tasks` (a document: `manage_documents`) on both boards; creating the item gives no right. `rename: true` gives the item the next code of the target board; the old code is retired, still finds the item, and is replaced once in the text of items. Between columns of one board, use `transition_item`. Many tasks to one board in one call: `short_codes` (1 to 200) in place of `short_code`; each task moves on its own, a refused task is named with the reason, and `rename` is true unless you send false (KAIROS-T-0776). Send a `request_key` when you may retry this call."
     )]
     pub async fn move_item(
         &self,
@@ -3720,12 +3750,42 @@ impl KairosMcp {
         let slug = tenant.slug.clone();
         let keyed = super::request_key::keyed_call(&auth, "move_item", &params);
         self.run_keyed_tool(&tenant, keyed, move |conn| {
-            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
+            // KAIROS-T-0776: many tasks to one board.
+            if let Some(codes) = &params.short_codes {
+                if params.short_code.is_some() {
+                    return Err(ApiError::validation(
+                        "The call has `short_code` and `short_codes`. Send one of them.",
+                    )
+                    .with_details(json!({ "field": "short_codes" })));
+                }
+                let board = params.to_board.as_deref().ok_or_else(|| {
+                    ApiError::validation(
+                        "The call has no `to_board`. Send the slug or the id of the delivery \
+                         board that the tasks move to.",
+                    )
+                    .with_details(json!({ "field": "to_board" }))
+                })?;
+                let result = crate::api::tasks::move_many(
+                    conn,
+                    &auth,
+                    &slug,
+                    codes,
+                    board,
+                    params.rename.unwrap_or(true),
+                )?;
+                return Ok(bulk_move_text(&result, board));
+            }
+            let short_code = params.short_code.as_deref().ok_or_else(|| {
+                ApiError::validation("The call has no `short_code`. Send it, or `short_codes`.")
+                    .with_details(json!({ "field": "short_code" }))
+            })?;
+            let rename = params.rename.unwrap_or(false);
+            let item = load_item(conn, short_code, Liveness::LiveOnly)?;
             let to_board = crate::api::documents::board_to_set(params.to_board.as_deref());
             if item.item_type == ItemType::Document {
                 let to_board = to_board
                     .ok_or_else(|| crate::api::documents::board_is_required("field", "to_board"))?;
-                return move_document(conn, &slug, user, &item, to_board, params.rename);
+                return move_document(conn, &slug, user, &item, to_board, rename);
             }
             if item.item_type != ItemType::Task {
                 return Err(ApiError::validation(format!(
@@ -3784,7 +3844,7 @@ impl KairosMcp {
             )?;
             crate::claims::note(conn, item.id, user)?;
             let from_board = board_by_ref(conn, &from_board_id.to_string())?;
-            let moved = boards::move_task_with(conn, item.id, target.id, user, params.rename)
+            let moved = boards::move_task_with(conn, item.id, target.id, user, rename)
                 .map_err(map_board_error)?;
             crate::agent_triage::record(conn, &auth, item.id, triaged)?;
             // KAIROS-T-0371: the entry column of the target over its limit.

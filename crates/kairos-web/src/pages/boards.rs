@@ -76,6 +76,12 @@ fn kind_color(kind: EntityKind) -> &'static str {
     }
 }
 
+/// The guidance of a new initiative (KAIROS-T-0780): the same words as
+/// `kairos_db::board_policy::INITIATIVE_GUIDANCE`.
+pub(crate) const INITIATIVE_GUIDANCE: &str = "Keep the initiative to one objective, and to the work \
+     that delivers it. Work for a different objective goes to its own initiative. Name a \
+     dependency on another initiative at the start, as a blocks edge between the two initiatives.";
+
 /// The task selection of a delivery board (KAIROS-T-0776): the select
 /// mode, and the codes of the picked tasks. The board provides it; each
 /// card and column reads it.
@@ -4203,6 +4209,12 @@ fn CreateItemModal(
                         {move || entry_note.get_value()}
                     </Text>
                 </span>
+                // KAIROS-T-0780: the guidance of a new initiative.
+                {matches!(kind, EntityKind::Initiative).then(|| view! {
+                    <span data-testid="initiative-guidance">
+                        <Text size="xs">{INITIATIVE_GUIDANCE}</Text>
+                    </span>
+                })}
                 <TextInput label="Title" value=title placeholder="What is it?"/>
                 <Textarea label="Content (markdown)" value=content rows=5
                     placeholder="Why does it exist? What does done look like?"/>

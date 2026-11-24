@@ -218,6 +218,52 @@ pub fn initiative_size(
     }))
 }
 
+/// The guidance of a new initiative (KAIROS-T-0780): one objective, and
+/// the work that delivers it. The same words in the web form, the answer
+/// of MCP `create_item` and the skills.
+pub const INITIATIVE_GUIDANCE: &str = "Keep the initiative to one objective, and to the work that \
+     delivers it. Work for a different objective goes to its own initiative. Name a dependency on \
+     another initiative at the start, as a blocks edge between the two initiatives.";
+
+/// A `blocks` edge between tasks of two initiatives (KAIROS-T-0780): the
+/// code of each task and of its initiative.
+#[derive(Debug, Clone, PartialEq, Eq, QueryableByName)]
+pub struct CrossInitiative {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub source: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub source_initiative: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub target: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub target_initiative: String,
+}
+
+/// The two initiatives of a `blocks` edge from the task `source_id` to the
+/// task `target_id`, when each task has a parent initiative and the two
+/// differ. `None` inside one initiative, or for a task with no initiative.
+pub fn cross_initiative(
+    conn: &mut PgConnection,
+    source_id: Uuid,
+    target_id: Uuid,
+) -> Result<Option<CrossInitiative>, DieselError> {
+    diesel::sql_query(
+        "SELECT s.short_code AS source, si.short_code AS source_initiative, \
+                t.short_code AS target, ti.short_code AS target_initiative \
+           FROM tasks s \
+           JOIN item_relationships sr ON sr.target_id = s.id AND sr.relationship = 'parent' \
+           JOIN initiatives si ON si.id = sr.source_id \
+           JOIN tasks t ON t.id = $2 \
+           JOIN item_relationships tr ON tr.target_id = t.id AND tr.relationship = 'parent' \
+           JOIN initiatives ti ON ti.id = tr.source_id \
+          WHERE s.id = $1 AND si.id <> ti.id",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(source_id)
+    .bind::<diesel::sql_types::Uuid, _>(target_id)
+    .get_result(conn)
+    .optional()
+}
+
 /// The text that asks whether an initiative is too big (KAIROS-T-0779).
 /// The same words in the web, MCP and the CLI.
 pub fn size_question(short_code: &str, size: &InitiativeSize) -> String {

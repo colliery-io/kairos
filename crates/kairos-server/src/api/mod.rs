@@ -783,6 +783,13 @@ pub fn link_or_propose(
                 if relationship == RelationshipType::Parent && target.1 == ItemType::Task {
                     crate::claims::note_size(conn, source.0)?;
                 }
+                // KAIROS-T-0780: a blocks edge across two initiatives.
+                if relationship == RelationshipType::Blocks
+                    && source.1 == ItemType::Task
+                    && target.1 == ItemType::Task
+                {
+                    crate::claims::note_cross(conn, source.0, target.0)?;
+                }
                 Ok(linked)
             }
             EdgeCreate::Refuse => Err(edge_refusal(

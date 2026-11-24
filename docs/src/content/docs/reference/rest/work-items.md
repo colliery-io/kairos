@@ -370,6 +370,24 @@ Request body (required): `application/json`, [`CreateTaskRequest`](../schemas/#c
 | `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | REQUEST_KEY_REUSED: the Idempotency-Key was used for a different request |
 | `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | No board and no team, a team that is not the team of the board, a team without exactly one delivery board, unknown board/column/repository/parent, a column that is not the entry column of the board, a parent that is not an initiative, PARENT_NOT_ACTIVE (a claims column under an inactive parent), or bad enum value |
 
+### `POST /api/tasks/move`
+
+Move many tasks to another delivery board in one call (KAIROS-T-0776).
+Each task lands in the entry column of the board and takes the team of
+the board. By default each task takes the next code of the new board
+(`rename`, default true). The rule of each task is the rule of
+`POST /api/tasks/{short_code}/move`. Each task moves in its own
+transaction. A refused task is in `refused` with its reason, and the
+others move. 1 to 200 codes.
+
+Request body (required): `application/json`, [`MoveTasksRequest`](../schemas/#movetasksrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`MoveTasksResult`](../schemas/#movetasksresult) | The tasks that moved and the tasks that did not |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown board |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | VALIDATION: no code, or more than 200 |
+
 ### `GET /api/tasks/{short_code}`
 
 Get one task by short code (open tenant-wide).

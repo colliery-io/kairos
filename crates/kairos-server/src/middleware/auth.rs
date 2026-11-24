@@ -127,6 +127,43 @@ pub struct TokenClaims {
     /// failing open is one person binding to another person's identity.
     #[serde(default, deserialize_with = "lenient_bool")]
     pub email_verified: Option<bool>,
+    /// The issuer (`iss`). The token check holds it to the issuer of the
+    /// deployment, so it can be read as true here.
+    #[serde(default)]
+    pub iss: Option<String>,
+    /// Google's hosted domain (`hd`, KAIROS-T-0784): the Google Workspace
+    /// domain of the account. Google sets it only for a Workspace account,
+    /// and does not always send `email_verified`.
+    #[serde(default)]
+    pub hd: Option<String>,
+}
+
+/// The issuer of Google accounts.
+pub const GOOGLE_ISSUER: &str = "https://accounts.google.com";
+
+impl TokenClaims {
+    /// Is the email of the token verified (KAIROS-T-0784)? The issuer says
+    /// `email_verified: true`, or the issuer is Google and its `hd` claim is
+    /// the domain of the email: Google gives `hd` only to an account of a
+    /// Workspace domain that it verified. An `hd` from a different issuer
+    /// verifies nothing: another issuer can put any value in a claim of
+    /// that name.
+    pub fn email_is_verified(&self) -> bool {
+        if self.email_verified == Some(true) {
+            return true;
+        }
+        let google = self
+            .iss
+            .as_deref()
+            .is_some_and(|iss| iss.trim_end_matches('/') == GOOGLE_ISSUER);
+        let domain = self
+            .email
+            .as_deref()
+            .and_then(|email| email.rsplit_once('@'))
+            .map(|(_, domain)| domain);
+        google
+            && matches!((self.hd.as_deref(), domain), (Some(hd), Some(domain)) if hd.eq_ignore_ascii_case(domain))
+    }
 }
 
 /// `true`/`false`, or the strings `"true"`/`"false"` (case-insensitively).
@@ -694,7 +731,8 @@ async fn jit_upsert_user_in_db(pool: &TenantPool, claims: &TokenClaims) -> Resul
     // SCIM-created placeholder subject from a genuine one. Selected
     // earliest-created-first to match the inbound SCIM join's own tie-break, so at
     // least both directions agree about which row wins.
-    if !subject_is_known && claims.email_verified == Some(true) {
+    // KAIROS-T-0784: Google's `hd` counts too (`TokenClaims::email_is_verified`).
+    if !subject_is_known && claims.email_is_verified() {
         let adoptable: Option<Uuid> = users::table
             .filter(users::email.eq(&email))
             // KAIROS-T-0481: never adopt a system actor.
@@ -902,7 +940,7 @@ pub async fn require_auth(
         external_id: user.external_id,
         email: user.email,
         display_name: user.display_name,
-        email_verified: claims.email_verified == Some(true),
+        email_verified: claims.email_is_verified(),
         agent_key: None,
         key_scope: None,
     });
@@ -1232,6 +1270,32 @@ BWKiTzkt91ge2HS8jjYZyPRxuojSqlQMbhlcJWYXEWjfEcHgo1Z8Iw/4TxU7oDzj
         let claims = claims_from(serde_json::json!({ "sub": "s", "email": "a@b.test" }))
             .expect("a token without email_verified must still parse");
         assert_eq!(claims.email_verified, None);
+    }
+
+    /// KAIROS-T-0784: Google's `hd` of the domain of the email verifies it;
+    /// a different domain, no `hd`, or an `hd` of another issuer does not.
+    #[test]
+    fn a_google_hd_of_the_email_domain_verifies_the_email() {
+        let google = |hd: Option<&str>, email: &str| {
+            claims_from(serde_json::json!({
+                "sub": "s", "email": email, "iss": "https://accounts.google.com", "hd": hd
+            }))
+            .expect("claims")
+        };
+        assert!(google(Some("example.com"), "robin@example.com").email_is_verified());
+        assert!(google(Some("Example.COM"), "robin@example.com").email_is_verified());
+        assert!(!google(Some("other.com"), "robin@example.com").email_is_verified());
+        assert!(!google(None, "robin@example.com").email_is_verified());
+        let other = claims_from(serde_json::json!({
+            "sub": "s", "email": "robin@example.com", "iss": "https://idp.example.test", "hd": "example.com"
+        }))
+        .expect("claims");
+        assert!(!other.email_is_verified(), "hd of another issuer");
+        let verified = claims_from(serde_json::json!({
+            "sub": "s", "email": "robin@example.com", "email_verified": true
+        }))
+        .expect("claims");
+        assert!(verified.email_is_verified());
     }
 
     #[test]

@@ -176,6 +176,32 @@ fn auto_join_domain<'a>(config: &'a AppConfig, auth: &AuthContext, slug: &str) -
         .map(String::as_str)
 }
 
+/// Why auto-join does not let this caller in (KAIROS-T-0784), when the
+/// deployment has `KAIROS_AUTO_JOIN_DOMAINS`. `None` when it lets them in,
+/// or when no domain is set. Pure, unit-tested.
+fn auto_join_refusal(config: &AppConfig, auth: &AuthContext, slug: &str) -> Option<&'static str> {
+    if config.auto_join_domains.is_empty() {
+        return None;
+    }
+    if config.single_tenant.as_deref() != Some(slug) {
+        return Some("not the pinned tenant");
+    }
+    if !auth.email_verified {
+        return Some(
+            "the issuer did not verify the email (no email_verified, and no Google hd of the domain)",
+        );
+    }
+    let domain = auth.email.rsplit_once('@').map(|(_, d)| d).unwrap_or("");
+    if !config
+        .auto_join_domains
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(domain))
+    {
+        return Some("the domain of the email is not in KAIROS_AUTO_JOIN_DOMAINS");
+    }
+    None
+}
+
 /// [`crate::api::org::members::auto_join`] on a connection pinned to the
 /// tenant: the caller becomes a `member`, unless they were removed before.
 async fn auto_join(
@@ -197,6 +223,14 @@ async fn auto_join(
             tenant = %slug,
             user_id = %user_id,
             "a verified email at an auto-join domain joined the organization as a member"
+        );
+    } else {
+        // KAIROS-T-0784: the cause of the refusal is in the log.
+        tracing::info!(
+            tenant = %slug,
+            user_id = %user_id,
+            reason = "an admin or SCIM removed the person from the organization before",
+            "auto-join refused"
         );
     }
     Ok(joined)
@@ -335,7 +369,18 @@ pub async fn require_tenant(
                     .await?
                     .ok_or_else(|| ApiError::membership_required(&slug))?
             }
-            None => return Err(ApiError::membership_required(&slug)),
+            None => {
+                // KAIROS-T-0784: the cause of the refusal is in the log.
+                if let Some(reason) = auto_join_refusal(&state.config, &auth, &slug) {
+                    tracing::info!(
+                        tenant = %slug,
+                        user_id = %auth.user_id,
+                        reason,
+                        "auto-join refused"
+                    );
+                }
+                return Err(ApiError::membership_required(&slug));
+            }
         };
         cache.put_role(org_id, auth.user_id, role);
         Ok::<_, ApiError>((org_id, role))
@@ -500,5 +545,44 @@ mod tests {
         let err = resolve_slug(&config, &headers(&[("host", "localhost")])).unwrap_err();
         assert_eq!(err.code, "TENANT_NOT_FOUND");
         assert_eq!(err.status, axum::http::StatusCode::NOT_FOUND);
+    }
+
+    /// KAIROS-T-0784: the cause of each auto-join refusal, for the log.
+    #[test]
+    fn the_cause_of_an_auto_join_refusal() {
+        let auth = |email: &str, verified: bool| AuthContext {
+            user_id: Uuid::nil(),
+            external_id: "sub".into(),
+            email: email.into(),
+            display_name: "Robin".into(),
+            email_verified: verified,
+            agent_key: None,
+            key_scope: None,
+        };
+        let mut on = config(Some("acme"), None);
+        on.auto_join_domains = vec!["example.com".into()];
+        assert_eq!(
+            auto_join_refusal(&on, &auth("robin@example.com", true), "acme"),
+            None
+        );
+        assert_eq!(
+            auto_join_refusal(&on, &auth("robin@example.com", false), "acme"),
+            Some(
+                "the issuer did not verify the email (no email_verified, and no Google hd of the domain)"
+            )
+        );
+        assert_eq!(
+            auto_join_refusal(&on, &auth("robin@other.com", true), "acme"),
+            Some("the domain of the email is not in KAIROS_AUTO_JOIN_DOMAINS")
+        );
+        assert_eq!(
+            auto_join_refusal(&on, &auth("robin@example.com", true), "beta"),
+            Some("not the pinned tenant")
+        );
+        let off = config(Some("acme"), None);
+        assert_eq!(
+            auto_join_refusal(&off, &auth("robin@other.com", false), "acme"),
+            None
+        );
     }
 }

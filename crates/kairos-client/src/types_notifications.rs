@@ -55,6 +55,11 @@ pub struct NotificationSettings {
     /// A person, or an agent key of a person, sent you a notice: to you,
     /// or to a team of yours (KAIROS-T-0737).
     pub notice: bool,
+    /// A person moved an initiative back, and its tasks went back to
+    /// Backlog (KAIROS-T-0775). The default is for the client only: a
+    /// response of an older server has no `moved_back`.
+    #[serde(default = "on")]
+    pub moved_back: bool,
     /// The agent keys that you muted: a notice from one of them, or from a
     /// key that replaced one of them, makes no notification for you
     /// (KAIROS-T-0737).
@@ -110,6 +115,8 @@ pub struct UpdateNotificationSettingsRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watch: Option<bool>,
     pub notice: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_back: Option<bool>,
     /// Agent keys to mute (ids). A notice from a muted key makes no
     /// notification for you (KAIROS-T-0737).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -124,7 +131,7 @@ pub struct UpdateNotificationSettingsRequest {
 pub struct Notification {
     /// The id (UUID). `POST /api/me/notifications/read` takes it.
     pub id: String,
-    /// `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch|notice`.
+    /// `hand_off|blocker_cleared|blocked_again|cancelled|blocker_cancelled|mention|p0_bug|delivery_failing|agent_key_revoked|claim_dropped|claim_stale|key_expiring|proposal_decided|watch|notice|moved_back`.
     pub kind: String,
     /// The code of the item now; `null` when the item is gone.
     pub short_code: Option<String>,
@@ -313,4 +320,9 @@ pub struct SendNoticeResponse {
     /// The notices that the sender can still send in this hour; `null`
     /// when the deployment has no limit.
     pub remaining: Option<i64>,
+}
+
+/// The default of a kind that an older server does not send: on.
+fn on() -> bool {
+    true
 }

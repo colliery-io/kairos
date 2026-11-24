@@ -8,8 +8,10 @@
 //      draggable, with NO per-card move menu (KAIROS-T-0075 — the
 //      keyboard path lives on the item detail page)
 //   3. drag it to Todo (legal: Backlog → Todo) → the card lands
-//   4. drag it to Backlog (ILLEGAL: no Todo → Backlog transition) → the
-//      drop is refused and the card stays in Todo
+//   4. drag it back to Backlog (KAIROS-T-0774: a move back, by the claimant
+//      or a board manager; alice is an org admin) → the card lands
+//   5. drag it to Active (ILLEGAL: Backlog → Active skips Todo) → the drop
+//      is refused and the card stays in Backlog
 //
 // Playwright's dragTo drives the HTML5 drag events the implementation
 // listens for (verified in KAIROS-T-0064's status updates).
@@ -64,13 +66,20 @@ test('drag and drop: legal move lands, illegal move is refused', async ({ page }
     await expect(cardIn(page, 'Backlog')).toHaveCount(0);
   });
 
-  // 4. Illegal drag: Todo → Backlog is not a configured transition ----------
-  await test.step('drag back to Backlog (illegal) — drop refused', async () => {
+  // 4. Move back: Todo → Backlog (KAIROS-T-0774) ----------------------------
+  await test.step('drag back to Backlog (a move back) — card lands', async () => {
     await dragTo(page, cardIn(page, 'Todo'), column(page, 'Backlog'));
+    await expect(cardIn(page, 'Backlog')).toBeVisible({ timeout: 15_000 });
+    await expect(cardIn(page, 'Todo')).toHaveCount(0);
+  });
+
+  // 5. Illegal drag: Backlog → Active skips a column -------------------------
+  await test.step('drag to Active (illegal) — drop refused', async () => {
+    await dragTo(page, cardIn(page, 'Backlog'), column(page, 'Active'));
     // Nothing to await server-side (no request should fire): give the UI a
     // beat, then assert the card did not move.
     await page.waitForTimeout(1_000);
-    await expect(cardIn(page, 'Todo')).toBeVisible();
-    await expect(cardIn(page, 'Backlog')).toHaveCount(0);
+    await expect(cardIn(page, 'Backlog')).toBeVisible();
+    await expect(cardIn(page, 'Active')).toHaveCount(0);
   });
 });

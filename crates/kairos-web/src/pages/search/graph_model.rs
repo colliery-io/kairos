@@ -50,12 +50,23 @@ pub fn edge_styles() -> Vec<EdgeStyle> {
     ]
 }
 
+/// The lane of the tasks with no initiative (KAIROS-T-0778). It is not a
+/// short code, so it never names an item.
+pub const NO_INITIATIVE: &str = "~no-initiative";
+
+/// The margin of the canvas. The left margin holds the arrows between two
+/// lanes (KAIROS-T-0778).
+pub const GUTTER: f64 = 40.0;
+
 /// The layout options of the canvas. The `Dag` and [`group_boxes`] must
-/// use the same options, so the boxes fit the nodes.
+/// use the same options, so the boxes fit the nodes. Each lane is one row
+/// over all the columns (KAIROS-T-0778, Aurora `lane_rows`).
 pub fn layout_options() -> LayoutOptions {
     LayoutOptions {
         node_w: NODE_W,
         node_h: NODE_H,
+        margin: GUTTER,
+        lane_rows: true,
         ..LayoutOptions::default()
     }
 }
@@ -119,13 +130,15 @@ pub fn work_state(status: &str, done: bool, open_blocker: bool) -> WorkState {
 /// A group: the parent of nodes, drawn as a box with a header.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Group {
-    /// The short code of the parent. It is also the lane id.
+    /// The short code of the parent, or [`NO_INITIATIVE`]. It is also the
+    /// lane id.
     pub code: String,
     pub title: String,
     pub entity_type: String,
     /// The strategy above the group, shown in the header: (code, title).
     pub strategy: Option<(String, String)>,
-    /// The focus is the parent, or the strategy of the header.
+    /// The focus is the parent, the strategy of the header, or a node of
+    /// the group. The lane of the focus is first (KAIROS-T-0778).
     pub current: bool,
     /// The number of sibling tasks folded into `+N`.
     pub folded: usize,
@@ -150,6 +163,18 @@ pub struct CanvasData {
     pub off_canvas_blocks: Vec<(String, String)>,
     /// The short codes of the nodes, for the side panel.
     pub node_codes: BTreeSet<String>,
+    /// `blocks` edges between two groups (two lanes): from, to, and true
+    /// when the edge is resolved. The canvas draws them in the left margin,
+    /// from lane to lane (KAIROS-T-0778).
+    pub lane_edges: Vec<LaneEdge>,
+}
+
+/// A `blocks` edge between two lanes (KAIROS-T-0778).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LaneEdge {
+    pub from: String,
+    pub to: String,
+    pub resolved: bool,
 }
 
 fn level(entity_type: &str) -> Option<usize> {
@@ -329,7 +354,12 @@ pub fn canvas_data(
                 }
             }
             let current = parent.short_code == focus
-                || strategy.as_ref().is_some_and(|(code, _)| code == focus);
+                || strategy.as_ref().is_some_and(|(code, _)| code == focus)
+                || focus_node.is_some_and(|f| {
+                    parent_of
+                        .get(f.id.as_str())
+                        .is_some_and(|p| p.id == parent.id)
+                });
             let folded = match folded_group {
                 Some((group, count)) if group == parent.id => count,
                 _ => 0,
@@ -346,6 +376,16 @@ pub fn canvas_data(
             }
         });
     }
+
+    // The tasks with no group get a lane of their own when the canvas has
+    // groups (KAIROS-T-0778).
+    let loose_tasks = !groups.is_empty()
+        && node_ids.iter().any(|id| {
+            by_id[id].entity_type == "task"
+                && !parent_of
+                    .get(id)
+                    .is_some_and(|p| groups.contains_key(&p.short_code))
+        });
 
     let mut states: BTreeSet<WorkState> = BTreeSet::new();
     let dag_nodes: Vec<DagNode> = node_ids
@@ -364,7 +404,8 @@ pub fn canvas_data(
             let group = parent_of
                 .get(id)
                 .map(|p| p.short_code.as_str())
-                .filter(|code| groups.contains_key(*code));
+                .filter(|code| groups.contains_key(*code))
+                .or_else(|| (loose_tasks && node.entity_type == "task").then_some(NO_INITIATIVE));
             let mut dag = DagNode::new(node.short_code.clone(), node.title.clone())
                 .sublabel(node.short_code.clone())
                 .detail(node.status.clone())
@@ -392,6 +433,7 @@ pub fn canvas_data(
 
     let mut dag_edges = Vec::new();
     let mut off_canvas_blocks = Vec::new();
+    let mut lane_edges = Vec::new();
     for edge in &blocks {
         let (Some(source), Some(target)) = (
             by_id.get(edge.source_id.as_str()),
@@ -406,6 +448,18 @@ pub fn canvas_data(
         if folded_ids.contains(edge.source_id.as_str())
             || folded_ids.contains(edge.target_id.as_str())
         {
+            continue;
+        }
+        if !source_on
+            && !target_on
+            && groups.contains_key(&source.short_code)
+            && groups.contains_key(&target.short_code)
+        {
+            lane_edges.push(LaneEdge {
+                from: source.short_code.clone(),
+                to: target.short_code.clone(),
+                resolved: blocks_resolved(nodes, &edge.source_id, &edge.target_id),
+            });
             continue;
         }
         if !(source_on && target_on) {
@@ -424,19 +478,38 @@ pub fn canvas_data(
     }
     dag_edges.sort_by(|a: &DagEdge, b: &DagEdge| (&a.from, &a.to).cmp(&(&b.from, &b.to)));
 
+    lane_edges.sort_by(|a: &LaneEdge, b: &LaneEdge| (&a.from, &a.to).cmp(&(&b.from, &b.to)));
+
+    // The lanes: the lane of the focus first, then by short code, then the
+    // tasks with no initiative (KAIROS-T-0778).
+    let mut groups: Vec<Group> = groups.into_values().collect();
+    groups.sort_by_key(|g| !g.current);
+    if loose_tasks {
+        groups.push(Group {
+            code: NO_INITIATIVE.to_string(),
+            title: "No initiative".to_string(),
+            entity_type: "none".to_string(),
+            strategy: None,
+            current: false,
+            folded: 0,
+            more: 0,
+            expand: Vec::new(),
+        });
+    }
     let lanes = groups
-        .keys()
-        .map(|code| DagLane::new(code.clone(), code.clone()))
+        .iter()
+        .map(|g| DagLane::new(g.code.clone(), g.code.clone()))
         .collect();
     let node_codes = dag_nodes.iter().map(|n| n.id.clone()).collect();
     CanvasData {
         nodes: dag_nodes,
         edges: dag_edges,
         lanes,
-        groups: groups.into_values().collect(),
+        groups,
         states: states.into_iter().collect(),
         off_canvas_blocks,
         node_codes,
+        lane_edges,
     }
 }
 
@@ -701,7 +774,8 @@ mod tests {
             group.strategy,
             Some(("S-1".to_string(), "title S-1".to_string()))
         );
-        assert!(!group.current);
+        // KAIROS-T-0778: the lane of the focus task is the current one.
+        assert!(group.current);
         assert_eq!(
             (group.more, group.expand.clone()),
             (2, vec!["S-1".to_string()]),
@@ -729,7 +803,8 @@ mod tests {
         assert_eq!(ids, vec!["I-1", "I-2"]);
         assert_eq!(canvas.groups.len(), 1);
         assert_eq!(canvas.groups[0].code, "S-1");
-        assert!(!canvas.groups[0].current);
+        // KAIROS-T-0778: the lane that holds the focus is the current one.
+        assert!(canvas.groups[0].current);
         assert!(canvas.nodes[0].current);
     }
 
@@ -927,5 +1002,120 @@ mod tests {
         assert_eq!(fit_scale(2000.0, 1000.0), 0.5);
         assert_eq!(fit_scale(500.0, 1000.0), 1.0);
         assert_eq!(fit_scale(0.0, 1000.0), 1.0);
+    }
+
+    /// KAIROS-T-0778: the lane of the focus is first, then the lanes by
+    /// short code, then the tasks with no initiative. Each lane is one row
+    /// over all the columns, and the rows stack in that order.
+    #[test]
+    fn lanes_are_rows_the_focus_first_and_loose_tasks_last() {
+        let nodes = vec![
+            item("I-1", "initiative"),
+            item("I-2", "initiative"),
+            task("T-1"),
+            task("T-2"),
+            task("T-3"),
+            task("T-9"),
+        ];
+        let edges = vec![
+            edge("I-1", "T-1", "parent"),
+            edge("I-1", "T-2", "parent"),
+            edge("I-2", "T-3", "parent"),
+            edge("T-1", "T-2", "blocks"),
+        ];
+        let canvas = canvas_data(&nodes, &edges, "T-3", false);
+        let lanes: Vec<&str> = canvas.lanes.iter().map(|l| l.id.as_str()).collect();
+        assert_eq!(lanes, vec!["I-2", "I-1", NO_INITIATIVE]);
+        let groups: Vec<&str> = canvas.groups.iter().map(|g| g.code.as_str()).collect();
+        assert_eq!(groups, lanes, "a header for each lane, in the same order");
+        assert!(canvas.groups[0].current, "the lane of the focus is marked");
+        assert!(!canvas.groups[1].current);
+        let loose = canvas.nodes.iter().find(|n| n.id == "T-9").expect("T-9");
+        assert_eq!(loose.lane.as_deref(), Some(NO_INITIATIVE));
+
+        let geometry = placed(&canvas);
+        let boxes = group_boxes(&geometry, &canvas.nodes);
+        let band = |code: &str| {
+            let found: Vec<&GroupBox> = boxes.iter().filter(|b| b.code == code).collect();
+            assert_eq!(found.len(), 1, "one box for {code}");
+            found[0].clone()
+        };
+        let (b2, b1, b0) = (band("I-2"), band("I-1"), band(NO_INITIATIVE));
+        assert!(
+            b2.y + b2.h <= b1.y && b1.y + b1.h <= b0.y,
+            "rows stack in order"
+        );
+        assert_eq!((b2.x, b2.w), (b1.x, b1.w), "each row is full width");
+        assert_eq!((b1.x, b1.w), (b0.x, b0.w));
+        // Inside a lane, the dependency order reads left to right.
+        assert!(x_of(&geometry, "T-1") < x_of(&geometry, "T-2"));
+        // The left margin holds the arrows between lanes.
+        assert!(b1.x >= GUTTER - layout_options().lane_pad - 0.5);
+    }
+
+    /// KAIROS-T-0778: a blocks edge between two initiatives with lanes runs
+    /// between the lanes; it is not an off-canvas edge.
+    #[test]
+    fn a_blocks_edge_between_two_lanes_is_drawn_between_them() {
+        let mut done = item("I-3", "initiative");
+        done.done = true;
+        let nodes = vec![
+            item("I-1", "initiative"),
+            item("I-2", "initiative"),
+            done,
+            task("T-1"),
+            task("T-2"),
+            task("T-3"),
+        ];
+        let edges = vec![
+            edge("I-1", "T-1", "parent"),
+            edge("I-2", "T-2", "parent"),
+            edge("I-3", "T-3", "parent"),
+            edge("I-1", "I-2", "blocks"),
+            edge("I-3", "I-2", "blocks"),
+        ];
+        let canvas = canvas_data(&nodes, &edges, "I-2", false);
+        assert_eq!(
+            canvas.lane_edges,
+            vec![
+                LaneEdge {
+                    from: "I-1".into(),
+                    to: "I-2".into(),
+                    resolved: false
+                },
+                LaneEdge {
+                    from: "I-3".into(),
+                    to: "I-2".into(),
+                    resolved: true
+                },
+            ]
+        );
+        assert!(canvas.off_canvas_blocks.is_empty());
+        assert_eq!(canvas.lanes[0].id, "I-2", "the focus initiative is first");
+    }
+
+    /// KAIROS-T-0778: with no group, the tasks get no lane; with many
+    /// initiatives, each one is a lane (no folding).
+    #[test]
+    fn loose_tasks_alone_get_no_lane_and_many_lanes_do_not_fold() {
+        let nodes = vec![task("T-1"), task("T-2")];
+        let canvas = canvas_data(&nodes, &[edge("T-1", "T-2", "blocks")], "T-1", false);
+        assert!(canvas.lanes.is_empty());
+        assert!(canvas.nodes.iter().all(|n| n.lane.is_none()));
+
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        for i in 0..12 {
+            let (initiative, task_code) = (format!("I-{i:02}"), format!("T-{i:02}"));
+            nodes.push(item(&initiative, "initiative"));
+            nodes.push(task(&task_code));
+            edges.push(edge(&initiative, &task_code, "parent"));
+        }
+        let canvas = canvas_data(&nodes, &edges, "I-05", false);
+        assert_eq!(canvas.lanes.len(), 12);
+        assert_eq!(canvas.lanes[0].id, "I-05");
+        let geometry = placed(&canvas);
+        let boxes = group_boxes(&geometry, &canvas.nodes);
+        assert_eq!(boxes.len(), 12, "one row for each initiative");
     }
 }

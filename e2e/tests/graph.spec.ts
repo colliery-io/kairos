@@ -148,6 +148,24 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
       .toBeGreaterThan(before);
     // Still on the item's graph tab — expansion never navigates.
     expect(new URL(page.url()).pathname).toBe('/items/PLATFORM-T-0001');
+
+    // KAIROS-T-0778: each group pulled in is a lane, one full-width row,
+    // and the lane of the focus is the first row.
+    const rows = await page.locator('rect.kairos-graph__group').evaluateAll((els) =>
+      els.map((el) => ({
+        x: Number(el.getAttribute('x')),
+        y: Number(el.getAttribute('y')),
+        w: Number(el.getAttribute('width')),
+        current: el.classList.contains('kairos-graph__group--current'),
+      })),
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    for (const row of rows) {
+      expect(row.x).toBe(rows[0].x);
+      expect(row.w).toBe(rows[0].w);
+    }
+    const top = rows.reduce((a, b) => (b.y < a.y ? b : a));
+    expect(top.current).toBe(true);
   });
 
   // 5. Refocus + trail + browser back ---------------------------------------

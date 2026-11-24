@@ -205,6 +205,7 @@ The proposal kind (KAIROS-T-0558):
 | `kind` | Kairos makes it when |
 |---|---|
 | `proposal_decided` | A person confirms or rejects an edge proposal. The proposer gets it. The text names the edge, the state and the decider. `short_code` is the code of the source of the edge |
+| `moved_back` | A person moves an initiative back, and its Todo and Active tasks go to Backlog (KAIROS-T-0775). The claimants, the owner and the watchers get it. `short_code` is the code of the initiative |
 
 The [MCP tools reference](../mcp-tools/#your-notifications) lists each kind.
 

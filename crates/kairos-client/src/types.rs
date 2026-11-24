@@ -783,6 +783,34 @@ pub struct UpdateContentRequest {
     pub version: i32,
 }
 
+/// One task that a move back of its initiative takes to Backlog
+/// (KAIROS-T-0775).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MoveBackTask {
+    pub short_code: String,
+    pub title: String,
+    /// The column of the task now.
+    pub from_column: String,
+    /// The entry column of its board (Backlog).
+    pub to_column: String,
+    /// The person who has the claim now: the claim ends with the move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimant: Option<String>,
+}
+
+/// What a move back of an initiative does, or did (KAIROS-T-0775):
+/// `GET /api/initiatives/{short_code}/back` gives it before the move,
+/// `POST` gives it after.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct InitiativeMoveBack {
+    pub short_code: String,
+    pub from_column: String,
+    pub to_column: String,
+    /// The Todo and Active tasks of the initiative. Blocked, completed and
+    /// cancelled tasks stay, and are not in the list.
+    pub tasks: Vec<MoveBackTask>,
+}
+
 /// Body of `POST /api/{family}/{short_code}/transition`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]

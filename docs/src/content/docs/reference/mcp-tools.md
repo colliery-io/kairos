@@ -1808,6 +1808,24 @@ A move goes one column at a time, along a transition of the board. To find
 the columns and the moves between them, call [`my_boards`](#my_boards) first.
 `get_item` also gives the next columns of the item.
 
+A task also moves back one column after a false start: Active to Todo, Todo
+to Backlog. The board does not need a transition for it. The column is the
+first column, by position, that has a transition into the column of the
+task.
+
+Only the claimant moves a claimed task back. A board manager
+(`configure_boards` on the board) can move back the task of a different
+person. The move ends the claim. A refusal is `CLAIMED` (KAIROS-T-0774).
+
+An initiative moves back one column in the same way (KAIROS-T-0775). Only
+its owner, or a board manager, moves an owned initiative back. The refusal
+is `OWNED`.
+
+The move takes the tasks of the initiative with it, at once. Each task in Todo or
+Active goes to Backlog, and its claim ends. Blocked, completed and
+cancelled tasks stay. The claimants, the owner and the watchers get
+`moved_back`.
+
 A person who moves a task to Active gets the [claim](../glossary/#claim) of the
 task. The answer then has the line `claim`. An agent can move the task with
 the agent key of a person. Then the claim names the person and has the mark
@@ -3077,6 +3095,7 @@ A notification tells a person about an event of their work (KAIROS-T-0381):
 | `key_expiring` | An agent key of yours expires in 7 days or less. An organization admin also gets it for a key of a service account. Kairos sends it one time for each key. The text names the key and the `kairos keys rotate` command. |
 | `proposal_decided` | A person confirms or rejects an [edge proposal](#propose_edge) that you made (KAIROS-T-0558). The text names the edge, the state and the decider. A proposal of your agent key is your proposal. |
 | `notice` | A person, or an agent key of a person, sends you a [notice](#send_notice): to you, or to a team of yours (KAIROS-T-0737). The text names the sender, and the key when an agent sent it. |
+| `moved_back` | A person moves an initiative back one column, and its Todo and Active tasks go to Backlog (KAIROS-T-0775). You get it when you had the claim on one of those tasks, you own the initiative, or you watch the initiative or one of the tasks. The text names the tasks and the claims that ended. |
 
 You get no notification for a change that you made. You can turn a kind off
 with `PUT /api/me/notification-settings` or on the Notifications page of the

@@ -49,6 +49,126 @@ pub fn router() -> Router<AppState> {
             "/api/initiatives/{short_code}/complexity",
             put(set_complexity),
         )
+        .route(
+            "/api/initiatives/{short_code}/back",
+            get(plan_move_back).post(move_back),
+        )
+}
+
+/// The plan of a move back as the wire shape, with display names.
+fn plan_dto(
+    conn: &mut PgConnection,
+    plan: &boards::InitiativeBackPlan,
+) -> Result<dto::InitiativeMoveBack, ApiError> {
+    let ids: Vec<uuid::Uuid> = plan.tasks.iter().filter_map(|t| t.claimant).collect();
+    let names = kairos_db::task_claims::display_names(conn, &ids).map_err(ApiError::internal)?;
+    Ok(dto::InitiativeMoveBack {
+        short_code: plan.short_code.clone(),
+        from_column: plan.from_column.clone(),
+        to_column: plan.to_column.clone(),
+        tasks: plan
+            .tasks
+            .iter()
+            .map(|t| dto::MoveBackTask {
+                short_code: t.short_code.clone(),
+                title: t.title.clone(),
+                from_column: t.from_column.clone(),
+                to_column: t.to_column.clone(),
+                claimant: t
+                    .claimant
+                    .map(|id| names.get(&id).cloned().unwrap_or_else(|| id.to_string())),
+            })
+            .collect(),
+    })
+}
+
+/// The plan of a move back of the initiative (KAIROS-T-0775). It writes
+/// nothing. It gives the column before, and the Todo and Active tasks that
+/// go to Backlog, each with its claimant. The web shows it before the move.
+///
+/// The rule of the move applies. It needs `transition_items` on the board.
+/// Only the owner or a board manager (`configure_boards`) reads it.
+#[utoipa::path(
+    get,
+    path = "/api/initiatives/{short_code}/back",
+    tag = "initiatives",
+    params(("short_code" = String, Path, description = "Initiative short code")),
+    responses(
+        (status = 200, description = "The plan of the move back", body = dto::InitiativeMoveBack),
+        (status = 403, description = "Missing capability, or OWNED (a different person owns it, and the caller is not a board manager)", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 422, description = "DONE_ITEM_BACK or NO_COLUMN_BACK", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn plan_move_back(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+) -> Result<Json<dto::InitiativeMoveBack>, ApiError> {
+    let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let plan = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
+            let plan = crate::move_back::initiative_plan(
+                conn,
+                &slug,
+                initiative.id,
+                initiative.board_id,
+                user,
+            )?;
+            plan_dto(conn, &plan)
+        })
+        .await?;
+    Ok(Json(plan))
+}
+
+/// Move an initiative back one column (KAIROS-T-0775). Its Todo and Active
+/// tasks go to Backlog, and their claims end. Blocked, completed and
+/// cancelled tasks stay. The move happens at once, in one transaction. The
+/// claimants, the owner and the watchers get a `moved_back` notification.
+/// No body.
+///
+/// Requires `transition_items` on the board. Only the owner moves an owned
+/// initiative back. A board manager (`configure_boards`) can move back the
+/// initiative of a different person.
+#[utoipa::path(
+    post,
+    path = "/api/initiatives/{short_code}/back",
+    tag = "initiatives",
+    params(("short_code" = String, Path, description = "Initiative short code")),
+    responses(
+        (status = 200, description = "Moved back: what moved", body = dto::InitiativeMoveBack),
+        (status = 403, description = "Missing capability, or OWNED (a different person owns it, and the caller is not a board manager)", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 422, description = "DONE_ITEM_BACK, NO_COLUMN_BACK, or OWNER_REQUIRED (back into Active with no owner)", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn move_back(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+) -> Result<Json<dto::InitiativeMoveBack>, ApiError> {
+    let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let plan = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
+            let plan = crate::move_back::move_initiative_back(
+                conn,
+                &slug,
+                initiative.id,
+                initiative.board_id,
+                user,
+            )?;
+            plan_dto(conn, &plan)
+        })
+        .await?;
+    Ok(Json(plan))
 }
 
 /// Load the live initiative with this short code, or 404.

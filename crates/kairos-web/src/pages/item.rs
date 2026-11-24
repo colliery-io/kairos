@@ -78,7 +78,9 @@ use claim::ClaimPanel;
 use create_doc::CreateDocumentDialog;
 use delete::DeleteDialog;
 use editor::ContentEditor;
-use end::{CancelDialog, CancelledBanner, PurgeDialog, ReopenDialog};
+use end::{
+    BackDialog, CancelDialog, CancelledBanner, InitiativeBackDialog, PurgeDialog, ReopenDialog,
+};
 use external::ExternalRefsPanel;
 use item_owner::OwnerPanel;
 use metadata::MetadataPanel;
@@ -262,6 +264,8 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
     let cancel_open = RwSignal::new(false);
     let purge_open = RwSignal::new(false);
     let reopen_open = RwSignal::new(false);
+    let back_open = RwSignal::new(false);
+    let initiative_back_open = RwSignal::new(false);
 
     // The facts that do not change while the page shows this code.
     let code = StoredValue::new(item.short_code.clone());
@@ -551,7 +555,10 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
     // restore (no claim); Archive shows only to a person who passes it,
     // as Cancel does.
     let can_archive = can_restore;
-    let task_powers = task_end_powers(family, board, column_id.into());
+    let task_powers = task_end_powers(family, board, column_id.into(), claim.into());
+    let back_to = Signal::derive(move || task_powers.get().back);
+    // KAIROS-T-0775: the move back of an initiative.
+    let initiative_back_to = initiative_back_power(family, board, column_id.into(), owner.into());
     // KAIROS-T-0581: the edit rule with the claim, for the editor and the
     // metadata panel. The reason names the board when the page knows it.
     let may_edit = edit_power(family, board, created_by.clone(), claim.into());
@@ -640,6 +647,22 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
                     <Button variant="default" size="xs"
                         on_click=Callback::new(move |_| cancel_open.set(true))>
                         "Cancel task"
+                    </Button>
+                })}
+                // KAIROS-T-0774: a task goes back one column after a false
+                // start: its claimant, or a board manager.
+                {move || (task_powers.get().back.is_some() && !archived.get()).then(|| view! {
+                    <Button variant="default" size="xs"
+                        on_click=Callback::new(move |_| back_open.set(true))>
+                        {format!("Move back to {}", back_to.get().unwrap_or_default())}
+                    </Button>
+                })}
+                // KAIROS-T-0775: an initiative goes back one column; its
+                // Todo and Active tasks go to Backlog (a modal warns first).
+                {move || (initiative_back_to.get().is_some() && !archived.get()).then(|| view! {
+                    <Button variant="default" size="xs"
+                        on_click=Callback::new(move |_| initiative_back_open.set(true))>
+                        {format!("Move back to {}", initiative_back_to.get().unwrap_or_default())}
                     </Button>
                 })}
                 // KAIROS-T-0648: a done task (completed or cancelled) can
@@ -774,12 +797,18 @@ fn ItemLoaded(item: ItemDetail, family: Family) -> impl IntoView {
             let title = title.get();
             view! {
                 <DeleteDialog family code=code.get_value() title=title.clone() open=delete_open/>
+                {(family == Family::Initiative).then(|| view! {
+                    <InitiativeBackDialog code=code.get_value() open=initiative_back_open
+                        on_moved=on_moved/>
+                })}
                 {(family == Family::Task).then(|| view! {
                     <CancelDialog code=code.get_value() title=title.clone() open=cancel_open
                         on_cancelled=on_moved/>
                     <PurgeDialog code=code.get_value() title=title.clone() open=purge_open/>
                     <ReopenDialog code=code.get_value() title=title.clone() open=reopen_open
                         on_reopened=on_moved/>
+                    <BackDialog code=code.get_value() title=title.clone() to=back_to
+                        open=back_open on_moved=on_moved/>
                 })}
             }
         }}
@@ -893,7 +922,7 @@ fn link_power(may_edit: Memo<Option<bool>>) -> Signal<bool> {
 }
 
 /// What the signed-in user may do to END a task (KAIROS-T-0362).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct TaskEndPowers {
     /// Cancel: `transition_items` on the board (the capability of a move),
     /// and the task is not in a done column.
@@ -905,6 +934,11 @@ struct TaskEndPowers {
     /// Reopen (KAIROS-T-0648): `transition_items` on the board, and the
     /// task is in a done column. A cancelled task is in a done column too.
     reopen: bool,
+    /// Move back (KAIROS-T-0774): the name of the column before, when the
+    /// person may move the task back: `transition_items`, and the task has
+    /// no claim, or the person has it, or is a board manager
+    /// (`configure_boards`).
+    back: Option<String>,
 }
 
 impl TaskEndPowers {
@@ -915,17 +949,107 @@ impl TaskEndPowers {
             cancel: transition && !done,
             purge,
             reopen: transition && done,
+            back: None,
         }
+    }
+
+    /// The column before (KAIROS-T-0774), when the rule of the move back
+    /// lets the person do it: a move needs `transition_items`; a claim of
+    /// a different person needs a board manager. Pure, host-tested.
+    fn with_back(
+        mut self,
+        transition: bool,
+        back: Option<String>,
+        (claimed, mine, manager): (bool, bool, bool),
+    ) -> Self {
+        self.back = back.filter(|_| transition && (!claimed || mine || manager));
+        self
     }
 }
 
 /// The [`TaskEndPowers`] of the page: `false` for each until whoami and
 /// the board read have resolved, and for an item that is not a task. The
 /// server stays the authority.
+/// The column before `column` on the board (KAIROS-T-0774, KAIROS-T-0775):
+/// the first column, by position, that is not done and has a transition
+/// into `column`. `None` for a done column or the entry column. The same
+/// rule as `kairos_db::boards::back_column`. Pure, host-tested.
+fn back_column_name(board: &api::BoardInfo, column: &str) -> Option<String> {
+    if board.columns.iter().any(|c| c.id == column && c.is_done) {
+        return None;
+    }
+    board
+        .columns
+        .iter()
+        .filter(|c| !c.is_done && c.removed_at.is_none())
+        .find(|c| {
+            board
+                .transitions
+                .iter()
+                .any(|t| t.from_column_id == c.id && t.to_column_id == column)
+        })
+        .map(|c| c.name.clone())
+}
+
+/// The column before of an initiative, when the person may move it back
+/// (KAIROS-T-0775): `transition_items` on the board, and the initiative has
+/// no owner, or the person owns it, or is a board manager
+/// (`configure_boards`). `None` until whoami and the board read have
+/// resolved. The server stays the authority.
+fn initiative_back_power(
+    family: Family,
+    board: LocalResource<Result<Option<api::BoardInfo>, ApiError>>,
+    column_id: Signal<Option<String>>,
+    owner: Signal<Option<api::Owner>>,
+) -> Memo<Option<String>> {
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    Memo::new(move |_| {
+        if family != Family::Initiative {
+            return None;
+        }
+        let me = whoami
+            .and_then(|resource| resource.get())
+            .and_then(Result::ok)?;
+        let Some(Ok(Some(board))) = board.get() else {
+            return None;
+        };
+        let powers = boards::board_powers(&me, &board.slug, board.team_id.as_deref(), None);
+        let manager = boards::holds_capability(
+            &me,
+            Some(&board.slug),
+            board.team_id.as_deref(),
+            "configure_boards",
+        );
+        let allowed = owner.with(|owner| {
+            owner_may_move_back(
+                powers.transition,
+                owner.as_ref().map(|o| o.user_id.as_str()),
+                &me.user.id,
+                manager,
+            )
+        });
+        if !allowed {
+            return None;
+        }
+        column_id.with(|column| {
+            column
+                .as_deref()
+                .and_then(|column| back_column_name(&board, column))
+        })
+    })
+}
+
+/// The rule of the move back of an initiative (KAIROS-T-0775). Pure,
+/// host-tested.
+fn owner_may_move_back(transition: bool, owner: Option<&str>, me: &str, manager: bool) -> bool {
+    transition && (owner.is_none_or(|owner| owner == me) || manager)
+}
+
 fn task_end_powers(
     family: Family,
     board: LocalResource<Result<Option<api::BoardInfo>, ApiError>>,
     column_id: Signal<Option<String>>,
+    claim: Signal<Option<api::Claim>>,
 ) -> Memo<TaskEndPowers> {
     let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
     Memo::new(move |_| {
@@ -950,7 +1074,27 @@ fn task_end_powers(
         let powers = boards::board_powers(&me, &board.slug, board.team_id.as_deref(), None);
         let purge =
             boards::holds_capability(&me, Some(&board.slug), board.team_id.as_deref(), "purge");
-        TaskEndPowers::from_rule(powers.transition, purge, done)
+        // KAIROS-T-0774: the column before, by the rule of the server.
+        let back = column_id.with(|column| {
+            column
+                .as_deref()
+                .and_then(|column| back_column_name(&board, column))
+        });
+        let manager = boards::holds_capability(
+            &me,
+            Some(&board.slug),
+            board.team_id.as_deref(),
+            "configure_boards",
+        );
+        let (claimed, mine) =
+            claim.with(|claim| (claim.is_some(), access::holds_claim(&me, claim.as_ref())));
+        // A done task comes back by a reopen, not by a move back.
+        let back = back.filter(|_| !done);
+        TaskEndPowers::from_rule(powers.transition, purge, done).with_back(
+            powers.transition,
+            back,
+            (claimed, mine, manager),
+        )
     })
 }
 
@@ -2683,6 +2827,49 @@ mod tests {
             TaskEndPowers::default(),
             TaskEndPowers::from_rule(false, false, false)
         );
+    }
+
+    /// KAIROS-T-0774: the move back shows with the move capability, when
+    /// the task has no claim, or the person has it, or is a board manager.
+    #[test]
+    fn move_back_shows_for_the_claimant_or_a_board_manager() {
+        let back = || Some("Todo".to_string());
+        let base = || TaskEndPowers::from_rule(true, false, false);
+        assert_eq!(
+            base().with_back(true, back(), (false, false, false)).back,
+            back()
+        );
+        assert_eq!(
+            base().with_back(true, back(), (true, true, false)).back,
+            back()
+        );
+        assert_eq!(
+            base().with_back(true, back(), (true, false, true)).back,
+            back()
+        );
+        assert_eq!(
+            base().with_back(true, back(), (true, false, false)).back,
+            None
+        );
+        assert_eq!(
+            base().with_back(false, back(), (false, false, true)).back,
+            None
+        );
+        assert_eq!(
+            base().with_back(true, None, (false, false, false)).back,
+            None
+        );
+    }
+
+    /// KAIROS-T-0775: an initiative moves back by its owner or a board
+    /// manager; one with no owner by any person who can move it.
+    #[test]
+    fn an_initiative_moves_back_by_its_owner_or_a_board_manager() {
+        assert!(owner_may_move_back(true, None, "me", false));
+        assert!(owner_may_move_back(true, Some("me"), "me", false));
+        assert!(owner_may_move_back(true, Some("robin"), "me", true));
+        assert!(!owner_may_move_back(true, Some("robin"), "me", false));
+        assert!(!owner_may_move_back(false, None, "me", true));
     }
 
     /// The banner says WHEN, in something a person reads (KAIROS-T-0164):

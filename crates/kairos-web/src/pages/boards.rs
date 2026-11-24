@@ -1180,13 +1180,23 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
         .map(|group| {
             // ONLY the targets this board's transitions allow from this
             // column — invalid moves are never offered (S-0005).
-            let targets: Vec<(String, String)> = view
+            let mut targets: Vec<(String, String)> = view
                 .detail
                 .transitions
                 .iter()
                 .filter(|t| t.from_column_id == group.column.id)
                 .map(|t| (t.to_column_id.clone(), column_name_of(&t.to_column_id)))
                 .collect();
+            // KAIROS-T-0774: on a delivery board a task also moves back one
+            // column after a false start. The server decides who may (the
+            // claimant, or a board manager) and says why when it refuses.
+            if view.detail.board.board_level == "delivery"
+                && let Some(back) = data::back_column_id(&view.detail, &group.column.id)
+                && !targets.iter().any(|(id, _)| *id == back)
+            {
+                let name = column_name_of(&back);
+                targets.push((back, name));
+            }
             let column_id = group.column.id.as_str();
             let mut cards: Vec<CardModel> = Vec::new();
             cards.extend(group.strategies.iter().map(|item| {

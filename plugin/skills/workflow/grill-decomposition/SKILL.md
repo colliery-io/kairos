@@ -40,7 +40,8 @@ Ask across the whole set. Name each task by its short code, never by its place i
    - Propose a replacement that names a command and its output. Examples: a test that passes, a status code, a file that exists. Read [ACCEPTANCE-CRITERIA.md](../triage/ACCEPTANCE-CRITERIA.md) first.
    - A criterion that really needs a person is a manual check. Propose to move it to a `## Manual checks` list on the initiative. Put the short code of the task on it. Then the loop does not stop on it, and the user does the check after the loop.
    - Write each criterion in STE: one instruction, 20 words or fewer, one result ([the STE reference](../../../references/simplified-technical-english.md)).
-4. **Scope and repositories.** Compare each task with the goals and the non-goals of the initiative.
+4. **Size.** The initiative board has the setting `size_warning`, 15 tasks by default (`my_boards` or `kairos boards policy <board>` gives it). Count the tasks that the initiative has now, and the tasks that you propose. Past the setting, ask the user before you publish: is this initiative too big? Find the points where it can split: intermediate states that each deliver against an objective. Propose several medium or large initiatives, each with its own objective, and the tasks of each. Kairos also warns at each create past the setting: it is a warning, not a refusal.
+5. **Scope and repositories.** Compare each task with the goals and the non-goals of the initiative.
    - Name each task that does work that a non-goal rules out.
    - Name each goal that no task covers.
    - Each task that changes code links to one repository. A task with no repository, or with a repository that is not where its code is: propose `set_repository`. A task that changes 2 repositories is 2 tasks with a `blocks` edge.

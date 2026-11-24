@@ -191,12 +191,73 @@ impl BlockerWarning {
     }
 }
 
-/// One warning of a request: a claim, a WIP limit, or open blockers.
+/// An initiative with more tasks than the `size_warning` of its board
+/// (KAIROS-T-0779).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SizeWarning {
+    pub short_code: String,
+    pub size: kairos_db::board_policy::InitiativeSize,
+}
+
+impl SizeWarning {
+    /// The value of the header [`WARNING_HEADER`].
+    pub fn header_text(&self) -> String {
+        format!(
+            "{} has {} tasks, over the size_warning {} of its board: is it too big?",
+            self.short_code, self.size.tasks, self.size.warning
+        )
+    }
+
+    /// The line at the end of the text of an MCP tool.
+    pub fn mcp_text(&self) -> String {
+        format!(
+            "Warning: {}",
+            kairos_db::board_policy::size_question(&self.short_code, &self.size)
+        )
+    }
+}
+
+/// A `blocks` edge between tasks of two initiatives (KAIROS-T-0780).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrossWarning(pub kairos_db::board_policy::CrossInitiative);
+
+impl CrossWarning {
+    /// The value of the header [`WARNING_HEADER`].
+    pub fn header_text(&self) -> String {
+        let c = &self.0;
+        format!(
+            "{} has a blocks edge to {}, a task of the other initiative {} (its own: {}): does \
+             it belong in {}?",
+            c.source, c.target, c.target_initiative, c.source_initiative, c.target_initiative
+        )
+    }
+
+    /// The line at the end of the text of an MCP tool.
+    pub fn mcp_text(&self) -> String {
+        let c = &self.0;
+        format!(
+            "Warning: {} (of {}) blocks {} (of {}). The two tasks are in two initiatives. Does \
+             {} belong in {}, or is the dependency real? A real dependency is a blocks edge \
+             between the two initiatives too.",
+            c.source,
+            c.source_initiative,
+            c.target,
+            c.target_initiative,
+            c.source,
+            c.target_initiative
+        )
+    }
+}
+
+/// One warning of a request: a claim, a WIP limit, open blockers, the
+/// size of an initiative, or work across two initiatives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Warning {
     Claim(ClaimWarning),
     Wip(WipWarning),
     Blockers(BlockerWarning),
+    Size(SizeWarning),
+    Cross(CrossWarning),
 }
 
 impl Warning {
@@ -206,6 +267,8 @@ impl Warning {
             Self::Claim(w) => w.header_text(),
             Self::Wip(w) => w.header_text(),
             Self::Blockers(w) => w.header_text(),
+            Self::Size(w) => w.header_text(),
+            Self::Cross(w) => w.header_text(),
         }
     }
 
@@ -215,6 +278,8 @@ impl Warning {
             Self::Claim(w) => w.mcp_text(),
             Self::Wip(w) => w.mcp_text(),
             Self::Blockers(w) => w.mcp_text(),
+            Self::Size(w) => w.mcp_text(),
+            Self::Cross(w) => w.mcp_text(),
         }
     }
 }
@@ -303,6 +368,58 @@ pub fn note(conn: &mut PgConnection, task_id: Uuid, actor: Uuid) -> Result<(), A
     {
         warnings.push(Warning::Claim(warning));
     }
+    Ok(())
+}
+
+/// Note a new `blocks` edge from the task `source_id` to the task
+/// `target_id` (KAIROS-T-0780): when the two tasks are in two initiatives,
+/// the response gets a warning that asks why. Nothing outside of a request.
+pub fn note_cross(
+    conn: &mut PgConnection,
+    source_id: Uuid,
+    target_id: Uuid,
+) -> Result<(), ApiError> {
+    let Some(sink) = BLOCKING_SINK.with(|cell| cell.borrow().clone()) else {
+        return Ok(());
+    };
+    if let Some(cross) = kairos_db::board_policy::cross_initiative(conn, source_id, target_id)
+        .map_err(ApiError::internal)?
+    {
+        sink.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Warning::Cross(CrossWarning(cross)));
+    }
+    Ok(())
+}
+
+/// Note a new child task of the item `parent_id` (KAIROS-T-0779): when the
+/// parent is an initiative with more tasks than the `size_warning` of its
+/// board, the response gets a warning. Once for each initiative in a
+/// request. Nothing outside of a request, and nothing for a parent that is
+/// not an initiative.
+pub fn note_size(conn: &mut PgConnection, parent_id: Uuid) -> Result<(), ApiError> {
+    let Some(sink) = BLOCKING_SINK.with(|cell| cell.borrow().clone()) else {
+        return Ok(());
+    };
+    let Some(size) =
+        kairos_db::board_policy::initiative_size(conn, parent_id).map_err(ApiError::internal)?
+    else {
+        return Ok(());
+    };
+    if !size.too_big() {
+        return Ok(());
+    }
+    let short_code: String = {
+        use kairos_db::schema::initiatives;
+        initiatives::table
+            .filter(initiatives::id.eq(parent_id))
+            .select(initiatives::short_code)
+            .first(conn)
+            .map_err(ApiError::internal)?
+    };
+    let mut warnings = sink.lock().unwrap_or_else(|e| e.into_inner());
+    warnings.retain(|w| !matches!(w, Warning::Size(s) if s.short_code == short_code));
+    warnings.push(Warning::Size(SizeWarning { short_code, size }));
     Ok(())
 }
 

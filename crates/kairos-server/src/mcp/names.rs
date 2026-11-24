@@ -217,6 +217,10 @@ const NAMES: &[Name] = &[
     one("all", "each unread notification"),
     one("allowed", "the move is allowed"),
     one("blockers_gate", "the policy blockers_gate"),
+    one(
+        "size_warning",
+        "the setting size_warning of an initiative board (KAIROS-T-0779)",
+    ),
     one("owner_gate", "the policy owner_gate"),
     one("parent_gate", "the policy parent_gate"),
     one("claim", "claim the item in the move"),

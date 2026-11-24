@@ -147,6 +147,134 @@ pub fn set_owner_gate(
     Ok(changed > 0)
 }
 
+/// The default of `size_warning` (KAIROS-T-0779).
+pub const DEFAULT_SIZE_WARNING: i32 = 15;
+
+/// Set the `size_warning` of the board (KAIROS-T-0779). The caller checked
+/// `configure_boards` and the range. Returns true when the value changed.
+pub fn set_size_warning(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+    size: i32,
+) -> Result<bool, DieselError> {
+    use crate::schema::boards;
+    let changed = diesel::update(
+        boards::table
+            .filter(boards::id.eq(board_id))
+            .filter(boards::size_warning.ne(size)),
+    )
+    .set((
+        boards::size_warning.eq(size),
+        boards::updated_at.eq(diesel::dsl::now),
+    ))
+    .execute(conn)?;
+    Ok(changed > 0)
+}
+
+/// The size of an initiative (KAIROS-T-0779): its live child tasks that are
+/// not cancelled, and the `size_warning` of its board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InitiativeSize {
+    pub tasks: i64,
+    pub warning: i32,
+}
+
+impl InitiativeSize {
+    /// True when the initiative has more tasks than the setting.
+    pub fn too_big(&self) -> bool {
+        self.tasks > i64::from(self.warning)
+    }
+}
+
+/// The size of the initiative, or `None` when the item is not a live
+/// initiative.
+pub fn initiative_size(
+    conn: &mut PgConnection,
+    initiative_id: Uuid,
+) -> Result<Option<InitiativeSize>, DieselError> {
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        tasks: i64,
+        #[diesel(sql_type = diesel::sql_types::Integer)]
+        warning: i32,
+    }
+    let row: Option<Row> = diesel::sql_query(
+        "SELECT (SELECT count(*) FROM item_relationships r \
+                   JOIN tasks t ON t.id = r.target_id AND t.deleted_at IS NULL \
+                  WHERE r.source_id = i.id AND r.relationship = 'parent' \
+                    AND NOT EXISTS (SELECT 1 FROM task_cancellations k \
+                                     WHERE k.task_id = t.id)) AS tasks, \
+                b.size_warning AS warning \
+           FROM initiatives i JOIN boards b ON b.id = i.board_id \
+          WHERE i.id = $1 AND i.deleted_at IS NULL",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(initiative_id)
+    .get_result(conn)
+    .optional()?;
+    Ok(row.map(|r| InitiativeSize {
+        tasks: r.tasks,
+        warning: r.warning,
+    }))
+}
+
+/// The guidance of a new initiative (KAIROS-T-0780): one objective, and
+/// the work that delivers it. The same words in the web form, the answer
+/// of MCP `create_item` and the skills.
+pub const INITIATIVE_GUIDANCE: &str = "Keep the initiative to one objective, and to the work that \
+     delivers it. Work for a different objective goes to its own initiative. Name a dependency on \
+     another initiative at the start, as a blocks edge between the two initiatives.";
+
+/// A `blocks` edge between tasks of two initiatives (KAIROS-T-0780): the
+/// code of each task and of its initiative.
+#[derive(Debug, Clone, PartialEq, Eq, QueryableByName)]
+pub struct CrossInitiative {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub source: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub source_initiative: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub target: String,
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub target_initiative: String,
+}
+
+/// The two initiatives of a `blocks` edge from the task `source_id` to the
+/// task `target_id`, when each task has a parent initiative and the two
+/// differ. `None` inside one initiative, or for a task with no initiative.
+pub fn cross_initiative(
+    conn: &mut PgConnection,
+    source_id: Uuid,
+    target_id: Uuid,
+) -> Result<Option<CrossInitiative>, DieselError> {
+    diesel::sql_query(
+        "SELECT s.short_code AS source, si.short_code AS source_initiative, \
+                t.short_code AS target, ti.short_code AS target_initiative \
+           FROM tasks s \
+           JOIN item_relationships sr ON sr.target_id = s.id AND sr.relationship = 'parent' \
+           JOIN initiatives si ON si.id = sr.source_id \
+           JOIN tasks t ON t.id = $2 \
+           JOIN item_relationships tr ON tr.target_id = t.id AND tr.relationship = 'parent' \
+           JOIN initiatives ti ON ti.id = tr.source_id \
+          WHERE s.id = $1 AND si.id <> ti.id",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(source_id)
+    .bind::<diesel::sql_types::Uuid, _>(target_id)
+    .get_result(conn)
+    .optional()
+}
+
+/// The text that asks whether an initiative is too big (KAIROS-T-0779).
+/// The same words in the web, MCP and the CLI.
+pub fn size_question(short_code: &str, size: &InitiativeSize) -> String {
+    format!(
+        "{short_code} has {} tasks; its board asks at {}. Is it too big? Find the points where \
+         it can split: intermediate states that each deliver against an objective. Then make \
+         several medium or large initiatives, each with its own objective.",
+        size.tasks, size.warning
+    )
+}
+
 /// The `blockers_gate` policy of the board. A board that does not exist
 /// reads as off.
 pub fn blockers_gate(conn: &mut PgConnection, board_id: Uuid) -> Result<bool, DieselError> {

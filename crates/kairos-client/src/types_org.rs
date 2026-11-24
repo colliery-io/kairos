@@ -61,6 +61,11 @@ pub struct Board {
     #[serde(default)]
     #[schema(required = true)]
     pub blockers_gate: Option<bool>,
+    /// The setting `size_warning` of an initiative board (KAIROS-T-0779):
+    /// past this many tasks, Kairos asks whether an initiative is too big.
+    /// 15 by default. `null` on each other level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_warning: Option<i32>,
     /// RFC 3339.
     pub created_at: String,
     /// RFC 3339.
@@ -220,6 +225,11 @@ pub struct UpdateBoardRequest {
     /// the field is a 422 `VALIDATION`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blockers_gate: Option<bool>,
+    /// The setting `size_warning` (KAIROS-T-0779), for an initiative board
+    /// only: 1 to 1000. On each other level the field is a 422
+    /// `VALIDATION`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_warning: Option<i32>,
 }
 
 /// A field that is present, with its value or its null. With

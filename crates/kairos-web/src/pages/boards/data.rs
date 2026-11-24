@@ -22,6 +22,10 @@ pub struct Board {
     pub board_level: String,
     #[serde(default)]
     pub team_id: Option<String>,
+    /// The setting `size_warning` of an initiative board (KAIROS-T-0779):
+    /// past this many tasks, Kairos asks whether an initiative is too big.
+    #[serde(default)]
+    pub size_warning: Option<i32>,
 }
 
 /// mirror of: `kairos_client::types_org::BoardColumn` (partial).
@@ -1094,6 +1098,34 @@ pub async fn archive_completed(
     crate::api::post_empty(auth, &archive_completed_path(board_id, older_than_days)).await
 }
 
+/// The size pill of an initiative card (KAIROS-T-0779): `size 12/15`,
+/// shaded by how close the initiative is to the `size_warning` of its
+/// board: muted below half, gold from half, red past it. `None` with no
+/// setting or no tasks. Pure, host-tested.
+pub fn size_pill(
+    progress: Option<&ProgressCounts>,
+    warning: Option<i32>,
+) -> Option<(String, &'static str)> {
+    let warning = i64::from(warning.filter(|w| *w > 0)?);
+    let tasks = progress.map(|p| p.total - p.cancelled)?;
+    if tasks <= 0 {
+        return None;
+    }
+    let color = if tasks > warning {
+        aurora_dark::tokens::token::BAD
+    } else if tasks * 2 >= warning {
+        aurora_dark::tokens::token::GOLD
+    } else {
+        aurora_dark::tokens::token::MUTED
+    };
+    let label = if tasks > warning {
+        format!("size {tasks}/{warning}: too big?")
+    } else {
+        format!("size {tasks}/{warning}")
+    };
+    Some((label, color))
+}
+
 /// mirror of: `kairos_client::types::MovedTask` (KAIROS-T-0776).
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct MovedTask {
@@ -1480,6 +1512,32 @@ pub async fn create_document(
 mod tests {
     use super::*;
 
+    /// KAIROS-T-0779: the size pill and its shade.
+    #[test]
+    fn the_size_pill_is_shaded_by_the_setting() {
+        let progress = |total, cancelled| ProgressCounts {
+            done: 0,
+            total,
+            has_done: true,
+            cancelled,
+        };
+        use aurora_dark::tokens::token;
+        assert_eq!(
+            size_pill(Some(&progress(4, 0)), Some(15)),
+            Some(("size 4/15".to_string(), token::MUTED))
+        );
+        assert_eq!(
+            size_pill(Some(&progress(9, 1)), Some(15)),
+            Some(("size 8/15".to_string(), token::GOLD))
+        );
+        assert_eq!(
+            size_pill(Some(&progress(18, 0)), Some(15)),
+            Some(("size 18/15: too big?".to_string(), token::BAD))
+        );
+        assert_eq!(size_pill(None, Some(15)), None);
+        assert_eq!(size_pill(Some(&progress(4, 0)), None), None);
+    }
+
     /// KAIROS-T-0774: the column before is the first column by position
     /// that leads into the column and is not done: Todo for Active (not
     /// Blocked), Backlog for Todo, none for Backlog.
@@ -1503,6 +1561,7 @@ mod tests {
                 slug: "web-delivery".into(),
                 board_level: "delivery".into(),
                 team_id: None,
+                size_warning: None,
             },
             columns: vec![
                 column("Completed", 4, true),
@@ -1538,6 +1597,7 @@ mod tests {
                     slug: "web-delivery".into(),
                     board_level: "delivery".into(),
                     team_id: None,
+                    size_warning: None,
                 },
                 columns: Vec::new(),
                 transitions: Vec::new(),

@@ -519,6 +519,7 @@ mod tests {
             slug: slug.into(),
             board_level: level.into(),
             team_id: team.map(str::to_string),
+            size_warning: None,
         }
     }
 

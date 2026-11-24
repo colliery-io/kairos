@@ -16,7 +16,9 @@ Everything this skill needs is already in the conversation — stress-testing a 
 
    Check with the user that these seams match their expectations. The confirmed seams become the backbone of the PRD's Testing Decisions.
 
-3. Publish to Kairos:
+3. **Keep the initiative to one objective** (KAIROS-T-0780). Before you create it, check the scope with the user: one objective, and the work that delivers it. Work for a different objective goes to its own initiative. Name a dependency on another initiative at the start, as a `blocks` edge between the two initiatives. Kairos gives the same guidance in the answer of `create_item`, and warns when a `blocks` edge joins tasks of two initiatives.
+
+4. Publish to Kairos:
 
    - The board of the initiative is `initiative_board` of the wiring (the SessionStart context, or `kairos config show`). With no value there, find it with `my_boards`. If more than one board can hold this work, or none exists, ask the user.
    - `create_item(item_type: initiative, board: <initiative board>, title: ...)` — a title in the domain glossary's words, content stating the problem and intended outcome in a few sentences.

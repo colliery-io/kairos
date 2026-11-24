@@ -197,6 +197,9 @@ pub struct KairosClient {
     pub(crate) tenant: Option<String>,
     connect_timeout: Duration,
     timeout: Duration,
+    /// Print each `Kairos-Warning` of a response on stderr (KAIROS-T-0779):
+    /// the CLI turns it on.
+    print_warnings: bool,
 }
 
 impl fmt::Debug for KairosClient {
@@ -225,7 +228,17 @@ impl KairosClient {
             tenant: None,
             connect_timeout: DEFAULT_CONNECT_TIMEOUT,
             timeout: DEFAULT_TIMEOUT,
+            print_warnings: false,
         }
+    }
+
+    /// Print each `Kairos-Warning` of a response on stderr, as
+    /// `Warning: <text>` (KAIROS-T-0779): the WIP limit, open blockers, a
+    /// claim of a different person, the size of an initiative.
+    #[must_use]
+    pub fn with_printed_warnings(mut self) -> Self {
+        self.print_warnings = true;
+        self
     }
 
     /// Wait `timeout` for a whole request (KAIROS-T-0607).
@@ -299,7 +312,7 @@ impl KairosClient {
         builder: reqwest::RequestBuilder,
     ) -> Result<T, Error> {
         let builder = self.authorize(builder).await?;
-        Self::send_and_decode(context, expect, builder).await
+        Self::send_and_decode(context, expect, builder, self.print_warnings).await
     }
 
     /// Attach the optional X-Tenant header and NO bearer token: the public
@@ -319,9 +332,17 @@ impl KairosClient {
         context: String,
         expect: u16,
         builder: reqwest::RequestBuilder,
+        print_warnings: bool,
     ) -> Result<T, Error> {
         let response = builder.send().await?;
         let status = response.status().as_u16();
+        if print_warnings {
+            for value in response.headers().get_all("kairos-warning") {
+                if let Ok(text) = value.to_str() {
+                    eprintln!("Warning: {text}");
+                }
+            }
+        }
         let body = response.text().await?;
         if status == expect {
             serde_json::from_str(&body).map_err(|source| Error::Decode { context, source })
@@ -2991,7 +3012,7 @@ impl KairosClient {
     pub async fn deployment_config(&self) -> Result<DeploymentConfig, Error> {
         let path = "/api/config";
         let builder = self.without_credential(self.http.get(self.url(path)));
-        Self::send_and_decode(format!("GET {path}"), 200, builder).await
+        Self::send_and_decode(format!("GET {path}"), 200, builder, false).await
     }
 
     /// `POST /api/login` — exchange an email and a password for a session
@@ -3007,7 +3028,7 @@ impl KairosClient {
     pub async fn login(&self, request: &LoginRequest) -> Result<LoginResponse, Error> {
         let path = "/api/login";
         let builder = self.without_credential(self.http.post(self.url(path)).json(request));
-        match Self::send_and_decode(format!("POST {path}"), 200, builder).await {
+        match Self::send_and_decode(format!("POST {path}"), 200, builder, false).await {
             Err(Error::UnexpectedResponse { status, .. }) => Err(Error::UnexpectedResponse {
                 status,
                 body: "(body withheld: a login response can hold a credential)".to_string(),

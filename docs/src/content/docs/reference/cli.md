@@ -1547,7 +1547,7 @@ most. The definitions are in [`board_flow`](../mcp-tools/#board_flow).
 ### `kairos boards policy`
 
 ```
-kairos boards policy <BOARD> [--parent-gate on|off] [--owner-gate on|off] [--blockers-gate on|off] [OPTIONS]
+kairos boards policy <BOARD> [--parent-gate on|off] [--owner-gate on|off] [--blockers-gate on|off] [--size-warning TASKS] [OPTIONS]
 ```
 
 | Argument / Option | Type | Default | Description |
@@ -1556,6 +1556,7 @@ kairos boards policy <BOARD> [--parent-gate on|off] [--owner-gate on|off] [--blo
 | `--parent-gate` | `on` or `off` | unchanged | The policy `parent_gate` of a delivery board. |
 | `--owner-gate` | `on` or `off` | unchanged | The policy `owner_gate` of an initiative board. |
 | `--blockers-gate` | `on` or `off` | unchanged | The policy `blockers_gate` of a delivery board. |
+| `--size-warning` | 1 to 1000 | unchanged | The setting `size_warning` of an initiative board (KAIROS-T-0779). |
 
 Shows the policies of a board, and sets them. To set a policy, you need
 `configure_boards` on the board. With `parent_gate` on, a task moves to a
@@ -1570,6 +1571,10 @@ With `blockers_gate` on, a task with open blockers does not move to a claims
 column or a done column. Kairos refuses the move with `BLOCKED`. The policy is
 off by default: the move succeeds with a warning. See
 [`set_board_policy`](../mcp-tools/#set_board_policy).
+
+Past `size_warning` tasks (15 by default), a new task of an initiative gets a
+warning. The warning asks whether the initiative is too big. The CLI prints
+each `Kairos-Warning` of an answer on stderr. `KAIROS_QUIET=1` stops it.
 
 ### `kairos boards wip-limit`
 

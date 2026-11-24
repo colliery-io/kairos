@@ -11,7 +11,7 @@
 //!
 //! A switch sends one field (`PATCH`); a refusal turns the switch back.
 
-use aurora_dark::components::{Panel, Stack, Switch, Text};
+use aurora_dark::components::{Button, Group, Panel, Stack, Switch, Text, TextInput};
 use leptos::prelude::*;
 
 use super::api::{self, BoardPolicy, ColumnFlag};
@@ -139,15 +139,82 @@ pub(crate) fn BoardPolicyPanel(
     outcome: RwSignal<MutationOutcome>,
     reload: RwSignal<u32>,
 ) -> impl IntoView {
-    BoardPolicy::for_level(&board.board_level)
-        .iter()
-        .map(|&policy| {
-            view! {
-                <PolicySwitch board_id=board.id.clone() policy on=policy.of(&board)
-                    busy outcome reload/>
+    let size = board.size_warning.map(|size| {
+        view! { <SizeWarningField board_id=board.id.clone() size busy outcome reload/> }
+    });
+    view! {
+        {BoardPolicy::for_level(&board.board_level)
+            .iter()
+            .map(|&policy| {
+                view! {
+                    <PolicySwitch board_id=board.id.clone() policy on=policy.of(&board)
+                        busy outcome reload/>
+                }
+            })
+            .collect_view()}
+        {size}
+    }
+}
+
+/// The number of `size_warning`, or why it is not one. Pure, host-tested.
+pub(crate) fn parse_size(text: &str) -> Result<i32, String> {
+    match text.trim().parse::<i32>() {
+        Ok(size) if (1..=1000).contains(&size) => Ok(size),
+        _ => Err("Type a number of tasks from 1 to 1000.".to_string()),
+    }
+}
+
+/// The setting `size_warning` of an initiative board (KAIROS-T-0779): past
+/// this many tasks, Kairos asks whether an initiative is too big.
+#[component]
+fn SizeWarningField(
+    board_id: String,
+    size: i32,
+    busy: RwSignal<bool>,
+    outcome: RwSignal<MutationOutcome>,
+    reload: RwSignal<u32>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let value = RwSignal::new(size.to_string());
+    let error = RwSignal::new(None::<String>);
+    let board_id = StoredValue::new(board_id);
+    let save = Callback::new(move |_| {
+        let size = match parse_size(&value.get_untracked()) {
+            Ok(size) => size,
+            Err(why) => {
+                error.set(Some(why));
+                return;
             }
-        })
-        .collect_view()
+        };
+        error.set(None);
+        let board_id = board_id.get_value();
+        run_mutation(
+            busy,
+            outcome,
+            reload,
+            format!("Kairos asks whether an initiative is too big past {size} tasks."),
+            async move {
+                api::set_size_warning(auth, &board_id, size)
+                    .await
+                    .map(|_| ())
+            },
+        );
+    });
+    view! {
+        <Panel title="Initiative size" caption="Past this many tasks, Kairos asks whether an \
+            initiative is too big, and where it can split. It is a warning only. The card of \
+            the initiative shows its size.">
+            <Stack gap="xs">
+                <Group align="end" gap="sm">
+                    <span data-testid="size_warning">
+                        <TextInput label="Tasks" value=value/>
+                    </span>
+                    <Button size="xs" disabled=busy on_click=save>"Save"</Button>
+                </Group>
+                {move || error.get().map(|why| view! { <Text size="xs" dimmed=true>{why}</Text> })}
+            </Stack>
+        </Panel>
+    }
 }
 
 /// The panel of one policy. The switch shows the value of the board; a
@@ -200,6 +267,15 @@ fn PolicySwitch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0779: the setting takes 1 to 1000.
+    #[test]
+    fn the_size_takes_a_number_from_1_to_1000() {
+        assert_eq!(parse_size(" 15 "), Ok(15));
+        assert!(parse_size("0").is_err());
+        assert!(parse_size("1001").is_err());
+        assert!(parse_size("many").is_err());
+    }
 
     #[test]
     fn each_flag_has_its_label_and_its_messages() {

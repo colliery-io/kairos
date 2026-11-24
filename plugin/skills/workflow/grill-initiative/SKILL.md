@@ -31,7 +31,7 @@ Read the column from `get_item`. The default columns of an initiative board are 
 
 | Column | What to grill |
 |---|---|
-| The entry column (Discovery) | The context, the goals and the non-goals. Is the problem clear enough to design? |
+| The entry column (Discovery) | The context, the goals and the non-goals. Is the problem clear enough to design? Is the initiative one objective, and does its work stay inside it (KAIROS-T-0780)? Name each dependency on another initiative as a `blocks` edge between the two. |
 | The design columns (Design) | The design, the alternatives, the plan and the tests. |
 | After the design (Decompose, Ready) | Only what the user asks to open again. Tell the user that a changed answer can make the existing tasks wrong. |
 | Active, Monitoring | Only what the user asks. The work has started. |

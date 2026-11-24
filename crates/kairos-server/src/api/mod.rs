@@ -775,9 +775,22 @@ pub fn link_or_propose(
     atomically(conn, |conn| {
         match edge_create_rule(conn, role, user_id, relationship.as_str(), source, target)? {
             EdgeCreate::Link => {
-                kairos_db::graph::link_items(conn, source.0, target.0, relationship, user_id)
-                    .map(LinkOutcome::Linked)
-                    .map_err(map_graph)
+                let linked =
+                    kairos_db::graph::link_items(conn, source.0, target.0, relationship, user_id)
+                        .map(LinkOutcome::Linked)
+                        .map_err(map_graph)?;
+                // KAIROS-T-0779: a new task of an initiative: its size.
+                if relationship == RelationshipType::Parent && target.1 == ItemType::Task {
+                    crate::claims::note_size(conn, source.0)?;
+                }
+                // KAIROS-T-0780: a blocks edge across two initiatives.
+                if relationship == RelationshipType::Blocks
+                    && source.1 == ItemType::Task
+                    && target.1 == ItemType::Task
+                {
+                    crate::claims::note_cross(conn, source.0, target.0)?;
+                }
+                Ok(linked)
             }
             EdgeCreate::Refuse => Err(edge_refusal(
                 conn,

@@ -45,6 +45,10 @@ pub struct Board {
     /// delivery board, a task with an open blocker does not move into a
     /// claims column or a done column. False by default.
     pub blockers_gate: bool,
+    /// A setting of an initiative board (KAIROS-T-0779,
+    /// [`crate::board_policy`]): past this many tasks, Kairos asks whether
+    /// an initiative is too big. 15 by default.
+    pub size_warning: i32,
 }
 
 /// Insert for [`Board`].

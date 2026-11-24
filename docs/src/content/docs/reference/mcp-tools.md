@@ -1259,6 +1259,10 @@ write. The tool writes the item and its edge in one transaction. No item,
 history, activity or event stays behind. The tool does not use the short code
 number of that create again.
 
+The answer of a new initiative ends with the line `Guidance:`
+(KAIROS-T-0780). It asks for one objective and the work that delivers it.
+The web form of a new initiative shows the same words.
+
 ### `update_item`
 
 Replaces an item's full content, and optionally its title, under optimistic
@@ -2343,6 +2347,11 @@ The refusal for a task says how to link a task:
 ```text
 RELATIONSHIP_RULE: ACME-T-0012 is a task. Only a document or an ADR can impact a repository. A task links to a repository. To link ACME-T-0012 to a repository, use the tool set_repository.
 ```
+
+A `blocks` edge between two tasks of two initiatives gets the line
+`Warning:` (KAIROS-T-0780). The line names each task and its initiative. It
+asks whether the task belongs in the other initiative, or whether the
+dependency is real. REST gives the same text in the header `Kairos-Warning`.
 
 ### `unlink_items`
 
@@ -3430,6 +3439,7 @@ Each policy is on or off per board.
 | `parent_gate` | boolean | no | — | A delivery board only. `true`: a task moves into a claims column only while its parent initiative is active. `false`: no check. |
 | `owner_gate` | boolean | no | — | An initiative board only. `true`: an initiative moves into Active only with an owner, and the owner of an initiative in Active or Monitoring cannot release it. `false`: no check. |
 | `blockers_gate` | boolean | no | — | A delivery board only. `true`: a task with open blockers does not move into a claims column or a done column. `false`: the move gets a warning. |
+| `size_warning` | integer | no | — | An initiative board only. 1 to 1000 tasks. Past this many tasks, Kairos asks whether an initiative is too big (KAIROS-T-0779). |
 
 `parent_gate` is on by default. With it on, a task moves into a claims column
 only while its parent initiative is in Active or Monitoring. A bucket
@@ -3446,6 +3456,12 @@ In Active and in Monitoring, Kairos refuses a release of the owner, also for
 an organization admin. A hand-off to a member
 of the board changes the owner. The refusal is `OWNER_REQUIRED`. An
 initiative in Active with no owner stays there.
+
+`size_warning` is 15 by default. Kairos creates a new task of an initiative
+past the setting too. The answer then has the line `Warning:`.
+The line asks whether the initiative is too big, and where it can split. A
+cancelled task does not count. REST gives the same text in the header
+`Kairos-Warning`, and the CLI prints it on stderr.
 
 `blockers_gate` is off by default. An open blocker is an item that blocks the
 task and is not done. Kairos counts a cancelled blocker as open.

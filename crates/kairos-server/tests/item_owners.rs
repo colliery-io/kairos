@@ -357,8 +357,8 @@ async fn a_strategy_or_an_initiative_has_one_owner_by_claim_against_live_stack()
     // --- The owner stays in each column, Completed too.
     for name in [
         "Design",
-        "Ready",
         "Decompose",
+        "Ready",
         "Active",
         "Monitoring",
         "Completed",

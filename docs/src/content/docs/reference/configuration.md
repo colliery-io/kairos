@@ -1175,7 +1175,7 @@ transitions are data and may be changed afterwards.
 | Level | Columns | Transitions |
 |---|---|---|
 | `strategy` | Draft, Review, Active, Monitoring, Completed | Draft → Review → Active → Monitoring → Completed |
-| `initiative` | Discovery, Design, Ready, Decompose, Active, Monitoring, Completed | Discovery → Design → Ready → Decompose → Active → Monitoring → Completed |
+| `initiative` | Discovery, Design, Decompose, Ready, Active, Monitoring, Completed | Discovery → Design → Decompose → Ready → Active → Monitoring → Completed |
 | `delivery` | Backlog, Todo, Blocked, Active, Completed | Backlog → Todo → Active → Completed, plus Todo ↔ Blocked and Active ↔ Blocked |
 | `adr` | Draft, Discussion, Decided, Superseded | Draft → Discussion → Decided → Superseded |
 

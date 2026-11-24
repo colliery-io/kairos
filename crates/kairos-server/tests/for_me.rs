@@ -583,7 +583,7 @@ fn lane_codes(lane: &[kairos_client::types_work::WorkItem]) -> BTreeSet<String> 
 async fn my_work_gives_the_lanes_and_the_states() {
     let (world, _conn) = World::new("kairos_for_me_work_t0489_test").await;
     let w = &world;
-    let to_active = ["Design", "Ready", "Decompose", "Active"];
+    let to_active = ["Design", "Decompose", "Ready", "Active"];
 
     // --- Initiatives: alice owns three, one of them done; bob owns one.
     let active_initiative = w.initiative("Checkout").await;

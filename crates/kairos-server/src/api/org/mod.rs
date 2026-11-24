@@ -491,6 +491,8 @@ pub fn map_config_error(e: BoardError) -> ApiError {
         | BoardError::TaskDone { .. }
         | BoardError::TaskNotDone { .. }
         | BoardError::NoOpenColumn { .. }
+        | BoardError::NoColumnBack { .. }
+        | BoardError::DoneItemBack { .. }
         | BoardError::Rename(_)) => ApiError::internal(e),
         BoardError::Database(e) => ApiError::internal(e),
     }

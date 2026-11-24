@@ -52,6 +52,10 @@ pub enum NotificationKind {
     /// A person, or an agent key of a person, sent you a notice: to you,
     /// or to a team of yours (KAIROS-T-0737).
     Notice,
+    /// A person moved an initiative back, and its tasks went back to
+    /// Backlog: you had the claim on one of them, you own the initiative,
+    /// or you watch it or one of its tasks (KAIROS-T-0775).
+    MovedBack,
 }
 
 /// A key that expires within this many days gets one `key_expiring`
@@ -60,7 +64,7 @@ pub const KEY_EXPIRING_DAYS: i64 = 7;
 
 impl NotificationKind {
     /// Each kind, in the order of the settings.
-    pub const ALL: [NotificationKind; 15] = [
+    pub const ALL: [NotificationKind; 16] = [
         NotificationKind::HandOff,
         NotificationKind::BlockerCleared,
         NotificationKind::BlockedAgain,
@@ -76,6 +80,7 @@ impl NotificationKind {
         NotificationKind::ProposalDecided,
         NotificationKind::Watch,
         NotificationKind::Notice,
+        NotificationKind::MovedBack,
     ];
 
     /// The wire name (`kind` column and API field).
@@ -96,6 +101,7 @@ impl NotificationKind {
             NotificationKind::ProposalDecided => "proposal_decided",
             NotificationKind::Watch => "watch",
             NotificationKind::Notice => "notice",
+            NotificationKind::MovedBack => "moved_back",
         }
     }
 

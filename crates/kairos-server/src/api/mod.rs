@@ -1465,6 +1465,13 @@ pub fn map_board_error(e: BoardError) -> ApiError {
             }))
         }
         BoardError::TaskNotDone { .. } => ApiError::unprocessable("TASK_NOT_DONE", e.to_string()),
+        // KAIROS-T-0774: the entry column has no column before it.
+        BoardError::NoColumnBack { .. } => {
+            ApiError::unprocessable("NO_COLUMN_BACK", e.to_string())
+        }
+        BoardError::DoneItemBack { .. } => {
+            ApiError::unprocessable("DONE_ITEM_BACK", e.to_string())
+        }
         BoardError::NoOpenColumn { board_id, .. } => {
             ApiError::unprocessable("NO_OPEN_COLUMN", e.to_string())
                 .with_details(json!({ "board_id": board_id }))

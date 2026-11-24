@@ -345,6 +345,7 @@ fn settings_view(
         proposal_decided: on(NotificationKind::ProposalDecided),
         watch: on(NotificationKind::Watch),
         notice: on(NotificationKind::Notice),
+        moved_back: on(NotificationKind::MovedBack),
         muted_keys: muted
             .into_iter()
             .map(|k| MutedKey {
@@ -459,6 +460,7 @@ pub(crate) async fn update_notification_settings(
         (NotificationKind::ProposalDecided, body.proposal_decided),
         (NotificationKind::Watch, body.watch),
         (NotificationKind::Notice, body.notice),
+        (NotificationKind::MovedBack, body.moved_back),
     ]
     .into_iter()
     .filter_map(|(kind, value)| value.map(|v| (kind, v)))
@@ -476,7 +478,7 @@ pub(crate) async fn update_notification_settings(
             "The body names no kind. Send one or more kinds, each with true or false. The \
              kinds: hand_off, blocker_cleared, blocked_again, cancelled, blocker_cancelled, \
              mention, p0_bug, delivery_failing, agent_key_revoked, claim_dropped, claim_stale, \
-             key_expiring, proposal_decided, watch, notice. Or send mute_keys or unmute_keys.",
+             key_expiring, proposal_decided, watch, notice, moved_back. Or send mute_keys or unmute_keys.",
         )
         .with_details(serde_json::json!({
             "field": "hand_off",
@@ -496,6 +498,7 @@ pub(crate) async fn update_notification_settings(
                 "proposal_decided",
                 "watch",
                 "notice",
+                "moved_back",
                 "mute_keys",
                 "unmute_keys",
             ],

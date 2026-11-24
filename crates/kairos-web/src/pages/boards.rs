@@ -76,6 +76,15 @@ fn kind_color(kind: EntityKind) -> &'static str {
     }
 }
 
+/// The task selection of a delivery board (KAIROS-T-0776): the select
+/// mode, and the codes of the picked tasks. The board provides it; each
+/// card and column reads it.
+#[derive(Clone, Copy)]
+struct TaskSelection {
+    on: RwSignal<bool>,
+    picked: RwSignal<std::collections::BTreeSet<String>>,
+}
+
 /// The in-flight card drag (KAIROS-T-0064): which card, where it started,
 /// and the column ids its CURRENT column's transitions allow as drop
 /// targets — so only legal drop zones light up and accept the drop
@@ -1813,6 +1822,16 @@ fn BoardBody(
     // whether they are legal drop targets.
     let drag: RwSignal<Option<DragData>> = RwSignal::new(None);
 
+    // KAIROS-T-0776: the task selection and its bulk move.
+    let selection = TaskSelection {
+        on: RwSignal::new(false),
+        picked: RwSignal::new(std::collections::BTreeSet::new()),
+    };
+    provide_context(selection);
+    let move_open = RwSignal::new(false);
+    let board_slug_for_move = StoredValue::new(board.slug.clone());
+    let picked_count = Memo::new(move |_| selection.picked.with(|p| p.len()));
+
     // Modal open-state lives HERE so refetches never reset it.
     let create_open = RwSignal::new(false);
     let doc_open = RwSignal::new(false);
@@ -2130,6 +2149,43 @@ fn BoardBody(
                         on_click=Callback::new(move |_| flow_open.update(|open| *open = !*open))>
                         {move || if flow_open.get() { "Hide flow" } else { "Flow" }}
                     </Button>
+                    // KAIROS-T-0776: select tasks and move them to another
+                    // board in one step (`manage_tasks`).
+                    {move || (is_delivery && powers.get().create).then(|| view! {
+                        <Button variant="default" size="xs"
+                            attr:data-testid="select-tasks"
+                            on_click=Callback::new(move |_| {
+                                selection.on.update(|on| *on = !*on);
+                                if !selection.on.get_untracked() {
+                                    selection.picked.set(Default::default());
+                                }
+                            })>
+                            {move || if selection.on.get() { "Done selecting" } else { "Select" }}
+                        </Button>
+                    })}
+                    {move || (is_delivery && selection.on.get()).then(|| view! {
+                        <Button variant="default" size="xs"
+                            attr:data-testid="select-all-tasks"
+                            on_click=Callback::new(move |_| {
+                                let all = model.with_untracked(|m| {
+                                    m.as_ref().map(data::task_codes).unwrap_or_default()
+                                });
+                                selection.picked.set(all.into_iter().collect());
+                            })>
+                            "Select all"
+                        </Button>
+                        <Button variant="default" size="xs"
+                            disabled=Signal::derive(move || picked_count.get() == 0)
+                            on_click=Callback::new(move |_| selection.picked.set(Default::default()))>
+                            "Clear"
+                        </Button>
+                        <Button size="xs"
+                            attr:data-testid="move-selected"
+                            disabled=Signal::derive(move || picked_count.get() == 0)
+                            on_click=Callback::new(move |_| move_open.set(true))>
+                            {move || format!("Move {} to a board", picked_count.get())}
+                        </Button>
+                    })}
                     // KAIROS-T-0363: only for a person who may archive each
                     // task of the board (`manage_tasks`).
                     {move || (is_delivery && powers.get().create).then(|| view! {
@@ -2464,6 +2520,7 @@ fn BoardBody(
                 board_slug=board.slug.clone() board_name=board.name.clone() on_changed/>
         })}
         {is_delivery.then(|| view! {
+            <MoveTasksDialog open=move_open here=board_slug_for_move.get_value() on_changed/>
             <ArchiveCompletedDialog open=archive_open board_id=board_id.get_value()
                 count=completed on_changed/>
         })}
@@ -3480,6 +3537,26 @@ fn LaneColumns(
                                         }
                                     })}
                                 </Group>
+                                // KAIROS-T-0776: pick each task of the column.
+                                {move || {
+                                    let selection = use_context::<TaskSelection>()?;
+                                    selection.on.get().then(|| view! {
+                                        <Button variant="subtle" size="xs"
+                                            attr:data-testid="select-column"
+                                            on_click=Callback::new(move |_| {
+                                                let codes: Vec<String> = cards.with_untracked(|cards| {
+                                                    cards
+                                                        .iter()
+                                                        .filter(|c| c.kind == EntityKind::Task)
+                                                        .map(|c| c.short_code.clone())
+                                                        .collect()
+                                                });
+                                                selection.picked.update(|p| p.extend(codes));
+                                            })>
+                                            "Select column"
+                                        </Button>
+                                    })
+                                }}
                                 {move || refusal.get().map(|note| view! {
                                     <span class="kairos-board__refusal" data-testid="no-transition">
                                         <Text dimmed=true size="xs">{note}</Text>
@@ -3535,6 +3612,137 @@ fn LaneColumns(
                 }
             />
         </div>
+    }
+}
+
+/// The bulk move of the picked tasks (KAIROS-T-0776): a board picker of the
+/// delivery boards that the person may move tasks to, and the move. Each
+/// task takes the next code of the new board. The answer lists the tasks
+/// that did not move, with the reason; the others moved.
+#[component]
+fn MoveTasksDialog(
+    open: RwSignal<bool>,
+    /// The slug of this board: not offered as a target.
+    here: String,
+    on_changed: Callback<()>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let toaster = use_toaster();
+    let selection = use_context::<TaskSelection>();
+    let here = StoredValue::new(here);
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let boards: RwSignal<Option<Result<Vec<data::Board>, ApiError>>> = RwSignal::new(None);
+    let value = RwSignal::new(String::new());
+    let busy = RwSignal::new(false);
+    let refused: RwSignal<Vec<data::RefusedMove>> = RwSignal::new(Vec::new());
+    let error = RwSignal::new(None::<String>);
+    Effect::new(move |_| {
+        if open.get() {
+            refused.set(Vec::new());
+            error.set(None);
+            boards.set(None);
+            leptos::task::spawn_local(async move {
+                boards.set(Some(data::list_boards(auth).await));
+            });
+        }
+    });
+    let targets = Memo::new(move |_| {
+        let me = whoami
+            .and_then(|resource| resource.get())
+            .and_then(Result::ok);
+        match (me, boards.get()) {
+            (Some(me), Some(Ok(list))) => {
+                here.with_value(|here| movable_delivery_boards(&me, &list, here))
+            }
+            _ => Vec::new(),
+        }
+    });
+    let confirm = Callback::new(move |_| {
+        let Some(selection) = selection else { return };
+        let board = value.get_untracked();
+        if board.is_empty() || busy.get_untracked() {
+            return;
+        }
+        let codes: Vec<String> = selection
+            .picked
+            .with_untracked(|p| p.iter().cloned().collect());
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            match data::move_tasks(auth, &codes, &board).await {
+                Ok(result) => {
+                    busy.set(false);
+                    let moved = result.moved.len();
+                    selection.picked.update(|p| {
+                        for m in &result.moved {
+                            p.remove(&m.from);
+                        }
+                    });
+                    if moved > 0 {
+                        toaster.success(format!("Moved {moved} task(s) to {board}."));
+                        on_changed.run(());
+                    }
+                    if result.refused.is_empty() {
+                        open.set(false);
+                    } else {
+                        refused.set(result.refused);
+                    }
+                }
+                Err(e) => {
+                    busy.set(false);
+                    error.set(Some(describe(&e)));
+                }
+            }
+        });
+    });
+    view! {
+        <ConfirmDialog
+            open
+            title="Move the picked tasks to another board?".to_string()
+            message="Each task goes to the entry column of the board, takes the team of the board, and gets the next code of the board. The old code still finds the task.".to_string()
+            confirm_label="Move"
+            cancel_label="Cancel"
+            danger=false
+            busy
+            size="md"
+            on_confirm=confirm
+            notice=std::sync::Arc::new(move || view! {
+                <Stack gap="xs">
+                    {move || match boards.get() {
+                        None => view! { <Text size="sm" dimmed=true>"Loading boards…"</Text> }.into_any(),
+                        Some(Err(_)) => view! { <Text size="sm" dimmed=true>"The boards are not available."</Text> }.into_any(),
+                        Some(Ok(_)) if targets.with(Vec::is_empty) => view! {
+                            <Text size="sm" dimmed=true>"You cannot move tasks to another delivery board."</Text>
+                        }.into_any(),
+                        Some(Ok(_)) => view! {
+                            <Select
+                                label="Board"
+                                option_pairs={std::iter::once((String::new(), "Choose a board".to_string()))
+                                    .chain(targets.get())
+                                    .collect::<Vec<_>>()}
+                                value=value
+                            />
+                        }.into_any(),
+                    }}
+                    {move || (!refused.with(Vec::is_empty)).then(|| view! {
+                        <Alert title="Some tasks did not move" color=token::BAD>
+                            <Stack gap="xs">
+                                {refused.get().into_iter().map(|r| view! {
+                                    <Text size="sm" dimmed=true>
+                                        {format!("{}: {}", r.short_code, r.message)}
+                                    </Text>
+                                }).collect::<Vec<_>>()}
+                            </Stack>
+                        </Alert>
+                    })}
+                    {move || error.get().map(|message| view! {
+                        <Alert title="Move failed" color=token::BAD>
+                            <Text size="sm" dimmed=true>{message}</Text>
+                        </Alert>
+                    })}
+                </Stack>
+            }.into_any())
+        />
     }
 }
 
@@ -3632,6 +3840,7 @@ fn ItemCard(
     let graph_code = short_code.clone();
     let code_for_copy = short_code.clone();
     let code_for_drag = short_code.clone();
+    let code_for_pick = StoredValue::new(short_code.clone());
     let code_for_class = short_code;
     // A card is draggable when a column move is offered OR it carries a
     // lane (KAIROS-T-0077: a task in a dead-end column can still move to
@@ -3672,6 +3881,28 @@ fn ItemCard(
         >
             <Group justify="between" wrap=true>
                 <Group gap="xs">
+                    // KAIROS-T-0776: the pick of a task in the select mode.
+                    {move || {
+                        let selection = use_context::<TaskSelection>()?;
+                        (kind == EntityKind::Task && selection.on.get()).then(|| view! {
+                            <input
+                                type="checkbox"
+                                class="kairos-card__pick"
+                                data-testid="pick-task"
+                                prop:checked=move || {
+                                    selection.picked.with(|p| code_for_pick.with_value(|c| p.contains(c)))
+                                }
+                                on:change=move |_| {
+                                    let code = code_for_pick.get_value();
+                                    selection.picked.update(|p| {
+                                        if !p.remove(&code) {
+                                            p.insert(code);
+                                        }
+                                    });
+                                }
+                            />
+                        })
+                    }}
                     // The identifier IS the detail link (KAIROS-T-0076);
                     // `cl-mono` keeps the code scrapeable and mono-set.
                     <a class="cl-mono kairos-card__code" href=href>

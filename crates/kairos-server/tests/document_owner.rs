@@ -2485,10 +2485,18 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
             json!(false),
         );
     }
+    // KAIROS-T-0776: `short_code` or `short_codes`; the tool says which is
+    // missing, so the schema requires neither.
     checks.same(
-        "H1: move_item must have short_code only",
+        "H1: move_item requires no argument in the schema",
         schema_of("move_item")["required"].clone(),
-        json!(["short_code"]),
+        Value::Null,
+    );
+    checks.check(
+        "H1: move_item has short_code and short_codes",
+        schema_of("move_item")["properties"]["short_code"].is_object()
+            && schema_of("move_item")["properties"]["short_codes"].is_object(),
+        schema_of("move_item"),
     );
     checks.same(
         "H1: link_items must have the three arguments of before",
@@ -2519,9 +2527,9 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         (
             true,
             "VALIDATION: The call has the argument \"column\". This tool does not accept \
-             that argument. The arguments of this tool are: short_code, to_board, rename, \
-             request_key.\n\
-             details: {\"allowed\":[\"short_code\",\"to_board\",\"rename\",\"request_key\"],\
+             that argument. The arguments of this tool are: short_code, short_codes, to_board, \
+             rename, request_key.\n\
+             details: {\"allowed\":[\"short_code\",\"short_codes\",\"to_board\",\"rename\",\"request_key\"],\
              \"field\":\"column\"}"
                 .to_string(),
         ),

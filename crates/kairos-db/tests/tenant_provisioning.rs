@@ -759,8 +759,8 @@ fn tenant_provisioning_lifecycle() {
         [
             "Discovery",
             "Design",
-            "Ready",
             "Decompose",
+            "Ready",
             "Active",
             "Monitoring",
             "Completed"
@@ -770,9 +770,9 @@ fn tenant_provisioning_lifecycle() {
         board_transitions(&mut conn, "initiatives"),
         transitions(&[
             ("Discovery", "Design"),
-            ("Design", "Ready"),
-            ("Ready", "Decompose"),
-            ("Decompose", "Active"),
+            ("Design", "Decompose"),
+            ("Decompose", "Ready"),
+            ("Ready", "Active"),
             ("Active", "Monitoring"),
             ("Monitoring", "Completed"),
         ])

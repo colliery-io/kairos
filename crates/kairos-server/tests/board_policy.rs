@@ -331,7 +331,7 @@ async fn a_task_moves_to_active_only_under_an_active_initiative() {
     // KAIROS-T-0643: an initiative moves to Active only with an owner.
     mcp.ok("claim_item", json!({"short_code": initiative}))
         .await;
-    mcp.walk(&initiative, &["Design", "Ready", "Decompose", "Active"])
+    mcp.walk(&initiative, &["Design", "Decompose", "Ready", "Active"])
         .await;
     mcp.walk(&first, &["Active"]).await;
     mcp.walk(&initiative, &["Monitoring"]).await;
@@ -579,7 +579,7 @@ async fn an_initiative_moves_to_active_only_with_an_owner() {
     let initiative = mcp
         .create(json!({"item_type": "initiative", "board": "initiatives", "title": "Owned work"}))
         .await;
-    mcp.walk(&initiative, &["Design", "Ready", "Decompose"])
+    mcp.walk(&initiative, &["Design", "Decompose", "Ready"])
         .await;
 
     // --- No owner: the move to Active is refused, over MCP and REST alike.
@@ -656,7 +656,7 @@ async fn an_initiative_moves_to_active_only_with_an_owner() {
     let free = mcp
         .create(json!({"item_type": "initiative", "board": "initiatives", "title": "Free work"}))
         .await;
-    mcp.walk(&free, &["Design", "Ready", "Decompose", "Active"])
+    mcp.walk(&free, &["Design", "Decompose", "Ready", "Active"])
         .await;
     alice_mcp
         .ok("claim_item", json!({"short_code": free}))
@@ -712,7 +712,7 @@ async fn an_initiative_moves_to_active_only_with_an_owner() {
         .create(json!({"item_type": "initiative", "board": "initiatives", "title": "Claimed in the move"}))
         .await;
     alice_mcp
-        .walk(&claimed, &["Design", "Ready", "Decompose"])
+        .walk(&claimed, &["Design", "Decompose", "Ready"])
         .await;
     // A refused move keeps no owner.
     alice_mcp
@@ -738,7 +738,7 @@ async fn an_initiative_moves_to_active_only_with_an_owner() {
         )
         .await;
     assert!(
-        text.contains(&format!("Transitioned {claimed}: Decompose -> Active.")),
+        text.contains(&format!("Transitioned {claimed}: Ready -> Active.")),
         "{text}"
     );
     assert!(text.contains("- owner: "), "{text}");

@@ -234,8 +234,8 @@ fn a_strategy_or_an_initiative_has_one_owner_by_claim() {
     // --- the owner stays in each column, Completed too (decision 5) ---------
     for name in [
         "Design",
-        "Ready",
         "Decompose",
+        "Ready",
         "Active",
         "Monitoring",
         "Completed",

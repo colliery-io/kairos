@@ -123,7 +123,7 @@ leptos = "0.8.20"
 # KAIROS-T-0326: no default features here, so kairos-web-css (the trunk
 # hook that writes the stylesheet) does not build Leptos for the host;
 # kairos-web asks for `components`.
-aurora-dark = { package = "colliery-io-aurora", version = "0.6.1", default-features = false }
+aurora-dark = { package = "colliery-io-aurora", version = "0.7.0", default-features = false }
 
 # API docs / MCP
 utoipa = "5.5.0"

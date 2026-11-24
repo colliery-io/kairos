@@ -795,6 +795,11 @@
 
 .kairos-graph__group { fill: var(--panel-2); stroke: var(--border); stroke-width: 1; }
 .kairos-graph__group--current { stroke: var(--ice); stroke-width: 2; }
+/* A blocks edge between two lanes (KAIROS-T-0778): in the left margin,
+   heavier than an edge between two tasks, so it stands out. */
+.kairos-graph__lane-edge { fill: none; stroke-width: 3; }
+.kairos-graph__lane-edge--open { stroke: var(--gold); }
+.kairos-graph__lane-edge--resolved { stroke: var(--muted); stroke-dasharray: 6 4; }
 .kairos-graph__header text { font-family: var(--font-mono); font-size: 10px; fill: var(--muted); }
 .kairos-graph__header--current text { fill: var(--fg); }
 .kairos-graph__link { pointer-events: auto; cursor: pointer; outline: none; }

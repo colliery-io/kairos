@@ -409,6 +409,48 @@ fn activates(ev: &leptos::ev::KeyboardEvent) -> bool {
 }
 
 /// A link in the header of a group: it moves the focus to the item.
+/// A `blocks` arrow between two lanes (KAIROS-T-0778): in the left margin,
+/// from the middle of the left edge of one lane to that of the other. It
+/// uses the arrow head of the `Dag` for its style.
+fn lane_arrow(boxes: &[GroupBox], edge: &graph_model::LaneEdge) -> Option<AnyView> {
+    let anchor = |code: &str| {
+        boxes
+            .iter()
+            .find(|b| b.code == code && b.header)
+            .map(|b| (b.x, b.y + b.h / 2.0))
+    };
+    let (sx, sy) = anchor(&edge.from)?;
+    let (tx, ty) = anchor(&edge.to)?;
+    let bend = graph_model::GUTTER - 8.0;
+    let path = format!(
+        "M {sx} {sy} C {} {sy}, {} {ty}, {tx} {ty}",
+        sx - bend,
+        tx - bend
+    );
+    let (style, label) = if edge.resolved {
+        (
+            graph_model::RESOLVED,
+            "Resolved: one end is in a done column. This edge does not block.",
+        )
+    } else {
+        (graph_model::OPEN, "Open blocker")
+    };
+    Some(
+        view! {
+            <path
+                class=format!("kairos-graph__lane-edge kairos-graph__lane-edge--{style}")
+                data-from=edge.from.clone()
+                data-to=edge.to.clone()
+                d=path
+                marker-end=format!("url(#kairos-graph-arrow-{style})")
+            >
+                <title>{format!("{} blocks {}. {label}", edge.from, edge.to)}</title>
+            </path>
+        }
+        .into_any(),
+    )
+}
+
 fn header_link(
     x: f64,
     y: f64,
@@ -537,8 +579,13 @@ fn group_header(
         }
     });
     let room = ((right - x) / HEADER_CHAR_W).floor().max(4.0) as usize;
-    let label = clip(&format!("{} {}", group.code, group.title), room);
-    let main = header_link(x, y, label, group.code.clone(), on_group);
+    // The lane of the tasks with no initiative names no item: plain text.
+    let main = if group.code == graph_model::NO_INITIATIVE {
+        view! { <text x=x y=y>{clip(&group.title, room)}</text> }.into_any()
+    } else {
+        let label = clip(&format!("{} {}", group.code, group.title), room);
+        header_link(x, y, label, group.code.clone(), on_group).into_any()
+    };
     let class = if group.current {
         "kairos-graph__header kairos-graph__header--current"
     } else {
@@ -576,6 +623,7 @@ fn WorkCanvas(
         lanes,
         groups,
         states,
+        lane_edges,
         ..
     } = canvas;
     // The same options as the `Dag`, so the boxes fit its nodes.
@@ -622,6 +670,10 @@ fn WorkCanvas(
                 on_more,
             ))
         })
+        .collect_view();
+    let lane_arrows = lane_edges
+        .iter()
+        .filter_map(|e| lane_arrow(&boxes, e))
         .collect_view();
     let state_legend = states
         .iter()
@@ -851,6 +903,7 @@ fn WorkCanvas(
                         role="group"
                         aria-label="Groups"
                     >
+                        {lane_arrows}
                         {headers}
                     </svg>
                 </div>

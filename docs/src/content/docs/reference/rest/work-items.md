@@ -223,6 +223,49 @@ Request body (required): `application/json`, [`UpdateContentRequest`](../schemas
 | `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Stale version; details.current carries the current entity |
 
+### `GET /api/initiatives/{short_code}/back`
+
+The plan of a move back of the initiative (KAIROS-T-0775). It writes
+nothing. It gives the column before, and the Todo and Active tasks that
+go to Backlog, each with its claimant. The web shows it before the move.
+
+The rule of the move applies. It needs `transition_items` on the board.
+Only the owner or a board manager (`configure_boards`) reads it.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Initiative short code |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`InitiativeMoveBack`](../schemas/#initiativemoveback) | The plan of the move back |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability, or OWNED (a different person owns it, and the caller is not a board manager) |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | DONE_ITEM_BACK or NO_COLUMN_BACK |
+
+### `POST /api/initiatives/{short_code}/back`
+
+Move an initiative back one column (KAIROS-T-0775). Its Todo and Active
+tasks go to Backlog, and their claims end. Blocked, completed and
+cancelled tasks stay. The move happens at once, in one transaction. The
+claimants, the owner and the watchers get a `moved_back` notification.
+No body.
+
+Requires `transition_items` on the board. Only the owner moves an owned
+initiative back. A board manager (`configure_boards`) can move back the
+initiative of a different person.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Initiative short code |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`InitiativeMoveBack`](../schemas/#initiativemoveback) | Moved back: what moved |
+| `403` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Missing capability, or OWNED (a different person owns it, and the caller is not a board manager) |
+| `404` | [`ErrorEnvelope`](../schemas/#errorenvelope) | Unknown short code |
+| `422` | [`ErrorEnvelope`](../schemas/#errorenvelope) | DONE_ITEM_BACK, NO_COLUMN_BACK, or OWNER_REQUIRED (back into Active with no owner) |
+
 ### `PUT /api/initiatives/{short_code}/complexity`
 
 Set the complexity of an initiative, or clear it with `none`.

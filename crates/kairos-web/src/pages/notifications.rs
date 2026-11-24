@@ -78,6 +78,8 @@ struct NotificationSettings {
     proposal_decided: bool,
     watch: bool,
     notice: bool,
+    #[serde(default = "on")]
+    moved_back: bool,
     #[serde(default)]
     muted_keys: Vec<MutedKey>,
 }
@@ -261,6 +263,7 @@ fn kind_label(kind: &str) -> &'static str {
         "proposal_decided" => "Proposal decided",
         "watch" => "Watch",
         "notice" => "Notice",
+        "moved_back" => "Moved back",
         _ => "Notification",
     }
 }
@@ -570,6 +573,7 @@ pub fn NotificationsPage() -> impl IntoView {
     let proposal_decided = RwSignal::new(true);
     let watch = RwSignal::new(true);
     let notice = RwSignal::new(true);
+    let moved_back = RwSignal::new(true);
     let settings_reload = RwSignal::new(0u32);
     let settings = LocalResource::new(move || {
         auth.track_session();
@@ -593,6 +597,7 @@ pub fn NotificationsPage() -> impl IntoView {
             proposal_decided.set(s.proposal_decided);
             watch.set(s.watch);
             notice.set(s.notice);
+            moved_back.set(s.moved_back);
         }
     });
     let on_save = move |_| {
@@ -612,6 +617,7 @@ pub fn NotificationsPage() -> impl IntoView {
             "proposal_decided": proposal_decided.get_untracked(),
             "watch": watch.get_untracked(),
             "notice": notice.get_untracked(),
+            "moved_back": moved_back.get_untracked(),
         });
         run_mutation(
             busy,
@@ -731,6 +737,8 @@ pub fn NotificationsPage() -> impl IntoView {
                                     label="An item that you watch moves, is edited, gets a note, or is done"/>
                                 <Switch checked=notice
                                     label="A person or an agent key sends a notice to you or to your team"/>
+                                <Switch checked=moved_back
+                                    label="A person moves an initiative back, and its tasks go back to Backlog"/>
                                 <MutedKeys keys=s.muted_keys busy outcome settings_reload/>
                                 <Group justify="end">
                                     <Button on_click=Callback::new(on_save)>"Save"</Button>
@@ -799,6 +807,11 @@ fn MutedKeys(
         </Stack>
     }
     .into_any()
+}
+
+/// The default of a kind that an older server does not send: on.
+fn on() -> bool {
+    true
 }
 
 #[cfg(test)]
@@ -928,6 +941,7 @@ mod tests {
             "proposal_decided",
             "watch",
             "notice",
+            "moved_back",
         ] {
             assert_ne!(kind_label(kind), "Notification", "{kind}");
         }

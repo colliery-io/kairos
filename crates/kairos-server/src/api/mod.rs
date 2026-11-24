@@ -1469,6 +1469,9 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         BoardError::NoColumnBack { .. } => {
             ApiError::unprocessable("NO_COLUMN_BACK", e.to_string())
         }
+        BoardError::DoneItemBack { .. } => {
+            ApiError::unprocessable("DONE_ITEM_BACK", e.to_string())
+        }
         BoardError::NoOpenColumn { board_id, .. } => {
             ApiError::unprocessable("NO_OPEN_COLUMN", e.to_string())
                 .with_details(json!({ "board_id": board_id }))

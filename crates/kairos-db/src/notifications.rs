@@ -54,6 +54,11 @@
 //!   of an agent key is told, or the organization admins for a key of a
 //!   service account. Once for each key, not for a revoked key and not for
 //!   a key that a rotation replaced. Kairos is the actor.
+//! - `moved_back`: a person moved an initiative back, and its tasks went
+//!   back to Backlog ([`crate::boards::move_initiative_back`],
+//!   KAIROS-T-0775). The claimants of the moved tasks, the owner of the
+//!   initiative, and the watchers of the initiative and of the moved tasks
+//!   are told, once each.
 //!
 //! # Who gets a notification
 //!
@@ -410,6 +415,62 @@ pub fn on_cancel(
         &[created_by],
         NotificationKind::Cancelled,
         Some((task_id, &code)),
+        &text,
+        actor,
+    )?;
+    Ok(())
+}
+
+/// `moved_back` (KAIROS-T-0775): `actor` moved the initiative back, and
+/// the tasks of `plan` went back to the entry column of their boards. One
+/// notification for each person: each claimant of a moved task, the owner
+/// of the initiative, and each watcher of the initiative or of a moved task.
+pub fn on_initiative_moved_back(
+    conn: &mut PgConnection,
+    initiative_id: Uuid,
+    plan: &crate::boards::InitiativeBackPlan,
+    actor: Uuid,
+) -> Result<(), DieselError> {
+    let mut recipients: Vec<Uuid> = plan.tasks.iter().filter_map(|t| t.claimant).collect();
+    if let Some(owner) = crate::item_owners::owner_of(conn, initiative_id)? {
+        recipients.push(owner.user_id);
+    }
+    recipients.extend(crate::watches::watchers(conn, initiative_id)?);
+    for task in &plan.tasks {
+        recipients.extend(crate::watches::watchers(conn, task.task_id)?);
+    }
+    recipients.sort();
+    recipients.dedup();
+    let mut text = format!(
+        "{} moved {} back from {} to {}.",
+        name_of(conn, actor)?,
+        plan.short_code,
+        plan.from_column,
+        plan.to_column
+    );
+    if plan.tasks.is_empty() {
+        text.push_str(" No task moved.");
+    } else {
+        let codes: Vec<&str> = plan.tasks.iter().map(|t| t.short_code.as_str()).collect();
+        text.push_str(&format!(
+            " {} task(s) went back to Backlog: {}.",
+            codes.len(),
+            codes.join(", ")
+        ));
+        let mut ended = Vec::new();
+        for task in plan.tasks.iter().filter(|t| t.claimant.is_some()) {
+            let holder = name_of(conn, task.claimant.unwrap_or_default())?;
+            ended.push(format!("{} ({holder})", task.short_code));
+        }
+        if !ended.is_empty() {
+            text.push_str(&format!(" The claims ended: {}.", ended.join(", ")));
+        }
+    }
+    notify(
+        conn,
+        &recipients,
+        NotificationKind::MovedBack,
+        Some((initiative_id, &plan.short_code)),
         &text,
         actor,
     )?;

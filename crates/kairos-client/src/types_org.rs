@@ -327,9 +327,6 @@ pub struct BoardItemsQuery {
     pub done_limit: Option<i64>,
 }
 
-/// One team of an initiative or a strategy (KAIROS-T-0321). The item gets
-/// the team from its tasks, or a person sets it by hand, or both. A task
-/// gives the team of its board. A strategy reads two levels down. A team
 /// One open task of an initiative that is not on the board of a team
 /// (KAIROS-T-0777).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -340,9 +337,9 @@ pub struct OpenTaskOffTeam {
     pub board: String,
 }
 
-/// The open tasks of an initiative that are not on the board of a team,
-/// and the delivery board of the team (KAIROS-T-0777). The web asks, after
-/// a team change, whether to move them too.
+/// The open tasks of an initiative that are not on a board of the team
+/// (KAIROS-T-0777). `board` is the delivery board of the team. After a team
+/// change, the web asks whether to move them too.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct OpenTasksOffTeam {
     /// The slug of the team.
@@ -353,6 +350,9 @@ pub struct OpenTasksOffTeam {
     pub tasks: Vec<OpenTaskOffTeam>,
 }
 
+/// One team of an initiative or a strategy (KAIROS-T-0321). The item gets
+/// the team from its tasks, or a person sets it by hand, or both. A task
+/// gives the team of its board. A strategy reads two levels down. A team
 /// gives no right on the item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ItemTeam {

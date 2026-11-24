@@ -1568,7 +1568,7 @@ Response of `GET /api/{entity_type}/{short_code}/relationships`: both directions
 
 ## ItemTeam
 
-gives no right on the item.
+One team of an initiative or a strategy (KAIROS-T-0321). The item gets the team from its tasks, or a person sets it by hand, or both. A task gives the team of its board. A strategy reads two levels down. A team gives no right on the item.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -2134,7 +2134,7 @@ One notification of the caller (KAIROS-T-0382).
 
 ## OpenTaskOffTeam
 
-One team of an initiative or a strategy (KAIROS-T-0321). The item gets the team from its tasks, or a person sets it by hand, or both. A task gives the team of its board. A strategy reads two levels down. A team One open task of an initiative that is not on the board of a team (KAIROS-T-0777).
+One open task of an initiative that is not on the board of a team (KAIROS-T-0777).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -2144,7 +2144,7 @@ One team of an initiative or a strategy (KAIROS-T-0321). The item gets the team 
 
 ## OpenTasksOffTeam
 
-The open tasks of an initiative that are not on the board of a team, and the delivery board of the team (KAIROS-T-0777). The web asks, after a team change, whether to move them too.
+The open tasks of an initiative that are not on a board of the team (KAIROS-T-0777). `board` is the delivery board of the team. After a team change, the web asks whether to move them too.
 
 | Field | Type | Required | Description |
 |---|---|---|---|

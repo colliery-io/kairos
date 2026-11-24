@@ -518,6 +518,7 @@ mod tests {
             slug: slug.into(),
             board_level: level.into(),
             team_id: None,
+            size_warning: None,
         }
     }
 

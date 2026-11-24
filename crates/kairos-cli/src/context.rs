@@ -98,6 +98,11 @@ pub fn client_for(
     if let Some(timeout) = timeout {
         client = client.with_timeout(timeout);
     }
+    // KAIROS-T-0779: each Kairos-Warning of an answer goes to stderr, unless
+    // KAIROS_QUIET=1.
+    if std::env::var("KAIROS_QUIET").as_deref() != Ok("1") {
+        client = client.with_printed_warnings();
+    }
     Ok((client, credential))
 }
 

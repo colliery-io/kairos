@@ -1094,6 +1094,7 @@ mod tests {
             parent_gate: None,
             owner_gate: None,
             blockers_gate: None,
+            size_warning: None,
         }
     }
 

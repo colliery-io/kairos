@@ -115,6 +115,7 @@ diesel::table! {
         parent_gate -> Bool,
         owner_gate -> Bool,
         blockers_gate -> Bool,
+        size_warning -> Int4,
     }
 }
 

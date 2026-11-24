@@ -47,6 +47,8 @@ Ask the user:
 
 Iterate until the user approves the breakdown. The naming rules are in the `kairos-vocabulary` skill.
 
+**The size of the initiative** (KAIROS-T-0779). The initiative board has the setting `size_warning`, 15 tasks by default (`my_boards` or `kairos boards policy <board>` gives it). Count the tasks that the initiative has now, and the tasks that you propose. Past the setting, ask the user before you publish: is this initiative too big? Find the points where it can split: intermediate states that each deliver against an objective. Propose several medium or large initiatives, each with its own objective, and the tasks of each. Kairos also warns at each create past the setting: it is a warning, not a refusal.
+
 ### 5. Publish the tasks to Kairos
 
 Every task names a **board** (COLLIERY-A-0023): the team decides the board, and the board decides the team of the task. Default to the session's `team_board` (SessionStart context). With no `team_board`, find the board with `my_boards`. If more than one can hold the work, ask the user which. A slice for a different team is a **request**: name the delivery board of that team, and follow [CROSS-TEAM-FILING.md](../implement/CROSS-TEAM-FILING.md).

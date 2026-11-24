@@ -1224,6 +1224,13 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                 if let Some(pill) = data::owner_pill(item.owner.as_ref()) {
                     meta.push((pill, token::TEAL));
                 }
+                // KAIROS-T-0779: the size, shaded by the setting of the board.
+                if let Some(pill) = data::size_pill(
+                    view.items.children_progress.get(&item.short_code),
+                    view.detail.board.size_warning,
+                ) {
+                    meta.push(pill);
+                }
                 // KAIROS-T-0678: the chip of a cancelled initiative, first,
                 // as for a task.
                 if item.cancellation.is_some() {
@@ -4145,12 +4152,18 @@ fn CreateItemModal(
         // COLLIERY-T-0232: the mode decides the body, not the form.
         let (column_id, item) = create_body(mode, &form, &entry_id, team_id.as_deref());
         let board_id = board_id.clone();
+        let toaster = use_toaster();
         busy.set(true);
         error.set(None);
         leptos::task::spawn_local(async move {
             match data::create_item(auth, kind, &board_id, &column_id, &item).await {
                 Ok(short_code) => {
                     open.set(false);
+                    // KAIROS-T-0779: the warnings of the create (the size
+                    // of the initiative of the new task).
+                    for warning in crate::api::take_warnings() {
+                        toaster.warning(warning);
+                    }
                     if is_request {
                         on_requested.run(SentRequest {
                             short_code,
@@ -4485,6 +4498,7 @@ mod tests {
             slug: id.to_string(),
             board_level: level.to_string(),
             team_id: team_id.map(str::to_string),
+            size_warning: None,
         }
     }
 

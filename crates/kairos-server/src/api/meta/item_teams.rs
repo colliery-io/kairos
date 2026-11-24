@@ -64,6 +64,10 @@ pub fn router() -> Router<AppState> {
             "/api/{entity_type}/{short_code}/teams/{team}",
             delete(clear_team),
         )
+        .route(
+            "/api/{entity_type}/{short_code}/teams/{team}/open-tasks",
+            get(open_tasks_off_team),
+        )
 }
 
 /// One team, as the wire type.
@@ -306,6 +310,73 @@ pub(crate) async fn get_teams(
                 short_code,
                 teams: teams.into_iter().map(team_dto).collect(),
             })
+        })
+        .await?;
+    Ok(Json(response))
+}
+
+/// The open tasks of the item that are not on a board of `team`, and the
+/// delivery board of the team (KAIROS-T-0777). Each person in the tenant
+/// can read them. Only an initiative has tasks: a strategy has none here.
+pub(crate) fn open_tasks(
+    conn: &mut PgConnection,
+    (item_id, item_type): (Uuid, ItemType),
+    team: &str,
+) -> Result<dto::OpenTasksOffTeam, ApiError> {
+    let team = crate::api::org::repositories::resolve_team(conn, team)?;
+    let board =
+        kairos_db::boards::team_delivery_board(conn, team.id).map_err(ApiError::internal)?;
+    let tasks = if item_type == ItemType::Initiative {
+        kairos_db::boards::tasks_off_team(conn, item_id, team.id).map_err(ApiError::internal)?
+    } else {
+        Vec::new()
+    };
+    Ok(dto::OpenTasksOffTeam {
+        team: team.slug,
+        board,
+        tasks: tasks
+            .into_iter()
+            .map(|t| dto::OpenTaskOffTeam {
+                short_code: t.short_code,
+                title: t.title,
+                board: t.board,
+            })
+            .collect(),
+    })
+}
+
+/// The open tasks of an initiative that are not on a board of the team,
+/// and the delivery board of the team (KAIROS-T-0777). After a team
+/// change, the web asks whether to move them to that board too
+/// (`POST /api/tasks/move`). Completed and cancelled tasks are not in the
+/// list. Each person in the tenant can read it.
+#[utoipa::path(
+    get,
+    path = "/api/{entity_type}/{short_code}/teams/{team}/open-tasks",
+    tag = "relationships",
+    params(
+        ("entity_type" = String, Path, description = "Plural family name (initiatives|strategies)"),
+        ("short_code" = String, Path, description = "Item short code"),
+        ("team" = String, Path, description = "Team slug or UUID"),
+    ),
+    responses(
+        (status = 200, description = "The open tasks off the team, and the board of the team", body = dto::OpenTasksOffTeam),
+        (status = 404, description = "Unknown family, short code or team", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "RELATIONSHIP_RULE: the item is not an initiative and not a strategy", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn open_tasks_off_team(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((family, short_code, team)): Path<(String, String, String)>,
+) -> Result<Json<dto::OpenTasksOffTeam>, ApiError> {
+    let response = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let (item_id, item_type) =
+                resolve_family_item(conn, &family, &short_code, Liveness::LiveOnly)?;
+            require_subject(item_type, &short_code)?;
+            open_tasks(conn, (item_id, item_type), &team)
         })
         .await?;
     Ok(Json(response))

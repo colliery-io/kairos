@@ -2132,6 +2132,26 @@ One notification of the caller (KAIROS-T-0382).
 | `proposal_decided` | `boolean` | yes | A person confirmed or rejected an edge proposal that you made (KAIROS-T-0558). |
 | `watch` | `boolean` | yes | An item that you watch, or a child of an item that you watch with its children, moved, was edited, got a note, or is done (KAIROS-T-0736). |
 
+## OpenTaskOffTeam
+
+One open task of an initiative that is not on the board of a team (KAIROS-T-0777).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `board` | `string` | yes | The slug of the board of the task now. |
+| `short_code` | `string` | yes |  |
+| `title` | `string` | yes |  |
+
+## OpenTasksOffTeam
+
+The open tasks of an initiative that are not on a board of the team (KAIROS-T-0777). `board` is the delivery board of the team. After a team change, the web asks whether to move them too.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `board` | `string`, nullable | no | The slug of the delivery board of the team; `null` when the team has none. |
+| `tasks` | array of [`OpenTaskOffTeam`](#opentaskoffteam) | yes |  |
+| `team` | `string` | yes | The slug of the team. |
+
 ## OrgAgentKey
 
 One agent key of a person, as an organization admin reads it (KAIROS-T-0388). Never the secret.

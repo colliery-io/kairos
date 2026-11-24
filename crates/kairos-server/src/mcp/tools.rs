@@ -4259,10 +4259,29 @@ impl KairosMcp {
                 (item.id, item.item_type),
                 &params.team,
             )?;
-            Ok(format!(
-                "Set the team {} on {} by hand.",
-                team.slug, item.short_code
-            ))
+            let mut out = format!("Set the team {} on {} by hand.", team.slug, item.short_code);
+            // KAIROS-T-0777: the open tasks that stay on other boards.
+            let off = crate::api::meta::item_teams::open_tasks(
+                conn,
+                (item.id, item.item_type),
+                &team.slug,
+            )?;
+            if !off.tasks.is_empty() {
+                let codes: Vec<&str> = off.tasks.iter().map(|t| t.short_code.as_str()).collect();
+                out.push_str(&format!(
+                    "\n{} open task(s) of {} stay on other boards: {}.",
+                    codes.len(),
+                    item.short_code,
+                    codes.join(", ")
+                ));
+                match &off.board {
+                    Some(board) => out.push_str(&format!(
+                        " To move them too: move_item with short_codes and to_board {board}."
+                    )),
+                    None => out.push_str(&format!(" The team {} has no delivery board.", off.team)),
+                }
+            }
+            Ok(out)
         })
         .await
     }

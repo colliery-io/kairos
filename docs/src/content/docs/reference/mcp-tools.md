@@ -1759,7 +1759,7 @@ The edit rule applies. The caller created the item, or holds
 `manage_initiatives` or `manage_strategies` on its board, or is an
 organization admin. The caller needs no right on the team.
 
-The result is one line:
+The result starts with one line:
 
 ```text
 Set the team weir on ACME-I-0003 by hand.
@@ -1769,6 +1769,12 @@ Refuses: `NOT_FOUND` for an unknown short code or an archived item.
 `RELATIONSHIP_RULE` when the item is not an initiative and not a strategy.
 `VALIDATION` for an unknown team. `ALREADY_LINKED` when the team is set
 already. `FORBIDDEN` when the edit rule refuses the caller.
+
+
+On an initiative, the answer also names its open tasks on the boards of
+other teams. It names the board of the new team too. To move the tasks, call
+`move_item` with `short_codes` and that board (KAIROS-T-0777). The web asks
+the same question after a team change.
 
 ### `clear_team`
 

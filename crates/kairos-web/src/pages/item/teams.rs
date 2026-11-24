@@ -10,6 +10,7 @@
 //! the authority, and a refusal shows in the panel.
 
 use aurora_dark::components::{Alert, Button, Group, Panel, Pill, Select, Stack, Text};
+use aurora_dark::frame::{ConfirmDialog, use_toaster};
 use aurora_dark::tokens::{ApiError, token};
 use leptos::prelude::*;
 
@@ -28,6 +29,17 @@ pub(crate) fn source_label(team: &ItemTeam) -> &'static str {
         (true, false) => "from tasks",
         _ => "set by hand",
     }
+}
+
+/// The question after a team change of an initiative (KAIROS-T-0777).
+/// Pure, host-tested.
+pub(crate) fn move_question(off: &api::OpenTasksOffTeam) -> String {
+    format!(
+        "{} open task(s) of this initiative are on other boards. Move them to {} too? \
+         Each task gets the next code of that board. Completed and cancelled tasks stay.",
+        off.tasks.len(),
+        off.board.as_deref().unwrap_or("the board of the team")
+    )
 }
 
 /// The teams that the picker offers: each team of the organization that
@@ -124,6 +136,10 @@ pub fn TeamsPanel(
         }
         busy.set(false);
     };
+    // KAIROS-T-0777: after a team is set on an initiative, the open tasks
+    // that stay on other boards, and the question to move them too.
+    let ask: RwSignal<Option<api::OpenTasksOffTeam>> = RwSignal::new(None);
+    let ask_open = RwSignal::new(false);
     let add: Callback<()> = Callback::new(move |()| {
         let chosen = value.get_untracked();
         if chosen == NO_CHOICE {
@@ -135,7 +151,58 @@ pub fn TeamsPanel(
             let result = api::set_item_team(auth, family, &code.get_value(), &chosen)
                 .await
                 .map(|_| ());
+            let ok = result.is_ok();
             done(result);
+            if ok
+                && family == Family::Initiative
+                && let Ok(off) =
+                    api::open_tasks_off_team(auth, family, &code.get_value(), &chosen).await
+                && !off.tasks.is_empty()
+                && off.board.is_some()
+            {
+                ask.set(Some(off));
+                ask_open.set(true);
+            }
+        });
+    });
+    let toaster = use_toaster();
+    let move_refused: RwSignal<Vec<String>> = RwSignal::new(Vec::new());
+    let move_busy = RwSignal::new(false);
+    let move_tasks: Callback<()> = Callback::new(move |()| {
+        let Some(off) = ask.get_untracked() else {
+            return;
+        };
+        let Some(board) = off.board.clone() else {
+            return;
+        };
+        let codes: Vec<String> = off.tasks.iter().map(|t| t.short_code.clone()).collect();
+        move_busy.set(true);
+        leptos::task::spawn_local(async move {
+            match crate::pages::boards::data::move_tasks(auth, &codes, &board).await {
+                Ok(result) => {
+                    move_busy.set(false);
+                    if !result.moved.is_empty() {
+                        toaster
+                            .success(format!("Moved {} task(s) to {board}.", result.moved.len()));
+                    }
+                    if result.refused.is_empty() {
+                        ask_open.set(false);
+                    } else {
+                        move_refused.set(
+                            result
+                                .refused
+                                .into_iter()
+                                .map(|r| format!("{}: {}", r.short_code, r.message))
+                                .collect(),
+                        );
+                    }
+                    version.update(|v| *v += 1);
+                }
+                Err(e) => {
+                    move_busy.set(false);
+                    move_refused.set(vec![api::error_text(&e)]);
+                }
+            }
         });
     });
     let remove: Callback<String> = Callback::new(move |slug: String| {
@@ -147,6 +214,44 @@ pub fn TeamsPanel(
     });
 
     view! {
+        <ConfirmDialog
+            open=ask_open
+            title="Move its open tasks too?".to_string()
+            message="The team of the initiative changed.".to_string()
+            confirm_label="Move them"
+            cancel_label="Keep them where they are"
+            danger=false
+            busy=move_busy
+            size="md"
+            on_confirm=move_tasks
+            notice=std::sync::Arc::new(move || view! {
+                <Stack gap="xs">
+                    {move || ask.get().map(|off| {
+                        let question = move_question(&off);
+                        let lines: Vec<String> = off
+                            .tasks
+                            .iter()
+                            .map(|t| format!("{} {} (on {})", t.short_code, t.title, t.board))
+                            .collect();
+                        view! {
+                        <Text size="sm">{question}</Text>
+                        {lines.into_iter().map(|line| view! {
+                            <Text size="sm" dimmed=true>{line}</Text>
+                        }).collect::<Vec<_>>()}
+                        }
+                    })}
+                    {move || (!move_refused.with(Vec::is_empty)).then(|| view! {
+                        <Alert title="Some tasks did not move" color=token::BAD>
+                            <Stack gap="xs">
+                                {move_refused.get().into_iter().map(|line| view! {
+                                    <Text size="sm" dimmed=true>{line}</Text>
+                                }).collect::<Vec<_>>()}
+                            </Stack>
+                        </Alert>
+                    })}
+                </Stack>
+            }.into_any())
+        />
         <Panel title="Teams" caption="the teams that do this work">
             <Stack gap="sm" attr:data-testid="item-teams">
                 {move || match teams.get() {
@@ -222,6 +327,23 @@ pub fn TeamsPanel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0777: the question names the count and the board.
+    #[test]
+    fn the_question_names_the_count_and_the_board() {
+        let off = api::OpenTasksOffTeam {
+            team: "ops".into(),
+            board: Some("ops-delivery".into()),
+            tasks: vec![api::OpenTaskOffTeam {
+                short_code: "WEB-T-0001".into(),
+                title: "A".into(),
+                board: "web-delivery".into(),
+            }],
+        };
+        let text = move_question(&off);
+        assert!(text.starts_with("1 open task(s)"), "{text}");
+        assert!(text.contains("Move them to ops-delivery too?"), "{text}");
+    }
     use crate::pages::teams::api::Team;
 
     fn team(slug: &str) -> Team {

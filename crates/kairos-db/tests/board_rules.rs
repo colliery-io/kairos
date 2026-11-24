@@ -245,8 +245,8 @@ fn board_rules_lifecycle() {
         [
             "Discovery",
             "Design",
-            "Ready",
             "Decompose",
+            "Ready",
             "Active",
             "Monitoring",
             "Completed"
@@ -256,9 +256,9 @@ fn board_rules_lifecycle() {
         transition_pairs(&mut conn, initiative_board),
         pairs(&[
             ("Discovery", "Design"),
-            ("Design", "Ready"),
-            ("Ready", "Decompose"),
-            ("Decompose", "Active"),
+            ("Design", "Decompose"),
+            ("Decompose", "Ready"),
+            ("Ready", "Active"),
             ("Active", "Monitoring"),
             ("Monitoring", "Completed"),
         ]),

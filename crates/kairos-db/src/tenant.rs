@@ -138,8 +138,11 @@ INSERT INTO public.system_board_defaults (board_level, columns, transitions) VAL
      E'Draft\nReview\nActive\nMonitoring\nCompleted',
      E'Draft -> Review\nReview -> Active\nActive -> Monitoring\nMonitoring -> Completed'),
     ('initiative',
-     E'Discovery\nDesign\nReady\nDecompose\nActive\nMonitoring\nCompleted',
-     E'Discovery -> Design\nDesign -> Ready\nReady -> Decompose\nDecompose -> Active\nActive -> Monitoring\nMonitoring -> Completed'),
+     -- KAIROS-T-0773: Decompose before Ready. The migrations
+     -- `initiative_flow_decompose_first` (public) and
+     -- `initiative_boards_decompose_first` (tenant) change what exists.
+     E'Discovery\nDesign\nDecompose\nReady\nActive\nMonitoring\nCompleted',
+     E'Discovery -> Design\nDesign -> Decompose\nDecompose -> Ready\nReady -> Active\nActive -> Monitoring\nMonitoring -> Completed'),
     ('delivery',
      E'Backlog\nTodo\nBlocked\nActive\nCompleted',
      E'Backlog -> Todo\nTodo -> Active\nActive -> Completed\nTodo -> Blocked\nBlocked -> Todo\nActive -> Blocked\nBlocked -> Active'),

@@ -479,7 +479,7 @@ async fn a_done_task_is_reopened_and_not_moved() {
         .await;
     assert!(
         text.contains(
-            "The path to Active is Discovery → Design → Ready → Decompose → Active: call \
+            "The path to Active is Discovery → Design → Decompose → Ready → Active: call \
              transition_item for each step."
         ),
         "{text}"
@@ -508,7 +508,7 @@ async fn a_done_task_is_reopened_and_not_moved() {
         .collect();
     assert_eq!(
         path,
-        ["Discovery", "Design", "Ready", "Decompose", "Active"],
+        ["Discovery", "Design", "Decompose", "Ready", "Active"],
         "{details}"
     );
     let gated = admin_mcp

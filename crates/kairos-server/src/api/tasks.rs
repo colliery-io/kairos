@@ -40,6 +40,7 @@ pub fn router() -> Router<AppState> {
             get(get_task).patch(update_task).delete(delete_task),
         )
         .route("/api/tasks/{short_code}/transition", post(transition_task))
+        .route("/api/tasks/move", post(move_tasks))
         .route("/api/tasks/{short_code}/move", post(move_task))
         .route("/api/tasks/{short_code}/claim", post(claim_task))
         .route("/api/tasks/{short_code}/hand-off", post(hand_off_task))
@@ -909,43 +910,166 @@ pub(crate) async fn move_task(
     ApiJson(body): ApiJson<dto::MoveTaskRequest>,
 ) -> Result<crate::api::idempotency::Answer<dto::Task>, ApiError> {
     let keyed = idempotency.bind(&body)?;
-    let user = auth.user_id;
     let slug = tenant.slug.clone();
     let moved = state
         .blocking
         .run(&tenant.slug, move |conn| {
             crate::api::idempotency::run(conn, keyed, StatusCode::OK, |conn| {
-                let task = load(conn, &short_code, Liveness::LiveOnly)?;
                 let target = board_id_by_ref(conn, &body.board)?;
-                // Two-sided: the work leaves one team's board and lands on
-                // another's, so the caller needs the capability on the two.
-                // NOT an edit (COLLIERY-T-0228): creation grants no right here.
-                // The creator of a task needs the capability on the two boards
-                // as all others do, because a team controls its own plan
-                // (COLLIERY-T-0218).
-                require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
-                require_capability(conn, &slug, Some(target), user, MANAGE)?;
-                // KAIROS-T-0456: a move to another team is a triage of intake.
-                let triaged = crate::agent_triage::check(
-                    conn,
-                    &auth,
-                    task.id,
-                    crate::agent_triage::TriageMove::Board(target),
-                )?;
-                crate::claims::note(conn, task.id, user)?;
-                let moved = boards::move_task_with(conn, task.id, target, user, body.rename)
-                    .map_err(map_board_error)?;
-                crate::agent_triage::record(conn, &auth, task.id, triaged)?;
-                let code = moved.rename.map_or(short_code, |rename| rename.new_code);
-                // KAIROS-T-0371, KAIROS-T-0565: the WIP limit and the open
-                // blockers of the entry column.
-                crate::claims::note_task_move(conn, task.id, moved.column_id, &code)?;
+                let code = move_one(conn, &auth, &slug, &short_code, target, body.rename)?;
                 let moved = load(conn, &code, Liveness::LiveOnly)?.into_dto();
                 embed(conn, moved)
             })
         })
         .await?;
     Ok(moved)
+}
+
+/// Move one task to the delivery board `target`: the rule and the move of
+/// `POST /api/tasks/{short_code}/move`, for one task or for each task of a
+/// bulk move (KAIROS-T-0776). The code of the task after the move.
+fn move_one(
+    conn: &mut PgConnection,
+    auth: &AuthContext,
+    slug: &str,
+    short_code: &str,
+    target: Uuid,
+    rename: bool,
+) -> Result<String, ApiError> {
+    let user = auth.user_id;
+    let task = load(conn, short_code, Liveness::LiveOnly)?;
+    // Two-sided: the work leaves one team's board and lands on
+    // another's, so the caller needs the capability on the two.
+    // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+    // The creator of a task needs the capability on the two boards
+    // as all others do, because a team controls its own plan
+    // (COLLIERY-T-0218).
+    require_capability(conn, slug, Some(task.board_id), user, MANAGE)?;
+    require_capability(conn, slug, Some(target), user, MANAGE)?;
+    // KAIROS-T-0456: a move to another team is a triage of intake.
+    let triaged = crate::agent_triage::check(
+        conn,
+        auth,
+        task.id,
+        crate::agent_triage::TriageMove::Board(target),
+    )?;
+    crate::claims::note(conn, task.id, user)?;
+    let moved =
+        boards::move_task_with(conn, task.id, target, user, rename).map_err(map_board_error)?;
+    crate::agent_triage::record(conn, auth, task.id, triaged)?;
+    let code = moved
+        .rename
+        .map_or_else(|| task.short_code.clone(), |rename| rename.new_code);
+    // KAIROS-T-0371, KAIROS-T-0565: the WIP limit and the open
+    // blockers of the entry column.
+    crate::claims::note_task_move(conn, task.id, moved.column_id, &code)?;
+    Ok(code)
+}
+
+/// The most tasks of one bulk move (KAIROS-T-0776).
+pub(crate) const MOVE_TASKS_LIMIT: usize = 200;
+
+/// The error of one task of a bulk move, inside its savepoint.
+enum OneMove {
+    Api(ApiError),
+    Db(diesel::result::Error),
+}
+
+impl From<diesel::result::Error> for OneMove {
+    fn from(e: diesel::result::Error) -> Self {
+        OneMove::Db(e)
+    }
+}
+
+/// Move each task of `short_codes` to the delivery board `board`, each in
+/// its own savepoint (KAIROS-T-0776). A task that the rule refuses is in
+/// `refused` with the reason; the others move. Shared by REST and MCP.
+pub(crate) fn move_many(
+    conn: &mut PgConnection,
+    auth: &AuthContext,
+    slug: &str,
+    short_codes: &[String],
+    board: &str,
+    rename: bool,
+) -> Result<dto::MoveTasksResult, ApiError> {
+    let mut codes: Vec<String> = Vec::new();
+    for code in short_codes {
+        let code = code.trim().to_string();
+        if !code.is_empty() && !codes.contains(&code) {
+            codes.push(code);
+        }
+    }
+    if codes.is_empty() || codes.len() > MOVE_TASKS_LIMIT {
+        return Err(ApiError::validation(format!(
+            "Send 1 to {MOVE_TASKS_LIMIT} short codes in `short_codes`. The call has {}.",
+            codes.len()
+        ))
+        .with_details(json!({ "field": "short_codes" })));
+    }
+    let target = board_id_by_ref(conn, board)?;
+    let mut result = dto::MoveTasksResult {
+        moved: Vec::new(),
+        refused: Vec::new(),
+    };
+    for code in codes {
+        let one = conn.transaction::<String, OneMove, _>(|conn| {
+            move_one(conn, auth, slug, &code, target, rename).map_err(OneMove::Api)
+        });
+        match one {
+            Ok(new_code) => result.moved.push(dto::MovedTask {
+                from: code,
+                short_code: new_code,
+            }),
+            Err(OneMove::Api(e)) => result.refused.push(dto::RefusedMove {
+                short_code: code,
+                code: e.code.to_string(),
+                message: e.message,
+            }),
+            Err(OneMove::Db(e)) => return Err(ApiError::internal(e)),
+        }
+    }
+    Ok(result)
+}
+
+/// Move many tasks to another delivery board in one call (KAIROS-T-0776).
+/// Each task lands in the entry column of the board and takes the team of
+/// the board. By default each task takes the next code of the new board
+/// (`rename`, default true). The rule of each task is the rule of
+/// `POST /api/tasks/{short_code}/move`. Each task moves in its own
+/// transaction. A refused task is in `refused` with its reason, and the
+/// others move. 1 to 200 codes.
+#[utoipa::path(
+    post,
+    path = "/api/tasks/move",
+    tag = "tasks",
+    request_body = dto::MoveTasksRequest,
+    responses(
+        (status = 200, description = "The tasks that moved and the tasks that did not", body = dto::MoveTasksResult),
+        (status = 404, description = "Unknown board", body = dto::ErrorEnvelope),
+        (status = 422, description = "VALIDATION: no code, or more than 200", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn move_tasks(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    ApiJson(body): ApiJson<dto::MoveTasksRequest>,
+) -> Result<Json<dto::MoveTasksResult>, ApiError> {
+    let slug = tenant.slug.clone();
+    let result = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            move_many(
+                conn,
+                &auth,
+                &slug,
+                &body.short_codes,
+                &body.board,
+                body.rename,
+            )
+        })
+        .await?;
+    Ok(Json(result))
 }
 
 /// Move a task to another column (requires `transition_items` on the

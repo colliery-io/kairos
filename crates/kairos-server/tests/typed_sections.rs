@@ -229,6 +229,9 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         .create_template(&CreateTemplateRequest {
             name: "Brief".into(),
             slug: "brief".into(),
+            item_type: "document".into(),
+            task_type: None,
+            use_when: String::new(),
             content: "## Goal\n\n## Notes\n".into(),
             metadata: Vec::new(),
             sections: vec![
@@ -508,6 +511,9 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         .create_template(&CreateTemplateRequest {
             name: "Spec".into(),
             slug: "spec".into(),
+            item_type: "document".into(),
+            task_type: None,
+            use_when: String::new(),
             content: "## Requirements\n".into(),
             metadata: Vec::new(),
             sections: vec![TemplateSection {

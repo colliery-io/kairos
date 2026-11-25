@@ -259,6 +259,9 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
         .create_template(&CreateTemplateRequest {
             name: "Brief".into(),
             slug: "brief".into(),
+            item_type: "document".into(),
+            task_type: None,
+            use_when: String::new(),
             content: "## Goal\n\n## Notes\n".into(),
             metadata: Vec::new(),
             sections: vec![
@@ -446,6 +449,7 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
                 name: None,
                 slug: None,
                 content: None,
+                use_when: None,
                 metadata: None,
                 sections: Some(vec![TemplateSection {
                     heading: "Notes".into(),
@@ -470,6 +474,7 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
                 name: None,
                 slug: None,
                 content: None,
+                use_when: None,
                 metadata: None,
                 sections: Some(Vec::new()),
             },
@@ -487,6 +492,9 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
         .create_template(&CreateTemplateRequest {
             name: "Spec".into(),
             slug: "spec".into(),
+            item_type: "document".into(),
+            task_type: None,
+            use_when: String::new(),
             content: "## Requirements\n".into(),
             metadata: Vec::new(),
             sections: vec![TemplateSection {

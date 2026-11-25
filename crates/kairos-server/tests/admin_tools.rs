@@ -446,6 +446,46 @@ async fn team_and_board_administration_over_mcp() {
     let question = text.find("- section \"Question\": plain").expect(&text);
     let answer = text.find("- section \"Answer\": free").expect(&text);
     assert!(question < answer, "{text}");
+    // KAIROS-T-0787: list_templates shows the type of each template and
+    // when to use it.
+    assert!(text.contains("- type: document\n"), "{text}");
+    let text = admin_mcp
+        .ok(
+            "save_template",
+            json!({"name": "Bug", "slug": "bug", "item_type": "task", "task_type": "bug",
+                   "use_when": "Use when something does not work as it should.",
+                   "content": "## Steps"}),
+        )
+        .await;
+    assert!(text.contains("bug"), "{text}");
+    let text = admin_mcp.ok("list_templates", json!({"slug": "bug"})).await;
+    assert!(text.contains("- type: task (bug)\n"), "{text}");
+    assert!(
+        text.contains("- use when: Use when something does not work as it should.\n"),
+        "{text}"
+    );
+    // One template for each fixed type; the type does not change.
+    let text = admin_mcp
+        .refused(
+            "save_template",
+            json!({"name": "Bug 2", "slug": "bug-2", "item_type": "task", "task_type": "bug"}),
+            "item_type",
+        )
+        .await;
+    assert!(text.contains("\"bug\""), "{text}");
+    admin_mcp
+        .refused(
+            "save_template",
+            json!({"template": "bug", "item_type": "adr"}),
+            "item_type",
+        )
+        .await;
+    admin_mcp
+        .ok(
+            "save_template",
+            json!({"template": "bug", "use_when": "Use when a feature is broken."}),
+        )
+        .await;
     // An unknown type is refused and named; nothing is saved.
     let text = admin_mcp
         .refused(

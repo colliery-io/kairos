@@ -55,12 +55,13 @@ journey(
       const template = templates.find((t) => t.name === 'Product Vision');
       expect(template, 'the tenant has the template Product Vision').toBeTruthy();
       const detail = await (await bob.api()).get(`/api/templates/${template.id}`);
-      for (const heading of ['## Purpose', '## Who It Is For', '## What It Is Not']) {
+      // KAIROS-T-0790: the default template follows the Metis vision template.
+      for (const heading of ['## Purpose', '## Current State', '## Success Criteria']) {
         expect(detail.content).toContain(heading);
       }
       // "Company Vision" is a different template, and it stays.
       expect(templates.some((t) => t.name === 'Company Vision')).toBe(true);
-      return { template: template.name, sections: 6 };
+      return { template: template.name, sections: 10 };
     });
 
     await step(bob, 'makes the vision with no work item above it, and his team board is its owner', async () => {

@@ -4970,13 +4970,13 @@ async fn triage_tools_against_live_stack() {
         "{text}"
     );
     assert!(
-        !text.contains("## Problem"),
+        !text.contains("## Requirements"),
         "the list has no content: {text}"
     );
     let text = session
         .call_ok("list_templates", json!({"slug": "prd"}))
         .await;
-    assert!(text.contains("## Problem"), "{text}");
+    assert!(text.contains("## Requirements"), "{text}");
     let text = session
         .call_err("list_templates", json!({"slug": "nope"}))
         .await;

@@ -507,6 +507,15 @@ fn make_the_old_state_again(conn: &mut PgConnection) {
         .expect("removing the template");
 }
 
+/// The text of the default Product Vision since KAIROS-T-0790.
+fn new_product_vision() -> &'static str {
+    kairos_db::default_templates::DEFAULT_TEMPLATES
+        .iter()
+        .find(|t| t.slug == "product_vision")
+        .expect("the default product vision")
+        .content
+}
+
 #[test]
 fn a_new_tenant_has_the_template_of_the_system_defaults() {
     static SCRATCH_DB: scratch::ScratchName =
@@ -522,12 +531,13 @@ fn a_new_tenant_has_the_template_of_the_system_defaults() {
         [TemplateRow {
             name: "Product Vision".into(),
             slug: "product_vision".into(),
-            content: PRODUCT_VISION.into(),
+            content: new_product_vision().into(),
             is_system_default: true,
             defaults: Some("document_type=vision".into()),
         }]
     );
-    // The text of the migration is the text of the system default.
+    // KAIROS-T-0790: the migration `templates_with_guidance` replaced the
+    // text of this migration; the system default has the same new text.
     #[derive(QueryableByName)]
     struct Content {
         #[diesel(sql_type = Text)]
@@ -537,14 +547,14 @@ fn a_new_tenant_has_the_template_of_the_system_defaults() {
         sql_query("SELECT content FROM public.system_templates WHERE slug = 'product_vision'")
             .get_result::<Content>(&mut conn)
             .expect("the system default");
-    assert_eq!(system.content, PRODUCT_VISION);
-    // "Company Vision" stays, with its text.
+    assert_eq!(system.content, new_product_vision());
+    // "Company Vision" stays, with its text (KAIROS-T-0790: the new text).
     assert_eq!(
         count(
             &mut conn,
             "SELECT count(*) AS count FROM templates \
               WHERE slug = 'company_vision' AND name = 'Company Vision' \
-                AND content LIKE '# Company Vision%'"
+                AND content LIKE '%## Success Criteria%'"
         ),
         1
     );

@@ -2008,14 +2008,15 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         .expect("a document from the template");
     checks.check(
         "F1: the template gives the sections of a product vision",
+        // KAIROS-T-0790: the template has guidance and no title.
         [
-            "# Product Vision",
             "## Purpose",
-            "## Who It Is For",
+            "## Product/Solution Overview",
             "## Current State",
             "## Future State",
+            "## Success Criteria",
             "## Principles",
-            "## What It Is Not",
+            "## Constraints",
         ]
         .iter()
         .all(|heading| from_template.content.contains(heading)),

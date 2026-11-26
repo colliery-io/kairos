@@ -487,7 +487,14 @@ def kairos_context(folder):
         return []
     rules = kairos_rules.build_context(values.get("deployment_url", ""))
     rules = rules.replace(RULES_HEADING, "Kairos rules (from the kairos plugin):", 1)
-    return session_start.wiring_lines(values) + [rules]
+    lines = session_start.wiring_lines(values) + [rules]
+    # KAIROS-T-0791: the templates of the organization and when to use each.
+    templates = session_start.templates_text(
+        session_start.cli_templates(values.get("deployment_url", ""))
+    )
+    if templates:
+        lines.append(templates)
+    return lines
 
 
 def subagent_context(folder, checkouts):

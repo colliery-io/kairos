@@ -13,6 +13,7 @@ import hook_test_env  # noqa: E402,F401  (KAIROS-T-0712: no live env, a temp HOM
 
 
 import importlib.util
+import json
 import os
 import tempfile
 import unittest
@@ -713,6 +714,57 @@ class BoardFolderWithTheCli(unittest.TestCase):
         )
         self.assertNotIn("repository payments", context)
         self.assertIn("`list_repositories`", context)
+
+
+class TemplatesOfTheOrganization(unittest.TestCase):
+    """KAIROS-T-0791: the session start gives the templates of the
+    organization and when to use each, from `kairos templates list`. An
+    older server (no use_when) or a failed call gives no text."""
+
+    ITEMS = [
+        {"slug": "bug", "name": "Bug", "item_type": "task", "task_type": "bug",
+         "use_when": "Use when the product does not do what it should do."},
+        {"slug": "initiative", "name": "Initiative", "item_type": "initiative",
+         "use_when": "Use when one objective needs more than one task."},
+        {"slug": "prd", "name": "PRD", "item_type": "document",
+         "use_when": "Use when you must say what a system must do."},
+        {"slug": "old", "name": "Old", "item_type": "document", "use_when": ""},
+    ]
+
+    def test_each_template_with_a_use_when_is_one_line(self):
+        text = session_start.templates_text(self.ITEMS)
+        self.assertTrue(text.startswith(session_start.TEMPLATES_HEADING), text)
+        self.assertIn("- task (bug): Use when the product does not do what it should do.", text)
+        self.assertIn("- initiative: Use when one objective needs more than one task.", text)
+        self.assertIn("- document `prd` (PRD): Use when you must say what a system must do.", text)
+        self.assertNotIn("Old", text)
+        self.assertIn("`update_item`", text)
+
+    def test_no_use_when_or_no_list_gives_no_text(self):
+        self.assertEqual(session_start.templates_text(self.ITEMS[3:]), "")
+        self.assertEqual(session_start.templates_text(None), "")
+
+    def test_the_list_comes_from_the_cli(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = os.path.join(tmp, "kairos")
+            listing = os.path.join(tmp, "templates.json")
+            with open(listing, "w") as handle:
+                json.dump({"items": self.ITEMS, "total": 4, "next_offset": None}, handle)
+            with open(stub, "w") as handle:
+                handle.write(
+                    "#!/bin/sh\n"
+                    'case "$1 $2 $3 $4" in\n'
+                    f'  "templates list --all --json") cat "{listing}" ;;\n'
+                    "  *) exit 64 ;;\n"
+                    "esac\n"
+                )
+            os.chmod(stub, 0o755)
+            with unittest.mock.patch.dict(os.environ, {"PATH": tmp + os.pathsep + "/usr/bin:/bin"}):
+                self.assertEqual(
+                    session_start.cli_templates("http://127.0.0.1:9"), self.ITEMS
+                )
+            with unittest.mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}):
+                self.assertIsNone(session_start.cli_templates("http://127.0.0.1:9"))
 
 
 class ProjectConfig(unittest.TestCase):

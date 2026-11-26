@@ -545,6 +545,63 @@ def build_context(values, status, note=None, checkouts=None):
     return "\n".join(lines)
 
 
+TEMPLATES_HEADING = (
+    "Templates of the organization (KAIROS-T-0791): a create writes the template of "
+    "the type as version 1 and gives it back; fill in each section with an edit "
+    "(`update_item` or `edit_item`). The italic text is guidance. A document names "
+    "its type with `template`. Use each one when:"
+)
+
+
+def template_label(item):
+    """The type of one template in the list: `task (bug)`, `initiative`, or
+    `document \`prd\` (PRD)` (pure; testable)."""
+    item_type = item.get("item_type") or "document"
+    if item_type == "task" and item.get("task_type"):
+        return f"task ({item['task_type']})"
+    if item_type == "document":
+        return f"document `{item.get('slug', '')}` ({item.get('name', '')})"
+    return item_type
+
+
+def templates_text(items):
+    """The list of the templates and when to use each (pure; testable).
+    Empty when no template has a use_when: an older server."""
+    lines = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        use_when = (item.get("use_when") or "").strip()
+        if use_when:
+            lines.append(f"- {template_label(item)}: {use_when}")
+    if not lines:
+        return ""
+    return "\n".join([TEMPLATES_HEADING] + lines)
+
+
+def cli_templates(deployment, timeout=CLI_LOCAL_SECONDS):
+    """The templates of the organization, from `kairos templates list --all
+    --json` (KAIROS-T-0791): the list comes from the organization, not from
+    a copy in the plugin. None when `kairos` is not on PATH or the call
+    fails: the hook stays silent about templates."""
+    binary = shutil.which("kairos")
+    if not binary or not deployment:
+        return None
+    env = dict(os.environ, KAIROS_UPDATE_CHECK="0", KAIROS_QUIET="1")
+    try:
+        out = subprocess.run(
+            [binary, "templates", "list", "--all", "--json", "--url", deployment],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+        items = json.loads(out.stdout)["items"] if out.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+        return None
+    return items if isinstance(items, list) else None
+
+
 NO_DEPLOYMENT = (
     "no deployment: set `deployment` in the [[project]] or in [default] of "
     "config.toml (`kairos config path` names it), or run `kairos login --url <deployment>`"
@@ -596,6 +653,10 @@ def run(payload):
     if checkouts is None:
         checkouts = board_checkouts(project_dir)
     context = build_context(values, status, note, checkouts)
+    if deployment and "NOT reachable" not in status:
+        templates = templates_text(cli_templates(deployment, budget.left()))
+        if templates:
+            context = context + "\n\n" + templates
     try:
         rules = rules_at_start(values, session)
     except Exception as error:  # a state folder that cannot be written

@@ -53,14 +53,14 @@ test('the form of a new task opens with the template of its type', async ({ page
 
   await test.step('the content is the template of a task, with its use_when', async () => {
     await expect(content).toHaveValue(/## Objective/, { timeout: 15_000 });
-    await expect(content).toHaveValue(/## Acceptance criteria/);
+    await expect(content).toHaveValue(/## Acceptance Criteria/);
     await expect(modal.getByTestId('create-use-when')).toContainText('Use when');
   });
 
   await test.step('the task type bug gives the template of a bug', async () => {
     await field('Task type').locator('select').selectOption({ label: 'bug' });
-    await expect(content).toHaveValue(/## Impact/);
-    await expect(content).toHaveValue(/Steps to reproduce/);
+    await expect(content).toHaveValue(/## Impact Assessment/);
+    await expect(content).toHaveValue(/Reproduction Steps/);
   });
 
   await test.step('the save writes the text of the form as version 2', async () => {

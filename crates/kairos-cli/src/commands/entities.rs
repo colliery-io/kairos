@@ -1721,11 +1721,37 @@ pub struct StrategyCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: the text, written with
+    /// an edit after the create. Create with no content, then use `edit`
+    #[arg(long, conflicts_with = "content_file")]
+    pub content: Option<String>,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: read the text from a
+    /// file (`-` reads stdin), written with an edit after the create
+    #[arg(long, value_name = "FILE")]
+    pub content_file: Option<PathBuf>,
     /// Strategy hypothesis
     #[arg(long)]
     pub hypothesis: Option<String>,
     #[command(flatten)]
     pub common: Common,
+}
+
+/// The deprecated `--content` or `--content-file` of a create
+/// (KAIROS-T-0793, KAIROS-A-0088): the text, and a deprecation line on
+/// stderr. kairos-client writes the text with an update after the create.
+fn deprecated_content(
+    content: Option<&str>,
+    content_file: Option<&std::path::Path>,
+) -> Result<Option<String>, CliError> {
+    let text = read_text(content, content_file, "--content-file")?;
+    if text.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+        eprintln!(
+            "Deprecated: --content and --content-file on create are removed in 0.26.0 \
+             (KAIROS-A-0088). Create with no content: the create writes the template of the \
+             type. Then use `edit --content`."
+        );
+    }
+    Ok(text)
 }
 
 impl StrategyCreateArgs {
@@ -1734,7 +1760,8 @@ impl StrategyCreateArgs {
             board_id: self.board.clone(),
             column_id: create_column(client, Some(&self.board), self.column.as_deref()).await?,
             title: self.title.clone(),
-            content: String::new(),
+            content: deprecated_content(self.content.as_deref(), self.content_file.as_deref())?
+                .unwrap_or_default(),
             hypothesis: self.hypothesis.clone(),
         })
     }
@@ -1753,6 +1780,14 @@ pub struct InitiativeCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: the text, written with
+    /// an edit after the create. Create with no content, then use `edit`
+    #[arg(long, conflicts_with = "content_file")]
+    pub content: Option<String>,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: read the text from a
+    /// file (`-` reads stdin), written with an edit after the create
+    #[arg(long, value_name = "FILE")]
+    pub content_file: Option<PathBuf>,
     /// T-shirt sizing: xs|s|m|l|xl
     #[arg(long)]
     pub complexity: Option<String>,
@@ -1773,7 +1808,8 @@ impl InitiativeCreateArgs {
             board_id: self.board.clone(),
             column_id: create_column(client, Some(&self.board), self.column.as_deref()).await?,
             title: self.title.clone(),
-            content: String::new(),
+            content: deprecated_content(self.content.as_deref(), self.content_file.as_deref())?
+                .unwrap_or_default(),
             complexity: self.complexity.clone(),
             bucket_type: self.bucket_type.clone(),
             parent: self.parent.clone(),
@@ -1797,6 +1833,14 @@ pub struct TaskCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: the text, written with
+    /// an edit after the create. Create with no content, then use `edit`
+    #[arg(long, conflicts_with = "content_file")]
+    pub content: Option<String>,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: read the text from a
+    /// file (`-` reads stdin), written with an edit after the create
+    #[arg(long, value_name = "FILE")]
+    pub content_file: Option<PathBuf>,
     /// The kind of the task: task|bug|tech_debt|support (defaults to
     /// task). The old name --type still works
     #[arg(long = "kind", alias = "type", value_name = "KIND")]
@@ -1846,7 +1890,8 @@ impl TaskCreateArgs {
             repository: self.repo.clone(),
             column_id: create_column(client, board.as_deref(), self.column.as_deref()).await?,
             title: self.title.clone(),
-            content: String::new(),
+            content: deprecated_content(self.content.as_deref(), self.content_file.as_deref())?
+                .unwrap_or_default(),
             task_type: self.task_type.clone(),
             work_class: self.work_class.clone(),
             team_id: team,
@@ -1862,6 +1907,14 @@ pub struct DocumentCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: the text, written with
+    /// an edit after the create. Create with no content, then use `edit`
+    #[arg(long, conflicts_with = "content_file")]
+    pub content: Option<String>,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: read the text from a
+    /// file (`-` reads stdin), written with an edit after the create
+    #[arg(long, value_name = "FILE")]
+    pub content_file: Option<PathBuf>,
     /// The owner board of the document (slug or UUID), of each level. It
     /// gives the right to edit the document, and you need
     /// `manage_documents` on it. The code of the document gets the prefix
@@ -1889,9 +1942,9 @@ impl DocumentCreateArgs {
         Ok(CreateDocumentRequest {
             title: self.title.clone(),
             board: self.board.clone(),
-            // KAIROS-T-0792: a create takes no content; the update after it
-            // writes the text.
-            content: None,
+            // KAIROS-T-0792: a create takes no content; the deprecated text
+            // (KAIROS-T-0793) is written with an update after it.
+            content: deprecated_content(self.content.as_deref(), self.content_file.as_deref())?,
             template_id,
             parent_short_code: self.parent.clone(),
         })
@@ -1904,6 +1957,14 @@ pub struct AdrCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: the text, written with
+    /// an edit after the create. Create with no content, then use `edit`
+    #[arg(long, conflicts_with = "content_file")]
+    pub content: Option<String>,
+    /// Deprecated (KAIROS-A-0088), removed in 0.26.0: read the text from a
+    /// file (`-` reads stdin), written with an edit after the create
+    #[arg(long, value_name = "FILE")]
+    pub content_file: Option<PathBuf>,
     /// ADR board (slug or UUID); omit for an off-board ADR (org-admin only)
     #[arg(long, value_name = "BOARD")]
     pub board: Option<String>,
@@ -1932,7 +1993,8 @@ impl AdrCreateArgs {
             board_id: self.board.clone(),
             column_id: create_column(client, self.board.as_deref(), self.column.as_deref()).await?,
             title: self.title.clone(),
-            content: String::new(),
+            content: deprecated_content(self.content.as_deref(), self.content_file.as_deref())?
+                .unwrap_or_default(),
             decision_maker: self.decision_maker.clone(),
             decision_date: self.decision_date.clone(),
             parent: self.parent.clone(),

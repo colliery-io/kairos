@@ -28,6 +28,18 @@ pub(super) const MESSAGE_LINES: usize = 40;
 /// order of the template.
 type Typed = Vec<(String, SectionType)>;
 
+/// The typed sections of a template, in the order of the template.
+pub(super) fn of_template(conn: &mut PgConnection, template_id: Uuid) -> Result<Typed, ApiError> {
+    use kairos_db::schema::template_sections;
+    let rows: Vec<(String, String)> = template_sections::table
+        .filter(template_sections::template_id.eq(template_id))
+        .order(template_sections::position.asc())
+        .select((template_sections::heading, template_sections::section_type))
+        .load(conn)
+        .map_err(ApiError::internal)?;
+    Ok(typed(rows))
+}
+
 /// The typed sections of the template of a document, and its content now.
 /// No sections when the document has no template, or its template has no
 /// typed section. One statement.

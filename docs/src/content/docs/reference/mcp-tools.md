@@ -1138,9 +1138,11 @@ Creates a work item and returns its new short code. It takes no content
 (KAIROS-A-0087). It writes the template of the type as version 1, and gives
 it back in the answer. A task gets the template of its task type, and a
 document the template that `template` names. Fill in each section with
-`update_item` (send version 1) or `edit_item`. The tool refuses a call with
-`content`, `body` or `text` with `VALIDATION`, and the message names
-`update_item`.
+`update_item` (send version 1) or `edit_item`.
+
+Until 0.26.0, the tool still takes the argument `content` (KAIROS-A-0088). It writes the content as
+version 1, and the answer has a `Warning:` line. Version 0.26.0 removes the
+argument.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1149,6 +1151,7 @@ document the template that `template` names. Fill in each section with
 | `board` | string | no (yes for a document) | see below | Target board, slug or UUID. For a task, the board decides the team of the task. For a document, it is the owner board: it is required, and it has no default. |
 | `parent` | string | no | — | Parent item's short code. Creates the `parent` edge. For a document or an ADR, creates the `supports` edge. |
 | `template` | string | no | — | Documents only. Template id, slug or name: the document type. |
+| `content` | string | no | — | Deprecated, removed in 0.26.0. The content of version 1, in place of the template. Aliases: `body`, `text`. |
 | `task_type` | string | no | `task` | Tasks only. `task`, `bug`, `tech_debt`, `support`. |
 | `repository` | string | no | — | Tasks only. Slug or UUID. An optional link that says where the code is. Any live repository, of any team. It does not choose the board. |
 | `work_class` | string | no | see below | Tasks only. `planned`, `support`. |

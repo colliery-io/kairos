@@ -536,6 +536,11 @@ A create takes no content (KAIROS-A-0087). It writes the template of the type
 as version 1 and prints it. Write the text with `<noun> edit --content` or
 `--content-file`, version 1. A document names its type with `--template`.
 
+Until 0.26.0, the CLI still takes `--content` and `--content-file` on a
+create (KAIROS-A-0088). It prints a deprecation line on standard error. It
+creates the item, then writes the text with an edit, as version 2. Version
+0.26.0 removes the two options.
+
 Board placement per noun:
 
 | Noun | Option | Type | Default | Description |

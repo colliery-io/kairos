@@ -1486,7 +1486,8 @@ mod tests {
             }
             _ => panic!("expected tasks create"),
         }
-        // KAIROS-T-0792: a create takes no content.
+        // KAIROS-T-0793 (KAIROS-A-0088): `--content` on create is deprecated
+        // and parses until 0.26.0.
         assert!(
             Cli::try_parse_from([
                 "kairos",
@@ -1499,8 +1500,8 @@ mod tests {
                 "--content",
                 "body",
             ])
-            .is_err(),
-            "--content is not an option of create"
+            .is_ok(),
+            "--content on create is deprecated, not gone"
         );
 
         let cli = Cli::try_parse_from([

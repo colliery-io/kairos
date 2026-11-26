@@ -575,6 +575,14 @@ pub(crate) async fn create_document(
         .blocking
         .run(&tenant.slug, move |conn| {
             crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
+                // KAIROS-T-0793 (KAIROS-A-0088): content on a create is deprecated.
+                if body
+                    .content
+                    .as_deref()
+                    .is_some_and(|c| !c.trim().is_empty())
+                {
+                    crate::claims::note_content_on_create();
+                }
                 // COLLIERY-T-0227: the document and its edge, or neither.
                 let created = atomically(conn, |conn| {
                     create(

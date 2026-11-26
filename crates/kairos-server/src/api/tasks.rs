@@ -521,6 +521,10 @@ pub(crate) async fn create_task(
                 // The task and its parent edge are one transaction: a refused
                 // edge leaves no task (COLLIERY-T-0227).
                 super::atomically(conn, |conn| {
+                    // KAIROS-T-0793 (KAIROS-A-0088): content on a create is deprecated.
+                    if !body.content.trim().is_empty() {
+                        crate::claims::note_content_on_create();
+                    }
                     let created = items::create_task(
                         conn,
                         items::CreateTask {

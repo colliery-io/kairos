@@ -4117,11 +4117,46 @@ fn CreateItemModal(
         })
     });
 
+    // KAIROS-T-0789: the templates of the organization, loaded when the
+    // modal opens. The content starts as the template of the type, and
+    // follows a change of the task type while the person did not edit it.
+    let templates = LocalResource::new(move || {
+        auth.track_session();
+        let wanted = open.get();
+        async move {
+            if wanted {
+                data::list_templates(auth).await
+            } else {
+                Ok(Vec::new())
+            }
+        }
+    });
+    let template_of_type = Memo::new(move |_| {
+        let list = templates.get().and_then(|r| r.ok()).unwrap_or_default();
+        data::type_template(&list, kind, &task_type.get()).cloned()
+    });
+    let applied = StoredValue::new(String::new());
+    Effect::new(move |_| {
+        if !open.get() {
+            return;
+        }
+        let text = template_of_type
+            .get()
+            .map(|t| t.content)
+            .unwrap_or_default();
+        let current = content.get_untracked();
+        if current.trim().is_empty() || current == applied.get_value() {
+            content.set(text.clone());
+        }
+        applied.set_value(text);
+    });
+
     // A fresh form every time the modal opens.
     Effect::new(move |_| {
         if open.get() {
             title.set(String::new());
             content.set(String::new());
+            applied.set_value(String::new());
             hypothesis.set(String::new());
             complexity.set("none".to_string());
             bucket_type.set(NO_BUCKET.to_string());
@@ -4162,12 +4197,14 @@ fn CreateItemModal(
         busy.set(true);
         error.set(None);
         leptos::task::spawn_local(async move {
-            match data::create_item(auth, kind, &board_id, &column_id, &item).await {
-                Ok(short_code) => {
+            // KAIROS-T-0789: a create (the template of the type), then an
+            // update with the text of the form.
+            match data::create_and_fill(auth, kind, &board_id, &column_id, &item).await {
+                Ok((short_code, not_saved)) => {
                     open.set(false);
                     // KAIROS-T-0779: the warnings of the create (the size
                     // of the initiative of the new task).
-                    for warning in crate::api::take_warnings() {
+                    for warning in crate::api::take_warnings().into_iter().chain(not_saved) {
                         toaster.warning(warning);
                     }
                     if is_request {
@@ -4216,7 +4253,13 @@ fn CreateItemModal(
                     </span>
                 })}
                 <TextInput label="Title" value=title placeholder="What is it?"/>
-                <Textarea label="Content (markdown)" value=content rows=5
+                // KAIROS-T-0789: when to use the type, from its template.
+                {move || template_of_type.get().filter(|t| !t.use_when.is_empty()).map(|t| view! {
+                    <span data-testid="create-use-when">
+                        <Text dimmed=true size="xs">{t.use_when}</Text>
+                    </span>
+                })}
+                <Textarea label="Content (markdown)" value=content rows=14
                     placeholder="Why does it exist? What does done look like?"/>
                 {matches!(kind, EntityKind::Strategy).then(|| view! {
                     <TextInput label="Hypothesis (optional)" value=hypothesis
@@ -4410,10 +4453,30 @@ fn CreateDocumentModal(
                         </Alert>
                     }.into_any(),
                     Some(Ok(list)) => {
+                        // KAIROS-T-0789: a document type is a template of
+                        // the item type `document`; the others are the
+                        // templates of the other types.
                         let mut options = vec!["(blank)".to_string()];
-                        options.extend(list.into_iter().map(|t| t.name));
-                        view! { <Select label="Template" value=template options/> }.into_any()
+                        options.extend(
+                            list.into_iter()
+                                .filter(|t| t.item_type == "document")
+                                .map(|t| t.name),
+                        );
+                        view! { <Select label="Document type" value=template options/> }.into_any()
                     }
+                }}
+                {move || {
+                    let chosen = template.get();
+                    templates
+                        .get()
+                        .and_then(|r| r.ok())
+                        .and_then(|list| list.into_iter().find(|t| t.name == chosen))
+                        .filter(|t| !t.use_when.is_empty())
+                        .map(|t| view! {
+                            <span data-testid="document-use-when">
+                                <Text dimmed=true size="xs">{t.use_when}</Text>
+                            </span>
+                        })
                 }}
                 {move || {
                     let options: Vec<String> = parents

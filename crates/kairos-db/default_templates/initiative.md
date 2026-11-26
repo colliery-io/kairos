@@ -2,44 +2,52 @@
 
 ## Context
 
-*Say the background, and why the work is necessary now.*
+*Say the context and the background of the initiative, and why the work is necessary now.*
 
-## Goals and non-goals
+## Goals & Non-Goals
 
-*Keep one objective: work for a different objective goes to its own initiative. Also say what the initiative will not do.*
+*Keep one objective: work for a different objective goes to its own initiative. Also say what the initiative will not address.*
 
 **Goals:**
 
 - 
 
-**Non-goals:**
+**Non-Goals:**
 
 - 
 
 ## Requirements
 
-*Optional: keep this section when the initiative has many requirements. Number each one. Use "must", not "should".*
+*Optional: delete this section when the initiative is not about requirements.*
 
-### User requirements
+### User Requirements
 
-- **Users:** their background and their experience.
-- **What users expect:** 
-- **Interfaces:** how users use the system.
+- **User Characteristics**: the technical background and the experience of the users.
+- **System Functionality**: what the users expect the system to do.
+- **User Interfaces**: how the users use the system.
 
-### System requirements
+### System Requirements
 
-- REQ-001: 
-- NFR-001: 
+- **Functional Requirements**: what the system must do. Give each one a number.
+  - REQ-001: 
+- **Non-Functional Requirements**: how the system must behave.
+  - NFR-001: 
 
-## Use cases
+## Use Cases
 
 *Optional: delete this section when no user sees the change.*
 
-### Use case 1: [name]
+### Use Case 1: [name]
 
-- **Actor:** 
-- **Scenario:** 
-- **Expected outcome:** 
+- **Actor**: who does the action.
+- **Scenario**: each step of the interaction.
+- **Expected Outcome**: what happens at the end.
+
+### Use Case 2: [name]
+
+- **Actor**: 
+- **Scenario**: 
+- **Expected Outcome**: 
 
 ## Architecture
 
@@ -49,50 +57,86 @@
 
 *Describe the approach at a high level.*
 
-### Diagrams
+### Component Diagrams
 
-*Describe or link the component, sequence and deployment diagrams. Kairos draws a mermaid block.*
+*Describe or link the component diagrams. Kairos draws a mermaid block.*
 
-## Detailed design
+### Class Diagrams
+
+*Describe or link the class diagrams, for a system with classes.*
+
+### Sequence Diagrams
+
+*Describe or link the sequence diagrams, for the flows between parts.*
+
+### Deployment Diagrams
+
+*Describe or link the deployment diagrams, for the infrastructure.*
+
+## Detailed Design
 
 *Say the technical approach and the important details.*
 
-## UI and UX design
+## UI/UX Design
 
 *Optional: delete this section when the initiative has no UI.*
 
-### Mockups
+### User Interface Mockups
 
-### User flows
+*Describe or link the mockups.*
 
-### Design system
+### User Flows
+
+*Describe the main flows of the users.*
+
+### Design System Integration
 
 *Say how the change uses the existing patterns of the UI.*
 
-## Testing strategy
+## Testing Strategy
 
 *Optional: delete this section when another initiative covers the tests.*
 
-### Unit tests
+### Unit Testing
 
-### Integration tests
+- **Strategy**: 
+- **Coverage Target**: 
+- **Tools**: 
 
-### System tests
+### Integration Testing
 
-## Alternatives considered
+- **Strategy**: 
+- **Test Environment**: 
+- **Data Management**: 
+
+### System Testing
+
+- **Strategy**: 
+- **User Acceptance**: 
+- **Performance Testing**: 
+
+### Test Selection
+
+*Say how the team decides what to test.*
+
+### Bug Tracking
+
+*Say how the team records the defects and sets their priority.*
+
+## Alternatives Considered
 
 *List the other approaches, and why the team did not choose them.*
 
-## Implementation plan
+## Implementation Plan
 
 *List the phases and their order. Kairos keeps the tasks of each phase as children of the initiative.*
 
-## Exit criteria
+## Exit Criteria
 
 *Move the initiative to Completed only when each item is true.*
 
-- [ ] The context and the goals are clear.
-- [ ] The design has enough detail for the tasks.
-- [ ] The implementation plan has clear phases.
+- [ ] The context and the goals are clearly defined.
+- [ ] The technical approach has sufficient detail.
+- [ ] The implementation plan shows clear phases.
 - [ ] The testing strategy is defined.
-- [ ] The dependencies are known and resolved.
+- [ ] The dependencies are identified and resolved.

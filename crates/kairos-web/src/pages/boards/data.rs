@@ -373,6 +373,46 @@ impl ProgressCounts {
 pub struct Template {
     pub id: String,
     pub name: String,
+    /// The slug (KAIROS-T-0789). An older server sends it too.
+    #[serde(default)]
+    pub slug: String,
+    /// The starter content: the content of version 1 of a new item.
+    #[serde(default)]
+    pub content: String,
+    /// The item type (KAIROS-T-0787); `document` from an older server.
+    #[serde(default = "document_type")]
+    pub item_type: String,
+    /// The task type of a task template.
+    #[serde(default)]
+    pub task_type: Option<String>,
+    /// When to use the type.
+    #[serde(default)]
+    pub use_when: String,
+}
+
+fn document_type() -> String {
+    "document".to_string()
+}
+
+/// The template of a fixed type (KAIROS-T-0789): the one template of the
+/// item type of `kind`, and of `task_type` for a task. `None` when the
+/// type has none. A document picks its template in its own dialog.
+/// Pure, host-tested.
+pub fn type_template<'a>(
+    templates: &'a [Template],
+    kind: EntityKind,
+    task_type: &str,
+) -> Option<&'a Template> {
+    let item_type = match kind {
+        EntityKind::Strategy => "strategy",
+        EntityKind::Initiative => "initiative",
+        EntityKind::Task => "task",
+        EntityKind::Adr => "adr",
+    };
+    templates.iter().find(|t| {
+        t.item_type == item_type
+            && (kind != EntityKind::Task || t.task_type.as_deref() == Some(task_type))
+    })
 }
 
 /// mirror of: `kairos_client::types_events::ThinEvent` (partial — events
@@ -1289,7 +1329,7 @@ pub async fn set_work_class(
     Ok(())
 }
 
-/// The create-from-column form data; [`create_item`] maps it onto the
+/// The create-from-column form data; [`create_and_fill`] maps it onto the
 /// right S-0005 request per entity kind.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NewItem {
@@ -1389,27 +1429,28 @@ struct CreateAdrRequest<'a> {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 struct Created {
     short_code: String,
+    /// The content of version 1 (KAIROS-T-0789): the template of the type.
+    #[serde(default)]
+    content: String,
+    #[serde(default)]
+    version: i32,
 }
 
-/// `POST /api/{family}` — create a board item in the given column.
-///
-/// Returns the short code of the new item (COLLIERY-T-0232). The board
-/// names a request in a notice after the create, and the short code is the
-/// one name that the person and the team of the board can both use. The
-/// remainder of the body is discarded: server state is re-fetched.
-pub async fn create_item(
+/// `POST /api/{family}` — create a board item in the given column
+/// (COLLIERY-T-0232). [`create_and_fill`] is the one caller.
+async fn post_created(
     auth: Auth,
     kind: EntityKind,
+    path: &str,
     board_id: &str,
     column_id: &str,
     item: &NewItem,
-) -> Result<String, ApiError> {
-    let path = format!("/api/{}", kind.api_family());
-    let created: Created = match kind {
+) -> Result<Created, ApiError> {
+    Ok(match kind {
         EntityKind::Strategy => {
             post_json(
                 auth,
-                &path,
+                path,
                 &CreateStrategyRequest {
                     board_id,
                     column_id,
@@ -1423,7 +1464,7 @@ pub async fn create_item(
         EntityKind::Initiative => {
             post_json(
                 auth,
-                &path,
+                path,
                 &CreateInitiativeRequest {
                     board_id,
                     column_id,
@@ -1439,7 +1480,7 @@ pub async fn create_item(
         EntityKind::Task => {
             post_json(
                 auth,
-                &path,
+                path,
                 &CreateTaskRequest {
                     board_id,
                     column_id,
@@ -1457,7 +1498,7 @@ pub async fn create_item(
         EntityKind::Adr => {
             post_json(
                 auth,
-                &path,
+                path,
                 &CreateAdrRequest {
                     board_id,
                     column_id,
@@ -1469,8 +1510,50 @@ pub async fn create_item(
             )
             .await?
         }
+    })
+}
+
+/// The create of the dialog (KAIROS-T-0789, KAIROS-A-0087): a create with
+/// no content (the server writes the template of the type as version 1),
+/// then an update with the text of the form when it is different. Gives the
+/// short code, and a warning when the item exists but the update failed:
+/// the person opens the item to write the text.
+pub async fn create_and_fill(
+    auth: Auth,
+    kind: EntityKind,
+    board_id: &str,
+    column_id: &str,
+    item: &NewItem,
+) -> Result<(String, Option<String>), ApiError> {
+    let path = format!("/api/{}", kind.api_family());
+    let empty = NewItem {
+        content: String::new(),
+        ..item.clone()
     };
-    Ok(created.short_code)
+    let created: Created = post_created(auth, kind, &path, board_id, column_id, &empty).await?;
+    if item.content.trim().is_empty() || item.content == created.content {
+        return Ok((created.short_code, None));
+    }
+    let Some(family) = crate::pages::item::api::Family::of_short_code(&created.short_code) else {
+        return Ok((created.short_code, None));
+    };
+    let saved = crate::pages::item::api::update_content(
+        auth,
+        family,
+        &created.short_code,
+        &item.title,
+        &item.content,
+        created.version.max(1),
+    )
+    .await;
+    let warning = saved.err().map(|_| {
+        format!(
+            "Kairos created {code}, but it did not save the text of the form. Open {code} and \
+             write the text again.",
+            code = created.short_code
+        )
+    });
+    Ok((created.short_code, warning))
 }
 
 /// mirror of: `kairos_client::types::CreateDocumentRequest`.
@@ -1511,6 +1594,37 @@ pub async fn create_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0789: the template of a type; a task by its task type.
+    #[test]
+    fn the_template_of_a_type() {
+        let template = |slug: &str, item_type: &str, task_type: Option<&str>| Template {
+            id: slug.into(),
+            name: slug.into(),
+            slug: slug.into(),
+            content: format!("## {slug}\n"),
+            item_type: item_type.into(),
+            task_type: task_type.map(str::to_string),
+            use_when: format!("Use when {slug}."),
+        };
+        let list = vec![
+            template("prd", "document", None),
+            template("task", "task", Some("task")),
+            template("bug", "task", Some("bug")),
+            template("initiative", "initiative", None),
+        ];
+        let slug = |kind, task_type| type_template(&list, kind, task_type).map(|t| t.slug.as_str());
+        assert_eq!(slug(EntityKind::Task, "bug"), Some("bug"));
+        assert_eq!(slug(EntityKind::Task, "task"), Some("task"));
+        assert_eq!(slug(EntityKind::Task, "support"), None);
+        assert_eq!(slug(EntityKind::Initiative, "task"), Some("initiative"));
+        assert_eq!(slug(EntityKind::Adr, "task"), None);
+        // An older server: no item type, so each template is a document.
+        let old: Vec<Template> =
+            serde_json::from_value(serde_json::json!([{"id": "1", "name": "PRD"}])).expect("old");
+        assert_eq!(old[0].item_type, "document");
+        assert_eq!(type_template(&old, EntityKind::Task, "task"), None);
+    }
 
     /// KAIROS-T-0779: the size pill and its shade.
     #[test]

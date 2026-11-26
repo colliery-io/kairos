@@ -1347,6 +1347,16 @@ pub fn emit_created<T: EntityView>(common: &Common, item: &T) -> Result<(), CliE
         item.version(),
         item.title()
     );
+    // KAIROS-T-0788: a create with no content writes the template of the
+    // type. Print the content, so that the next command fills it in.
+    if !item.content().trim().is_empty() {
+        println!(
+            "\nThe content of version {} (fill it in with the update command; the italic \
+             text is guidance):\n\n{}",
+            item.version(),
+            item.content().trim_end()
+        );
+    }
     Ok(())
 }
 

@@ -1038,6 +1038,28 @@ async fn mcp_endpoint_against_live_stack() {
     );
     let task_code = extract_code(&text, "ACME-T-");
 
+    // KAIROS-T-0788: a create with no content writes the template of the
+    // type, and the answer gives it with how to fill it in.
+    sql_query(
+        "INSERT INTO org_acme.templates (name, slug, content, item_type, task_type, use_when) \
+         VALUES ('Support', 'support', E'## Request\n\n*Write the request.*\n', 'task', \
+         'support', 'Use when somebody asks for help.')",
+    )
+    .execute(&mut conn)
+    .expect("a support template");
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({"item_type": "task", "title": "Help with the export", "task_type": "support"}),
+        )
+        .await;
+    assert!(text.contains("Content of version 1"), "{text}");
+    assert!(
+        text.contains("## Request\n\n*Write the request.*"),
+        "{text}"
+    );
+    assert!(text.contains("`update_item`"), "{text}");
+
     // --- KAIROS-T-0178: a bucket initiative and a dated ADR, over MCP --------
     //
     // Both fields were hardcoded `None` in the tool, so an initiative created
@@ -1539,13 +1561,14 @@ async fn mcp_endpoint_against_live_stack() {
     assert!(text.contains("NOT_FOUND"), "{text}");
 
     // --- NFR-1.3: every mutation above landed in activity_log ---------------
-    // 4 item creates — the initiative, its task, and (KAIROS-T-0178) the bucket
-    // initiative and the dated ADR. The board create wrote none: it is
-    // system-provisioned. Plus 1 transition and 1 delete, all written by the
-    // SAME services the API handlers call.
+    // 5 item creates — the initiative, its task, the support task of the
+    // template (KAIROS-T-0788), and (KAIROS-T-0178) the bucket initiative and
+    // the dated ADR. The board create wrote none: it is system-provisioned.
+    // Plus 1 transition and 1 delete, all written by the SAME services the
+    // API handlers call.
     assert_eq!(
         activity_count(&mut conn, alice, "create"),
-        4,
+        5,
         "item creates"
     );
     assert_eq!(activity_count(&mut conn, alice, "transition"), 1);

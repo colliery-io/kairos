@@ -52,7 +52,7 @@ Ask across the whole set. Name each task by its short code, never by its place i
 When an answer settles, write it at once, before the next question:
 
 - **A changed criterion, objective or scope:** `get_item`, then `edit_item` on the task.
-- **A split or a new task:** `create_item` with `item_type: task`, `parent: <initiative>`, `board: <the board of the other tasks of the initiative>`, and `repository` when it has code. Use the task body template of `/kairos:decompose`. Name the task by the short code in the result from then on.
+- **A split or a new task:** `create_item` with `item_type: task`, `parent: <initiative>`, `board: <the board of the other tasks of the initiative>`, and `repository` when it has code. The create takes no content: it writes the template of the type as version 1 and gives it back. Fill it in with `update_item` (send version 1). `/kairos:decompose` says how to write the body. Name the task by the short code in the result from then on.
 - **A merge:** move the text into one task with `edit_item`, then cut the other.
 - **A cut task:** `cancel_item` with the reason. The task goes to the done column, marked Cancelled, and the reason stays on it. If the work comes back later, it is a new task.
 - **An edge:** `link_items` or `unlink_items` with `relationship: blocks`, from the blocker to the blocked task. A new task from a split gets a `blocks` edge when it must wait for a task, and no edge when it can go in parallel.

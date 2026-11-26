@@ -249,45 +249,51 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         .expect("template");
 
     let mut mcp = Mcp::connect(&server.base_url, &svc_token).await;
-    let create = |content: Option<&str>| {
-        let mut arguments = json!({
+    // KAIROS-T-0792 (KAIROS-A-0087 point 9): a create takes no content and
+    // writes the template; the check of the typed sections applies from the
+    // first edit. An edit checks each section that it changes, and each
+    // section that still has the text of the template.
+    let create = || {
+        json!({
             "item_type": "document",
             "title": "A brief",
             "board": board,
             "template": "brief",
-        });
-        if let Some(content) = content {
-            arguments["content"] = json!(content);
-        }
-        arguments
+        })
     };
+    let write = |code: &str, content: &str, version: i32| json!({"short_code": code, "content": content, "version": version});
 
-    // 1. No content: the content of the template, with two empty sections.
-    let (text, details) = mcp.call_refused("create_item", create(None)).await;
+    // 1. A create writes the template, with its two empty sections. An
+    // update that fills only "Notes" is refused: "Goal" has the text of the
+    // template.
+    let code = created_code(&mcp.call_ok("create_item", create()).await);
+    assert_eq!(document_count(&mut conn), 1);
+    let read = admin.get_document(&code).await.expect("get document");
+    assert_eq!(
+        (read.version, read.content.as_str()),
+        (1, "## Goal\n\n## Notes\n")
+    );
+    let (text, details) = mcp
+        .call_refused(
+            "update_item",
+            write(&code, "## Goal\n\n## Notes\nSome notes.\n", 1),
+        )
+        .await;
     assert!(
         text.contains(
             "\n- Section \"Goal\" (plain): the section has no text. Write text under the heading."
         ),
         "{text}"
     );
-    assert!(
-        text.contains("\n- Section \"Notes\" (free): the section has no text."),
-        "{text}"
-    );
     assert!(text.contains("The server saved nothing."), "{text}");
     assert_eq!(details["field"], "content");
     assert_eq!(details["sections"][0]["heading"], "Goal");
     assert_eq!(details["sections"][0]["problem"], "empty");
-    assert_eq!(details["sections"][1]["heading"], "Notes");
-    assert_eq!(
-        document_count(&mut conn),
-        0,
-        "a refused create saves nothing"
-    );
+    assert_eq!(details["sections"].as_array().unwrap().len(), 1);
 
     // 2. A missing section.
     let (text, details) = mcp
-        .call_refused("create_item", create(Some("## Notes\nSome notes.\n")))
+        .call_refused("update_item", write(&code, "## Notes\nSome notes.\n", 1))
         .await;
     assert!(
         text.contains(
@@ -296,12 +302,12 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         ),
         "{text}"
     );
-    assert_eq!(details["sections"].as_array().unwrap().len(), 1);
     assert_eq!(details["sections"][0]["problem"], "missing");
-    assert_eq!(document_count(&mut conn), 0);
 
     // 3. A plain section that breaks rules: each violation is named.
-    let (text, details) = mcp.call_refused("create_item", create(Some(FAILING))).await;
+    let (text, details) = mcp
+        .call_refused("update_item", write(&code, FAILING, 1))
+        .await;
     assert!(
         text.contains(
             "\n- Section \"Goal\" (plain), STE-V1: \"server\". \"server\" is not in the vocabulary."
@@ -328,18 +334,15 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
             .iter()
             .all(|v| v["fix"].as_str().is_some_and(|f| !f.is_empty()))
     );
-    assert_eq!(document_count(&mut conn), 0);
+    let read = admin.get_document(&code).await.expect("get document");
+    assert_eq!(read.version, 1, "a refused write saves nothing");
 
-    // 4. A passing create.
-    let code = created_code(&mcp.call_ok("create_item", create(Some(PASSING))).await);
-    assert_eq!(document_count(&mut conn), 1);
+    // 4. A passing write.
+    mcp.call_ok("update_item", write(&code, PASSING, 1)).await;
 
     // 5. update_item with failing content: refused, the version stays.
     let (text, _) = mcp
-        .call_refused(
-            "update_item",
-            json!({"short_code": code, "content": FAILING, "version": 1}),
-        )
+        .call_refused("update_item", write(&code, FAILING, 2))
         .await;
     assert!(
         text.starts_with(&format!(
@@ -348,7 +351,7 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         "{text}"
     );
     let read = admin.get_document(&code).await.expect("get document");
-    assert_eq!((read.version, read.content.as_str()), (1, PASSING));
+    assert_eq!((read.version, read.content.as_str()), (2, PASSING));
 
     // 6. edit_item that empties a section: refused, the version stays.
     let (text, details) = mcp
@@ -363,7 +366,7 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
     );
     assert_eq!(details["sections"][0]["problem"], "empty");
     let read = admin.get_document(&code).await.expect("get document");
-    assert_eq!(read.version, 1);
+    assert_eq!(read.version, 2);
 
     // 7. Passing writes succeed.
     mcp.call_ok(
@@ -371,20 +374,19 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         json!({"short_code": code, "search": "Any text, utilize it.", "replace": "Other notes."}),
     )
     .await;
-    mcp.call_ok(
-        "update_item",
-        json!({"short_code": code, "content": PASSING, "version": 2}),
-    )
-    .await;
+    mcp.call_ok("update_item", write(&code, PASSING, 3)).await;
     let read = admin.get_document(&code).await.expect("get document");
-    assert_eq!((read.version, read.content.as_str()), (3, PASSING));
+    assert_eq!((read.version, read.content.as_str()), (4, PASSING));
 
     // 8. A document with no template: no section check.
-    mcp.call_ok(
-        "create_item",
-        json!({"item_type": "document", "title": "Free", "board": board, "content": FAILING}),
-    )
-    .await;
+    let free = mcp
+        .call_ok(
+            "create_item",
+            json!({"item_type": "document", "title": "Free", "board": board}),
+        )
+        .await;
+    mcp.call_ok("update_item", write(&created_code(&free), FAILING, 1))
+        .await;
     assert_eq!(document_count(&mut conn), 2);
 
     // 9. REST is not refused: the same failing content is saved.
@@ -416,12 +418,12 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
             &UpdateContentRequest {
                 title: None,
                 content: FAILING.into(),
-                version: 3,
+                version: 4,
             },
         )
         .await
         .expect("a REST update with failing content is saved");
-    assert_eq!((updated.version, updated.content.as_str()), (4, FAILING));
+    assert_eq!((updated.version, updated.content.as_str()), (5, FAILING));
 
     // 10. Only the sections that an edit changes are checked (note n-4):
     // the document fails "Goal" after the REST write, and an MCP edit of
@@ -432,14 +434,11 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
     )
     .await;
     let read = admin.get_document(&code).await.expect("get document");
-    assert_eq!(read.version, 5);
+    assert_eq!(read.version, 6);
     // An update that leaves "Goal" as it was passes too.
     let notes_only = FAILING.replace("Any text.", "Other text.");
-    mcp.call_ok(
-        "update_item",
-        json!({"short_code": code, "content": notes_only, "version": 5}),
-    )
-    .await;
+    mcp.call_ok("update_item", write(&code, &notes_only, 6))
+        .await;
     // An edit of "Goal" that still fails is refused.
     let (text, details) = mcp
         .call_refused(
@@ -451,11 +450,10 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
     assert_eq!(details["sections"].as_array().unwrap().len(), 1);
     assert_eq!(details["sections"][0]["heading"], "Goal");
     let read = admin.get_document(&code).await.expect("get document");
-    assert_eq!(read.version, 6);
+    assert_eq!(read.version, 7);
 
-    // 11. The right to create is checked before the typed sections: a
-    // member with no right on the board gets FORBIDDEN, not
-    // SECTIONS_NOT_PASSED.
+    // 11. The right to create comes first: a member with no right on the
+    // board gets FORBIDDEN.
     let alice_token = user_token(&http, "alice").await;
     let _ = server.client(&alice_token, "acme").whoami().await;
     let alice: Uuid = users::table
@@ -472,7 +470,7 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         .execute(&mut conn)
         .expect("membership");
     let mut alice_mcp = Mcp::connect(&server.base_url, &alice_token).await;
-    let (is_error, text) = alice_mcp.call("create_item", create(Some(FAILING))).await;
+    let (is_error, text) = alice_mcp.call("create_item", create()).await;
     assert!(is_error && text.starts_with("FORBIDDEN"), "{text}");
 
     // 12. KAIROS-A-0079: the dictionary of the organization (on the board
@@ -480,7 +478,10 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
     // "widget" fails, then passes when that dictionary has it. A
     // dictionary on the team board is refused and names `strategy`.
     let widget = "## Goal\nWrite the widget.\n\n## Notes\nAny text.\n";
-    let (text, _) = mcp.call_refused("create_item", create(Some(widget))).await;
+    let widget_code = created_code(&mcp.call_ok("create_item", create()).await);
+    let (text, _) = mcp
+        .call_refused("update_item", write(&widget_code, widget, 1))
+        .await;
     assert!(text.contains("STE-V1: \"widget\""), "{text}");
     let dictionary = |board: &str| {
         json!({
@@ -488,8 +489,6 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
             "title": "Dictionary",
             "board": board,
             "template": "dictionary",
-            "content": "| Word | Part of speech | Meaning |\n|---|---|---|\n\
-                        | widget | n | A part of the screen. |\n",
         })
     };
     let (is_error, text) = mcp.call("create_item", dictionary(&board)).await;
@@ -498,10 +497,19 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         "{text}"
     );
     assert!(text.contains("the board strategy"), "{text}");
-    let (text, _) = mcp.call_refused("create_item", create(Some(widget))).await;
-    assert!(text.contains("STE-V1: \"widget\""), "{text}");
-    mcp.call_ok("create_item", dictionary("strategy")).await;
-    mcp.call_ok("create_item", create(Some(widget))).await;
+    let dictionary_code = created_code(&mcp.call_ok("create_item", dictionary("strategy")).await);
+    mcp.call_ok(
+        "update_item",
+        write(
+            &dictionary_code,
+            "| Word | Part of speech | Meaning |\n|---|---|---|\n\
+             | widget | n | A part of the screen. |\n",
+            1,
+        ),
+    )
+    .await;
+    mcp.call_ok("update_item", write(&widget_code, widget, 1))
+        .await;
 
     // 13. An `ears` section (KAIROS-T-0732): the template takes the type, a
     // requirement that fits no frame is refused with its rule and the
@@ -523,23 +531,22 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
         })
         .await
         .expect("a template with an ears section");
-    let spec = |content: &str| {
-        json!({
-            "item_type": "document",
-            "title": "A spec",
-            "board": board,
-            "template": "spec",
-            "content": content,
-        })
-    };
-    let before = document_count(&mut conn);
+    let spec_code = created_code(
+        &mcp.call_ok(
+            "create_item",
+            json!({"item_type": "document", "title": "A spec", "board": board, "template": "spec"}),
+        )
+        .await,
+    );
     let (text, details) = mcp
         .call_refused(
-            "create_item",
-            spec(
+            "update_item",
+            write(
+                &spec_code,
                 "## Requirements\n\
                  - When a write fails, the server shall name the field.\n\
                  - A move names `reopen_item` when the item is done.\n",
+                1,
             ),
         )
         .await;
@@ -554,16 +561,18 @@ async fn mcp_writes_must_fill_and_pass_each_typed_section() {
     assert_eq!(details["sections"][0]["type"], "ears");
     assert_eq!(details["sections"][0]["violations"][0]["rule"], "EARS-1");
     assert_eq!(details["sections"].as_array().unwrap().len(), 1);
-    assert_eq!(document_count(&mut conn), before, "nothing is saved");
+    let read = admin.get_document(&spec_code).await.expect("get spec");
+    assert_eq!(read.version, 1, "nothing is saved");
     mcp.call_ok(
-        "create_item",
-        spec(
+        "update_item",
+        write(
+            &spec_code,
             "## Requirements\n\
              A paragraph is context, not a requirement.\n\n\
              - When a write fails, the server shall utilize the field.\n\
              - If the item is done, then `move_item` shall name `reopen_item`.\n",
+            1,
         ),
     )
     .await;
-    assert_eq!(document_count(&mut conn), before + 1);
 }

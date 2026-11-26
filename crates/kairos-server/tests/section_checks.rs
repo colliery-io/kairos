@@ -295,7 +295,8 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
     let read = admin.get_document(&code).await.expect("get document");
     let check = read.section_check.expect("the check of a typed document");
     assert!(!check.passes, "{check:?}");
-    assert_eq!(check.version, 1);
+    // KAIROS-T-0792: version 1 is the template, version 2 the text.
+    assert_eq!(check.version, 2);
     assert!(check.violations >= 2, "{check:?}");
     assert_eq!(check.sections.len(), 1, "only Goal fails: {check:?}");
     assert_eq!(check.sections[0].heading, "Goal");
@@ -370,14 +371,14 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
             &UpdateContentRequest {
                 title: None,
                 content: PASSING.into(),
-                version: 1,
+                version: 2,
             },
         )
         .await
         .expect("a fix");
     let check = fixed.section_check.expect("the check in the answer");
     assert!(check.passes && check.violations == 0 && check.sections.is_empty());
-    assert_eq!(check.version, 2);
+    assert_eq!(check.version, 3);
     let text = mcp.call_ok("get_item", json!({"short_code": code})).await;
     assert!(!text.contains("- sections:"), "{text}");
 
@@ -391,7 +392,7 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
     let read = admin.get_document(&old.short_code).await.expect("get");
     let check = read.section_check.expect("check");
     assert!(!check.passes);
-    assert_eq!(check.version, 2);
+    assert_eq!(check.version, 3);
 
     // 5. KAIROS-A-0079: a dictionary on the team board is refused. The
     // dictionary of the organization makes each check stale, also of a
@@ -415,8 +416,6 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
             "title": "Dictionary",
             "board": board,
             "template": "dictionary",
-            "content": "| Word | Part of speech | Meaning |\n|---|---|---|\n\
-                        | widget | n | A part of the screen. |\n",
         })
     };
     let (is_error, text) = mcp.call("create_item", dictionary(&board)).await;
@@ -425,7 +424,24 @@ async fn documents_that_fail_their_typed_sections_get_a_mark() {
         "{text}"
     );
     assert_eq!(stale(&mut conn, &widget.short_code), Some(false));
-    mcp.call_ok("create_item", dictionary("strategy")).await;
+    // KAIROS-T-0792: a create takes no content; the terms are an update.
+    let created = mcp.call_ok("create_item", dictionary("strategy")).await;
+    let dictionary_code = created
+        .split_whitespace()
+        .nth(2)
+        .expect("the code in the answer")
+        .trim_end_matches(':')
+        .to_string();
+    mcp.call_ok(
+        "update_item",
+        json!({
+            "short_code": dictionary_code,
+            "version": 1,
+            "content": "| Word | Part of speech | Meaning |\n|---|---|---|\n\
+                        | widget | n | A part of the screen. |\n",
+        }),
+    )
+    .await;
     assert_eq!(stale(&mut conn, &widget.short_code), Some(true));
     assert_eq!(
         stale(&mut conn, &old.short_code),

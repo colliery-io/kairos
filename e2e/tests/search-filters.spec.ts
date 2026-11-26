@@ -89,8 +89,7 @@ test('search: each filter of the form narrows the hits', async ({ page }) => {
       await call(token, 'POST', '/api/tasks', {
         board_id: board,
         title: `E2E ${probe} ${name}`,
-        content: '',
-        ...extra,
+          ...extra,
       })
     ).short_code as string;
   const codes: string[] = [];

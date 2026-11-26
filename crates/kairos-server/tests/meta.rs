@@ -196,7 +196,7 @@ async fn meta_endpoints_against_live_stack() {
             board_id: initiative_board.to_string(),
             column_id: None,
             title: "Ship M2".into(),
-            content: "scope".into(),
+            content: String::new(),
             complexity: None,
             bucket_type: None,
             parent: None,
@@ -213,7 +213,7 @@ async fn meta_endpoints_against_live_stack() {
                 repository: None,
                 column_id: None,
                 title: title.into(),
-                content: "c1".into(),
+                content: String::new(),
                 task_type: None,
                 work_class: None,
                 team_id: None,
@@ -231,7 +231,7 @@ async fn meta_endpoints_against_live_stack() {
         .create_document(&CreateDocumentRequest {
             board: initiative_board.to_string(),
             title: "Spec".into(),
-            content: Some("spec".into()),
+            content: None,
             template_id: None,
             parent_short_code: Some(initiative_code.clone()),
         })

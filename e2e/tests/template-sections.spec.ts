@@ -14,6 +14,7 @@
 
 import { test, expect, Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
+import { createItem } from '../helpers/api';
 
 const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 
@@ -53,7 +54,7 @@ test('a document that fails the typed sections of its template has a mark', asyn
   });
 
   try {
-    const doc = await call(alice, 'POST', '/api/documents', {
+    const doc = await createItem(GUI, alice, 'documents', {
       title: `E2E sections ${run}`,
       board: 'platform-delivery',
       template_id: template.id,

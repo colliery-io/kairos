@@ -53,7 +53,28 @@ export class Api {
   }
 
   get(path: string) { return this.ok('GET', path); }
-  post(path: string, body?: unknown) { return this.ok('POST', path, body); }
+  /**
+   * POST. A create of an item takes no content (KAIROS-T-0792,
+   * KAIROS-A-0087): it writes the template of the type as version 1. When
+   * the body of a create has `content`, the post sends the body with no
+   * content, then a PATCH writes the text, and the item after the PATCH
+   * is the answer.
+   */
+  async post(path: string, body?: unknown) {
+    const create = /^\/api\/(tasks|initiatives|strategies|documents|adrs)$/.test(path);
+    if (!create || body === null || typeof body !== 'object' || !('content' in (body as any))) {
+      return this.ok('POST', path, body);
+    }
+    const { content, ...rest } = body as Record<string, unknown>;
+    const created = await this.ok('POST', path, rest);
+    if (typeof content !== 'string' || content.trim() === '' || content === created.content) {
+      return created;
+    }
+    return this.ok('PATCH', `${path}/${created.short_code}`, {
+      content,
+      version: created.version,
+    });
+  }
   put(path: string, body?: unknown) { return this.ok('PUT', path, body); }
   patch(path: string, body?: unknown) { return this.ok('PATCH', path, body); }
   delete(path: string) { return this.ok('DELETE', path); }

@@ -70,7 +70,6 @@ test('the Relationships panel adds and removes edges and sets the parent', async
       board_id: initiatives.id,
       column_id: initiatives.entryColumnId,
       title,
-      content: '',
     });
   const first = await newInitiative(`Parent one e2e ${stamp}`);
   const second = await newInitiative(`Parent two e2e ${stamp}`);

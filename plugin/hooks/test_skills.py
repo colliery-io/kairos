@@ -154,13 +154,57 @@ class BlocksEdgesWhenWorkSplits(unittest.TestCase):
                 self.assertIn("parallel", text)
                 self.assertIn("no edge", text)
 
-    def test_decompose_writes_the_order_in_the_task(self):
+    def test_decompose_gives_the_order_by_blocks_edges(self):
+        # KAIROS-T-0792: the template of the organization gives the body;
+        # the `blocks` edges are the order.
         text = read(os.path.join(SKILLS, "workflow", "decompose", "SKILL.md"))
-        template = text.split("<task-template>", 1)[1].split("</task-template>", 1)[0]
-        self.assertIn("## Order", template)
-        self.assertIn("can go in parallel", template)
         step5 = text.split("### 5.", 1)[1].split("## Reference", 1)[0]
         self.assertIn("graph view", step5)
+        self.assertIn("The `blocks` edges are the order.", step5)
+        self.assertIn("can go in parallel", step5)
+
+
+class CreateThenFill(unittest.TestCase):
+    """KAIROS-T-0792 (KAIROS-A-0087): a create takes no content. Each skill
+    that creates an item fills the template that the create gives back,
+    with `update_item`, and keeps no copy of a format."""
+
+    def skill_texts(self):
+        for root, _, files in os.walk(SKILLS):
+            for name in files:
+                if name.endswith(".md"):
+                    path = os.path.join(root, name)
+                    yield os.path.relpath(path, SKILLS), read(path)
+
+    def test_no_skill_sends_content_on_create(self):
+        for rel, text in self.skill_texts():
+            for line in text.splitlines():
+                if "create_item" in line:
+                    with self.subTest(skill=rel, line=line[:80]):
+                        self.assertNotRegex(line, r"create_item\([^)]*\bcontent:")
+                        self.assertNotIn("as `content`", line)
+
+    def test_no_skill_keeps_a_copy_of_a_template(self):
+        for rel, text in self.skill_texts():
+            with self.subTest(skill=rel):
+                self.assertNotIn("<task-template>", text)
+                self.assertNotIn("<prd-template>", text)
+
+    def test_each_skill_that_creates_fills_the_template(self):
+        for rel in (
+            "workflow/decompose/SKILL.md",
+            "workflow/grill-decomposition/SKILL.md",
+            "workflow/to-initiative/SKILL.md",
+            "workflow/implement/CROSS-TEAM-FILING.md",
+            "engineering/research/SKILL.md",
+            "engineering/domain-modeling/SKILL.md",
+            "engineering/domain-modeling/ADR-FORMAT.md",
+            "review/diataxis-review/SKILL.md",
+        ):
+            with self.subTest(skill=rel):
+                text = read(os.path.join(SKILLS, rel))
+                self.assertIn("update_item", text)
+                self.assertIn("version 1", text)
 
 
 

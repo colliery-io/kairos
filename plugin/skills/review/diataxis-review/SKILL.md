@@ -30,4 +30,4 @@ Emit findings exactly in the reference's Section 6 format and ordering. Lead wit
 
 ## 5. File tech debt (optional)
 
-Offer to file the findings on the team's delivery board. If accepted: resolve the board with `whoami`/`my_boards`, then one `create_item` per accepted finding — `item_type: task`, `task_type: tech_debt`, `board` set to the delivery board, title from the finding's proposed action, content the finding verbatim (rule IDs intact). Report the short codes created.
+Offer to file the findings on the team's delivery board. If accepted: resolve the board with `whoami`/`my_boards`, then one `create_item` per accepted finding — `item_type: task`, `task_type: tech_debt`, `board` set to the delivery board, title from the finding's proposed action. Then `update_item` (send version 1): the finding verbatim (rule IDs intact) in the Technical Debt Impact of the template that the create gives back. Report the short codes created.

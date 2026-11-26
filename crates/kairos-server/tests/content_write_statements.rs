@@ -191,7 +191,9 @@ async fn content_writes_move_the_content_once_against_live_stack() {
     let created = send(
         Method::POST,
         "/api/tasks".into(),
-        Some(json!({"board_id": "payments-delivery", "title": "Pay", "content": body("")})),
+        // KAIROS-T-0792: a create takes no content; version 1 is the
+        // template, and the first case writes the body.
+        Some(json!({"board_id": "payments-delivery", "title": "Pay"})),
     )
     .await;
     let code = created["short_code"].as_str().expect("code").to_string();

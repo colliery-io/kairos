@@ -366,6 +366,73 @@ pub async fn request(
     headers: &[(&str, &str)],
     body: Option<Value>,
 ) -> (StatusCode, Value) {
+    // KAIROS-T-0792 (KAIROS-A-0087): a create takes no content. A create
+    // body with text is sent with no content, and the text goes in an
+    // update of version 1 after the create, as kairos-client does. The
+    // answer has the status of the create and the item after the update.
+    if let Some((family, text, create)) = create_with_text(&method, uri, body.as_ref()) {
+        let (status, created) =
+            request_raw(router, method, uri, token, headers, Some(create)).await;
+        if !status.is_success()
+            || text.trim().is_empty()
+            || created["content"] == Value::String(text.clone())
+        {
+            return (status, created);
+        }
+        let code = created["short_code"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let version = created["version"].clone();
+        let (filled, item) = request_raw(
+            router,
+            Method::PATCH,
+            &format!("/api/{family}/{code}"),
+            token,
+            headers,
+            Some(serde_json::json!({ "content": text, "version": version })),
+        )
+        .await;
+        assert!(
+            filled.is_success(),
+            "the update after the create: {filled} {item}"
+        );
+        return (status, item);
+    }
+    request_raw(router, method, uri, token, headers, body).await
+}
+
+/// A create of an item (`POST /api/{family}`) whose body has `content`: the
+/// family, the text (maybe empty), and the body with no content
+/// (KAIROS-T-0792).
+pub fn create_with_text(
+    method: &Method,
+    uri: &str,
+    body: Option<&Value>,
+) -> Option<(String, String, Value)> {
+    if method != Method::POST {
+        return None;
+    }
+    let path = uri.split('?').next().unwrap_or(uri);
+    let family = path.strip_prefix("/api/")?;
+    if !["tasks", "initiatives", "strategies", "documents", "adrs"].contains(&family) {
+        return None;
+    }
+    let mut create = body?.clone();
+    let text = create.as_object_mut()?.remove("content")?;
+    let text = text.as_str().unwrap_or_default().to_string();
+    Some((family.to_string(), text, create))
+}
+
+/// [`request`] as it is: no change of a create body.
+pub async fn request_raw(
+    router: &Router,
+    method: Method,
+    uri: &str,
+    token: Option<&str>,
+    headers: &[(&str, &str)],
+    body: Option<Value>,
+) -> (StatusCode, Value) {
     let mut builder = Request::builder().method(method).uri(uri);
     if let Some(token) = token {
         builder = builder.header("authorization", format!("Bearer {token}"));

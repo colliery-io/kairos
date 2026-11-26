@@ -75,6 +75,22 @@ export class Cli {
 
   /** Run `kairos <args>`; resolves whatever the exit code (see `ok`). */
   async run(args: string[]): Promise<CliResult> {
+    // KAIROS-T-0792 (KAIROS-A-0087): `<noun> create` takes no content. A
+    // journey that gives `--content` or `--content-file` gets the create,
+    // then `<noun> edit` with the text; the result is the result of the
+    // create.
+    const at = args.findIndex((a) => a === '--content' || a === '--content-file');
+    if (args[1] === 'create' && at > 0) {
+      const flag = args[at];
+      const value = args[at + 1];
+      const created = await this.run([...args.slice(0, at), ...args.slice(at + 2)]);
+      const code = created.stdout.match(/\b([A-Z][A-Z0-9]*-[A-Z]-\d{4,})\b/)?.[1];
+      if (created.code === 0 && code) {
+        const edited = await this.run([args[0], 'edit', code, flag, value]);
+        if (edited.code !== 0) return edited;
+      }
+      return created;
+    }
     recordSurface('cli', args[0]);
     const ctx = runContext();
     try {

@@ -573,7 +573,6 @@ Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule: both set (
 |---|---|---|---|
 | `board_id` | `string`, nullable | no | ADR board — SLUG or UUID (KAIROS-T-0150); omit for an off-board ADR. |
 | `column_id` | `string`, nullable | no | Column (UUID); defaults to the board's first column when `board_id` is set. |
-| `content` | `string` | no | Markdown content; defaults to empty. |
 | `decision_date` | `string`, nullable | no | `YYYY-MM-DD`. |
 | `decision_maker` | `string`, nullable | no |  |
 | `parent` | `string`, nullable | no | The short code of the item that the ADR supports: a strategy, an initiative or a task (KAIROS-T-0591). The server writes the `supports` edge in the transaction of the create: a refused parent leaves no ADR. A retired code finds its item. |
@@ -642,7 +641,6 @@ Body of `POST /api/documents`. A document has an owner board from its create (CO
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `board` | `string` | yes | The owner board (slug or UUID), required: a live board of each level. The document is not a card of the board. An absent or null value reads as empty, so that the server gives the refusal that names `board`. |
-| `content` | `string`, nullable | no | Markdown content. Omitted + `template_id` set = the template's content is stamped in. |
 | `parent_short_code` | `string`, nullable | no | Short code of the workflow item this document supports (optional). |
 | `template_id` | `string`, nullable | no | Template to stamp content + metadata defaults from (UUID). |
 | `title` | `string` | yes |  |
@@ -690,7 +688,6 @@ Body of `POST /api/initiatives`.
 | `bucket_type` | `string`, nullable | no | Marks the initiative as a bucket of this kind (`tech_debt|bug|ad_hoc`); `is_bucket` is derived. |
 | `column_id` | `string`, nullable | no | The entry column of the board (UUID), the default. An initiative starts in Discovery (KAIROS-T-0643): a different column is a 422 `VALIDATION` on `column_id`. A move takes it on. |
 | `complexity` | `string`, nullable | no | T-shirt sizing (`xs|s|m|l|xl`). |
-| `content` | `string` | no | Markdown content; defaults to empty. |
 | `parent` | `string`, nullable | no | The short code of the parent strategy (KAIROS-T-0572). The server writes the `parent` edge in the transaction of the create: a refused parent leaves no initiative. A retired code finds its item. |
 | `title` | `string` | yes |  |
 
@@ -790,7 +787,6 @@ Body of `POST /api/strategies`.
 |---|---|---|---|
 | `board_id` | `string` | yes | Board to create the strategy on — SLUG or UUID (KAIROS-T-0150). |
 | `column_id` | `string`, nullable | no | Column to place it in (UUID); defaults to the board's first column. |
-| `content` | `string` | no | Markdown content; defaults to empty. |
 | `hypothesis` | `string`, nullable | no |  |
 | `title` | `string` | yes |  |
 
@@ -827,7 +823,6 @@ Body of `POST /api/tasks`.
 |---|---|---|---|
 | `board_id` | `string`, nullable | no | Board to create the task on — SLUG or UUID (KAIROS-T-0150). Optional when `team_id` is given: the task then goes to the delivery board of that team. A request with no board and no team is a 422, with or without a `repository` (COLLIERY-T-0217, COLLIERY-A-0023). Until then a `repository` alone chose the board (KAIROS-T-0104). |
 | `column_id` | `string`, nullable | no | The entry column of the board (UUID), the default (KAIROS-T-0566). A task starts there, for every caller: any other column is a 422 that names the entry column. Create the task, then move it. |
-| `content` | `string` | no | Markdown content; defaults to empty. |
 | `from_team` | `string`, nullable | no | The team that sends the task, by slug or UUID (KAIROS-T-0426). When it is not the team of the board, the task is a request whoever sends it: entry column, support lane. Omit it for today's rule. Kairos does not keep it on the task: name the sending team in the body. |
 | `parent` | `string`, nullable | no | The short code of the parent initiative (KAIROS-T-0572). The server writes the `parent` edge in the transaction of the create: a refused parent leaves no task. A retired code finds its item. In a claims column, `parent_gate` applies (KAIROS-A-0040). |
 | `repository` | `string`, nullable | no | The repository the task links to (slug or UUID, KAIROS-T-0104). An optional link that says where the code is. It can be any live repository, of any team, and it does not choose the board (COLLIERY-T-0217, COLLIERY-A-0023). `repository` is THE reference field name on the wire (KAIROS-T-0115). The old name `repository_id` is refused, as each field that the route does not know (COLLIERY-T-0259). |

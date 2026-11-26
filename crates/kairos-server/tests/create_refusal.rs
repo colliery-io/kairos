@@ -486,7 +486,6 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
                     json!({
                         "item_type": item_type,
                         "title": title,
-                        "content": "This content must not be stored.",
                         "parent": parent,
                     }),
                 ),
@@ -595,7 +594,6 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
                     json!({
                         "item_type": item_type,
                         "title": title,
-                        "content": "This content must not be stored.",
                         "parent": parent,
                     }),
                 ),

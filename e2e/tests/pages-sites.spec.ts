@@ -20,16 +20,22 @@ async function logIn(page: Page): Promise<string> {
 
 /** A document of the platform team with a mermaid fence. */
 async function mermaidDocument(page: Page, bearer: string): Promise<string> {
+  // KAIROS-T-0792: a create takes no content; the text is an update.
   const response = await page.request.post('/api/documents', {
     headers: { authorization: `Bearer ${bearer}` },
-    data: {
-      board: 'platform-delivery',
-      title: 'A diagram',
-      content: '```mermaid\ngraph TD\n  A[Build] --> B[Publish]\n```\n',
-    },
+    data: { board: 'platform-delivery', title: 'A diagram' },
   });
   expect(response.ok(), await response.text()).toBeTruthy();
-  return (await response.json()).short_code;
+  const made = await response.json();
+  const filled = await page.request.patch(`/api/documents/${made.short_code}`, {
+    headers: { authorization: `Bearer ${bearer}` },
+    data: {
+      content: '```mermaid\ngraph TD\n  A[Build] --> B[Publish]\n```\n',
+      version: made.version,
+    },
+  });
+  expect(filled.ok(), await filled.text()).toBeTruthy();
+  return made.short_code;
 }
 
 test('pages: a diagram draws, and an inline script does not run', async ({ page }) => {

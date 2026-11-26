@@ -531,8 +531,10 @@ Options common to every noun:
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--title <TITLE>` | string | required | The item's title. |
-| `--content <CONTENT>` | string | `""`; on `documents`, no default | Markdown content. On `documents`, content omitted together with `--template` stamps the template's content. Conflicts with `--content-file`. |
-| `--content-file <FILE>` | path | — | Read the markdown content from a file. `-` reads standard input. Conflicts with `--content`. |
+
+A create takes no content (KAIROS-A-0087). It writes the template of the type
+as version 1 and prints it. Write the text with `<noun> edit --content` or
+`--content-file`, version 1. A document names its type with `--template`.
 
 Board placement per noun:
 
@@ -2620,8 +2622,8 @@ template uses, and the message names them.
 
 ```
 kairos templates list [OPTIONS]
-kairos templates create --name <NAME> --slug <SLUG> [--content <TEXT>] [--field <FIELD>]... [OPTIONS]
-kairos templates update <TEMPLATE> [--name <NAME>] [--slug <SLUG>] [--content <TEXT>] [--field <FIELD>]... [OPTIONS]
+kairos templates create --name <NAME> --slug <SLUG> [--item-type <TYPE>] [--task-type <TYPE>] [--use-when <TEXT>] [--content <TEXT>] [--field <FIELD>]... [OPTIONS]
+kairos templates update <TEMPLATE> [--name <NAME>] [--slug <SLUG>] [--use-when <TEXT>] [--content <TEXT>] [--field <FIELD>]... [OPTIONS]
 kairos templates delete <TEMPLATE> --confirm [OPTIONS]
 ```
 
@@ -2633,7 +2635,10 @@ kairos templates delete <TEMPLATE> --confirm [OPTIONS]
 | `--all` | flag | off | On `list`: read each page. Not with `--limit` or `--offset`. |
 | `--name <NAME>` | string | required on `create` | The name. |
 | `--slug <SLUG>` | string | required on `create` | The slug. |
-| `--content <TEXT>` | string | empty | The markdown of a new item of the template. |
+| `--item-type <TYPE>` | string | `document` | On `create`: `strategy`, `initiative`, `task`, `document` or `adr`. Each type but `document` has one template; a second one is refused. The type does not change later. |
+| `--task-type <TYPE>` | string | none | On `create` of a task template: `task`, `bug`, `tech_debt` or `support`. |
+| `--use-when <TEXT>` | string | empty | When to use the type: one or two sentences. Agents get it at the start of a session. |
+| `--content <TEXT>` | string | empty | The markdown of a new item of the template: a create of the type writes it as version 1. |
 | `--field <FIELD>` | string | none | A metadata field: `SLUG`, `SLUG=DEFAULT`, `SLUG!` or `SLUG=DEFAULT!`. The `!` makes the field required. Repeat it. On `update`, the values replace the list. |
 | `--confirm` | flag | off | Required on `delete` for the deletion to happen. Without it, the command exits 1. |
 

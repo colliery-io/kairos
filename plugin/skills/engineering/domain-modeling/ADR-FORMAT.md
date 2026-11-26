@@ -2,25 +2,14 @@
 
 ADRs are Kairos items, not repo files. To record one:
 
-1. `create_item` with `item_type: adr`, the decision's short title as `title`, the template below as `content`, and `decision_maker` when known. Send `parent`: the item whose work produced the decision (the task, the initiative, or the other item under discussion). Kairos makes a `supports` edge from the ADR to it, and `get_item` on that item lists the ADR. With no such item, send no `parent`. Send `board`: for a decision about the delivery work of your team, the ADR board of your team (`adr_board` in the SessionStart context; `my_boards` names the team of each ADR board). Its ADRs have the prefix of the team. For a decision of the organization, the ADR board of the organization.
+1. `create_item` with `item_type: adr`, the decision's short title as `title`, and `decision_maker` when known. The create takes no content: it writes the template of the type as version 1 and gives it back. Fill it in with `update_item` (send version 1). Send `parent`: the item whose work produced the decision (the task, the initiative, or the other item under discussion). Kairos makes a `supports` edge from the ADR to it, and `get_item` on that item lists the ADR. With no such item, send no `parent`. Send `board`: for a decision about the delivery work of your team, the ADR board of your team (`adr_board` in the SessionStart context; `my_boards` names the team of each ADR board). Its ADRs have the prefix of the team. For a decision of the organization, the ADR board of the organization.
 2. `link_items` (`impacts`) from the new ADR to each repository that the decision is about: `target` is the slug of the repository. `get_repository` then lists the decision for each agent that works in that repository. The link gives no right on the ADR. If the decision is about no repository, skip the link.
 
 Kairos assigns the short code; there is no manual numbering and no `docs/adr/` directory. In a multi-context repo (one with a `CONTEXT-MAP.md`), name the bounded context in the ADR's title so the decision's scope stays visible.
 
-## Template (the item's content)
+## The body of an ADR
 
-```md
-{1-3 sentences: what's the context, what did we decide, and why.}
-```
-
-That's it. An ADR can be a single paragraph. The value is in recording *that* a decision was made and *why* — not in filling out sections.
-
-## Optional sections
-
-Only include these when they add genuine value. Most ADRs won't need them.
-
-- **Considered Options** — only when the rejected alternatives are worth remembering
-- **Consequences** — only when non-obvious downstream effects need to be called out
+The ADR template of the organization gives the sections (KAIROS-A-0087): `create_item` gives it back, and `list_templates` with `slug: adr` shows it. Do not keep a copy of it here. Fill in Context, Decision, Rationale and Consequences; the italic text under each heading says how. Delete each optional section that does not apply (Alternatives Analysis when there is one clear option, Review Schedule when the decision is permanent). A short ADR is good: the value is in recording *that* a decision was made and *why*.
 
 Status lives in the system, not the content: the ADR's board column tracks its lifecycle. To revisit a decision, create a new ADR and never rewrite the old one (KAIROS-A-0069):
 

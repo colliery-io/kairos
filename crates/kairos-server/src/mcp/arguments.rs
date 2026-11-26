@@ -362,6 +362,19 @@ fn argument_error(
             } else {
                 format!("The arguments of this tool are: {}.", allowed.join(", "))
             };
+            // KAIROS-T-0792 (KAIROS-A-0087): `create_item` takes no content.
+            if ["content", "body", "text"].contains(&argument.as_str())
+                && allowed.iter().any(|a| a == "item_type")
+                && allowed.iter().any(|a| a == "title")
+            {
+                return validation(format!(
+                    "The call has the argument {argument:?}. A create takes no content: it \
+                     writes the template of the type as version 1 and gives it back. Fill it \
+                     in with `update_item` (send version 1) or `edit_item` after the create. \
+                     {known}"
+                ))
+                .with_details(json!({ "field": argument, "allowed": allowed }));
+            }
             // KAIROS-T-0673: a known guess names the argument to use.
             if let Some(right) = hint(&argument, &allowed) {
                 return validation(format!(
@@ -1105,7 +1118,8 @@ mod tests {
             aliases("append_note", "text"),
             json!(["note", "body", "content"])
         );
-        assert_eq!(aliases("create_item", "content"), json!(["body", "text"]));
+        // KAIROS-T-0792: create_item has no content.
+        assert_eq!(aliases("create_item", "content"), Value::Null);
         assert_eq!(aliases("update_item", "content"), json!(["body", "text"]));
         assert_eq!(
             aliases("transition_item", "to_column"),

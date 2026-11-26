@@ -549,8 +549,14 @@ async fn mcp_endpoint_against_live_stack() {
         "initialize reports the server version"
     );
     // COLLIERY-T-0267: the instructions name the repository tools.
+    let instructions = init["result"]["instructions"]
+        .as_str()
+        .expect("the instructions");
+    let (fixed, templates) = instructions
+        .split_once("\n\n")
+        .expect("KAIROS-T-0791: the templates follow the fixed text");
     assert_eq!(
-        init["result"]["instructions"],
+        fixed,
         "Kairos work-item tools. Start with `whoami` (identity, teams, board capabilities) \
          and `my_boards` (boards + columns). Items are identified by short code (e.g. \
          ACME-T-0012) everywhere. Use `search` to find items, `get_item` for full content, \
@@ -568,6 +574,19 @@ async fn mcp_endpoint_against_live_stack() {
          -- kairos mcp-proxy --profile admin`, then a new session; the CLI is the fallback \
          (`kairos teams create`). Do not add an MCP server yourself: tell the user. The \
          plugin skill `/kairos:onboard-team` sets up a team; only the user can start it."
+    );
+    // KAIROS-T-0791: the templates of the organization, and when to use each.
+    assert!(
+        templates.starts_with("Templates of the organization: `create_item` writes"),
+        "{templates}"
+    );
+    assert!(
+        templates.contains("\n- task (bug): Use when the product does not do what it should do."),
+        "{templates}"
+    );
+    assert!(
+        templates.contains("\n- document `prd` (PRD): Use when"),
+        "{templates}"
     );
 
     // --- KAIROS-T-0392: stateless — no handshake, a stale session id -------

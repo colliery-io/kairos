@@ -9,8 +9,9 @@ use diesel::pg::PgConnection;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ContentBlock, Implementation, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerInfo,
+    CallToolRequestParams, CallToolResult, ContentBlock, Implementation, InitializeRequestParams,
+    InitializeResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities,
+    ServerInfo,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, tool_handler};
@@ -287,6 +288,40 @@ impl ServerHandler for KairosMcp {
         outcome
     }
 
+    /// KAIROS-T-0791: the instructions end with the templates of the
+    /// organization of the caller and when to use each, read at the
+    /// initialize (the list comes from the organization). With no caller, or
+    /// a failed read, the instructions are those of `get_info`.
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        let mut info = self.get_info();
+        // As rmcp does: the version that the client asks, when it is known.
+        if ProtocolVersion::KNOWN_VERSIONS.contains(&request.protocol_version) {
+            info.protocol_version = request.protocol_version.clone();
+        }
+        if let Ok((_, tenant)) = Self::caller(&context) {
+            let listed = self
+                .state
+                .blocking
+                .run(&tenant.slug, |conn| {
+                    templates_instructions(conn).map_err(ApiError::internal)
+                })
+                .await;
+            match listed {
+                Ok(text) if !text.is_empty() => {
+                    info.instructions = Some(format!("{INSTRUCTIONS}\n\n{text}"));
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = ?e, "the templates of the MCP instructions"),
+            }
+        }
+        Ok(info)
+    }
+
     fn get_info(&self) -> ServerInfo {
         // REQ-1.7: `initialize` reports the server version (tool schemas
         // are versioned with the server).
@@ -296,6 +331,45 @@ impl ServerHandler for KairosMcp {
             )
             .with_instructions(INSTRUCTIONS)
     }
+}
+
+/// The list of the templates of the organization for the MCP instructions
+/// (KAIROS-T-0791): how a create uses the template of a type, then one line
+/// for each template with a use_when. Empty when no template has one.
+pub(crate) fn templates_instructions(
+    conn: &mut PgConnection,
+) -> Result<String, diesel::result::Error> {
+    use diesel::prelude::*;
+    use kairos_db::schema::templates;
+    let rows: Vec<(String, String, String, Option<String>, String)> = templates::table
+        .filter(templates::use_when.ne(""))
+        .order((templates::item_type.asc(), templates::slug.asc()))
+        .select((
+            templates::slug,
+            templates::name,
+            templates::item_type,
+            templates::task_type,
+            templates::use_when,
+        ))
+        .load(conn)?;
+    if rows.is_empty() {
+        return Ok(String::new());
+    }
+    let mut out = String::from(
+        "Templates of the organization: `create_item` writes the template of the type as \
+         version 1 and gives it back; fill in each section with `update_item` or `edit_item`. \
+         The italic text is guidance. A document names its type with `template`. Use each \
+         one when:",
+    );
+    for (slug, name, item_type, task_type, use_when) in rows {
+        let label = match (item_type.as_str(), task_type) {
+            ("task", Some(task_type)) => format!("task ({task_type})"),
+            ("document", _) => format!("document `{slug}` ({name})"),
+            (other, _) => other.to_string(),
+        };
+        out.push_str(&format!("\n- {label}: {use_when}"));
+    }
+    Ok(out)
 }
 
 impl KairosMcp {

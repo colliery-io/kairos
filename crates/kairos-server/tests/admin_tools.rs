@@ -449,19 +449,11 @@ async fn team_and_board_administration_over_mcp() {
     // KAIROS-T-0787: list_templates shows the type of each template and
     // when to use it.
     assert!(text.contains("- type: document\n"), "{text}");
-    let text = admin_mcp
-        .ok(
-            "save_template",
-            json!({"name": "Bug", "slug": "bug", "item_type": "task", "task_type": "bug",
-                   "use_when": "Use when something does not work as it should.",
-                   "content": "## Steps"}),
-        )
-        .await;
-    assert!(text.contains("bug"), "{text}");
+    // KAIROS-T-0790: the default template of the bug type.
     let text = admin_mcp.ok("list_templates", json!({"slug": "bug"})).await;
     assert!(text.contains("- type: task (bug)\n"), "{text}");
     assert!(
-        text.contains("- use when: Use when something does not work as it should.\n"),
+        text.contains("- use when: Use when the product does not do what it should do.\n"),
         "{text}"
     );
     // One template for each fixed type; the type does not change.

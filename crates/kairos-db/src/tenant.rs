@@ -206,35 +206,14 @@ FROM (VALUES
 JOIN public.system_metadata_definitions d ON d.slug = o.slug
 ON CONFLICT (metadata_definition_id, value) DO NOTHING;
 
--- KAIROS-A-0003 default templates. A-0003 specifies which templates exist
--- and their metadata, not their starter markdown; the content below is a
--- minimal sensible skeleton (interpretation recorded in KAIROS-T-0008).
-INSERT INTO public.system_templates (name, slug, content) VALUES
-    ('PRD', 'prd',
-     E'# Product Requirements Document\n\n## Problem\n\n## Goals\n\n## Non-Goals\n\n## Requirements\n\n## Open Questions\n'),
-    ('System Context', 'system_context',
-     E'# System Context\n\n## Overview\n\n## Actors\n\n## External Systems\n\n## Data Flows\n'),
-    ('Architecture Framing', 'architecture_framing',
-     E'# Architecture Framing\n\n## Context\n\n## Constraints\n\n## Options Considered\n\n## Decision Drivers\n'),
-    ('Team Charter', 'team_charter',
-     E'# Team Charter\n\n## Mission\n\n## Scope\n\n## Ways of Working\n\n## Success Measures\n'),
-    ('Social Contract', 'social_contract',
-     E'# Social Contract\n\n## Values\n\n## Agreements\n\n## Communication\n\n## Conflict Resolution\n'),
-    ('Company Vision', 'company_vision',
-     E'# Company Vision\n\n## Where We Are Going\n\n## Why It Matters\n\n## How We Will Know\n'),
-    -- COLLIERY-T-0269: the vision of a product, a repository or a
-    -- capability. It is not the vision of the organization, which is
-    -- 'Company Vision'. The tenant migration `document_board_and_impacts`
-    -- has the same text, for the tenants that exist.
-    ('Product Vision', 'product_vision',
-     E'# Product Vision\n\n## Purpose\n\n## Who It Is For\n\n## Current State\n\n## Future State\n\n## Principles\n\n## What It Is Not\n'),
-    -- KAIROS-T-0733: the dictionary of the organization, on the board
-    -- `strategy` (KAIROS-A-0079: no team dictionaries). The tenant migration
-    -- `dictionary_template` has the same text, for the tenants that exist.
-    ('Dictionary', 'dictionary',
-     E'# Dictionary\n\nThe terms of the organization. Write one row for each term. The organization has one dictionary, on the board strategy.\n\n| Word | Part of speech | Meaning |\n|---|---|---|\n')
-ON CONFLICT (slug) DO NOTHING;
+-- KAIROS-T-0790: the default templates are written by
+-- `seed_system_defaults` from `crate::default_templates`, before the
+-- associations below (SEED_TEMPLATE_METADATA_SQL).
+"#;
 
+/// The metadata of the default document templates (KAIROS-A-0003). It runs
+/// after the templates are written ([`seed_system_defaults`]).
+const SEED_TEMPLATE_METADATA_SQL: &str = r#"
 -- KAIROS-A-0003 template-to-metadata associations.
 INSERT INTO public.system_template_metadata (template_id, metadata_definition_id, default_value, required)
 SELECT t.id, d.id, a.default_value, false
@@ -314,6 +293,24 @@ fn schema_exists(conn: &mut PgConnection, schema: &str) -> Result<bool, TenantEr
 /// without provisioning a tenant.
 pub fn seed_system_defaults(conn: &mut PgConnection) -> Result<(), TenantError> {
     conn.batch_execute(SEED_SYSTEM_DEFAULTS_SQL)?;
+    // KAIROS-T-0790: the default templates, from the files of
+    // `crate::default_templates`. A template that the table has (the slug,
+    // or the fixed type) stays as it is.
+    for template in crate::default_templates::DEFAULT_TEMPLATES {
+        sql_query(
+            "INSERT INTO public.system_templates \
+             (name, slug, content, item_type, task_type, use_when) \
+             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
+        )
+        .bind::<Text, _>(template.name)
+        .bind::<Text, _>(template.slug)
+        .bind::<Text, _>(template.content)
+        .bind::<Text, _>(template.item_type)
+        .bind::<diesel::sql_types::Nullable<Text>, _>(template.task_type)
+        .bind::<Text, _>(template.use_when)
+        .execute(conn)?;
+    }
+    conn.batch_execute(SEED_TEMPLATE_METADATA_SQL)?;
     Ok(())
 }
 

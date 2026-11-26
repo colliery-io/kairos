@@ -527,7 +527,7 @@ async fn an_update_with_the_stored_values_writes_nothing_against_live_stack() {
             Method::POST,
             "/api/templates",
             Some(json!({
-                "name": "Postmortem", "slug": "postmortem", "content": "## What happened",
+                "name": "Incident report", "slug": "incident-review", "content": "## What happened",
                 "metadata": [{"definition_slug": "risk", "default_value": "low", "required": true}],
             })),
         )
@@ -540,7 +540,7 @@ async fn an_update_with_the_stored_values_writes_nothing_against_live_stack() {
             &template_uri,
             // KAIROS-T-0696: REST accepts `definition`, the name on MCP.
             json!({
-                "name": "Postmortem", "slug": "postmortem", "content": "## What happened",
+                "name": "Incident report", "slug": "incident-review", "content": "## What happened",
                 "metadata": [{"definition": "risk", "default_value": "low", "required": true}],
             }),
             stamp_of("templates", template_id.clone()),

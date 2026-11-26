@@ -191,10 +191,14 @@ fn one_dictionary_for_the_organization() {
             .load(&mut f.conn)
             .expect("the template of the migration");
     assert_eq!(copies.len(), 1, "one template after two runs");
-    assert_eq!(
-        copies[0].content, system.content,
-        "the text of the system default"
-    );
+    // KAIROS-T-0790: this migration has the text of the seed before the
+    // default templates got guidance; `templates_with_guidance` replaces it.
+    let old_seed = kairos_db::default_templates::DEFAULT_TEMPLATES
+        .iter()
+        .find(|t| t.slug == "dictionary")
+        .and_then(|t| t.replaces)
+        .expect("the old text of the dictionary template");
+    assert_eq!(copies[0].content, old_seed, "the text of the old seed");
     f.dictionary_template = {
         use kairos_db::schema::templates;
         templates::table

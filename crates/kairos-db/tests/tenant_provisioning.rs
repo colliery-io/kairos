@@ -481,9 +481,12 @@ fn tenant_provisioning_lifecycle() {
     );
     assert_eq!(report.boards_created, ["strategy", "initiatives", "adrs"]);
     // COLLIERY-T-0269 added the template "Product Vision".
+    // KAIROS-T-0790: one template for each item type and task type, and 11
+    // document types.
     assert_eq!(
-        report.templates_copied, 8,
-        "A-0003 ships 6 system templates, COLLIERY-T-0269 one and KAIROS-T-0733 one"
+        report.templates_copied,
+        kairos_db::default_templates::DEFAULT_TEMPLATES.len(),
+        "each default template"
     );
     assert_eq!(
         report.metadata_definitions_copied, 6,
@@ -797,16 +800,15 @@ fn tenant_provisioning_lifecycle() {
             "SELECT slug::text AS name FROM org_acme.templates WHERE is_system_default AND slug <> $1",
             "__none__",
         ),
-        [
-            "architecture_framing",
-            "company_vision",
-            "dictionary",
-            "prd",
-            "product_vision",
-            "social_contract",
-            "system_context",
-            "team_charter",
-        ]
+        {
+            // KAIROS-T-0790: each default template.
+            let mut slugs: Vec<&str> = kairos_db::default_templates::DEFAULT_TEMPLATES
+                .iter()
+                .map(|t| t.slug)
+                .collect();
+            slugs.sort_unstable();
+            slugs
+        }
     );
     assert_eq!(
         names(

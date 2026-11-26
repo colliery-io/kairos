@@ -1112,7 +1112,7 @@ async fn meta_endpoints_against_live_stack() {
     // Writes are org-admin only.
     let runbook_request = CreateTemplateRequest {
         name: "Runbook".into(),
-        slug: "runbook".into(),
+        slug: "ops-runbook".into(),
         item_type: "document".into(),
         task_type: None,
         use_when: String::new(),
@@ -1157,7 +1157,7 @@ async fn meta_endpoints_against_live_stack() {
     ];
     assert_eq!(sections(&runbook), expected);
     let read = bob
-        .get_template("runbook")
+        .get_template("ops-runbook")
         .await
         .expect("reading runbook template");
     assert_eq!(sections(&read), expected);
@@ -1281,7 +1281,7 @@ async fn meta_endpoints_against_live_stack() {
     // PATCH updates content; the association list survives untouched.
     let body = svc
         .update_template(
-            "runbook",
+            "ops-runbook",
             &UpdateTemplateRequest {
                 name: None,
                 slug: None,
@@ -1295,21 +1295,34 @@ async fn meta_endpoints_against_live_stack() {
         .expect("updating runbook template");
     assert_eq!(body.content, "# Runbook v2\n");
 
-    // KAIROS-T-0787: each template has an item type. The seeded templates
-    // are document templates; a document type is a template, so there are
-    // many. A fixed type has one template: a second one is refused and the
-    // refusal names the first.
+    // KAIROS-T-0787: each template has an item type. The seeded document
+    // templates are document templates; a document type is a template, so
+    // there are many. A fixed type has one template (KAIROS-T-0790: the
+    // defaults give each one): a second one is refused and the refusal names
+    // the first.
     let listed = bob
         .list_templates(Pagination::default())
         .await
         .expect("listing templates");
-    assert!(
+    let of = |slug: &str| {
         listed
             .items
             .iter()
-            .filter(|t| t.is_system_default)
-            .all(|t| t.item_type == "document" && t.task_type.is_none()),
-        "{listed:?}"
+            .find(|t| t.slug == slug)
+            .unwrap_or_else(|| panic!("the template {slug}: {listed:?}"))
+    };
+    assert_eq!(
+        (of("prd").item_type.as_str(), of("prd").task_type.as_deref()),
+        ("document", None)
+    );
+    assert_eq!(
+        (of("bug").item_type.as_str(), of("bug").task_type.as_deref()),
+        ("task", Some("bug"))
+    );
+    assert!(
+        of("bug").use_when.starts_with("Use when "),
+        "{:?}",
+        of("bug")
     );
     let typed = |slug: &str, item_type: &str, task_type: Option<&str>| CreateTemplateRequest {
         name: slug.to_string(),
@@ -1321,16 +1334,6 @@ async fn meta_endpoints_against_live_stack() {
         metadata: Vec::new(),
         sections: Vec::new(),
     };
-    let bug = svc
-        .create_template(&typed("bug-report", "task", Some("bug")))
-        .await
-        .expect("making the bug template");
-    assert_eq!(
-        (bug.item_type.as_str(), bug.task_type.as_deref()),
-        ("task", Some("bug"))
-    );
-    assert_eq!(bug.use_when, "Use when you write a bug-report.");
-
     // KAIROS-T-0788: a create with no content writes the template of its
     // type as version 1; a create with content keeps that content; a type
     // with no template gets an empty body.
@@ -1346,23 +1349,31 @@ async fn meta_endpoints_against_live_stack() {
         from_team: None,
         parent: None,
     };
+    let default_bug = kairos_db::default_templates::DEFAULT_TEMPLATES
+        .iter()
+        .find(|t| t.slug == "bug")
+        .expect("the default bug template")
+        .content;
     let from_template = alice
         .create_task(&new_task("bug", ""))
         .await
         .expect("a bug with no content");
     assert_eq!(
         (from_template.content.as_str(), from_template.version),
-        ("## Why\n", 1)
+        (default_bug, 1)
     );
     let written = alice
         .create_task(&new_task("bug", "## Steps\n1. Open it.\n"))
         .await
         .expect("a bug with content");
     assert_eq!(written.content, "## Steps\n1. Open it.\n");
-    let plain = alice
-        .create_task(&new_task("support", ""))
+    svc.delete_template("tech_debt")
         .await
-        .expect("a support task: no template");
+        .expect("deleting the tech debt template");
+    let plain = alice
+        .create_task(&new_task("tech_debt", ""))
+        .await
+        .expect("a tech debt task: no template");
     assert_eq!(plain.content, "");
     let err = rejection(
         svc.create_template(&typed("bug-two", "task", Some("bug")))
@@ -1372,19 +1383,25 @@ async fn meta_endpoints_against_live_stack() {
         matches!(&err, Error::Validation { status: 422, field: Some(f), .. } if f == "item_type"),
         "{err:?}"
     );
-    assert!(err.to_string().contains("bug-report"), "{err}");
-    // Another task type, and an initiative, each get their own template.
-    svc.create_template(&typed("tech-debt", "task", Some("tech_debt")))
-        .await
-        .expect("making the tech debt template");
-    svc.create_template(&typed("initiative", "initiative", None))
-        .await
-        .expect("making the initiative template");
+    assert!(err.to_string().contains("\"bug\""), "{err}");
     let err = rejection(
         svc.create_template(&typed("initiative-two", "initiative", None))
             .await,
     );
     assert!(err.to_string().contains("\"initiative\""), "{err}");
+    // After a delete, the type takes a new template.
+    svc.delete_template("support")
+        .await
+        .expect("deleting the support template");
+    let support = svc
+        .create_template(&typed("support-ticket", "task", Some("support")))
+        .await
+        .expect("a new support template");
+    assert_eq!(
+        (support.item_type.as_str(), support.task_type.as_deref()),
+        ("task", Some("support"))
+    );
+    assert_eq!(support.use_when, "Use when you write a support-ticket.");
     // A task template needs a task type; no other template has one; the
     // item type is one of the five.
     for (request, field) in [
@@ -1407,7 +1424,7 @@ async fn meta_endpoints_against_live_stack() {
     // `use_when` changes with PATCH; the type stays.
     let changed = svc
         .update_template(
-            "bug-report",
+            "bug",
             &UpdateTemplateRequest {
                 name: None,
                 slug: None,
@@ -1430,7 +1447,7 @@ async fn meta_endpoints_against_live_stack() {
     // KAIROS-T-0729: `sections` replaces the list.
     let body = svc
         .update_template(
-            "runbook",
+            "ops-runbook",
             &UpdateTemplateRequest {
                 name: None,
                 slug: None,
@@ -1452,7 +1469,7 @@ async fn meta_endpoints_against_live_stack() {
 
     // DELETE is a hard delete; stamped documents keep their content and
     // metadata, template_id goes NULL (DDL SET NULL).
-    svc.delete_template("runbook")
+    svc.delete_template("ops-runbook")
         .await
         .expect("deleting runbook template by its slug");
     let err = rejection(bob.get_template(&runbook_id).await);

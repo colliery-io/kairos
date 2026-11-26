@@ -1040,13 +1040,6 @@ async fn mcp_endpoint_against_live_stack() {
 
     // KAIROS-T-0788: a create with no content writes the template of the
     // type, and the answer gives it with how to fill it in.
-    sql_query(
-        "INSERT INTO org_acme.templates (name, slug, content, item_type, task_type, use_when) \
-         VALUES ('Support', 'support', E'## Request\n\n*Write the request.*\n', 'task', \
-         'support', 'Use when somebody asks for help.')",
-    )
-    .execute(&mut conn)
-    .expect("a support template");
     let text = session
         .call_ok(
             "create_item",
@@ -1054,10 +1047,8 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(text.contains("Content of version 1"), "{text}");
-    assert!(
-        text.contains("## Request\n\n*Write the request.*"),
-        "{text}"
-    );
+    // KAIROS-T-0790: the default template of a support task.
+    assert!(text.contains("## Request\n\n*Write the request"), "{text}");
     assert!(text.contains("`update_item`"), "{text}");
 
     // --- KAIROS-T-0178: a bucket initiative and a dated ADR, over MCP --------

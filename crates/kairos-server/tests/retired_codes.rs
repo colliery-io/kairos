@@ -492,8 +492,9 @@ async fn a_retired_code_finds_its_item_and_names_the_current_code() {
             }),
         )
         .await;
+    // KAIROS-T-0788: the content of the template follows these lines.
     assert!(
-        text.ends_with(&format!(
+        text.contains(&format!(
             "\nparent: {new_initiative} (parent edge created).\n{old_initiative} is now {new_initiative}."
         )),
         "{text}"

@@ -4,31 +4,31 @@
 
 *Say why this vision exists, and what it aims to do.*
 
-## Product or solution overview
+## Product/Solution Overview
 
-*Optional: delete this section for a vision of the organization or of a process. Describe the product, who it is for, and what it improves.*
+*Optional: delete this section for a vision of the organization or of a process. Describe the product, who it is for, its main benefits, and what it improves.*
 
-## Current state
+## Current State
 
 *Say where things are today: the baseline.*
 
-## Future state
+## Future State
 
 *Describe the target: what is different when the vision is true.*
 
-## Major features
+## Major Features
 
 *Optional: delete this section when this is not the vision of a product. Write one line for each feature, with its value.*
 
 - 
 
-## Business requirements
+## Business Requirements Overview
 
 *Optional: delete this section for a vision that is only technical or only about a product.*
 
 - 
 
-## Success criteria
+## Success Criteria
 
 *Say how you will know that the vision is true. Use a number where you can.*
 
@@ -40,11 +40,11 @@
 
 *List the known limits and boundaries.*
 
-## Exit criteria
+## Exit Criteria
 
 *Publish the vision only when each item is true.*
 
-- [ ] The purpose and the success criteria are clear.
-- [ ] The current state and the future state are written.
-- [ ] The principles are agreed.
-- [ ] The people who own the vision reviewed and approved it.
+- [ ] The purpose and the success criteria are clearly defined.
+- [ ] The current state and the future state are documented.
+- [ ] The principles are established.
+- [ ] The stakeholders reviewed and approved the vision.

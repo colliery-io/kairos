@@ -76,3 +76,12 @@
 - **Review on:**
 - **Owner:**
 - **Who is told, and how:**
+
+## Exit criteria
+
+*Publish the postmortem only when each item is true.*
+
+- [ ] The timeline is complete.
+- [ ] The root causes are found.
+- [ ] Each action item has a Kairos task.
+- [ ] The team reviewed the postmortem.

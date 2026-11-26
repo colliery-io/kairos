@@ -13,3 +13,10 @@
 ## Answer
 
 *Write what you told the person, and when.*
+
+## Exit criteria
+
+*Move the task to Completed only when each item is true.*
+
+- [ ] A person decided the triage, and the task says the decision.
+- [ ] The person who asked has an answer.

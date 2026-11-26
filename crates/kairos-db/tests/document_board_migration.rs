@@ -554,7 +554,7 @@ fn a_new_tenant_has_the_template_of_the_system_defaults() {
             &mut conn,
             "SELECT count(*) AS count FROM templates \
               WHERE slug = 'company_vision' AND name = 'Company Vision' \
-                AND content LIKE '## Where we are going%'"
+                AND content LIKE '%## Success criteria%'"
         ),
         1
     );

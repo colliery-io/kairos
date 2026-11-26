@@ -28,3 +28,11 @@ flowchart LR
 | Actor or system | Capability area | Interaction |
 |---|---|---|
 |  |  |  |
+
+## Exit criteria
+
+*Publish the document only when each item is true.*
+
+- [ ] Each actor and each external system is in the document.
+- [ ] The diagram has each actor and each system.
+- [ ] The table has one row for each arrow of the diagram.

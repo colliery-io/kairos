@@ -55,3 +55,11 @@
 ## Open questions
 
 *List what you do not know yet, and who owns each answer.*
+
+## Exit criteria
+
+*Publish the PRD only when each item is true.*
+
+- [ ] Each requirement has a number and a test can check it.
+- [ ] Each non-functional requirement has a target or a condition.
+- [ ] The people who own the product reviewed and approved it.

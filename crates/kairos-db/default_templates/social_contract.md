@@ -13,3 +13,9 @@
 ## Conflict resolution
 
 *Say the steps when two members do not agree, and who decides at the end.*
+
+## Exit criteria
+
+*Publish the contract only when each item is true.*
+
+- [ ] Each member of the team agrees with it.

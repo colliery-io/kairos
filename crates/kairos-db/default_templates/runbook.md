@@ -101,3 +101,11 @@
 ## Maintenance
 
 *Review this runbook after each incident that used it. Also review it each quarter, and after each change of the architecture or the dependencies.*
+
+## Exit criteria
+
+*Publish the runbook only when each item is true.*
+
+- [ ] An engineer who is new to the service can follow it.
+- [ ] The quick reference is current.
+- [ ] The runbook was reviewed after the last incident.

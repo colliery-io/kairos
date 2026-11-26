@@ -33,3 +33,12 @@
 **Neutral**
 
 - 
+
+## Exit criteria
+
+*Move the ADR to Decided only when each item is true.*
+
+- [ ] The context of the problem is clear.
+- [ ] The decision is stated.
+- [ ] The rationale says why the team chose this option.
+- [ ] The consequences are known and assessed.

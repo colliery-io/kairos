@@ -11,6 +11,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
+import { createItem } from '../helpers/api';
 
 const SERVER = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 const BOARD_SLUG = 'platform-delivery';
@@ -69,7 +70,7 @@ test('markdown: gherkin is highlighted and mermaid is drawn', async ({ page }) =
   const board = boards.find((b) => b.slug === BOARD_SLUG);
   if (!board) throw new Error(`no ${BOARD_SLUG} board in the seed`);
   const detail = await api(token, 'GET', `/api/boards/${board.id}`);
-  const task = await api(token, 'POST', '/api/tasks', {
+  const task = await createItem(SERVER, token, 'tasks', {
     board_id: board.id,
     column_id: detail.columns[0].id,
     title: `E2E: fences ${Date.now().toString(36)}`,

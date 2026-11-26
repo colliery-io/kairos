@@ -691,7 +691,7 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         .call(
             "create_item",
             json!({"item_type": "task", "title": "The MCP request of alice",
-                   "content": "original content", "board": platform_board}),
+                   "board": platform_board}),
         )
         .await;
     assert!(!reply.0, "alice sends a request over MCP: {}", reply.1);
@@ -889,7 +889,7 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         .call(
             "create_item",
             json!({"item_type": "adr", "title": "The ADR of bob",
-                   "content": "original content", "parent": initiative.short_code}),
+                   "parent": initiative.short_code}),
         )
         .await;
     checks.mcp_allowed(

@@ -518,9 +518,27 @@ macro_rules! entity_family {
                 .await
         }
 
-        #[doc = concat!("`POST /api/", $family, "`.")]
+        #[doc = concat!("`POST /api/", $family, "`, then, when the request has text, ",
+                                "`PATCH /api/", $family, "/{short_code}` with it ",
+                                "(KAIROS-T-0792, KAIROS-A-0087): a create takes no content and ",
+                                "writes the template of the type as version 1; the update ",
+                                "writes the text as version 2.")]
         pub async fn $create(&self, request: &$create_req) -> Result<$dto, Error> {
-            self.post_created(concat!("/api/", $family), request).await
+            let created: $dto = self.post_created(concat!("/api/", $family), request).await?;
+            match crate::types::FillAfterCreate::fill_text(request) {
+                Some(text) if text != created.content => {
+                    self.$update(
+                        &created.short_code,
+                        &UpdateContentRequest {
+                            title: None,
+                            content: text.to_string(),
+                            version: created.version,
+                        },
+                    )
+                    .await
+                }
+                _ => Ok(created),
+            }
         }
 
         #[doc = concat!("`PATCH /api/", $family, "/{short_code}` — the KAIROS-A-0004 ",

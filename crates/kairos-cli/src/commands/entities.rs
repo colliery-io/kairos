@@ -1721,12 +1721,6 @@ pub struct StrategyCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
-    /// Markdown content (defaults to empty)
-    #[arg(long, conflicts_with = "content_file")]
-    pub content: Option<String>,
-    /// Read the markdown content from a file (`-` reads stdin)
-    #[arg(long, value_name = "FILE")]
-    pub content_file: Option<PathBuf>,
     /// Strategy hypothesis
     #[arg(long)]
     pub hypothesis: Option<String>,
@@ -1740,12 +1734,7 @@ impl StrategyCreateArgs {
             board_id: self.board.clone(),
             column_id: create_column(client, Some(&self.board), self.column.as_deref()).await?,
             title: self.title.clone(),
-            content: read_text(
-                self.content.as_deref(),
-                self.content_file.as_deref(),
-                "--content-file",
-            )?
-            .unwrap_or_default(),
+            content: String::new(),
             hypothesis: self.hypothesis.clone(),
         })
     }
@@ -1764,12 +1753,6 @@ pub struct InitiativeCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
-    /// Markdown content (defaults to empty)
-    #[arg(long, conflicts_with = "content_file")]
-    pub content: Option<String>,
-    /// Read the markdown content from a file (`-` reads stdin)
-    #[arg(long, value_name = "FILE")]
-    pub content_file: Option<PathBuf>,
     /// T-shirt sizing: xs|s|m|l|xl
     #[arg(long)]
     pub complexity: Option<String>,
@@ -1790,12 +1773,7 @@ impl InitiativeCreateArgs {
             board_id: self.board.clone(),
             column_id: create_column(client, Some(&self.board), self.column.as_deref()).await?,
             title: self.title.clone(),
-            content: read_text(
-                self.content.as_deref(),
-                self.content_file.as_deref(),
-                "--content-file",
-            )?
-            .unwrap_or_default(),
+            content: String::new(),
             complexity: self.complexity.clone(),
             bucket_type: self.bucket_type.clone(),
             parent: self.parent.clone(),
@@ -1819,12 +1797,6 @@ pub struct TaskCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
-    /// Markdown content (defaults to empty)
-    #[arg(long, conflicts_with = "content_file")]
-    pub content: Option<String>,
-    /// Read the markdown content from a file (`-` reads stdin)
-    #[arg(long, value_name = "FILE")]
-    pub content_file: Option<PathBuf>,
     /// The kind of the task: task|bug|tech_debt|support (defaults to
     /// task). The old name --type still works
     #[arg(long = "kind", alias = "type", value_name = "KIND")]
@@ -1874,12 +1846,7 @@ impl TaskCreateArgs {
             repository: self.repo.clone(),
             column_id: create_column(client, board.as_deref(), self.column.as_deref()).await?,
             title: self.title.clone(),
-            content: read_text(
-                self.content.as_deref(),
-                self.content_file.as_deref(),
-                "--content-file",
-            )?
-            .unwrap_or_default(),
+            content: String::new(),
             task_type: self.task_type.clone(),
             work_class: self.work_class.clone(),
             team_id: team,
@@ -1906,12 +1873,6 @@ pub struct DocumentCreateArgs {
     #[arg(long, value_name = "SHORT_CODE")]
     pub parent: Option<String>,
     /// Markdown content (omit with --template to stamp the template's
-    /// content)
-    #[arg(long, conflicts_with = "content_file")]
-    pub content: Option<String>,
-    /// Read the markdown content from a file (`-` reads stdin)
-    #[arg(long, value_name = "FILE")]
-    pub content_file: Option<PathBuf>,
     /// Template to stamp content + metadata defaults from (slug or UUID)
     #[arg(long, value_name = "TEMPLATE")]
     pub template: Option<String>,
@@ -1928,11 +1889,9 @@ impl DocumentCreateArgs {
         Ok(CreateDocumentRequest {
             title: self.title.clone(),
             board: self.board.clone(),
-            content: read_text(
-                self.content.as_deref(),
-                self.content_file.as_deref(),
-                "--content-file",
-            )?,
+            // KAIROS-T-0792: a create takes no content; the update after it
+            // writes the text.
+            content: None,
             template_id,
             parent_short_code: self.parent.clone(),
         })
@@ -1952,12 +1911,6 @@ pub struct AdrCreateArgs {
     /// Default: the first column of the board
     #[arg(long, value_name = "COLUMN")]
     pub column: Option<String>,
-    /// Markdown content (defaults to empty)
-    #[arg(long, conflicts_with = "content_file")]
-    pub content: Option<String>,
-    /// Read the markdown content from a file (`-` reads stdin)
-    #[arg(long, value_name = "FILE")]
-    pub content_file: Option<PathBuf>,
     /// Decision maker
     #[arg(long)]
     pub decision_maker: Option<String>,
@@ -1979,12 +1932,7 @@ impl AdrCreateArgs {
             board_id: self.board.clone(),
             column_id: create_column(client, self.board.as_deref(), self.column.as_deref()).await?,
             title: self.title.clone(),
-            content: read_text(
-                self.content.as_deref(),
-                self.content_file.as_deref(),
-                "--content-file",
-            )?
-            .unwrap_or_default(),
+            content: String::new(),
             decision_maker: self.decision_maker.clone(),
             decision_date: self.decision_date.clone(),
             parent: self.parent.clone(),

@@ -159,7 +159,8 @@ async fn a_task_has_one_live_state_that_a_write_patches_against_live_stack() {
     .await;
     assert_eq!(status, StatusCode::OK, "{answer}");
     assert_eq!(answer["short_code"], code.as_str());
-    assert_eq!(answer["version"], 1, "the state is not content: {answer}");
+    // KAIROS-T-0792: version 1 is the template, version 2 the text.
+    assert_eq!(answer["version"], 2, "the state is not content: {answer}");
     let state = &answer["state"];
     assert_eq!(state["branch"], "pay-1", "{answer}");
     assert_eq!(state["commit"], "abc1234");

@@ -57,10 +57,11 @@ The **repository** is an optional link to the repo where an agent implements the
 
 Publish in dependency order — blockers first — so every blocking edge names a real short code. For each approved slice:
 
-- `create_item(item_type: task, board: <delivery board>, repository: <slug>, parent: <initiative short code>, title: ..., content: ...)` using the **Task body template** (omit `repository` when the task has no code). The `parent` edge links the task to its initiative — the body carries no parent section.
+- `create_item(item_type: task, task_type: <task|bug|tech_debt|support>, board: <delivery board>, repository: <slug>, parent: <initiative short code>, title: ...)` (omit `repository` when the task has no code). The create takes no content: it writes the template of the task type as version 1 and gives it back. The `parent` edge links the task to its initiative — the body carries no parent section.
+- Fill in each section of that template with `update_item` (send version 1): see **The body of a task** below. Keep the headings of the template.
 - For each of its blockers: `link_items(source: <blocker short code>, target: <this task's short code>, relationship: blocks)`.
 - Add a `blocks` edge only when a task must wait for another task. Give no edge to tasks that can go in parallel. The graph view shows serial work as a row and parallel work in one column.
-- Write the order in the `## Order` section of the task.
+- The `blocks` edges are the order. The body has no order section.
 
 Columns and blocking edges are native to Kairos — new tasks go to the entry column of the board, and that's where they belong; leave them for the team to pull. The initiative itself stays untouched: decompose only adds children.
 
@@ -84,24 +85,9 @@ Each task is a thin vertical slice that cuts through ALL integration layers end-
 
 A **wide refactor** is one mechanical change — rename a column, retype a shared symbol — whose **blast radius** fans across the whole codebase, so a single edit breaks thousands of call sites at once and no vertical slice can land green. Don't force it into a tracer bullet; sequence it as **expand–contract**. First expand: add the new form beside the old so nothing breaks. Then migrate the call sites over in batches sized by blast radius (per package, per directory), each batch its own task blocked by the expand, keeping CI green batch to batch because the old form still exists. Finally contract: delete the old form once no caller remains, in a task blocked by every migrate batch. When even the batches can't stay green alone, keep the sequence but let them share an integration branch that all block a final integrate-and-verify task — green is promised only there.
 
-### Task body template
+### The body of a task
 
-<task-template>
-## What to build
+The template of the organization gives the body of a task (KAIROS-A-0087): `create_item` gives it back, and `list_templates` with `slug: task` (or `bug`, `tech_debt`, `support`) shows it. Do not keep a copy of it here. The italic text under each heading says how to fill in the section; replace it.
 
-A concise description of this vertical slice. Describe the end-to-end behavior, not layer-by-layer implementation.
-
-Avoid specific file paths or code snippets — they go stale fast. Exception: if a prototype produced code that encodes a decision more precisely than prose can (state machine, reducer, schema, type shape), add a context pointer to where that prototype code lives rather than inlining it.
-
-## Order
-
-Blocked by: the short codes of the tasks that must complete first. Or: "none, this task can go in parallel".
-
-## Acceptance criteria
-
-Write them in Simplified Technical English: [The Simplified Technical English reference](../../../references/simplified-technical-english.md) (KAIROS-S-0009) is the source of truth. A criterion is a testable instruction, so it is procedural text — one instruction per criterion, active voice, present tense, 20 words or fewer, and the domain terms from section 4 rather than a synonym. A criterion nobody can read twice the same way is not a contract.
-
-- [ ] Criterion 1
-- [ ] Criterion 2
-- [ ] Criterion 3
-</task-template>
+- Describe the end-to-end behavior of the slice, not layer-by-layer implementation. Avoid file paths and code snippets: they go stale fast. Exception: point to prototype code that encodes a decision more precisely than prose can.
+- Write the acceptance criteria in Simplified Technical English: [The Simplified Technical English reference](../../../references/simplified-technical-english.md) (KAIROS-S-0009) is the source of truth. A criterion is a testable instruction, so it is procedural text — one instruction per criterion, active voice, present tense, 20 words or fewer, and the domain terms from section 4 rather than a synonym. A criterion nobody can read twice the same way is not a contract.

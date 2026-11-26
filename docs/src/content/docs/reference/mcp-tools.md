@@ -1134,7 +1134,13 @@ request after it resolves them.
 
 ### `create_item`
 
-Creates a work item and returns its new short code.
+Creates a work item and returns its new short code. It takes no content
+(KAIROS-A-0087). It writes the template of the type as version 1, and gives
+it back in the answer. A task gets the template of its task type, and a
+document the template that `template` names. Fill in each section with
+`update_item` (send version 1) or `edit_item`. The tool refuses a call with
+`content`, `body` or `text` with `VALIDATION`, and the message names
+`update_item`.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -1142,8 +1148,7 @@ Creates a work item and returns its new short code.
 | `title` | string | yes | — | The item's title. |
 | `board` | string | no (yes for a document) | see below | Target board, slug or UUID. For a task, the board decides the team of the task. For a document, it is the owner board: it is required, and it has no default. |
 | `parent` | string | no | — | Parent item's short code. Creates the `parent` edge. For a document or an ADR, creates the `supports` edge. |
-| `content` | string | no | empty, or the template's | Initial markdown content. |
-| `template` | string | no | — | Documents only. Template id, slug or name. |
+| `template` | string | no | — | Documents only. Template id, slug or name: the document type. |
 | `task_type` | string | no | `task` | Tasks only. `task`, `bug`, `tech_debt`, `support`. |
 | `repository` | string | no | — | Tasks only. Slug or UUID. An optional link that says where the code is. Any live repository, of any team. It does not choose the board. |
 | `work_class` | string | no | see below | Tasks only. `planned`, `support`. |
@@ -1314,8 +1319,10 @@ VALIDATION: The text of search is not in ACME-T-0012 (version 3). A text that di
 ### Typed sections on an MCP write
 
 A template can name typed sections: a heading and a type (KAIROS-T-0729).
-`create_item`, `update_item` and `edit_item` check the new content of a
-document against the typed sections of its template (KAIROS-T-0730):
+`update_item` and `edit_item` check the new content of a document against
+the typed sections of its template (KAIROS-T-0730). `create_item` takes no
+content: it writes the template, and the check applies from the first edit
+(KAIROS-A-0087):
 
 - Each typed section must be in the content, under a heading with the same
   text, at each level.
@@ -1330,12 +1337,14 @@ The vocabulary is the word list and the terms of the dictionary of the
 organization (KAIROS-T-0733). The owner board of the document does not
 change the vocabulary: there are no team dictionaries (KAIROS-A-0079).
 
-`create_item` checks each typed section. It checks the right to create first:
-a caller with no right gets `FORBIDDEN`. `update_item` and `edit_item` check
-only the typed sections that the write changes. They do not check a section
-that has the same text before and after the write. They do not check a
-section that is missing before and after the write. Thus you can edit one
-section of an old document that does not pass a different section.
+`update_item` and `edit_item` check the typed sections that the write
+changes. They also check each typed section that still has the text of the
+template.
+Thus the first edit of a new document must fill each typed section. They do
+not check a section that has other text, and the same text before and after
+the write. They do not check a section that is missing before and after the
+write. Thus you can edit one section of an old document that does not pass
+a different section.
 
 When the content does not pass, the tool refuses the write with
 `SECTIONS_NOT_PASSED`, and it saves nothing. The refusal gives each section

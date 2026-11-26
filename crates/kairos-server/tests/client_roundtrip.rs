@@ -246,7 +246,7 @@ async fn typed_error_mapping_roundtrip() {
             repository: None,
             column_id: None,
             title: "Roundtrip task".into(),
-            content: "v1".into(),
+            content: String::new(),
             task_type: None,
             work_class: None,
             team_id: None,

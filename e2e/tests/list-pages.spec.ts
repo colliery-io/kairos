@@ -48,8 +48,9 @@ test('the history page pages its versions', async ({ page }) => {
   const title = `E2E history pages ${Date.now()}`;
   const task = await createTask(GUI, alice, { title, boardId: board.id, content: 'v1' });
   let version: number = task.version;
-  // 55 more versions: 56 in all, so the pager has 2 pages.
-  for (let n = 2; n <= 56; n++) {
+  // KAIROS-T-0792: version 1 is the template and version 2 is "v1". 54 more
+  // versions: 56 in all, so the pager has 2 pages.
+  for (let n = 2; n <= 55; n++) {
     version = await patchTask(GUI, alice, task.short_code, {
       title,
       content: `v${n}`,

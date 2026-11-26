@@ -132,7 +132,8 @@ async fn append_note_adds_a_dated_note_in_one_version_against_live_stack() {
     .await;
     assert_eq!(status, StatusCode::OK, "{answer}");
     assert_eq!(answer["short_code"], code.as_str());
-    assert_eq!(answer["version"], 1, "a note writes no version");
+    // KAIROS-T-0792: version 1 is the template, version 2 the text.
+    assert_eq!(answer["version"], 2, "a note writes no version");
     // KAIROS-T-0504: the first note is n-1.
     assert_eq!(answer["note_id"], "n-1", "{answer}");
     let (_, got) = send(
@@ -145,7 +146,7 @@ async fn append_note_adds_a_dated_note_in_one_version_against_live_stack() {
     // KAIROS-T-0630: the content has no note; `notes` has it, a heading
     // too.
     assert_eq!(got["content"], "# Pay\n\nThe body.\n", "{got}");
-    assert_eq!(got["version"], 1, "{got}");
+    assert_eq!(got["version"], 2, "{got}");
     let note = &got["notes"][0];
     assert_eq!(note["id"], "n-1", "{got}");
     assert_eq!(note["author"], svc_name.as_str(), "{got}");
@@ -183,7 +184,7 @@ async fn append_note_adds_a_dated_note_in_one_version_against_live_stack() {
     diesel::sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
-    assert_eq!(history(&mut conn), 1, "a note writes no history row");
+    assert_eq!(history(&mut conn), 2, "a note writes no history row");
 
     // --- refusals: an empty text, an unknown field, the edit rule ------------
     let (status, answer) = send(
@@ -219,7 +220,7 @@ async fn append_note_adds_a_dated_note_in_one_version_against_live_stack() {
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{answer}");
-    assert_eq!(history(&mut conn), 1, "a refused note writes nothing");
+    assert_eq!(history(&mut conn), 2, "a refused note writes nothing");
 
     // --- notes at the same time: each one stays ------------------------------
     let calls = (0..AT_ONCE).map(|n| {
@@ -233,7 +234,7 @@ async fn append_note_adds_a_dated_note_in_one_version_against_live_stack() {
     let answers = futures_util::future::join_all(calls).await;
     for (status, answer) in &answers {
         assert_eq!(*status, StatusCode::OK, "{answer}");
-        assert_eq!(answer["version"], 1, "{answer}");
+        assert_eq!(answer["version"], 2, "{answer}");
     }
     // KAIROS-T-0504: each note gets its own id, n-2 to n-9.
     let mut ids: Vec<String> = answers
@@ -274,7 +275,7 @@ async fn append_note_adds_a_dated_note_in_one_version_against_live_stack() {
             .collect::<Vec<_>>(),
         "the notes come in the order of their ids"
     );
-    assert_eq!(history(&mut conn), 1, "notes write no history row");
+    assert_eq!(history(&mut conn), 2, "notes write no history row");
 
     // --- KAIROS-T-0630: a `## Note` heading in a content is content -------
     let (status, old) = send(

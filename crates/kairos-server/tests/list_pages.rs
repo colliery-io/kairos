@@ -363,7 +363,7 @@ async fn each_list_has_pages_to_its_end() {
             board_id: Some(board.clone()),
             column_id: None,
             title: "Pages".into(),
-            content: "Version 1.".into(),
+            content: String::new(),
             task_type: None,
             work_class: None,
             team_id: None,

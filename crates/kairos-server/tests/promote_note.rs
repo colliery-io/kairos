@@ -201,7 +201,8 @@ async fn a_note_becomes_a_draft_adr_or_document_against_live_stack() {
     // KAIROS-T-0630: the mark is on the note; the content and its version
     // do not change.
     assert_eq!(got["content"], "# Pay\n", "{got}");
-    assert_eq!(got["version"], 1, "a promote writes no version: {got}");
+    // KAIROS-T-0792: version 1 is the template, version 2 the text.
+    assert_eq!(got["version"], 2, "a promote writes no version: {got}");
     assert_eq!(got["notes"][0]["promoted_to"], adr_code.as_str(), "{got}");
     assert!(got["notes"][1].get("promoted_to").is_none(), "{got}");
 
@@ -355,7 +356,7 @@ async fn a_note_becomes_a_draft_adr_or_document_against_live_stack() {
         None,
     )
     .await;
-    assert_eq!(got["version"], 1, "{got}");
+    assert_eq!(got["version"], 2, "{got}");
     assert!(
         got["notes"][2].get("promoted_to").is_none(),
         "a refused promote writes nothing: {got}"

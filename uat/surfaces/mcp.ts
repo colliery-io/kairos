@@ -88,6 +88,18 @@ export class McpSession {
    * `McpToolError` carrying the text, so a journey can assert on a refusal.
    */
   async call(name: string, args: Record<string, unknown> = {}): Promise<string> {
+    // KAIROS-T-0792 (KAIROS-A-0087): `create_item` takes no content. A
+    // journey that gives one gets the create, then `update_item` of
+    // version 1 with the text; the answer is the answer of the create.
+    if (name === 'create_item' && 'content' in args) {
+      const { content, ...rest } = args;
+      const text = await this.call(name, rest);
+      const code = text.match(/^Created \w+ ([A-Z][A-Z0-9]*-[A-Z]-\d{4,})/)?.[1];
+      if (code && typeof content === 'string' && content.trim() !== '') {
+        await this.call('update_item', { short_code: code, content, version: 1 });
+      }
+      return text;
+    }
     recordSurface('mcp', name);
     await this.initialize();
     const res = await this.post({

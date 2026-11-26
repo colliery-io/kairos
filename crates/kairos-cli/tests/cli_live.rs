@@ -491,7 +491,8 @@ async fn cli_login_whoami_refresh_logout_live() {
     assert_eq!(
         stdout.trim(),
         format!(
-            "Kairos appended note n-1 to {}. The content stays at version 1.",
+            // KAIROS-T-0792: version 1 is the template, version 2 the text.
+            "Kairos appended note n-1 to {}. The content stays at version 2.",
             task.short_code
         )
     );

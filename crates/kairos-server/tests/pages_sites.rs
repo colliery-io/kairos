@@ -95,6 +95,35 @@ async fn api(
     token: &str,
     body: Option<Value>,
 ) -> Value {
+    // KAIROS-T-0792: a create takes no content; the text is an update.
+    if let Some((family, text, create)) = common::create_with_text(&method, uri, body.as_ref()) {
+        let created = Box::pin(api_raw(router, method, uri, token, Some(create))).await;
+        if text.trim().is_empty() || created["content"] == Value::String(text.clone()) {
+            return created;
+        }
+        let code = created["short_code"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        return api_raw(
+            router,
+            Method::PATCH,
+            &format!("/api/{family}/{code}"),
+            token,
+            Some(serde_json::json!({ "content": text, "version": created["version"] })),
+        )
+        .await;
+    }
+    api_raw(router, method, uri, token, body).await
+}
+
+async fn api_raw(
+    router: &Router,
+    method: Method,
+    uri: &str,
+    token: &str,
+    body: Option<Value>,
+) -> Value {
     let builder = Request::builder()
         .method(method.clone())
         .uri(uri)

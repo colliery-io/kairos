@@ -267,7 +267,7 @@ async fn history_and_activity_mark_a_change_made_by_an_agent() {
             board_id: Some(board.clone()),
             column_id: None,
             title: "Marked".into(),
-            content: "one".into(),
+            content: String::new(),
             task_type: None,
             work_class: None,
             team_id: None,

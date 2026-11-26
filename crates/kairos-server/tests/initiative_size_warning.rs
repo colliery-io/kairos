@@ -283,9 +283,7 @@ async fn an_initiative_past_its_size_warning_gets_the_question() {
         &svc_token,
         reqwest::Method::POST,
         "/api/tasks",
-        Some(
-            json!({"board_id": web.board.id, "title": "Four", "content": "", "parent": initiative}),
-        ),
+        Some(json!({"board_id": web.board.id, "title": "Four", "parent": initiative})),
     )
     .await;
     assert_eq!(status, 201, "{body}");

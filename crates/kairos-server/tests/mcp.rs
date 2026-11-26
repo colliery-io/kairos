@@ -1022,7 +1022,6 @@ async fn mcp_endpoint_against_live_stack() {
             json!({
                 "item_type": "task",
                 "title": "Recalibrate the kondensator",
-                "content": "The kondensator drifts under load.",
                 "task_type": "bug",
                 "parent": initiative_code,
             }),
@@ -1037,6 +1036,14 @@ async fn mcp_endpoint_against_live_stack() {
         "{text}"
     );
     let task_code = extract_code(&text, "ACME-T-");
+    // KAIROS-T-0792 (KAIROS-A-0087): the create takes no content; the text
+    // is version 2.
+    session
+        .call_ok(
+            "update_item",
+            json!({"short_code": task_code, "content": "The kondensator drifts under load.", "version": 1}),
+        )
+        .await;
 
     // KAIROS-T-0788: a create with no content writes the template of the
     // type, and the answer gives it with how to fill it in.
@@ -1183,14 +1190,15 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(text.contains(&task_code), "{text}");
     assert!(text.contains("type: task (bug)"), "{text}");
-    assert!(text.contains("version: 1"), "{text}");
+    assert!(text.contains("version: 2"), "{text}");
     assert!(text.contains("board: platform-delivery"), "{text}");
     // KAIROS-T-0561: the creator, because the edit rule names the creator.
     assert!(text.contains("- created by: "), "{text}");
+    // KAIROS-T-0792: a create writes the template of the bug type.
     assert!(text.contains("kondensator drifts"), "{text}");
     assert!(text.contains(&initiative_code), "parent chain: {text}");
 
-    // --- edit_item: targeted server-side search/replace → version 2 ---------
+    // --- edit_item: targeted server-side search/replace → version 3 ---------
     let text = session
         .call_err(
             "edit_item",
@@ -1224,7 +1232,7 @@ async fn mcp_endpoint_against_live_stack() {
             }),
         )
         .await;
-    assert!(text.contains("to version 2"), "{text}");
+    assert!(text.contains("to version 3"), "{text}");
     assert!(text.contains("(1 replacement)"), "{text}");
 
     // --- transition_item: invalid first (allowed targets enumerated) --------
@@ -1287,11 +1295,12 @@ async fn mcp_endpoint_against_live_stack() {
         "search must stay compact (no content): {text}"
     );
 
-    // --- get_history: v2 + v1 with the editor named -------------------------
+    // --- get_history: v3, v2 and v1 with the editor named -------------------
     let text = session
         .call_ok("get_history", json!({"short_code": task_code}))
         .await;
-    assert!(text.contains("current version 2"), "{text}");
+    assert!(text.contains("current version 3"), "{text}");
+    assert!(text.contains("- v3 —"), "{text}");
     assert!(text.contains("- v2 —"), "{text}");
     assert!(text.contains("- v1 —"), "{text}");
     assert!(text.contains("by alice"), "{text}");
@@ -1300,14 +1309,14 @@ async fn mcp_endpoint_against_live_stack() {
         .call_ok("get_history", json!({"short_code": task_code, "limit": 1}))
         .await;
     assert!(
-        text.contains("- v2 —") && !text.contains("- v1 —"),
+        text.contains("- v3 —") && !text.contains("- v2 —"),
         "{text}"
     );
-    assert!(text.contains("- 1 more; offset 1.\n"), "{text}");
+    assert!(text.contains("- 2 more; offset 1.\n"), "{text}");
     let text = session
         .call_ok(
             "get_history",
-            json!({"short_code": task_code, "limit": 1, "offset": 1}),
+            json!({"short_code": task_code, "limit": 1, "offset": 2}),
         )
         .await;
     assert!(
@@ -1327,10 +1336,10 @@ async fn mcp_endpoint_against_live_stack() {
     let text = session
         .call_ok(
             "get_history",
-            json!({"short_code": task_code, "version": 1}),
+            json!({"short_code": task_code, "version": 2}),
         )
         .await;
-    assert!(text.contains("v1"), "{text}");
+    assert!(text.contains("v2"), "{text}");
     assert!(
         text.contains("The kondensator drifts under load."),
         "{text}"
@@ -1377,15 +1386,15 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(text.contains("CONFLICT"), "{text}");
-    assert!(text.contains("\"version\":2"), "current version: {text}");
+    assert!(text.contains("\"version\":3"), "current version: {text}");
     assert!(
         text.contains("recalibrate to 1.21 GW"),
         "current content for reconciliation: {text}"
     );
 
     // --- get_history with version reads a diff row (KAIROS-T-0651) ---------
-    // v3 is a full row (the diff from the short v2 text is not smaller);
-    // v4 is a diff from v3. The snapshot of v4 has its full text.
+    // v4 is a full row (the diff from the short v3 text is not smaller);
+    // v5 is a diff from v4. The snapshot of v5 has its full text.
     let long_text = |v: i32| -> String {
         (0..40)
             .map(|i| {
@@ -1397,7 +1406,7 @@ async fn mcp_endpoint_against_live_stack() {
             })
             .collect()
     };
-    for v in 3..=4 {
+    for v in 4..=5 {
         let text = session
             .call_ok(
                 "update_item",
@@ -1409,18 +1418,18 @@ async fn mcp_endpoint_against_live_stack() {
     let text = session
         .call_ok(
             "get_history",
-            json!({"short_code": task_code, "version": 4}),
+            json!({"short_code": task_code, "version": 5}),
         )
         .await;
     assert!(
-        text.starts_with(&format!("# {task_code} v4 — ")),
+        text.starts_with(&format!("# {task_code} v5 — ")),
         "the shape stays: {text}"
     );
-    assert!(text.contains(&long_text(4)), "the full text of v4: {text}");
+    assert!(text.contains(&long_text(5)), "the full text of v5: {text}");
     let text = session
         .call_ok(
             "get_history",
-            json!({"short_code": task_code, "version": 2}),
+            json!({"short_code": task_code, "version": 3}),
         )
         .await;
     assert!(text.contains("recalibrate to 1.21 GW"), "{text}");
@@ -2807,11 +2816,18 @@ async fn mcp_endpoint_against_live_stack() {
     let text = session
         .call_ok(
             "create_item",
-            json!({"item_type": "task", "title": "Body by alias", "board": "platform-delivery",
-                   "body": "The body by its alias."}),
+            json!({"item_type": "task", "title": "Body by alias", "board": "platform-delivery"}),
         )
         .await;
     let aliased = extract_code(&text, "ACME-T-");
+    // KAIROS-T-0792: create_item takes no content; `body` is an alias of
+    // the content of update_item.
+    session
+        .call_ok(
+            "update_item",
+            json!({"code": aliased, "body": "The body by its alias.", "version": 1}),
+        )
+        .await;
     let text = session
         .call_ok("get_item", json!({"short_code": aliased}))
         .await;

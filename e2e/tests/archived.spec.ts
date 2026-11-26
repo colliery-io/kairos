@@ -32,6 +32,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
+import { createItem } from '../helpers/api';
 
 const SERVER = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 const BOARD_SLUG = 'platform-delivery';
@@ -72,7 +73,7 @@ async function createTask(
   columnId: string,
   title: string,
 ): Promise<any> {
-  return api(token, 'POST', '/api/tasks', {
+  return createItem(SERVER, token, 'tasks', {
     board_id: boardId,
     column_id: columnId,
     title,
@@ -186,21 +187,21 @@ test('every family renders archived, and the two "archived"s read apart', async 
   };
 
   const strategyAt = await entryOf('strategy');
-  const strategy = await api(token, 'POST', '/api/strategies', {
+  const strategy = await createItem(SERVER, token, 'strategies', {
     board_id: strategyAt.boardId,
     column_id: strategyAt.columnId,
     title: 'E2E: archived strategy',
     content: 'A bet that finished.',
   });
   const initiativeAt = await entryOf('initiative');
-  const initiative = await api(token, 'POST', '/api/initiatives', {
+  const initiative = await createItem(SERVER, token, 'initiatives', {
     board_id: initiativeAt.boardId,
     column_id: initiativeAt.columnId,
     title: 'E2E: archived initiative',
     content: 'Delivered, then put away.',
   });
   const adrAt = await entryOf('adr');
-  const adr = await api(token, 'POST', '/api/adrs', {
+  const adr = await createItem(SERVER, token, 'adrs', {
     board_id: adrAt.boardId,
     column_id: adrAt.columnId,
     title: 'E2E: archived decision',
@@ -424,7 +425,7 @@ test('an archived neighbour is marked in the panel and on the canvas', async ({
   ).columns[0];
   const delivery = await deliveryBoard(token);
 
-  const parent = await api(token, 'POST', '/api/initiatives', {
+  const parent = await createItem(SERVER, token, 'initiatives', {
     board_id: initiativeBoard.id,
     column_id: initiativeEntry.id,
     title: 'E2E: an initiative with one child that finished',

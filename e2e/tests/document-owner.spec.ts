@@ -33,6 +33,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
+import { createItem } from '../helpers/api';
 
 const SERVER = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 // Per-run suffix: a retry makes documents with new titles.
@@ -271,7 +272,6 @@ test('each document has an owner board, and the last supports edge can go', asyn
   const task = await api(token, 'POST', '/api/tasks', {
     board_id: board.id,
     title: `E2E: the item that documents support ${RUN}`,
-    content: '',
   });
   const made: string[] = [];
 
@@ -285,7 +285,7 @@ test('each document has an owner board, and the last supports edge can go', asyn
     expect(refused.body.error.details.field).toBe('board');
   });
 
-  const owned = await api(token, 'POST', '/api/documents', {
+  const owned = await createItem(SERVER, token, 'documents', {
     title: `E2E: a document that names a board ${RUN}`,
     content: 'The board that it names is its owner.',
     board: OWNER_BOARD,

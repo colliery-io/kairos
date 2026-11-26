@@ -79,7 +79,7 @@ One short path when the user says "record this decision", or when `implement` fi
 
 1. Find the ADR board of the team: `adr_board` in the SessionStart context, else `my_boards`.
 2. Draft from the conversation: the title (the decision in one clause), the context (what was true, what forced the choice), the decision, the consequences (what changes for the code and the people). Show the draft to the user. Keep the words the conversation used.
-3. `create_item` with `item_type: adr`, `board: <adr board>`, `parent: <the task or the initiative that produced it>`, the draft as `content` ([ADR-FORMAT.md](./ADR-FORMAT.md)).
+3. `create_item` with `item_type: adr`, `board: <adr board>`, `parent: <the task or the initiative that produced it>`. The create takes no content: it writes the template of the type as version 1 and gives it back. Fill it in with `update_item` (send version 1). Put the draft in the sections of the template ([ADR-FORMAT.md](./ADR-FORMAT.md)).
 4. `link_items` with `impacts` from the ADR to each repository that it is about.
 5. A decision that changes an existing ADR. It changes a part of it: `link_items` with `amends` from the new ADR to the old one, and the new ADR names the part. It replaces all of it: `link_items` with `supersedes` from the new ADR to the old one. The old one stays as it is (KAIROS-A-0069).
 6. Show the short code of the ADR, and write it on the task or the initiative.

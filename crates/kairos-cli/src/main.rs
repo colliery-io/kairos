@@ -1409,17 +1409,6 @@ mod tests {
             ][..],
             &[
                 "kairos",
-                "tasks",
-                "create",
-                "--board",
-                "b",
-                "--title",
-                "t",
-                "--content-file",
-                "-",
-            ][..],
-            &[
-                "kairos",
                 "documents",
                 "create",
                 "--board",
@@ -1428,8 +1417,6 @@ mod tests {
                 "t",
                 "--template",
                 "rfc",
-                "--content-file",
-                "body.md",
             ][..],
         ] {
             Cli::try_parse_from(args).unwrap_or_else(|e| panic!("{args:?}: {e}"));
@@ -1489,8 +1476,6 @@ mod tests {
             "Fix login",
             "--type",
             "bug",
-            "--content",
-            "body",
         ])
         .expect("tasks create parses");
         match cli.command {
@@ -1498,10 +1483,25 @@ mod tests {
                 assert_eq!(args.board.as_deref(), Some("b-1"));
                 assert_eq!(args.title, "Fix login");
                 assert_eq!(args.task_type.as_deref(), Some("bug"));
-                assert_eq!(args.content.as_deref(), Some("body"));
             }
             _ => panic!("expected tasks create"),
         }
+        // KAIROS-T-0792: a create takes no content.
+        assert!(
+            Cli::try_parse_from([
+                "kairos",
+                "tasks",
+                "create",
+                "--board",
+                "b-1",
+                "--title",
+                "x",
+                "--content",
+                "body",
+            ])
+            .is_err(),
+            "--content is not an option of create"
+        );
 
         let cli = Cli::try_parse_from([
             "kairos",

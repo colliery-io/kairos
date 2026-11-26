@@ -11,7 +11,7 @@
 
 import { test, expect, Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
-import { readEachPage } from '../helpers/api';
+import { readEachPage, createItem } from '../helpers/api';
 
 const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 
@@ -43,7 +43,7 @@ test('an initiative page: owner, complexity and metadata with no definition', as
   const board = boards.find((b) => b.board_level === 'initiative');
   if (!board) throw new Error('no initiative board in the seed');
   const detail = await call(alice, 'GET', `/api/boards/${board.id}`);
-  const initiative = await call(alice, 'POST', '/api/initiatives', {
+  const initiative = await createItem(GUI, alice, 'initiatives', {
     board_id: board.id,
     column_id: detail.columns[0].id,
     title: `E2E initiative panels ${Date.now()}`,

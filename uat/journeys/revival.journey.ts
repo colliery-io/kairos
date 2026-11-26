@@ -92,11 +92,12 @@ journey(
       // to reconstruct what a record said at a point in time, and it used to
       // go dark exactly when that mattered.
       const history = await mcp.call('get_history', { short_code: shelved });
+      expect(history).toContain('v3');
       expect(history).toContain('v2');
-      expect(history).toContain('v1');
-      const v1 = await mcp.call('get_history', { short_code: shelved, version: 1 });
-      expect(v1, 'the first version still reads').toContain('shelved');
-      return { read: shelved, versions_available: 2, first_version_still_reads: true };
+      // KAIROS-T-0792: version 1 is the template; the first text is version 2.
+      const v2 = await mcp.call('get_history', { short_code: shelved, version: 2 });
+      expect(v2, 'the first text still reads').toContain('shelved');
+      return { read: shelved, versions_available: 3, first_version_still_reads: true };
     });
 
     await step(alice, 'decides the work is live again and puts it back', async () => {

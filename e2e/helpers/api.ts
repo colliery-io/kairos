@@ -320,20 +320,49 @@ export async function createTask(
   token: string,
   opts: { title: string; boardId?: string; repository?: string; content?: string },
 ): Promise<any> {
-  const res = await fetch(`${server}/api/tasks`, {
+  return createItem(server, token, 'tasks', {
+    board_id: opts.boardId ?? null,
+    repository: opts.repository ?? null,
+    title: opts.title,
+    content: opts.content ?? '',
+  });
+}
+
+/**
+ * Create an item, then write its text (KAIROS-T-0792, KAIROS-A-0087): a
+ * create takes no content and writes the template of the type as version
+ * 1; when `body.content` is not empty, a PATCH writes it as version 2.
+ * Returns the DTO of the last write. `family` is `tasks`, `initiatives`,
+ * `strategies`, `documents` or `adrs`.
+ */
+export async function createItem(
+  server: string,
+  token: string,
+  family: string,
+  body: Record<string, unknown>,
+): Promise<any> {
+  const { content, ...create } = body;
+  const res = await fetch(`${server}/api/${family}`, {
     method: 'POST',
     headers: { ...bearer(token), 'content-type': 'application/json' },
-    body: JSON.stringify({
-      board_id: opts.boardId ?? null,
-      repository: opts.repository ?? null,
-      title: opts.title,
-      content: opts.content ?? '',
-    }),
+    body: JSON.stringify(create),
   });
   if (!res.ok) {
-    throw new Error(`create task -> ${res.status}: ${await res.text()}`);
+    throw new Error(`create ${family} -> ${res.status}: ${await res.text()}`);
   }
-  return res.json();
+  const created = await res.json();
+  if (typeof content !== 'string' || content.trim() === '' || content === created.content) {
+    return created;
+  }
+  const patched = await fetch(`${server}/api/${family}/${created.short_code}`, {
+    method: 'PATCH',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify({ content, version: created.version }),
+  });
+  if (!patched.ok) {
+    throw new Error(`fill ${family} -> ${patched.status}: ${await patched.text()}`);
+  }
+  return patched.json();
 }
 
 /** Raw status of a task transition — for negative assertions. */

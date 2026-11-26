@@ -539,8 +539,12 @@ pub struct CreateStrategyRequest {
     #[serde(default)]
     pub column_id: Option<String>,
     pub title: String,
-    /// Markdown content; defaults to empty.
-    #[serde(default)]
+    /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
+    /// It is not on the wire: a create takes no content, and the server
+    /// writes the template of the type as version 1. The client sends this
+    /// text as an update of version 1 after the create. A body with
+    /// `content` is refused.
+    #[serde(skip)]
     pub content: String,
     #[serde(default)]
     pub hypothesis: Option<String>,
@@ -558,8 +562,12 @@ pub struct CreateInitiativeRequest {
     #[serde(default)]
     pub column_id: Option<String>,
     pub title: String,
-    /// Markdown content; defaults to empty.
-    #[serde(default)]
+    /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
+    /// It is not on the wire: a create takes no content, and the server
+    /// writes the template of the type as version 1. The client sends this
+    /// text as an update of version 1 after the create. A body with
+    /// `content` is refused.
+    #[serde(skip)]
     pub content: String,
     /// T-shirt sizing (`xs|s|m|l|xl`).
     #[serde(default)]
@@ -592,8 +600,12 @@ pub struct CreateTaskRequest {
     #[serde(default)]
     pub column_id: Option<String>,
     pub title: String,
-    /// Markdown content; defaults to empty.
-    #[serde(default)]
+    /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
+    /// It is not on the wire: a create takes no content, and the server
+    /// writes the template of the type as version 1. The client sends this
+    /// text as an update of version 1 after the create. A body with
+    /// `content` is refused.
+    #[serde(skip)]
     pub content: String,
     /// `task|bug|tech_debt|support`; defaults to `task`.
     #[serde(default)]
@@ -687,9 +699,12 @@ pub struct CreateDocumentRequest {
     #[serde(default, deserialize_with = "null_as_empty")]
     #[schema(required = true)]
     pub board: String,
-    /// Markdown content. Omitted + `template_id` set = the template's
-    /// content is stamped in.
-    #[serde(default)]
+    /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
+    /// It is not on the wire: a create takes no content, and the server
+    /// writes the template of the type as version 1. The client sends this
+    /// text as an update of version 1 after the create. A body with
+    /// `content` is refused.
+    #[serde(skip)]
     pub content: Option<String>,
     /// Template to stamp content + metadata defaults from (UUID).
     #[serde(default)]
@@ -749,8 +764,12 @@ pub struct CreateAdrRequest {
     #[serde(default)]
     pub column_id: Option<String>,
     pub title: String,
-    /// Markdown content; defaults to empty.
-    #[serde(default)]
+    /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
+    /// It is not on the wire: a create takes no content, and the server
+    /// writes the template of the type as version 1. The client sends this
+    /// text as an update of version 1 after the create. A body with
+    /// `content` is refused.
+    #[serde(skip)]
     pub content: String,
     #[serde(default)]
     pub decision_maker: Option<String>,
@@ -1230,4 +1249,34 @@ pub struct ErrorBody {
     /// is nothing structured to add.
     #[schema(value_type = Object)]
     pub details: serde_json::Value,
+}
+
+/// The text that a create request carries to the update after the create
+/// (KAIROS-T-0792). `None` or empty: no update.
+pub trait FillAfterCreate {
+    fn fill_text(&self) -> Option<&str>;
+}
+
+macro_rules! fill_after_create {
+    ($($request:ty),+) => {$(
+        impl FillAfterCreate for $request {
+            fn fill_text(&self) -> Option<&str> {
+                Some(self.content.as_str()).filter(|text| !text.trim().is_empty())
+            }
+        }
+    )+};
+}
+fill_after_create!(
+    CreateStrategyRequest,
+    CreateInitiativeRequest,
+    CreateTaskRequest,
+    CreateAdrRequest
+);
+
+impl FillAfterCreate for CreateDocumentRequest {
+    fn fill_text(&self) -> Option<&str> {
+        self.content
+            .as_deref()
+            .filter(|text| !text.trim().is_empty())
+    }
 }

@@ -1367,7 +1367,6 @@ struct CreateStrategyRequest<'a> {
     board_id: &'a str,
     column_id: &'a str,
     title: &'a str,
-    content: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     hypothesis: Option<&'a str>,
 }
@@ -1378,7 +1377,6 @@ struct CreateInitiativeRequest<'a> {
     board_id: &'a str,
     column_id: &'a str,
     title: &'a str,
-    content: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     complexity: Option<&'a str>,
     /// KAIROS-T-0587: a bucket initiative; the server derives `is_bucket`.
@@ -1395,7 +1393,6 @@ struct CreateTaskRequest<'a> {
     board_id: &'a str,
     column_id: &'a str,
     title: &'a str,
-    content: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     task_type: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1416,7 +1413,6 @@ struct CreateAdrRequest<'a> {
     board_id: &'a str,
     column_id: &'a str,
     title: &'a str,
-    content: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     decision_maker: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1455,7 +1451,6 @@ async fn post_created(
                     board_id,
                     column_id,
                     title: &item.title,
-                    content: &item.content,
                     hypothesis: item.hypothesis.as_deref(),
                 },
             )
@@ -1469,7 +1464,6 @@ async fn post_created(
                     board_id,
                     column_id,
                     title: &item.title,
-                    content: &item.content,
                     complexity: item.complexity.as_deref(),
                     bucket_type: item.bucket_type.as_deref(),
                     parent: item.parent.as_deref(),
@@ -1485,7 +1479,6 @@ async fn post_created(
                     board_id,
                     column_id,
                     title: &item.title,
-                    content: &item.content,
                     task_type: item.task_type.as_deref(),
                     work_class: item.work_class.as_deref(),
                     team_id: item.team_id.as_deref(),
@@ -1503,7 +1496,6 @@ async fn post_created(
                     board_id,
                     column_id,
                     title: &item.title,
-                    content: &item.content,
                     decision_maker: item.decision_maker.as_deref(),
                     decision_date: item.decision_date.as_deref(),
                 },
@@ -2545,12 +2537,12 @@ mod tests {
     /// Create requests serialize with the exact S-0005 field names and
     /// omit absent optionals.
     #[test]
+    // KAIROS-T-0792: a create sends no content.
     fn create_requests_serialize_wire_shape() {
         let task = serde_json::to_value(CreateTaskRequest {
             board_id: "b-1",
             column_id: "c-1",
             title: "T",
-            content: "body",
             task_type: Some("bug"),
             work_class: Some("support"),
             team_id: None,
@@ -2561,7 +2553,7 @@ mod tests {
         assert_eq!(
             task,
             serde_json::json!({"board_id": "b-1", "column_id": "c-1",
-                               "title": "T", "content": "body", "task_type": "bug",
+                               "title": "T", "task_type": "bug",
                                "work_class": "support"})
         );
 
@@ -2571,7 +2563,6 @@ mod tests {
             board_id: "b-1",
             column_id: "c-1",
             title: "T",
-            content: "",
             task_type: None,
             work_class: None,
             team_id: Some("team-1"),
@@ -2582,7 +2573,7 @@ mod tests {
         assert_eq!(
             bound,
             serde_json::json!({"board_id": "b-1", "column_id": "c-1",
-                               "title": "T", "content": "", "team_id": "team-1",
+                               "title": "T", "team_id": "team-1",
                                "repository": "payments-api"})
         );
 
@@ -2592,7 +2583,6 @@ mod tests {
             board_id: "b-1",
             column_id: "c-1",
             title: "T",
-            content: "",
             task_type: None,
             work_class: None,
             team_id: None,
@@ -2605,7 +2595,6 @@ mod tests {
             board_id: "b-2",
             column_id: "c-2",
             title: "I",
-            content: "",
             complexity: None,
             bucket_type: None,
             parent: Some("DEMO-S-0001"),
@@ -2614,7 +2603,7 @@ mod tests {
         assert_eq!(
             initiative,
             serde_json::json!({"board_id": "b-2", "column_id": "c-2",
-                               "title": "I", "content": "", "parent": "DEMO-S-0001"})
+                               "title": "I", "parent": "DEMO-S-0001"})
         );
 
         let doc = serde_json::to_value(CreateDocumentRequest {

@@ -77,12 +77,19 @@ test('pages in the web app: the switches and the links', async ({ page }) => {
   });
 
   await test.step('a document opens in the site', async () => {
+    // KAIROS-T-0792: a create takes no content; the text is an update.
     const created = await page.request.post('/api/documents', {
       headers: { authorization: `Bearer ${token}` },
-      data: { board: 'platform-delivery', title: `E2E site doc ${Date.now()}`, content: 'Hi.' },
+      data: { board: 'platform-delivery', title: `E2E site doc ${Date.now()}` },
     });
     expect(created.ok(), await created.text()).toBeTruthy();
-    const code = (await created.json()).short_code;
+    const made = await created.json();
+    const code = made.short_code;
+    const filled = await page.request.patch(`/api/documents/${code}`, {
+      headers: { authorization: `Bearer ${token}` },
+      data: { content: 'Hi.', version: made.version },
+    });
+    expect(filled.ok(), await filled.text()).toBeTruthy();
     await page.goto(`/items/${code}`);
     await page.locator('[data-testid="open-in-site"]').click();
     await expect(page).toHaveURL(new RegExp(`/pages/demo/platform/docs/${code}/$`));

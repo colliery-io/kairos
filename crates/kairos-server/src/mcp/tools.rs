@@ -535,8 +535,6 @@ pub struct CreateItemParams {
     pub parent: Option<String>,
     /// Documents only: the template, by id, slug or name (KAIROS-A-0003).
     pub template: Option<String>,
-    /// Initial markdown content (defaults to empty / the template's).
-    pub content: Option<String>,
     /// Tasks only: task | bug | tech_debt | support (default task).
     pub task_type: Option<String>,
     /// Tasks only: the repository the task links to (slug or UUID), of any
@@ -3448,7 +3446,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy, initiative, task, document or ADR. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks only: `repository`, an optional link that chooses no board; the board decides the team. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives only: `complexity`, and `bucket_type`, which makes a bucket; `set_complexity` changes the complexity later. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code. Send a `request_key` when you may retry this call."
+        description = "Create a work item: strategy, initiative, task, document or ADR. It takes no content: it writes the template of the type as version 1 and gives it back in the answer; fill in each section with `update_item` (send version 1) or `edit_item`. There is no `column` argument: the item goes to the entry column of its board, and only `transition_item` moves it. `board` is a slug or UUID; it defaults when only one board of the level exists. `parent` (short code) makes the parent edge; for a document or an ADR, the supports edge. Tasks only: `repository`, an optional link that chooses no board; the board decides the team. When you split work into tasks, `link_items` `blocks` from each blocker to each task that must wait; parallel tasks get no edge. On a board you do not manage the task is a request (support lane; `work_class: planned` refused). `from_team` names the sending team: when it is not the board's team the task is a request whoever sends it, so an agent in a board session sends its own team. Initiatives only: `complexity`, and `bucket_type`, which makes a bucket; `set_complexity` changes the complexity later. Documents: `board` is required: the owner board, which needs `manage_documents` and gives the right to edit; to say a document is about a repository, `link_items` with `impacts` after. ADRs: `board` is an ADR board. Returns the new short code. Send a `request_key` when you may retry this call."
     )]
     pub async fn create_item(
         &self,
@@ -6581,8 +6579,14 @@ fn refuse_failing_sections(
     if item_type != ItemType::Document {
         return Ok(());
     }
-    let (sections, old) = super::typed_sections::of_document(conn, id)?;
-    super::typed_sections::refuse_failing(conn, Some(short_code), &sections, Some(&old), content)
+    let (sections, old, template) = super::typed_sections::of_document(conn, id)?;
+    super::typed_sections::refuse_failing(
+        conn,
+        Some(short_code),
+        &sections,
+        Some((&old, &template)),
+        content,
+    )
 }
 
 /// The answer text of `update_item`.
@@ -9685,7 +9689,9 @@ fn create_item_impl(
         }
     };
     reject_type_only_fields(params, item_type)?;
-    let content = params.content.as_deref().unwrap_or("");
+    // KAIROS-T-0792 (KAIROS-A-0087): a create takes no content; it writes
+    // the template of the type.
+    let content = "";
 
     // Documents: an owner is REQUIRED, which is `board`, or `parent`, or
     // the two (COLLIERY-T-0269). The rule, the gate and the refusals are
@@ -9698,32 +9704,8 @@ fn create_item_impl(
             .as_deref()
             .map(|t| resolve_template(conn, t))
             .transpose()?;
-        // KAIROS-T-0730: the content to write must pass each typed section
-        // of the template. `create` runs this after its create gate (a
-        // caller with no right gets FORBIDDEN first) and before the first
-        // write. With no `content`, the content is that of the template.
-        // KAIROS-A-0079: the dictionary does not depend on the board.
-        let check_sections = |conn: &mut PgConnection, _board: Uuid| -> Result<(), ApiError> {
-            let Some(template_id) = template_id else {
-                return Ok(());
-            };
-            let sections = super::typed_sections::of_template(conn, template_id)?;
-            if sections.is_empty() {
-                return Ok(());
-            }
-            let content = match params.content.clone() {
-                Some(content) => content,
-                None => {
-                    use kairos_db::schema::templates;
-                    templates::table
-                        .filter(templates::id.eq(template_id))
-                        .select(templates::content)
-                        .first::<String>(conn)
-                        .map_err(ApiError::internal)?
-                }
-            };
-            super::typed_sections::refuse_failing(conn, None, &sections, None, &content)
-        };
+        // KAIROS-T-0792 (KAIROS-A-0087 point 9): a create writes the template;
+        // the check of the typed sections applies from the first edit.
         let created = crate::api::documents::create(
             conn,
             slug,
@@ -9731,11 +9713,11 @@ fn create_item_impl(
             user,
             crate::api::documents::NewDocument {
                 title: &params.title,
-                content: params.content.as_deref(),
+                content: None,
                 template_id,
                 board: params.board.as_deref(),
                 parent: params.parent.as_deref(),
-                before_write: Some(&check_sections),
+                before_write: None,
             },
             crate::api::documents::CreateWording {
                 request: "call",
@@ -9756,10 +9738,6 @@ fn create_item_impl(
         if let Some(renamed) = &created.parent_renamed {
             out.push_str(&format!("\n{renamed}"));
         }
-        if params
-            .content
-            .as_deref()
-            .is_none_or(|c| c.trim().is_empty())
         {
             out.push_str(&template_content_block(&created.document.content));
         }
@@ -10924,6 +10902,14 @@ mod create_item_parity_tests {
     /// REST fields `create_item` deliberately does not take, each with the reason
     /// it does not. Adding an entry here is a decision; leaving one out is a bug.
     const DELIBERATELY_ABSENT: &[(&str, &str)] = &[
+        (
+            "content",
+            "KAIROS-A-0087: a create takes no content. It writes the template of the \
+             type as version 1 and gives it back; update_item or edit_item fills it in. \
+             REST does not take it either: the field of the REST request is the text \
+             that kairos-client sends as an update after the create, and it is not on \
+             the wire.",
+        ),
         (
             "column_id",
             "Every item is created in its board's entry column, and transition_item \

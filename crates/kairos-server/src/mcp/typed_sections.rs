@@ -28,46 +28,36 @@ pub(super) const MESSAGE_LINES: usize = 40;
 /// order of the template.
 type Typed = Vec<(String, SectionType)>;
 
-/// The typed sections of a template, in the order of the template.
-pub(super) fn of_template(conn: &mut PgConnection, template_id: Uuid) -> Result<Typed, ApiError> {
-    use kairos_db::schema::template_sections;
-    let rows: Vec<(String, String)> = template_sections::table
-        .filter(template_sections::template_id.eq(template_id))
-        .order(template_sections::position.asc())
-        .select((template_sections::heading, template_sections::section_type))
-        .load(conn)
-        .map_err(ApiError::internal)?;
-    Ok(typed(rows))
-}
-
 /// The typed sections of the template of a document, and its content now.
 /// No sections when the document has no template, or its template has no
 /// typed section. One statement.
 pub(super) fn of_document(
     conn: &mut PgConnection,
     document_id: Uuid,
-) -> Result<(Typed, String), ApiError> {
-    use kairos_db::schema::{documents, template_sections};
-    let rows: Vec<(String, String, String)> = template_sections::table
+) -> Result<(Typed, String, String), ApiError> {
+    use kairos_db::schema::{documents, template_sections, templates};
+    let rows: Vec<(String, String, String, String)> = template_sections::table
         .inner_join(
             documents::table
                 .on(documents::template_id.eq(template_sections::template_id.nullable())),
         )
+        .inner_join(templates::table.on(templates::id.eq(template_sections::template_id)))
         .filter(documents::id.eq(document_id))
         .order(template_sections::position.asc())
         .select((
             template_sections::heading,
             template_sections::section_type,
             documents::content,
+            templates::content,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
-    let content = match rows.first() {
-        Some((_, _, content)) => content.clone(),
-        None => String::new(),
+    let (content, template) = match rows.first() {
+        Some((_, _, content, template)) => (content.clone(), template.clone()),
+        None => (String::new(), String::new()),
     };
-    let sections = typed(rows.into_iter().map(|(h, t, _)| (h, t)).collect());
-    Ok((sections, content))
+    let sections = typed(rows.into_iter().map(|(h, t, _, _)| (h, t)).collect());
+    Ok((sections, content, template))
 }
 
 /// The stored rows as typed sections. A type that this server does not know
@@ -91,13 +81,26 @@ pub(super) fn refuse_failing(
     conn: &mut PgConnection,
     short_code: Option<&str>,
     sections: &[(String, SectionType)],
-    old: Option<&str>,
+    old: Option<(&str, &str)>,
     content: &str,
 ) -> Result<(), ApiError> {
     let changed;
     let sections = match old {
-        Some(old) => {
-            changed = changed_sections(old, content, sections);
+        // `old` is the stored content and the content of the template. A
+        // write checks each section that it changes, and each section that
+        // still has the text of the template (KAIROS-T-0792: a create writes
+        // the template, so the first edit must fill each typed section).
+        Some((old, template)) => {
+            let filled = changed_sections(template, old, sections);
+            changed = sections
+                .iter()
+                .filter(|section| {
+                    !filled.contains(section)
+                        || changed_sections(old, content, std::slice::from_ref(section))
+                            .contains(section)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
             changed.as_slice()
         }
         None => sections,

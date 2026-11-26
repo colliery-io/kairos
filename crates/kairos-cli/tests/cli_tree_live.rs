@@ -510,8 +510,6 @@ async fn cli_command_tree_golden_path_live() {
             &initiative_board_id,
             "--title",
             "CLI golden path initiative",
-            "--content",
-            "Planned by the T-0037 golden path.",
         ],
     )
     .await;
@@ -539,8 +537,6 @@ async fn cli_command_tree_golden_path_live() {
             "Golden path task",
             "--type",
             "bug",
-            "--content",
-            "Reproduce, fix, verify.",
             "--json",
         ],
     )
@@ -1347,11 +1343,8 @@ async fn cli_command_tree_golden_path_live() {
 
     // --- KAIROS-T-0589: a name or a slug for each reference -------------------
     let text_dir = tempfile::tempdir().expect("temp text dir");
-    let content_path = text_dir.path().join("content.md");
-    std::fs::write(&content_path, "Content from a file.").expect("content file");
     let note_path = text_dir.path().join("note.md");
     std::fs::write(&note_path, "A note from a file.").expect("note file");
-    let content_file = content_path.to_str().expect("path").to_string();
     let note_file = note_path.to_str().expect("path").to_string();
 
     // tasks create: --team by slug, --column by name, --kind, --content-file.
@@ -1368,8 +1361,6 @@ async fn cli_command_tree_golden_path_live() {
             "Named references",
             "--kind",
             "bug",
-            "--content-file",
-            &content_file,
             "--json",
         ],
     )
@@ -1389,7 +1380,13 @@ async fn cli_command_tree_golden_path_live() {
         "{stdout}"
     );
     assert_eq!(named["task_type"], "bug");
-    assert_eq!(named["content"], "Content from a file.");
+    // KAIROS-T-0792: a create takes no content; it writes the template.
+    assert!(
+        named["content"]
+            .as_str()
+            .is_some_and(|c| c.starts_with("## Objective")),
+        "{stdout}"
+    );
     // An unknown column is refused before the write, and each column is named.
     let (code, _, stderr) = run_cli(
         config_dir.path(),
@@ -1557,8 +1554,6 @@ async fn cli_command_tree_golden_path_live() {
             "platform-delivery",
             "--title",
             "Diff me",
-            "--content",
-            "one\ntwo\nthree\n",
             "--json",
         ],
     )
@@ -1566,6 +1561,19 @@ async fn cli_command_tree_golden_path_live() {
     assert_eq!(code, 0, "tasks create failed: {stderr}");
     let diff_task: serde_json::Value = serde_json::from_str(&stdout).expect("task JSON");
     let diff_code = diff_task["short_code"].as_str().expect("code").to_string();
+    // KAIROS-T-0792: version 1 is the template; the text is version 2.
+    let (code, _, stderr) = run_cli(
+        config_dir.path(),
+        &[
+            "tasks",
+            "edit",
+            &diff_code,
+            "--content",
+            "one\ntwo\nthree\n",
+        ],
+    )
+    .await;
+    assert_eq!(code, 0, "tasks edit failed: {stderr}");
     let (code, _, stderr) = run_cli(
         config_dir.path(),
         &[
@@ -1581,10 +1589,10 @@ async fn cli_command_tree_golden_path_live() {
     .await;
     assert_eq!(code, 0, "tasks edit failed: {stderr}");
     let (code, stdout, stderr) =
-        run_cli(config_dir.path(), &["tasks", "diff", &diff_code, "2"]).await;
+        run_cli(config_dir.path(), &["tasks", "diff", &diff_code, "3"]).await;
     assert_eq!(code, 0, "tasks diff failed: {stderr}");
     assert!(
-        stdout.starts_with(&format!("--- {diff_code} v1 (")),
+        stdout.starts_with(&format!("--- {diff_code} v2 (")),
         "{stdout}"
     );
     assert!(
@@ -1594,13 +1602,13 @@ async fn cli_command_tree_golden_path_live() {
     assert!(stdout.contains("\n-two\n+2\n"), "{stdout}");
     let (code, stdout, stderr) = run_cli(
         config_dir.path(),
-        &["tasks", "diff", &diff_code, "1", "2", "--json"],
+        &["tasks", "diff", &diff_code, "2", "3", "--json"],
     )
     .await;
     assert_eq!(code, 0, "tasks diff --json failed: {stderr}");
     let diff: serde_json::Value = serde_json::from_str(&stdout).expect("diff JSON");
-    assert_eq!(diff["from"]["version"], 1, "{stdout}");
-    assert_eq!(diff["to"]["version"], 2, "{stdout}");
+    assert_eq!(diff["from"]["version"], 2, "{stdout}");
+    assert_eq!(diff["to"]["version"], 3, "{stdout}");
     assert!(
         diff["diff"].as_str().is_some_and(|d| d.contains("+2\n")),
         "{stdout}"

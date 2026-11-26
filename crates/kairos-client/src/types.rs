@@ -540,11 +540,12 @@ pub struct CreateStrategyRequest {
     pub column_id: Option<String>,
     pub title: String,
     /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
-    /// It is not on the wire: a create takes no content, and the server
-    /// writes the template of the type as version 1. The client sends this
-    /// text as an update of version 1 after the create. A body with
-    /// `content` is refused.
-    #[serde(skip)]
+    /// kairos-client does not send it: a create writes the template of the
+    /// type as version 1, and the client sends this text as an update of
+    /// version 1 after the create. Deprecated on the wire (KAIROS-T-0793,
+    /// KAIROS-A-0088): the server still takes it as version 1, with a
+    /// `Kairos-Warning`, until 0.26.0.
+    #[serde(default, skip_serializing)]
     pub content: String,
     #[serde(default)]
     pub hypothesis: Option<String>,
@@ -563,11 +564,12 @@ pub struct CreateInitiativeRequest {
     pub column_id: Option<String>,
     pub title: String,
     /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
-    /// It is not on the wire: a create takes no content, and the server
-    /// writes the template of the type as version 1. The client sends this
-    /// text as an update of version 1 after the create. A body with
-    /// `content` is refused.
-    #[serde(skip)]
+    /// kairos-client does not send it: a create writes the template of the
+    /// type as version 1, and the client sends this text as an update of
+    /// version 1 after the create. Deprecated on the wire (KAIROS-T-0793,
+    /// KAIROS-A-0088): the server still takes it as version 1, with a
+    /// `Kairos-Warning`, until 0.26.0.
+    #[serde(default, skip_serializing)]
     pub content: String,
     /// T-shirt sizing (`xs|s|m|l|xl`).
     #[serde(default)]
@@ -601,11 +603,12 @@ pub struct CreateTaskRequest {
     pub column_id: Option<String>,
     pub title: String,
     /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
-    /// It is not on the wire: a create takes no content, and the server
-    /// writes the template of the type as version 1. The client sends this
-    /// text as an update of version 1 after the create. A body with
-    /// `content` is refused.
-    #[serde(skip)]
+    /// kairos-client does not send it: a create writes the template of the
+    /// type as version 1, and the client sends this text as an update of
+    /// version 1 after the create. Deprecated on the wire (KAIROS-T-0793,
+    /// KAIROS-A-0088): the server still takes it as version 1, with a
+    /// `Kairos-Warning`, until 0.26.0.
+    #[serde(default, skip_serializing)]
     pub content: String,
     /// `task|bug|tech_debt|support`; defaults to `task`.
     #[serde(default)]
@@ -700,11 +703,12 @@ pub struct CreateDocumentRequest {
     #[schema(required = true)]
     pub board: String,
     /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
-    /// It is not on the wire: a create takes no content, and the server
-    /// writes the template of the type as version 1. The client sends this
-    /// text as an update of version 1 after the create. A body with
-    /// `content` is refused.
-    #[serde(skip)]
+    /// kairos-client does not send it: a create writes the template of the
+    /// type as version 1, and the client sends this text as an update of
+    /// version 1 after the create. Deprecated on the wire (KAIROS-T-0793,
+    /// KAIROS-A-0088): the server still takes it as version 1, with a
+    /// `Kairos-Warning`, until 0.26.0.
+    #[serde(default, skip_serializing)]
     pub content: Option<String>,
     /// Template to stamp content + metadata defaults from (UUID).
     #[serde(default)]
@@ -765,11 +769,12 @@ pub struct CreateAdrRequest {
     pub column_id: Option<String>,
     pub title: String,
     /// The text to write after the create (KAIROS-T-0792, KAIROS-A-0087).
-    /// It is not on the wire: a create takes no content, and the server
-    /// writes the template of the type as version 1. The client sends this
-    /// text as an update of version 1 after the create. A body with
-    /// `content` is refused.
-    #[serde(skip)]
+    /// kairos-client does not send it: a create writes the template of the
+    /// type as version 1, and the client sends this text as an update of
+    /// version 1 after the create. Deprecated on the wire (KAIROS-T-0793,
+    /// KAIROS-A-0088): the server still takes it as version 1, with a
+    /// `Kairos-Warning`, until 0.26.0.
+    #[serde(default, skip_serializing)]
     pub content: String,
     #[serde(default)]
     pub decision_maker: Option<String>,

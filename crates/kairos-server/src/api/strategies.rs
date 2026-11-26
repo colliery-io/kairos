@@ -190,6 +190,10 @@ pub(crate) async fn create_strategy(
             crate::api::idempotency::run(conn, keyed, StatusCode::CREATED, |conn| {
                 let board_id = board_id_by_ref(conn, &body.board_id)?;
                 require_capability(conn, &slug, Some(board_id), user, MANAGE)?;
+                // KAIROS-T-0793 (KAIROS-A-0088): content on a create is deprecated.
+                if !body.content.trim().is_empty() {
+                    crate::claims::note_content_on_create();
+                }
                 let created = items::create_strategy(
                     conn,
                     items::CreateStrategy {

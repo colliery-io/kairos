@@ -116,19 +116,6 @@ pub fn shape_error(status: StatusCode, serde_message: &str) -> ApiError {
              with a different prefix, move it to a different board with rename.",
         )
         .with_details(json!({ "field": field, "allowed": allowed })),
-        // KAIROS-T-0792 (KAIROS-A-0087): a create takes no content. It
-        // writes the template of the type as version 1; the text goes in an
-        // update after the create.
-        Some((field, allowed)) if field == "content" && allowed.iter().any(|f| f == "title") => {
-            ApiError::new(
-                status,
-                "VALIDATION",
-                "A create takes no content: it writes the template of the type as version 1 \
-                 and gives it back. Send the text with the update of the item after the \
-                 create: PATCH /api/{family}/{short_code} with version 1.",
-            )
-            .with_details(json!({ "field": field, "allowed": allowed }))
-        }
         Some((field, allowed)) => {
             let known = if allowed.is_empty() {
                 "The body of this route has no fields.".to_string()

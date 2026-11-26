@@ -258,6 +258,17 @@ pub enum Warning {
     Blockers(BlockerWarning),
     Size(SizeWarning),
     Cross(CrossWarning),
+    /// KAIROS-A-0088: the use of a deprecated form, with its removal
+    /// release and the new form.
+    Deprecated(DeprecatedWarning),
+}
+
+/// The use of a deprecated form (KAIROS-A-0088): the text of the header and
+/// the text of the MCP line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeprecatedWarning {
+    pub header: String,
+    pub mcp: String,
 }
 
 impl Warning {
@@ -269,6 +280,7 @@ impl Warning {
             Self::Blockers(w) => w.header_text(),
             Self::Size(w) => w.header_text(),
             Self::Cross(w) => w.header_text(),
+            Self::Deprecated(w) => w.header.clone(),
         }
     }
 
@@ -280,6 +292,7 @@ impl Warning {
             Self::Blockers(w) => w.mcp_text(),
             Self::Size(w) => w.mcp_text(),
             Self::Cross(w) => w.mcp_text(),
+            Self::Deprecated(w) => w.mcp.clone(),
         }
     }
 }
@@ -390,6 +403,47 @@ pub fn note_cross(
             .push(Warning::Cross(CrossWarning(cross)));
     }
     Ok(())
+}
+
+/// Note the use of a deprecated form (KAIROS-A-0088): the response gets a
+/// warning, once for each text in a request. Nothing outside of a request.
+pub fn note_deprecated(header: &str, mcp: &str) {
+    let Some(sink) = BLOCKING_SINK.with(|cell| cell.borrow().clone()) else {
+        return;
+    };
+    let mut warnings = sink.lock().unwrap_or_else(|e| e.into_inner());
+    if !warnings
+        .iter()
+        .any(|w| matches!(w, Warning::Deprecated(d) if d.header == header))
+    {
+        warnings.push(Warning::Deprecated(DeprecatedWarning {
+            header: header.to_string(),
+            mcp: mcp.to_string(),
+        }));
+    }
+}
+
+/// The removal release of `content` on a create (KAIROS-A-0088: three minor
+/// releases from 0.23.0).
+pub const CONTENT_ON_CREATE_REMOVED_IN: &str = "0.26.0";
+
+/// Note `content` on a create (KAIROS-T-0793): deprecated by KAIROS-A-0087,
+/// removed in [`CONTENT_ON_CREATE_REMOVED_IN`].
+pub fn note_content_on_create() {
+    note_deprecated(
+        &format!(
+            "Deprecated: content on a create (KAIROS-A-0087). It is removed in \
+             {CONTENT_ON_CREATE_REMOVED_IN}. Create with no content: the create writes the \
+             template of the type as version 1. Then send the text with the update of the \
+             item, version 1."
+        ),
+        &format!(
+            "Warning: deprecated: `content` on `create_item` (KAIROS-A-0087). It is removed in \
+             {CONTENT_ON_CREATE_REMOVED_IN}. Create with no content: the create writes the \
+             template of the type as version 1 and gives it back. Then fill it in with \
+             `update_item` (send version 1) or `edit_item`."
+        ),
+    );
 }
 
 /// Note a new child task of the item `parent_id` (KAIROS-T-0779): when the

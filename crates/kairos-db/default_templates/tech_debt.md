@@ -2,35 +2,39 @@
 
 *Say in one or two sentences what the change improves, and why now.*
 
-## Technical debt impact
+## Technical Debt Impact
 
 *Give one example for each item.*
 
-- **Current problems:** what is difficult, slow or defective now.
-- **Benefits of the fix:** what improves after the change.
-- **Risk of no fix:** what becomes worse when the team does nothing.
+- **Current Problems**: what is difficult, slow or defective now.
+- **Benefits of Fixing**: what improves after the change.
+- **Risk Assessment**: the risks of no change.
 
-## Acceptance criteria
+## Acceptance Criteria
 
 *Write each criterion as one instruction that a person can test. Include "The behavior does not change" and the tests that show it.*
 
 - [ ] 
 
-## Implementation notes
+## Implementation Notes
 
-### Technical approach
+### Technical Approach
 
 *Describe the shape that the code will have. Do not write file paths or code: they change.*
 
-### Risks
+### Dependencies
+
+*Name the tasks and the systems that the change needs.*
+
+### Risk Considerations
 
 *Say what can break, and name the tests that guard the behavior.*
 
-## Exit criteria
+## Exit Criteria
 
 *Move the task to Completed only when each item is true.*
 
-- [ ] Each acceptance criterion is met.
+- [ ] All acceptance criteria are met.
 - [ ] The tests pass, and the behavior does not change.
-- [ ] The documentation is current.
-- [ ] The work is ready to merge.
+- [ ] The documentation is updated.
+- [ ] The work is ready for integration.

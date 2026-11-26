@@ -17,7 +17,7 @@ use crate::schema::{
 // templates
 // ---------------------------------------------------------------------------
 
-/// A tenant document template (`templates`), seeded from
+/// A tenant template (`templates`), seeded from
 /// `public.system_templates` at provision time.
 #[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = templates)]
@@ -30,6 +30,15 @@ pub struct Template {
     pub is_system_default: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The item type of the template (KAIROS-T-0787, KAIROS-A-0087):
+    /// `strategy`, `initiative`, `task`, `document` or `adr`. One template
+    /// for each type except `document`: a document type is a template.
+    pub item_type: String,
+    /// The task type of a task template (`task`, `bug`, `tech_debt`,
+    /// `support`); `None` for each other item type.
+    pub task_type: Option<String>,
+    /// When to use the type: one or two sentences for people and agents.
+    pub use_when: String,
 }
 
 /// Insert for [`Template`].
@@ -40,6 +49,9 @@ pub struct NewTemplate {
     pub slug: String,
     pub content: String,
     pub is_system_default: bool,
+    pub item_type: String,
+    pub task_type: Option<String>,
+    pub use_when: String,
 }
 
 /// Partial update for [`Template`].
@@ -51,6 +63,7 @@ pub struct TemplateChangeset {
     pub content: Option<String>,
     pub is_system_default: Option<bool>,
     pub updated_at: Option<DateTime<Utc>>,
+    pub use_when: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

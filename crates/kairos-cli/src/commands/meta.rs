@@ -94,6 +94,16 @@ pub enum TemplatesCommand {
         /// The markdown content of a new item of the template
         #[arg(long, default_value = "")]
         content: String,
+        /// The item type: strategy, initiative, task, document or adr. Each
+        /// type but document has one template. It does not change later
+        #[arg(long, default_value = "document")]
+        item_type: String,
+        /// The task type of a task template: task, bug, tech_debt or support
+        #[arg(long)]
+        task_type: Option<String>,
+        /// When to use the type: one or two sentences
+        #[arg(long, default_value = "")]
+        use_when: String,
         /// A metadata field as SLUG, SLUG=DEFAULT, SLUG! or SLUG=DEFAULT!
         /// (! makes it required); repeat it
         #[arg(long = "field", value_name = "FIELD")]
@@ -115,6 +125,9 @@ pub enum TemplatesCommand {
         /// The new content
         #[arg(long)]
         content: Option<String>,
+        /// The new text of when to use the type
+        #[arg(long)]
+        use_when: Option<String>,
         /// A metadata field as SLUG, SLUG=DEFAULT, SLUG! or SLUG=DEFAULT!;
         /// repeat it. It replaces the list
         #[arg(long = "field", value_name = "FIELD")]
@@ -284,9 +297,13 @@ impl TemplatesCommand {
                 if args.common.json {
                     return all.print_json();
                 }
-                let mut table = Table::new(&["SLUG", "NAME", "ID"]);
+                let mut table = Table::new(&["SLUG", "NAME", "TYPE", "ID"]);
                 for t in &all.items {
-                    table.row(vec![t.slug.clone(), t.name.clone(), t.id.clone()]);
+                    let kind = match &t.task_type {
+                        Some(task_type) => format!("{} ({task_type})", t.item_type),
+                        None => t.item_type.clone(),
+                    };
+                    table.row(vec![t.slug.clone(), t.name.clone(), kind, t.id.clone()]);
                 }
                 print!("{}", table.render());
                 all.print_footer();
@@ -296,6 +313,9 @@ impl TemplatesCommand {
                 name,
                 slug,
                 content,
+                item_type,
+                task_type,
+                use_when,
                 fields: raw,
                 common,
             } => {
@@ -304,6 +324,9 @@ impl TemplatesCommand {
                     .create_template(&CreateTemplateRequest {
                         name,
                         slug,
+                        item_type,
+                        task_type,
+                        use_when,
                         content,
                         metadata: fields(&raw)?,
                         sections: Vec::new(),
@@ -320,12 +343,19 @@ impl TemplatesCommand {
                 name,
                 slug,
                 content,
+                use_when,
                 fields: raw,
                 common,
             } => {
-                if name.is_none() && slug.is_none() && content.is_none() && raw.is_empty() {
+                if name.is_none()
+                    && slug.is_none()
+                    && content.is_none()
+                    && use_when.is_none()
+                    && raw.is_empty()
+                {
                     return Err(CliError::Failure(
-                        "The command has no change. Use --name, --slug, --content or --field."
+                        "The command has no change. Use --name, --slug, --content, --use-when \
+                         or --field."
                             .to_string(),
                     ));
                 }
@@ -342,6 +372,7 @@ impl TemplatesCommand {
                             name,
                             slug,
                             content,
+                            use_when,
                             metadata,
                             sections: None,
                         },

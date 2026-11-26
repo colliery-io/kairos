@@ -884,10 +884,13 @@ Body of `POST /api/templates` (org admin).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `content` | `string` | no | Starter markdown content; defaults to empty. |
+| `item_type` | `string` | no | The item type (KAIROS-T-0787). Default `document`. A fixed type (`strategy`, `initiative`, `task`, `adr`) has one template: a second one is refused. The type does not change after the create. |
 | `metadata` | array of [`TemplateMetadataEntry`](#templatemetadataentry) | no | Metadata fields the template carries. |
 | `name` | `string` | yes |  |
 | `sections` | array of [`TemplateSection`](#templatesection) | no | The typed sections of the template (KAIROS-T-0729). Default: none. Not sent when empty, so that a server from before the field takes the body. |
 | `slug` | `string` | yes |  |
+| `task_type` | `string`, nullable | no | The task type, for a task template only (`task`, `bug`, `tech_debt`, `support`). Not sent when absent. |
+| `use_when` | `string` | no | When to use the type. Default: empty. Not sent when empty. |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 
@@ -3337,7 +3340,7 @@ One document or ADR in the tree of a team (KAIROS-T-0437): `GET /api/teams/{id}/
 
 ## Template
 
-A document template, as returned by `GET /api/templates`.
+A template, as returned by `GET /api/templates`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -3345,9 +3348,12 @@ A document template, as returned by `GET /api/templates`.
 | `created_at` | `string` | yes | RFC 3339. |
 | `id` | `string` | yes | Template id (UUID). |
 | `is_system_default` | `boolean` | yes | Seeded from the system defaults at tenant provisioning. |
+| `item_type` | `string` | no | The item type (KAIROS-T-0787): `strategy`, `initiative`, `task`, `document` or `adr`. One template for each type except `document`. |
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
+| `task_type` | `string`, nullable | no | The task type of a task template (`task`, `bug`, `tech_debt`, `support`); absent for each other item type. |
 | `updated_at` | `string` | yes | RFC 3339. |
+| `use_when` | `string` | no | When to use the type: one or two sentences (KAIROS-T-0787). |
 
 ## TemplateDetail
 
@@ -3359,11 +3365,14 @@ Response of `GET /api/templates/{id}`: the template plus its associated metadata
 | `created_at` | `string` | yes | RFC 3339. |
 | `id` | `string` | yes | Template id (UUID). |
 | `is_system_default` | `boolean` | yes |  |
+| `item_type` | `string` | no | The item type (KAIROS-T-0787): `strategy`, `initiative`, `task`, `document` or `adr`. One template for each type except `document`. |
 | `metadata` | array of [`TemplateMetadataField`](#templatemetadatafield) | yes | The metadata fields this template carries, ordered by slug. |
 | `name` | `string` | yes |  |
 | `sections` | array of [`TemplateSection`](#templatesection) | no | The typed sections of the template, in the order that the admin sent (KAIROS-T-0729). |
 | `slug` | `string` | yes |  |
+| `task_type` | `string`, nullable | no | The task type of a task template (`task`, `bug`, `tech_debt`, `support`); absent for each other item type. |
 | `updated_at` | `string` | yes | RFC 3339. |
+| `use_when` | `string` | no | When to use the type: one or two sentences (KAIROS-T-0787). |
 
 ## TemplateMetadataEntry
 
@@ -3650,6 +3659,7 @@ Body of `PATCH /api/templates/{id}` (org admin). Omitted fields are unchanged; `
 | `name` | `string`, nullable | no |  |
 | `sections` | `array`, nullable | no | Replacement list of the typed sections (KAIROS-T-0729); `[]` removes each one. Not sent when `None`. |
 | `slug` | `string`, nullable | no |  |
+| `use_when` | `string`, nullable | no | When to use the type (KAIROS-T-0787). Not sent when `None`. |
 
 The server refuses a body with a field that is not in this table ([Errors](../../errors/#a-field-of-the-body)).
 

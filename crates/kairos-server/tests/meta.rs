@@ -1113,6 +1113,9 @@ async fn meta_endpoints_against_live_stack() {
     let runbook_request = CreateTemplateRequest {
         name: "Runbook".into(),
         slug: "runbook".into(),
+        item_type: "document".into(),
+        task_type: None,
+        use_when: String::new(),
         content: "# Runbook\n".into(),
         metadata: vec![TemplateMetadataEntry {
             definition_slug: "priority".into(),
@@ -1164,6 +1167,9 @@ async fn meta_endpoints_against_live_stack() {
         svc.create_template(&CreateTemplateRequest {
             name: "Bad".into(),
             slug: "bad-section".into(),
+            item_type: "document".into(),
+            task_type: None,
+            use_when: String::new(),
             content: String::new(),
             metadata: Vec::new(),
             sections: vec![TemplateSection {
@@ -1186,6 +1192,9 @@ async fn meta_endpoints_against_live_stack() {
         svc.create_template(&CreateTemplateRequest {
             name: "Bad".into(),
             slug: "bad-heading".into(),
+            item_type: "document".into(),
+            task_type: None,
+            use_when: String::new(),
             content: String::new(),
             metadata: Vec::new(),
             sections: vec![TemplateSection {
@@ -1205,6 +1214,9 @@ async fn meta_endpoints_against_live_stack() {
         svc.create_template(&CreateTemplateRequest {
             name: "Bad".into(),
             slug: "bad-default".into(),
+            item_type: "document".into(),
+            task_type: None,
+            use_when: String::new(),
             content: String::new(),
             metadata: vec![TemplateMetadataEntry {
                 definition_slug: "priority".into(),
@@ -1223,6 +1235,9 @@ async fn meta_endpoints_against_live_stack() {
         svc.create_template(&CreateTemplateRequest {
             name: "Bad".into(),
             slug: "bad-slug".into(),
+            item_type: "document".into(),
+            task_type: None,
+            use_when: String::new(),
             content: String::new(),
             metadata: vec![TemplateMetadataEntry {
                 definition_slug: "no_such_definition".into(),
@@ -1271,6 +1286,7 @@ async fn meta_endpoints_against_live_stack() {
                 name: None,
                 slug: None,
                 content: Some("# Runbook v2\n".into()),
+                use_when: None,
                 metadata: None,
                 sections: None,
             },
@@ -1278,6 +1294,102 @@ async fn meta_endpoints_against_live_stack() {
         .await
         .expect("updating runbook template");
     assert_eq!(body.content, "# Runbook v2\n");
+
+    // KAIROS-T-0787: each template has an item type. The seeded templates
+    // are document templates; a document type is a template, so there are
+    // many. A fixed type has one template: a second one is refused and the
+    // refusal names the first.
+    let listed = bob
+        .list_templates(Pagination::default())
+        .await
+        .expect("listing templates");
+    assert!(
+        listed
+            .items
+            .iter()
+            .filter(|t| t.is_system_default)
+            .all(|t| t.item_type == "document" && t.task_type.is_none()),
+        "{listed:?}"
+    );
+    let typed = |slug: &str, item_type: &str, task_type: Option<&str>| CreateTemplateRequest {
+        name: slug.to_string(),
+        slug: slug.to_string(),
+        item_type: item_type.to_string(),
+        task_type: task_type.map(str::to_string),
+        use_when: format!("Use when you write a {slug}."),
+        content: "## Why\n".into(),
+        metadata: Vec::new(),
+        sections: Vec::new(),
+    };
+    let bug = svc
+        .create_template(&typed("bug-report", "task", Some("bug")))
+        .await
+        .expect("making the bug template");
+    assert_eq!(
+        (bug.item_type.as_str(), bug.task_type.as_deref()),
+        ("task", Some("bug"))
+    );
+    assert_eq!(bug.use_when, "Use when you write a bug-report.");
+    let err = rejection(
+        svc.create_template(&typed("bug-two", "task", Some("bug")))
+            .await,
+    );
+    assert!(
+        matches!(&err, Error::Validation { status: 422, field: Some(f), .. } if f == "item_type"),
+        "{err:?}"
+    );
+    assert!(err.to_string().contains("bug-report"), "{err}");
+    // Another task type, and an initiative, each get their own template.
+    svc.create_template(&typed("tech-debt", "task", Some("tech_debt")))
+        .await
+        .expect("making the tech debt template");
+    svc.create_template(&typed("initiative", "initiative", None))
+        .await
+        .expect("making the initiative template");
+    let err = rejection(
+        svc.create_template(&typed("initiative-two", "initiative", None))
+            .await,
+    );
+    assert!(err.to_string().contains("\"initiative\""), "{err}");
+    // A task template needs a task type; no other template has one; the
+    // item type is one of the five.
+    for (request, field) in [
+        (typed("no-task-type", "task", None), "task_type"),
+        (typed("adr-with-task", "adr", Some("bug")), "task_type"),
+        (typed("odd-task-type", "task", Some("chore")), "task_type"),
+        (typed("odd-type", "epic", None), "item_type"),
+    ] {
+        let err = rejection(svc.create_template(&request).await);
+        assert!(
+            matches!(&err, Error::Validation { status: 422, field: Some(f), .. } if f == field),
+            "{}: {err:?}",
+            request.slug
+        );
+    }
+    // Many document templates are allowed.
+    svc.create_template(&typed("design-doc", "document", None))
+        .await
+        .expect("a second document template");
+    // `use_when` changes with PATCH; the type stays.
+    let changed = svc
+        .update_template(
+            "bug-report",
+            &UpdateTemplateRequest {
+                name: None,
+                slug: None,
+                content: None,
+                use_when: Some("Use when something does not work as it should.".into()),
+                metadata: None,
+                sections: None,
+            },
+        )
+        .await
+        .expect("changing use_when");
+    assert_eq!(
+        changed.use_when,
+        "Use when something does not work as it should."
+    );
+    assert_eq!(changed.task_type.as_deref(), Some("bug"));
     assert_eq!(body.metadata[0].slug, "priority");
     assert_eq!(sections(&body), expected, "sections: None keeps the list");
 
@@ -1289,6 +1401,7 @@ async fn meta_endpoints_against_live_stack() {
                 name: None,
                 slug: None,
                 content: None,
+                use_when: None,
                 metadata: None,
                 sections: Some(vec![TemplateSection {
                     heading: "Checks".into(),

@@ -1,5 +1,6 @@
 //! `/api/templates` (KAIROS-S-0005, model per KAIROS-A-0003): CRUD over
-//! the tenant's document templates and their metadata-field associations.
+//! the tenant's templates and their metadata-field associations. Each
+//! template has an item type, one for each fixed type (KAIROS-A-0087).
 //!
 //! Reads are open tenant-wide; writes are org-admin only (A-0006). The
 //! detail response carries the template content plus its associated
@@ -327,8 +328,92 @@ fn replace_associations(
     Ok(())
 }
 
-/// Map the unique violation a template write can hit (`slug` UNIQUE) to
-/// 422; everything else is internal.
+/// The item types of a template (KAIROS-T-0787).
+pub(crate) const ITEM_TYPES: [&str; 5] = ["strategy", "initiative", "task", "document", "adr"];
+/// The task types of a task template (KAIROS-T-0787).
+pub(crate) const TASK_TYPES: [&str; 4] = ["task", "bug", "tech_debt", "support"];
+
+/// Check the item type and the task type of a new template
+/// (KAIROS-T-0787, KAIROS-A-0087): a known item type; a task type for a
+/// task template and for no other; one template for each fixed type (each
+/// type but `document`). A second template of a fixed type is refused, and
+/// the refusal names the template that has the type.
+fn check_type(
+    conn: &mut PgConnection,
+    item_type: &str,
+    task_type: Option<&str>,
+) -> Result<(), ApiError> {
+    if !ITEM_TYPES.contains(&item_type) {
+        return Err(ApiError::validation(format!(
+            "The item type {item_type:?} is not known. Send one of: {}.",
+            ITEM_TYPES.join(", ")
+        ))
+        .with_details(serde_json::json!({
+            "field": "item_type",
+            "value": item_type,
+            "allowed": ITEM_TYPES,
+        })));
+    }
+    match (item_type, task_type) {
+        ("task", None) => {
+            return Err(ApiError::validation(format!(
+                "A task template needs a task type. Send task_type: one of {}.",
+                TASK_TYPES.join(", ")
+            ))
+            .with_details(serde_json::json!({ "field": "task_type", "allowed": TASK_TYPES })));
+        }
+        ("task", Some(task_type)) if !TASK_TYPES.contains(&task_type) => {
+            return Err(ApiError::validation(format!(
+                "The task type {task_type:?} is not known. Send one of: {}.",
+                TASK_TYPES.join(", ")
+            ))
+            .with_details(serde_json::json!({
+                "field": "task_type",
+                "value": task_type,
+                "allowed": TASK_TYPES,
+            })));
+        }
+        (other, Some(_)) if other != "task" => {
+            return Err(ApiError::validation(format!(
+                "Only a task template has a task type. This template has the item type \
+                 {other:?}: send no task_type."
+            ))
+            .with_details(serde_json::json!({ "field": "task_type" })));
+        }
+        _ => {}
+    }
+    if item_type == "document" {
+        return Ok(());
+    }
+    use kairos_db::schema::templates;
+    let mut query = templates::table
+        .filter(templates::item_type.eq(item_type))
+        .into_boxed();
+    query = match task_type {
+        Some(task_type) => query.filter(templates::task_type.eq(task_type)),
+        None => query.filter(templates::task_type.is_null()),
+    };
+    let existing: Option<String> = query
+        .select(templates::slug)
+        .first(conn)
+        .optional()
+        .map_err(ApiError::internal)?;
+    if let Some(slug) = existing {
+        let kind = task_type.map_or_else(|| item_type.to_string(), |t| format!("task type {t}"));
+        return Err(ApiError::validation(format!(
+            "The organization has a template for the {kind}: {slug:?}. Each type has one \
+             template. Change that template, or delete it first."
+        ))
+        .with_details(serde_json::json!({
+            "field": "item_type",
+            "existing": slug,
+        })));
+    }
+    Ok(())
+}
+
+/// Map the unique violation a template write can hit (`slug` UNIQUE, and
+/// one template for each fixed type) to 422; everything else is internal.
 fn map_write_error(e: DieselError) -> ApiError {
     match e {
         DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, info) => {
@@ -447,6 +532,7 @@ pub(crate) fn create_template_in(
     body: &dto::CreateTemplateRequest,
 ) -> Result<dto::TemplateDetail, ApiError> {
     use kairos_db::schema::templates;
+    check_type(conn, &body.item_type, body.task_type.as_deref())?;
     let entries = resolve_entries(conn, &body.metadata)?;
     let sections = resolve_sections(&body.sections)?;
     let created = conn
@@ -457,6 +543,9 @@ pub(crate) fn create_template_in(
                     slug: body.slug.clone(),
                     content: body.content.clone(),
                     is_system_default: false,
+                    item_type: body.item_type.clone(),
+                    task_type: body.task_type.clone(),
+                    use_when: body.use_when.clone(),
                 })
                 .returning(Template::as_returning())
                 .get_result(conn)?;
@@ -519,16 +608,17 @@ pub(crate) fn update_template_in(
     if body.name.is_none()
         && body.slug.is_none()
         && body.content.is_none()
+        && body.use_when.is_none()
         && body.metadata.is_none()
         && body.sections.is_none()
     {
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of name, slug, content, \
-             metadata and sections.",
+             use_when, metadata and sections.",
         )
         .with_details(serde_json::json!({
             "field": "name",
-            "fields": ["name", "slug", "content", "metadata", "sections"],
+            "fields": ["name", "slug", "content", "use_when", "metadata", "sections"],
         })));
     }
     use kairos_db::schema::templates;
@@ -558,10 +648,15 @@ pub(crate) fn update_template_in(
         content: body.content.clone().filter(|text| *text != current.content),
         is_system_default: None,
         updated_at: Some(chrono::Utc::now()),
+        use_when: body
+            .use_when
+            .clone()
+            .filter(|text| *text != current.use_when),
     };
     if changes.name.is_none()
         && changes.slug.is_none()
         && changes.content.is_none()
+        && changes.use_when.is_none()
         && entries.is_none()
         && sections.is_none()
     {

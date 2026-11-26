@@ -221,6 +221,10 @@ const NAMES: &[Name] = &[
         "size_warning",
         "the setting size_warning of an initiative board (KAIROS-T-0779)",
     ),
+    one(
+        "use_when",
+        "when to use the type of a template (KAIROS-T-0787)",
+    ),
     one("owner_gate", "the policy owner_gate"),
     one("parent_gate", "the policy parent_gate"),
     one("claim", "claim the item in the move"),

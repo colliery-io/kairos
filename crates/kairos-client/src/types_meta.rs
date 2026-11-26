@@ -355,13 +355,30 @@ pub struct UpdateMetadataDefinitionRequest {
 // Templates (KAIROS-A-0003; org-admin writes per A-0006)
 // ---------------------------------------------------------------------------
 
-/// A document template, as returned by `GET /api/templates`.
+/// The item type of a template that does not name one: `document`, the
+/// type of each template before KAIROS-T-0787.
+pub fn document_item_type() -> String {
+    "document".to_string()
+}
+
+/// A template, as returned by `GET /api/templates`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Template {
     /// Template id (UUID).
     pub id: String,
     pub name: String,
     pub slug: String,
+    /// The item type (KAIROS-T-0787): `strategy`, `initiative`, `task`,
+    /// `document` or `adr`. One template for each type except `document`.
+    #[serde(default = "document_item_type")]
+    pub item_type: String,
+    /// The task type of a task template (`task`, `bug`, `tech_debt`,
+    /// `support`); absent for each other item type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+    /// When to use the type: one or two sentences (KAIROS-T-0787).
+    #[serde(default)]
+    pub use_when: String,
     /// Starter markdown content.
     pub content: String,
     /// Seeded from the system defaults at tenant provisioning.
@@ -399,6 +416,17 @@ pub struct TemplateDetail {
     pub id: String,
     pub name: String,
     pub slug: String,
+    /// The item type (KAIROS-T-0787): `strategy`, `initiative`, `task`,
+    /// `document` or `adr`. One template for each type except `document`.
+    #[serde(default = "document_item_type")]
+    pub item_type: String,
+    /// The task type of a task template (`task`, `bug`, `tech_debt`,
+    /// `support`); absent for each other item type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+    /// When to use the type: one or two sentences (KAIROS-T-0787).
+    #[serde(default)]
+    pub use_when: String,
     /// Starter markdown content.
     pub content: String,
     pub is_system_default: bool,
@@ -450,6 +478,18 @@ pub struct TemplateSection {
 pub struct CreateTemplateRequest {
     pub name: String,
     pub slug: String,
+    /// The item type (KAIROS-T-0787). Default `document`. A fixed type
+    /// (`strategy`, `initiative`, `task`, `adr`) has one template: a second
+    /// one is refused. The type does not change after the create.
+    #[serde(default = "document_item_type")]
+    pub item_type: String,
+    /// The task type, for a task template only (`task`, `bug`,
+    /// `tech_debt`, `support`). Not sent when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+    /// When to use the type. Default: empty. Not sent when empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub use_when: String,
     /// Starter markdown content; defaults to empty.
     #[serde(default)]
     pub content: String,
@@ -474,6 +514,9 @@ pub struct UpdateTemplateRequest {
     pub slug: Option<String>,
     #[serde(default)]
     pub content: Option<String>,
+    /// When to use the type (KAIROS-T-0787). Not sent when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_when: Option<String>,
     /// Replacement metadata association list.
     #[serde(default)]
     pub metadata: Option<Vec<TemplateMetadataEntry>>,

@@ -855,6 +855,9 @@ diesel::table! {
         is_system_default -> Bool,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        item_type -> Text,
+        task_type -> Nullable<Text>,
+        use_when -> Text,
     }
 }
 
@@ -1054,6 +1057,9 @@ diesel::table! {
         content -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        item_type -> Text,
+        task_type -> Nullable<Text>,
+        use_when -> Text,
     }
 }
 

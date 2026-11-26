@@ -398,11 +398,14 @@ pub fn provision_tenant_from(
         // migration `document_board_and_impacts` makes "Product Vision"
         // for the tenants that exist), and it runs before this copy. The
         // copy does not make that template again, and the count is the
-        // count of the system templates that the tenant has.
+        // count of the system templates that the tenant has. KAIROS-T-0787:
+        // the copy takes the item type, the task type and use_when, and it
+        // skips a template of a fixed type that the tenant has (the slug or
+        // the type: one template for each type).
         sql_query(
-            "INSERT INTO templates (name, slug, content, is_system_default) \
-             SELECT name, slug, content, true FROM public.system_templates \
-             ON CONFLICT (slug) DO NOTHING",
+            "INSERT INTO templates (name, slug, content, is_system_default, item_type, task_type, use_when) \
+             SELECT name, slug, content, true, item_type, task_type, use_when FROM public.system_templates \
+             ON CONFLICT DO NOTHING",
         )
         .execute(conn)?;
         let templates_copied = {

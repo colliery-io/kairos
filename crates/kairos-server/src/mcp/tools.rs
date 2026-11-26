@@ -1623,6 +1623,15 @@ pub struct SaveTemplateParams {
     pub slug: Option<String>,
     /// The markdown content of a new item of the template.
     pub content: Option<String>,
+    /// A new template only (KAIROS-T-0787): the item type, `strategy`,
+    /// `initiative`, `task`, `document` (the default) or `adr`. Each type
+    /// but `document` has one template. The type does not change later.
+    pub item_type: Option<String>,
+    /// A new task template only: the task type, `task`, `bug`, `tech_debt`
+    /// or `support`.
+    pub task_type: Option<String>,
+    /// When to use the type: one or two sentences (KAIROS-T-0787).
+    pub use_when: Option<String>,
     /// The metadata fields. It replaces the list.
     pub metadata: Option<Vec<TemplateFieldParams>>,
     /// The typed sections: a heading and a type each (KAIROS-T-0729). It
@@ -3081,7 +3090,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the templates of the organization: slug, name, the metadata that each template stamps on an item (the default value, and whether the field is required), and the typed sections (a heading and a type: `free`, `plain` or `ears`). With `slug`, show that one template with its full content."
+        description = "List the templates of the organization: slug, name, the item type (and the task type of a task template), when to use it, the metadata that each template stamps on an item (the default value, and whether the field is required), and the typed sections (a heading and a type: `free`, `plain` or `ears`). With `slug`, show that one template with its full content."
     )]
     pub async fn list_templates(
         &self,
@@ -3112,6 +3121,16 @@ impl KairosMcp {
             for row in rows {
                 let template = crate::api::meta::templates::detail(conn, row)?;
                 out.push_str(&format!("\n## `{}` {}\n", template.slug, template.name));
+                // KAIROS-T-0787: the type, and when to use it.
+                match template.task_type.as_deref() {
+                    Some(task_type) => {
+                        out.push_str(&format!("- type: {} ({task_type})\n", template.item_type))
+                    }
+                    None => out.push_str(&format!("- type: {}\n", template.item_type)),
+                }
+                if !template.use_when.is_empty() {
+                    out.push_str(&format!("- use when: {}\n", template.use_when));
+                }
                 if template.metadata.is_empty() {
                     out.push_str("- metadata: none\n");
                 }
@@ -5981,7 +6000,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content`, `metadata` and `sections` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. `sections` is a list of typed sections: `heading` (the text, no `#`) and `type` (`free`, `plain` or `ears`); an unknown type is refused. Organization admins only."
+        description = "Make or change a template, as POST and PATCH /api/templates do. With `template` (slug or UUID), the tool changes it: `name`, `slug`, `content`, `use_when`, `metadata` and `sections` (each replaces the value). With no `template`, it makes one: `name` and `slug` are required; `item_type` (`strategy`, `initiative`, `task`, `document` by default, `adr`) and, for a task, `task_type` (`task`, `bug`, `tech_debt`, `support`) give its type, which does not change later. Each type but `document` has one template: a second one is refused. `metadata` is a list of fields: `definition`, optional `default_value`, `required`. `sections` is a list of typed sections: `heading` (the text, no `#`) and `type` (`free`, `plain` or `ears`); an unknown type is refused. Organization admins only."
     )]
     pub async fn save_template(
         &self,
@@ -6015,6 +6034,18 @@ impl KairosMcp {
                     .collect::<Vec<_>>()
             });
             let saved = match params.template.as_deref() {
+                Some(_) if params.item_type.is_some() || params.task_type.is_some() => {
+                    let field = if params.item_type.is_some() {
+                        "item_type"
+                    } else {
+                        "task_type"
+                    };
+                    return Err(ApiError::validation(format!(
+                        "The type of a template does not change: send {field} only to make a \
+                         new template."
+                    ))
+                    .with_details(json!({ "field": field })));
+                }
                 Some(reference) => {
                     let id = meta_id(conn, "templates", reference, "template")?;
                     t::update_template_in(
@@ -6025,6 +6056,7 @@ impl KairosMcp {
                             name: params.name,
                             slug: params.slug,
                             content: params.content,
+                            use_when: params.use_when,
                             metadata,
                             sections,
                         },
@@ -6045,6 +6077,9 @@ impl KairosMcp {
                         &dto::CreateTemplateRequest {
                             name: required(params.name, "name")?,
                             slug: required(params.slug, "slug")?,
+                            item_type: params.item_type.unwrap_or_else(dto::document_item_type),
+                            task_type: params.task_type,
+                            use_when: params.use_when.unwrap_or_default(),
                             content: params.content.unwrap_or_default(),
                             metadata: metadata.unwrap_or_default(),
                             sections: sections.unwrap_or_default(),

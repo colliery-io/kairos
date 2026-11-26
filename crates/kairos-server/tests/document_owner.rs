@@ -2011,10 +2011,10 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         // KAIROS-T-0790: the template has guidance and no title.
         [
             "## Purpose",
-            "## Product or solution overview",
-            "## Current state",
-            "## Future state",
-            "## Success criteria",
+            "## Product/Solution Overview",
+            "## Current State",
+            "## Future State",
+            "## Success Criteria",
             "## Principles",
             "## Constraints",
         ]

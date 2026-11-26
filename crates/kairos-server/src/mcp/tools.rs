@@ -9756,6 +9756,13 @@ fn create_item_impl(
         if let Some(renamed) = &created.parent_renamed {
             out.push_str(&format!("\n{renamed}"));
         }
+        if params
+            .content
+            .as_deref()
+            .is_none_or(|c| c.trim().is_empty())
+        {
+            out.push_str(&template_content_block(&created.document.content));
+        }
         return Ok(out);
     }
 
@@ -10030,7 +10037,52 @@ fn create_item_impl(
             kairos_db::board_policy::INITIATIVE_GUIDANCE
         ));
     }
+    // KAIROS-T-0788: a create with no content writes the template of the
+    // type; the answer gives it, so that the next call fills it in.
+    if content.trim().is_empty() {
+        let written = created_content(conn, item_type, created_id)?;
+        out.push_str(&template_content_block(&written));
+    }
     Ok(out)
+}
+
+/// The content of a new item, by its type and its id (KAIROS-T-0788).
+fn created_content(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    id: Uuid,
+) -> Result<String, ApiError> {
+    let table = match item_type {
+        ItemType::Strategy => "strategies",
+        ItemType::Initiative => "initiatives",
+        ItemType::Task => "tasks",
+        ItemType::Document => "documents",
+        ItemType::Adr => "adrs",
+    };
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        content: String,
+    }
+    let row: Row = diesel::sql_query(format!("SELECT content FROM {table} WHERE id = $1"))
+        .bind::<diesel::sql_types::Uuid, _>(id)
+        .get_result(conn)
+        .map_err(ApiError::internal)?;
+    Ok(row.content)
+}
+
+/// The block of the answer of a create that wrote the template of the type
+/// (KAIROS-T-0788): the content of version 1, and how to fill it in. Empty
+/// when the type has no template.
+fn template_content_block(content: &str) -> String {
+    if content.trim().is_empty() {
+        return String::new();
+    }
+    format!(
+        "\n\nContent of version 1, from the template of the type. Fill in each section with \
+         `update_item` (send version 1) or `edit_item`; the italic text is guidance:\n\n{}",
+        content.trim_end()
+    )
 }
 
 // ---------------------------------------------------------------------------

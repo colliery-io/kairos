@@ -1334,6 +1334,47 @@ async fn meta_endpoints_against_live_stack() {
         metadata: Vec::new(),
         sections: Vec::new(),
     };
+    // KAIROS-T-0788: a create with no content writes the template of its
+    // type as version 1; a create with content keeps that content; a type
+    // with no template gets an empty body.
+    let new_task = |task_type: &str, content: &str| CreateTaskRequest {
+        board_id: Some(delivery_board.to_string()),
+        repository: None,
+        column_id: None,
+        title: format!("A {task_type}"),
+        content: content.into(),
+        task_type: Some(task_type.into()),
+        work_class: None,
+        team_id: None,
+        from_team: None,
+        parent: None,
+    };
+    let default_bug = kairos_db::default_templates::DEFAULT_TEMPLATES
+        .iter()
+        .find(|t| t.slug == "bug")
+        .expect("the default bug template")
+        .content;
+    let from_template = alice
+        .create_task(&new_task("bug", ""))
+        .await
+        .expect("a bug with no content");
+    assert_eq!(
+        (from_template.content.as_str(), from_template.version),
+        (default_bug, 1)
+    );
+    let written = alice
+        .create_task(&new_task("bug", "## Steps\n1. Open it.\n"))
+        .await
+        .expect("a bug with content");
+    assert_eq!(written.content, "## Steps\n1. Open it.\n");
+    svc.delete_template("tech_debt")
+        .await
+        .expect("deleting the tech debt template");
+    let plain = alice
+        .create_task(&new_task("tech_debt", ""))
+        .await
+        .expect("a tech debt task: no template");
+    assert_eq!(plain.content, "");
     let err = rejection(
         svc.create_template(&typed("bug-two", "task", Some("bug")))
             .await,

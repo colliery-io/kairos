@@ -670,6 +670,82 @@ fn load_live_content(
 // Create services (short code + version 1 + v1 history baseline + audit)
 // ---------------------------------------------------------------------------
 
+/// The template of a fixed item type (KAIROS-T-0788, KAIROS-A-0087): the
+/// one template of `item_type` (and of `task_type` for a task), or `None`
+/// when the organization has none. Not for documents: a document names its
+/// template.
+pub fn type_template(
+    conn: &mut PgConnection,
+    item_type: &str,
+    task_type: Option<&str>,
+) -> Result<Option<Template>, DieselError> {
+    use crate::schema::templates;
+    let mut query = templates::table
+        .filter(templates::item_type.eq(item_type))
+        .into_boxed();
+    query = match task_type {
+        Some(task_type) => query.filter(templates::task_type.eq(task_type)),
+        None => query.filter(templates::task_type.is_null()),
+    };
+    query.select(Template::as_select()).first(conn).optional()
+}
+
+/// The content of a new item (KAIROS-T-0788): the content that the caller
+/// gives, or, when it is empty, the content of the template of the type.
+/// Gives the template too, to stamp its metadata defaults.
+fn content_of_new_item(
+    conn: &mut PgConnection,
+    content: &str,
+    item_type: &str,
+    task_type: Option<&str>,
+) -> Result<(String, Option<Template>), DieselError> {
+    if !content.trim().is_empty() {
+        return Ok((content.to_string(), None));
+    }
+    let template = type_template(conn, item_type, task_type)?;
+    let content = template
+        .as_ref()
+        .map_or_else(String::new, |t| t.content.clone());
+    Ok((content, template))
+}
+
+/// Stamp the metadata defaults of `template` on a new item (KAIROS-A-0003):
+/// each `template_metadata` row with a default value whose definition
+/// applies to `entity_type` (KAIROS-T-0078) becomes an `item_metadata` row.
+fn stamp_template_metadata(
+    conn: &mut PgConnection,
+    item_id: Uuid,
+    template_id: Uuid,
+    entity_type: &str,
+) -> Result<(), DieselError> {
+    use crate::schema::{item_metadata, template_metadata};
+    let defaults: Vec<(Uuid, Option<String>)> = template_metadata::table
+        .filter(template_metadata::template_id.eq(template_id))
+        .select((
+            template_metadata::metadata_definition_id,
+            template_metadata::default_value,
+        ))
+        .load(conn)?;
+    let mut stamps: Vec<NewItemMetadata> = Vec::with_capacity(defaults.len());
+    for (metadata_definition_id, default_value) in defaults {
+        let Some(value) = default_value else { continue };
+        if !definition_applies_to(conn, metadata_definition_id, entity_type)? {
+            continue;
+        }
+        stamps.push(NewItemMetadata {
+            item_id,
+            metadata_definition_id,
+            value,
+        });
+    }
+    if !stamps.is_empty() {
+        diesel::insert_into(item_metadata::table)
+            .values(&stamps)
+            .execute(conn)?;
+    }
+    Ok(())
+}
+
 /// Input for [`create_strategy`].
 #[derive(Debug, Clone)]
 pub struct CreateStrategy<'a> {
@@ -691,11 +767,12 @@ pub fn create_strategy(
 ) -> Result<Strategy, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
         let column_id = resolve_column(conn, input.board_id, input.column_id)?;
+        let (content, template) = content_of_new_item(conn, input.content, "strategy", None)?;
         let mut created: Strategy = diesel::insert_into(crate::schema::strategies::table)
             .values(NewStrategy {
                 short_code: pending_code(),
                 title: input.title.to_string(),
-                content: input.content.to_string(),
+                content,
                 board_id: input.board_id,
                 column_id,
                 hypothesis: input.hypothesis.map(str::to_string),
@@ -704,6 +781,9 @@ pub fn create_strategy(
             })
             .returning(Strategy::as_returning())
             .get_result(conn)?;
+        if let Some(template) = &template {
+            stamp_template_metadata(conn, created.id, template.id, "strategy")?;
+        }
         created.short_code = finish_create(
             conn,
             actor,
@@ -739,11 +819,12 @@ pub fn create_initiative(
 ) -> Result<Initiative, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
         let column_id = resolve_column(conn, input.board_id, input.column_id)?;
+        let (content, template) = content_of_new_item(conn, input.content, "initiative", None)?;
         let mut created: Initiative = diesel::insert_into(crate::schema::initiatives::table)
             .values(NewInitiative {
                 short_code: pending_code(),
                 title: input.title.to_string(),
-                content: input.content.to_string(),
+                content,
                 board_id: input.board_id,
                 column_id,
                 complexity: input.complexity,
@@ -754,6 +835,9 @@ pub fn create_initiative(
             })
             .returning(Initiative::as_returning())
             .get_result(conn)?;
+        if let Some(template) = &template {
+            stamp_template_metadata(conn, created.id, template.id, "initiative")?;
+        }
         created.short_code = finish_create(
             conn,
             actor,
@@ -823,11 +907,13 @@ pub fn create_task(
         // already refused a board that does not exist, so a missing row here
         // is a teamless board (`None`), which is a valid answer.
         let team_id = board_team(conn, input.board_id)?;
+        let (content, template) =
+            content_of_new_item(conn, input.content, "task", Some(input.task_type.as_str()))?;
         let mut created: Task = diesel::insert_into(crate::schema::tasks::table)
             .values(NewTask {
                 short_code: pending_code(),
                 title: input.title.to_string(),
-                content: input.content.to_string(),
+                content,
                 board_id: input.board_id,
                 column_id,
                 task_type: input.task_type,
@@ -839,6 +925,9 @@ pub fn create_task(
             })
             .returning(Task::as_returning())
             .get_result(conn)?;
+        if let Some(template) = &template {
+            stamp_template_metadata(conn, created.id, template.id, "task")?;
+        }
         created.short_code = finish_create(
             conn,
             actor,
@@ -1308,7 +1397,7 @@ pub fn create_document(
     actor: Uuid,
 ) -> Result<Document, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
-        use crate::schema::{item_metadata, template_metadata, templates};
+        use crate::schema::templates;
 
         let board_id = input.board_id;
         require_live_board(conn, board_id)?;
@@ -1347,33 +1436,9 @@ pub fn create_document(
             .get_result(conn)?;
 
         if let Some(template) = &template {
-            let defaults: Vec<(Uuid, Option<String>)> = template_metadata::table
-                .filter(template_metadata::template_id.eq(template.id))
-                .select((
-                    template_metadata::metadata_definition_id,
-                    template_metadata::default_value,
-                ))
-                .load(conn)?;
-            let mut stamps: Vec<NewItemMetadata> = Vec::with_capacity(defaults.len());
-            for (metadata_definition_id, default_value) in defaults {
-                let Some(value) = default_value else { continue };
-                // KAIROS-T-0078: stamping is a metadata write path — a
-                // definition scoped away from documents never stamps,
-                // whatever a template association claims.
-                if !definition_applies_to(conn, metadata_definition_id, "document")? {
-                    continue;
-                }
-                stamps.push(NewItemMetadata {
-                    item_id: created.id,
-                    metadata_definition_id,
-                    value,
-                });
-            }
-            if !stamps.is_empty() {
-                diesel::insert_into(item_metadata::table)
-                    .values(&stamps)
-                    .execute(conn)?;
-            }
+            // KAIROS-T-0078: a definition scoped away from documents never
+            // stamps, whatever a template association claims.
+            stamp_template_metadata(conn, created.id, template.id, "document")?;
         }
 
         created.short_code = finish_create(
@@ -1423,11 +1488,12 @@ pub fn create_adr(
             Some(board_id) => Some((board_id, resolve_column(conn, board_id, input.column_id)?)),
             None => None,
         };
+        let (content, template) = content_of_new_item(conn, input.content, "adr", None)?;
         let mut created: Adr = diesel::insert_into(crate::schema::adrs::table)
             .values(NewAdr {
                 short_code: pending_code(),
                 title: input.title.to_string(),
-                content: input.content.to_string(),
+                content,
                 board_id: placement.map(|(board_id, _)| board_id),
                 column_id: placement.map(|(_, column_id)| column_id),
                 decision_maker: input.decision_maker.map(str::to_string),
@@ -1437,6 +1503,9 @@ pub fn create_adr(
             })
             .returning(Adr::as_returning())
             .get_result(conn)?;
+        if let Some(template) = &template {
+            stamp_template_metadata(conn, created.id, template.id, "adr")?;
+        }
         created.short_code = finish_create(
             conn,
             actor,

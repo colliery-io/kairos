@@ -17,3 +17,11 @@
 ## Risks
 
 *List what can make the strategy fail, and the sign that shows it early.*
+
+## Exit criteria
+
+*Move the strategy to Active only when each item is true.*
+
+- [ ] The context and the direction are clear.
+- [ ] Each measure has a target and a date.
+- [ ] The people who own the strategy reviewed and approved it.

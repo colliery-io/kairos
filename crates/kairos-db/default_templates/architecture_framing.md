@@ -33,3 +33,11 @@
 *List what you do not know yet, and who owns each answer.*
 
 - 
+
+## Exit criteria
+
+*Publish the document only when each item is true.*
+
+- [ ] Each open decision has its question, its constraints and its required capabilities.
+- [ ] The table shows the order of the decisions.
+- [ ] Each decision that the team made has an ADR.

@@ -1,23 +1,50 @@
+*This template has sections for many types of vision. Delete each optional section that does not apply.*
+
 ## Purpose
 
-*Say in one or two sentences why the product exists.*
+*Say why this vision exists, and what it aims to do.*
 
-## Who it is for
+## Product or solution overview
 
-*Name the users and what each one needs from the product.*
+*Optional: delete this section for a vision of the organization or of a process. Describe the product, who it is for, and what it improves.*
 
 ## Current state
 
-*Say what the product does today, and what is missing.*
+*Say where things are today: the baseline.*
 
 ## Future state
 
-*Say what the product does when the vision is true.*
+*Describe the target: what is different when the vision is true.*
+
+## Major features
+
+*Optional: delete this section when this is not the vision of a product. Write one line for each feature, with its value.*
+
+- 
+
+## Business requirements
+
+*Optional: delete this section for a vision that is only technical or only about a product.*
+
+- 
+
+## Success criteria
+
+*Say how you will know that the vision is true. Use a number where you can.*
 
 ## Principles
 
-*Write the rules that choose between two good options for this product.*
+*Write the rules that choose between two good options.*
 
-## What it is not
+## Constraints
 
-*List what the product does not try to do, so that requests outside the vision get a clear answer.*
+*List the known limits and boundaries.*
+
+## Exit criteria
+
+*Publish the vision only when each item is true.*
+
+- [ ] The purpose and the success criteria are clear.
+- [ ] The current state and the future state are written.
+- [ ] The principles are agreed.
+- [ ] The people who own the vision reviewed and approved it.

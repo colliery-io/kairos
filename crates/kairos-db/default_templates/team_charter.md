@@ -33,3 +33,10 @@
 ## Operational readiness
 
 *Track the readiness checklist of the organization here. The manager signs off when each item is done.*
+
+## Exit criteria
+
+*Publish the charter only when each item is true.*
+
+- [ ] The team reviewed the charter.
+- [ ] The manager signed off the readiness checklist.

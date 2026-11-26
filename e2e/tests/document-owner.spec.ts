@@ -167,7 +167,7 @@ test('the vision of a repository: owner board, impacts link, repository pages', 
     expect(document.board_id).toBe(board.id);
     // The template gave the sections. The page shows the text in its
     // editor, where a text check of the page cannot read it.
-    expect(document.content).toContain('## Who it is for');
+    expect(document.content).toContain('## Success criteria');
     expect(document.impacts.map((impact: any) => impact.repository.slug)).toEqual([
       REPOSITORY,
     ]);

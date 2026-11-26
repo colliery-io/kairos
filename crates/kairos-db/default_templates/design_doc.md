@@ -48,3 +48,11 @@
 *List what you do not know yet. For each question, say what can answer it and who owns the answer.*
 
 - 
+
+## Exit criteria
+
+*Publish the design only when each item is true.*
+
+- [ ] The overview says what the system is, why it exists, and what it can do.
+- [ ] Each document of the design exists, and the table has its code.
+- [ ] Each open question has an owner.
